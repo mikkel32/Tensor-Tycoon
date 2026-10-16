@@ -152,9 +152,14 @@ struct HeroBanner<Overlay: View>: View {
             .overlay {
                 LinearGradient(colors: [.black.opacity(0.75), .black.opacity(0.2), .clear], startPoint: .bottomLeading, endPoint: .topTrailing)
             }
+            .overlay {
+                // A bottom scrim keeps stats on the trailing side readable over bright photos too.
+                LinearGradient(colors: [.clear, .black.opacity(0.55)], startPoint: .center, endPoint: .bottom)
+            }
             .overlay(alignment: .bottomLeading) {
                 overlay
                     .foregroundStyle(.white)
+                    .shadow(color: .black.opacity(0.45), radius: 4, y: 1)
                     .padding(20)
             }
             .clipShape(.rect(cornerRadius: Theme.corner + 4))

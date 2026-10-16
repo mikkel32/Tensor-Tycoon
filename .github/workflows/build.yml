@@ -17,6 +17,8 @@ jobs:
         run: swift --version
       - name: Build (release)
         run: swift build -c release
+      - name: Saves from shipped versions still load and play
+        run: for f in Tests/Fixtures/*.json; do .build/release/TensorTycoon --check-save "$f"; done
       - name: Ventures check (swarms, alien tech, chip sales, money)
         run: .build/release/TensorTycoon --ventures 2026
       - name: Strategy check (traits, board, acquisitions, security, policy)

@@ -74,7 +74,9 @@ struct XenoProgressCard: View {
         Card {
             CardHeader(title: "Alien architecture search", symbol: "atom",
                        subtitle: s.alienArchs.isEmpty ? "Nobody has found one. Point a swarm (or a self-improvement run) at it." : "\(s.alienArchs.count) found — each next one takes 3× the insight") {
-                Button("Alien Tech") { store.open(.xeno) }.buttonStyle(.link)
+                if store.screen != .xeno {
+                    Button("Alien Tech") { store.open(.xeno) }.buttonStyle(.link)
+                }
             }
             HStack(spacing: 14) {
                 VStack(alignment: .leading, spacing: 4) {

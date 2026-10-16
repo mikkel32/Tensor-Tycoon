@@ -43,7 +43,8 @@ Scripts/release.sh 3.2 ReleaseNotes/3.2.md     # or leave out the notes file to 
 Release notes live in `ReleaseNotes/<version>.md`. The game shows them as "What's new" after updating, so write them
 for players.
 
-The script builds a universal app, signs the zip with the key stored in your login Keychain as
+The script builds a universal app, checks that saves from shipped versions (`Tests/Fixtures`) and copies of your own
+saves still load and play (`TensorTycoon --check-save <file>`), signs the zip with the key stored in your login Keychain as
 "Tensor Tycoon update signing key", checks the signature against the key the app trusts
 (`UpdateConfig.publicKeys` in `Sources/TensorTycoon/App/Updater.swift`), then tags, pushes and creates the GitHub
 release. Every installed copy offers it within six hours. Keep a backup of the signing key (for example in a password

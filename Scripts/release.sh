@@ -5,7 +5,7 @@
 #   Scripts/release.sh 3.2 notes.md     # release notes from a Markdown file
 #   Scripts/release.sh 3.2              # release notes generated from commit messages
 #
-# Builds a universal app, zips it, signs the zip with the Ed25519 key in your login Keychain
+# Builds a universal app, checks that old saves still load, zips it, signs the zip with the Ed25519 key in your login Keychain
 # ("Tensor Tycoon update signing key"), checks the signature against the key the app trusts,
 # commits VERSION, tags, pushes and creates the GitHub release with the zip and its .sig.
 set -euo pipefail
@@ -28,6 +28,18 @@ git add VERSION
 git diff --cached --quiet || git commit -q -m "Release $VERSION"
 
 UNIVERSAL=1 ./build_app.sh
+BIN="build/Tensor Tycoon.app/Contents/MacOS/TensorTycoon"
+
+# Updates install themselves, so a release must never break a save: check the fixtures from shipped
+# versions, then copies of your own saves (the originals aren't touched).
+for f in Tests/Fixtures/*.json; do "$BIN" --check-save "$f"; done
+for f in "$HOME/Library/Application Support/TensorTycoon/Saves"/*.json(N); do
+    tmp="$(mktemp -d)/$(basename "$f")"
+    cp "$f" "$tmp"
+    "$BIN" --check-save "$tmp"
+    rm -rf "$(dirname "$tmp")"
+done
+
 ZIP="build/Tensor-Tycoon-$VERSION.zip"
 rm -f "$ZIP" "$ZIP.sig"
 ditto -c -k --sequesterRsrc --keepParent "build/Tensor Tycoon.app" "$ZIP"

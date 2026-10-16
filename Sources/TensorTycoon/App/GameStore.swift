@@ -277,6 +277,33 @@ final class GameStore {
         }
     }
 
+    /// Loads a save with this build and plays 90 days on a copy; the file itself is never written.
+    /// `TensorTycoon --check-save <file>` exits 0 when the save loads and plays (used before releasing an update).
+    static func checkSave(_ url: URL) -> Int32 {
+        let dec = JSONDecoder()
+        dec.dateDecodingStrategy = .secondsSince1970
+        do {
+            var s = try dec.decode(GameState.self, from: Data(contentsOf: url))
+            migrate(&s)
+            BenchmarkCatalog.resetCache()
+            HardwareCatalog.register(s.customChips)
+            let start = s.date
+            for _ in 0..<90 where s.gameOver == nil {
+                for _ in 0..<10 {
+                    guard let d = s.decisions.first else { break }
+                    s.resolveDecision(d.id, option: 0)
+                }
+                Sim.advanceDay(&s)
+            }
+            print("OK \(url.lastPathComponent): \(s.companyName), \(start.gameShort) → \(s.date.gameShort), save v\(s.version), "
+                  + "cash \(Fmt.money(s.cash)), valuation \(Fmt.money(s.valuation)), \(s.models.count) models\(s.gameOver.map { " (game over: \($0))" } ?? "")")
+            return s.version >= GameState.currentVersion ? 0 : 2
+        } catch {
+            print("FAILED \(url.lastPathComponent): \(error)")
+            return 1
+        }
+    }
+
     /// Bring saves from older versions up to date.
     static func migrate(_ s: inout GameState) {
         if s.agentPrice <= 0 { s.agentPrice = 100 }
