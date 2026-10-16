@@ -66,7 +66,7 @@ enum Economy {
         var mult = s.market.hardwarePrice
         if a.cls == .consumer { mult = s.market.consumerGPUPrice }
         if a.cls == .workstation { mult = (s.market.consumerGPUPrice + s.market.hardwarePrice) / 2 }
-        return base * dep * mult * (1 - dealDiscount(a, s)) * (1 - Partners.discount(a, s))
+        return base * dep * mult * (1 - dealDiscount(a, s)) * (1 - Partners.discount(a, s)) * (1 - s.traits.hardware)
     }
 
     static func rent(_ a: Accelerator, _ s: GameState) -> Double? {
@@ -74,7 +74,7 @@ enum Economy {
         let age = max(0, ageYears(a, s))
         let decayed = max(a.rentFloor, base * pow(0.78, age))
         let mult = a.cls == .consumer ? (s.market.consumerGPUPrice + s.market.rentPrice) / 2 : s.market.rentPrice
-        return decayed * mult * (1 - dealDiscount(a, s)) * (1 - Partners.discount(a, s))
+        return decayed * mult * (1 - dealDiscount(a, s)) * (1 - Partners.discount(a, s)) * (1 - s.traits.hardware)
     }
 
     static func resaleValue(_ a: Accelerator, _ s: GameState, unitCost: Double, purchased: Date) -> Double {
@@ -92,7 +92,7 @@ enum Economy {
         if Partners.covering(a, s) != nil { d *= 0.6 }
         if ageYears(a, s) < 0.5 { d += 45 }
         if a.cls == .wafer { d += 60 }
-        return Int(d)
+        return Int(d * max(0.3, 1 - s.traits.leadTime))
     }
 
     /// Max chips per order for hot new hardware — vendors allocate to big customers first.
@@ -101,7 +101,7 @@ enum Economy {
         if a.cls == .consumer || a.cls == .workstation { return 2_000 }
         if a.vendor == .custom { return 2_000_000 }
         let divisor = age < 0.5 ? 700_000.0 : (age < 1.5 ? 400_000 : 100_000)
-        let deal = (hasDeal(a, s) ? 4.0 : 1.0) * Partners.allocationMult(a, s)
+        let deal = (hasDeal(a, s) ? 4.0 : 1.0) * Partners.allocationMult(a, s) * (1 + s.traits.allocation)
         return Int(clamp(s.valuation / divisor * deal, Double(max(64, a.minOrder * 2)), 2_000_000))
     }
 
@@ -109,7 +109,7 @@ enum Economy {
         let age = ageYears(a, s)
         if a.cls == .consumer || a.cls == .workstation { return 2_000 }
         let divisor = age < 0.5 ? 600_000.0 : (age < 1.5 ? 350_000 : 100_000)
-        let deal = (hasDeal(a, s) ? 4.0 : 1.0) * Partners.allocationMult(a, s)
+        let deal = (hasDeal(a, s) ? 4.0 : 1.0) * Partners.allocationMult(a, s) * (1 + s.traits.allocation)
         return Int(clamp(s.valuation / divisor * deal, 32, 2_000_000))
     }
 
@@ -203,7 +203,7 @@ enum Economy {
 
     static func debt(_ s: GameState) -> Double { s.loans.reduce(0) { $0 + $1.balance } }
 
-    static func payrollYear(_ s: GameState) -> Double { s.employees.reduce(0) { $0 + $1.salary } }
+    static func payrollYear(_ s: GameState) -> Double { s.employees.reduce(0) { $0 + $1.salary } * max(0.5, 1 + s.traits.payroll) }
 
     static let officeLevels: [(name: String, capacity: Int, monthly: Double, image: String)] = [
         ("Garage", 6, 0, "garage"),
@@ -290,7 +290,7 @@ enum Economy {
     }
 
     static func loanQuotes(_ s: GameState) -> [LoanQuote] {
-        let fed = fedRate(s)
+        let fed = max(0.25, fedRate(s) - s.traits.loanRate)
         let spread = creditSpread(s)
         let rr = runRate(s)
         let hw = hardwareValue(s)

@@ -126,7 +126,7 @@ private struct NewSwarmCard: View {
                             Picker("Model", selection: $modelID) {
                                 Text("Choose…").tag(UUID?.none)
                                 ForEach(models) { m in
-                                    Text("\(m.name) · \(Fmt.trim(Swarms.quality(m), 2)) researcher/agent").tag(UUID?.some(m.id))
+                                    Text("\(m.name) · \(Fmt.trim(Swarms.quality(m, s), 2)) researcher/agent").tag(UUID?.some(m.id))
                                 }
                             }
                         }

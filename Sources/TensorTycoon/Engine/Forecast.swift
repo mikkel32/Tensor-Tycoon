@@ -218,6 +218,11 @@ enum ForecastEngine {
             let team = s.employees.filter { $0.role == .researcher || $0.role == .mlEngineer }.reduce(0.0) { $0 + $1.skill / 50 }
             let teamGain = 0.03 * min(1, team / 8)
             algo += teamGain
+            let culture = s.traits.algo
+            if abs(culture) > 0.001 {
+                algo += culture
+                drivers.append(ForecastDriver(name: "Lab doctrine & culture", value: culture, kind: .gain, detail: "\(s.doctrine.title), \(s.background.title.lowercased()) founder and culture perks"))
+            }
             f.algo = algo
 
             // Data quality
@@ -320,6 +325,7 @@ enum ForecastEngine {
         var safety = 25 + b.safety + (d.safetyTraining ? 15 : 0) + (d.rlhf ? 5 : 0)
         let safetyTeam = s.employees.filter { $0.role == .safety }.reduce(0.0) { $0 + $1.skill / 50 }
         safety += 20 * min(1, safetyTeam / 4)
+        safety += s.traits.safety
         if d.mixer == .alien {
             // You can't audit what you can't read.
             safety -= 25 * (1 - Xeno.bestLegibility(s))

@@ -71,6 +71,7 @@ struct ScreenRouter: View {
     var body: some View {
         switch screen {
         case .dashboard: DashboardView()
+        case .strategy: StrategyView()
         case .lab: ModelLabView()
         case .training: TrainingView()
         case .models: ModelsView()
@@ -142,6 +143,7 @@ struct Sidebar: View {
         case .research: s.researchQueue.isEmpty ? 1 : 0
         case .rsi: s.rsiRuns.filter { $0.status == .running }.count
         case .swarms: s.swarms.filter { !$0.paused }.count
+        case .strategy: s.culturePoints + s.objectives.filter { !$0.done && !$0.failed && $0.progress >= 1 }.count
         case .xeno: s.alienArchs.reduce(0) { $0 + $1.offers.count }
         case .silicon: s.chipProjects.filter { !$0.done }.count
         case .partners: s.partnerships.count
@@ -307,7 +309,7 @@ struct GameOverSheet: View {
                     }
                     GridRow {
                         Text("Founder net worth").foregroundStyle(.secondary)
-                        Text(Fmt.money((s.exitValue.map { $0 * s.founderStake } ?? 0) + s.founderCash + (s.exitValue == nil && s.gameOver == nil ? s.founderStake * s.valuation : 0))).bold()
+                        Text(Fmt.money(s.founderCash + s.founderStake * (s.exitValue ?? ((s.keptStake || s.gameOver == nil) ? s.valuation : 0)))).bold()
                     }
                 }
                 HStack {

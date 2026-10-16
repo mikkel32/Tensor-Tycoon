@@ -109,7 +109,7 @@ enum Market {
             var p = snap.api[i]
             let ref = Macro.referencePrice(c: p.c, y: y) * s.market.apiPricePressure
             p.attraction = attraction(c: p.c, price: p.price, refPrice: ref, tps: p.tps, brand: p.brand, frontier: frontier, elasticity: 1.4)
-            if p.isPlayer { p.attraction *= (1 + b.apiDemand) * s.reliability }
+            if p.isPlayer { p.attraction *= (1 + b.apiDemand) * s.reliability * max(0.3, 1 + s.traits.api) }
             if p.open { p.attraction *= 1.15 }
             snap.api[i] = p
             totalA += p.attraction
@@ -122,6 +122,7 @@ enum Market {
             var p = snap.consumer[i]
             p.attraction = attraction(c: p.c, price: p.price, refPrice: 20, tps: p.tps, brand: p.brand, frontier: frontier, elasticity: 0.7)
             if p.isPlayer && !s.freeTier { p.attraction *= 0.3 }
+            if p.isPlayer { p.attraction *= max(0.3, 1 + s.traits.consumer) }
             snap.consumer[i] = p
             totalC += p.attraction
         }
@@ -133,7 +134,7 @@ enum Market {
             var p = snap.agents[i]
             let quality = exp(1.8 * (p.c - agentFrontier))
             p.attraction = quality * pow(p.price / 100, -0.8) * pow(max(p.tps, 1) / 60, 0.2) * pow(max(p.brand, 3) / 50, 0.6)
-            if p.isPlayer { p.attraction *= s.reliability }
+            if p.isPlayer { p.attraction *= s.reliability * max(0.3, 1 + s.traits.agentSeats) }
             snap.agents[i] = p
             totalG += p.attraction
         }

@@ -156,6 +156,9 @@ enum AchievementCatalog {
         Achievement(id: "licensor", title: "Blueprint Baron", detail: "License an alien architecture to a big player.", symbol: "doc.text.fill"),
         Achievement(id: "landlord", title: "Neocloud", detail: "Lease 10,000 accelerators to other companies.", symbol: "cloud.fill"),
         Achievement(id: "liquid_billionaire", title: "Liquid Billionaire", detail: "Cash out $1B of your own shares.", symbol: "dollarsign.circle.fill"),
+        Achievement(id: "consolidator", title: "Consolidator", detail: "Acquire a rival AI lab.", symbol: "building.2.crop.circle.fill"),
+        Achievement(id: "board_favorite", title: "Board Favorite", detail: "Complete 5 board goals.", symbol: "person.crop.rectangle.stack.fill"),
+        Achievement(id: "culture", title: "Culture Eats Strategy", detail: "Adopt a tier-4 culture perk.", symbol: "theatermasks.fill"),
     ]
 
     static let byID: [String: Achievement] = Dictionary(uniqueKeysWithValues: all.map { ($0.id, $0) })

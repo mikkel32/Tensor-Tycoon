@@ -43,7 +43,7 @@ enum ChipBusiness {
     static func demand(chip: Accelerator, price: Double, sellToRivals: Bool, _ s: GameState) -> Double {
         let spendDay = acceleratorSpend(s.year) * clamp(s.market.hype / 1.3, 0.6, 1.6) / 365
         let share = marketShare(value: valueRatio(chip: chip, price: price, s), reputation: reputation(s))
-        return spendDay * (sellToRivals ? 1 : 0.5) * share / max(price, 1)
+        return spendDay * (sellToRivals ? 1 : 0.5) * share / max(price, 1) * max(0.3, 1 + s.traits.chipSales)
     }
 
     static func defaultPrice(_ chip: Accelerator, alien: Bool, _ s: GameState) -> Double {
@@ -67,7 +67,8 @@ enum ChipBusiness {
             return
         }
         guard let chip = HardwareCatalog.get(chipID) else { return }
-        s.chipLines.append(ChipLine(chipID: chipID, price: defaultPrice(chip, alien: isAlien(chipID, s), s)))
+        s.chipLines.append(ChipLine(chipID: chipID, price: defaultPrice(chip, alien: isAlien(chipID, s), s),
+                                    sellToRivals: (s.exclusiveSupplyUntil ?? .distantPast) <= s.date))
     }
 
     // MARK: Daily
@@ -207,7 +208,10 @@ extension GameState {
             }
             chipLines[i].active = active
         }
-        if let sellToRivals { chipLines[i].sellToRivals = sellToRivals }
+        if let sellToRivals {
+            if sellToRivals, let until = exclusiveSupplyUntil, until > date { return "You promised exclusive supply until \(until.gameShort)." }
+            chipLines[i].sellToRivals = sellToRivals
+        }
         return nil
     }
 

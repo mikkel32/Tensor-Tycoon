@@ -283,8 +283,9 @@ extension GameState {
         models[i].api = api
         if openWeights && !models[i].openWeights {
             models[i].openWeights = true
-            brand = min(100, brand + 8)
-            Sim.news(&self, "\(models[i].name) weights released", "Developers worldwide are downloading your model. Brand +8, but rivals can build on it too.", .company, good: true)
+            let gain = 8 * (1 + traits.openBrand)
+            brand = min(100, brand + gain)
+            Sim.news(&self, "\(models[i].name) weights released", "Developers worldwide are downloading your model. Brand +\(Int(gain)), but rivals can build on it too.", .company, good: true)
         }
         return nil
     }

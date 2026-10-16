@@ -228,7 +228,8 @@ enum Sim {
 
     static func researchRate(_ s: GameState, _ b: ResearchBonuses) -> Double {
         let people = s.employees.filter { $0.role == .researcher }.reduce(0.0) { $0 + pow($1.skill / 50, 1.3) * (0.6 + $1.morale / 250) }
-        let founder = 0.8
+        let t = s.traits
+        let founder = 0.8 * (1 + t.founderRP)
         var computePF = 0.0
         for (id, n) in s.researchChips where n > 0 {
             if let a = HardwareCatalog.get(id) { computePF += Double(n) * a.bf16 / 1000 }
@@ -236,7 +237,7 @@ enum Sim {
         let computeRP = 4 * pow(computePF, 0.45)
         // Compute is a multiplier on people, plus a little on its own.
         let community = s.publication == .open ? 1.1 : 1.0
-        return ((founder + people) * (1 + min(3, computeRP / 10)) * (1 + b.rp) + computeRP * 0.2) * community
+        return ((founder + people) * (1 + min(3, computeRP / 10)) * (1 + b.rp) + computeRP * 0.2) * community * max(0.5, 1 + t.rp)
     }
 
     static func researchCost(_ item: ResearchItem, year: Double) -> Double {
@@ -257,7 +258,7 @@ enum Sim {
             s.researchQueue.insert(contentsOf: missing, at: 0)
             return
         }
-        s.researchProgress[current, default: 0] += rate
+        s.researchProgress[current, default: 0] += rate * (item.category == .frontier ? 1 + s.traits.frontierRP : 1)
         if s.researchProgress[current, default: 0] >= researchCost(item, year: s.year) {
             // How well did it work in *your* lab? Better teams and more experiment compute land better results.
             let researchers = s.employees.filter { $0.role == .researcher }
@@ -439,8 +440,9 @@ enum Sim {
             guard let a = HardwareCatalog.get(bt.accelID), let site = s.sites.first(where: { $0.id == bt.siteID }), site.isReady(s.date) else { continue }
             let util = utilByAccel[a.id] ?? 0
             let draw = Economy.chipKW(a) * Double(bt.count) * (0.3 + 0.65 * util)
-            power += draw * site.pue * 24 * site.powerPrice * (s.market.hype > 0 ? 1 : 1)
+            power += draw * site.pue * 24 * site.powerPrice
         }
+        power *= max(0.5, 1 - s.traits.power)
         let sites = s.sites.reduce(0) { $0 + $1.monthlyFee } / 30.4
         let office = Economy.officeLevels[min(s.officeLevel, Economy.officeLevels.count - 1)].monthly / 30.4
         let payroll = Economy.payrollYear(s) / 365

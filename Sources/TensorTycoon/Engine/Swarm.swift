@@ -20,9 +20,12 @@ enum Swarms {
     /// half a researcher around 2028, a couple by 2030.
     static func quality(_ m: AIModel) -> Double { clamp(0.05 * exp(1.1 * (agenticX(m) - 8.0)), 0.0003, 25) }
 
+    /// Agent quality including your lab's traits.
+    static func quality(_ m: AIModel, _ s: GameState) -> Double { quality(m) * max(0.3, 1 + s.traits.swarm) }
+
     /// How well big swarms coordinate (output grows as agents^coordination).
-    static func coordination(_ b: ResearchBonuses) -> Double {
-        0.78 + (b.has(.agents) ? 0.04 : 0) + (b.has(.autoResearch) ? 0.04 : 0) + (b.has(.rsi) ? 0.04 : 0)
+    static func coordination(_ b: ResearchBonuses, _ s: GameState) -> Double {
+        min(0.95, 0.78 + (b.has(.agents) ? 0.04 : 0) + (b.has(.autoResearch) ? 0.04 : 0) + (b.has(.rsi) ? 0.04 : 0) + s.traits.coordination)
     }
 
     /// Only near-frontier agents find anything genuinely new.
@@ -65,7 +68,7 @@ enum Swarms {
     }
 
     static func laborCap(_ s: GameState) -> Double {
-        laborMarket(s.year) / 365 * clamp(0.05 + s.brand / 250, 0.05, 0.45) * s.difficulty.demandMultiplier
+        laborMarket(s.year) / 365 * clamp(0.05 + s.brand / 250, 0.05, 0.45) * s.difficulty.demandMultiplier * max(0.3, 1 + s.traits.labor)
     }
 
     static func drift(_ sw: AgentSwarm, model m: AIModel?, _ s: GameState, _ b: ResearchBonuses) -> Double {
@@ -73,7 +76,7 @@ enum Swarms {
             * (0.5 + 0.25 * log10(max(10, Double(sw.agents))))
         if let m, usesAlien(m) { d *= 1 + (1 - Xeno.bestLegibility(s)) }
         if sw.mission != .alignment { d *= 1 - 0.5 * s.swarmSafety }
-        return d
+        return d * s.traits.driftKeep
     }
 
     static func detection(_ sw: AgentSwarm, _ s: GameState, _ b: ResearchBonuses) -> Double {
@@ -102,7 +105,7 @@ enum Swarms {
         // Marginal effect: what this swarm adds on top of the swarms already working the mission.
         let others = s.swarms.filter { !$0.paused && $0.mission == mission }.map(\.workforce).reduce(0, +)
         let effective = active * (1 - oversight) * autonomyOutput[autonomy]
-        let w = effective >= 1 ? quality(m) * pow(effective, coordination(b)) : 0
+        let w = effective >= 1 ? quality(m, s) * pow(effective, coordination(b, s)) : 0
         let probe = AgentSwarm(name: "", modelID: m.id, agents: agents, mission: mission, accelID: accelID, chips: chips,
                                autonomy: autonomy, oversight: oversight, started: s.date)
         let a = HardwareCatalog.get(accelID)
@@ -115,7 +118,7 @@ enum Swarms {
             if !b.has(.agents) {
                 out = "Needs Agentic RL research"
             } else {
-                let i = insight((others + w) * xenoGate(m)) - insight(others * xenoGate(m))
+                let i = (insight((others + w) * xenoGate(m)) - insight(others * xenoGate(m))) * (1 + s.traits.insight)
                 let left = max(0, Xeno.insightNeeded(s) - s.xenoInsight)
                 out = i > 0.01 ? "+\(Fmt.trim(i, 1)) insight/day · ~\(Fmt.days(left / max(0.01, i + s.xenoInsightToday)))" : "Model too weak to find anything"
             }
@@ -125,7 +128,7 @@ enum Swarms {
             let rev = min(laborCap(s), (others + w) * wage(s.year)) - min(laborCap(s), others * wage(s.year))
             out = "+\(Fmt.money(rev * 365))/yr"
         }
-        return Forecast(capacity: cap, active: active, perAgent: quality(m), workforce: w,
+        return Forecast(capacity: cap, active: active, perAgent: quality(m, s), workforce: w,
                         chipsNeeded: chipsNeeded(m, accelID: accelID, agents: agents, s, b),
                         drift: drift(probe, model: m, s, b) * 365, dailyCost: cost, output: out)
     }
@@ -169,9 +172,10 @@ enum Swarms {
             let eff = active * (1 - sw.oversight) * autonomyOutput[sw.autonomy] * sandbag
             s.swarms[i].active = active
             effAgents[sw.mission, default: 0] += eff
-            qualitySum[sw.mission, default: 0] += eff * quality(m)
-            gateSum[sw.mission, default: 0] += eff * quality(m) * xenoGate(m)
-            shares[i] = eff * quality(m)
+            let q = quality(m, s)
+            qualitySum[sw.mission, default: 0] += eff * q
+            gateSum[sw.mission, default: 0] += eff * q * xenoGate(m)
+            shares[i] = eff * q
             if active >= 1_000 { Achievements.unlock(&s, "swarm_1k") }
             if active >= 1_000_000 { Achievements.unlock(&s, "swarm_1m") }
             alignmentStep(&s, i, model: m, b)
@@ -179,14 +183,14 @@ enum Swarms {
         var workforce: [SwarmMission: Double] = [:]
         for (mission, a) in effAgents where a >= 1 {
             let q = (qualitySum[mission] ?? 0) / a
-            workforce[mission] = q * pow(a, coordination(b))
+            workforce[mission] = q * pow(a, coordination(b, s))
         }
         // Mission effects
         let wResearch = workforce[.research] ?? 0
         s.swarmRPToday = researchRP(wResearch)
         let wXeno = workforce[.xeno] ?? 0
         if b.has(.agents), wXeno > 0, let q = qualitySum[.xeno], q > 0 {
-            s.xenoInsightToday += insight(wXeno * (gateSum[.xeno] ?? 0) / q)
+            s.xenoInsightToday += insight(wXeno * (gateSum[.xeno] ?? 0) / q) * (1 + s.traits.insight)
         }
         s.swarmOps = level(workforce[.trainingOps] ?? 0)
         s.swarmSilicon = level(workforce[.silicon] ?? 0)
@@ -209,7 +213,7 @@ enum Swarms {
             let out: Double
             switch sw.mission {
             case .research: out = s.swarmRPToday * frac
-            case .xeno: out = s.xenoInsightToday > 0 && b.has(.agents) ? insight(wXeno * (gateSum[.xeno] ?? 0) / total) * frac : 0
+            case .xeno: out = s.xenoInsightToday > 0 && b.has(.agents) ? insight(wXeno * (gateSum[.xeno] ?? 0) / total) * (1 + s.traits.insight) * frac : 0
             case .workforce: out = labor * frac
             case .trainingOps, .silicon, .alignment: out = w
             }

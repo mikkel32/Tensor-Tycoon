@@ -96,6 +96,8 @@ struct MainMenuView: View {
                 }
             }
 
+            TraitPicker(doctrine: $settings.doctrine, background: $settings.background)
+
             VStack(alignment: .leading, spacing: 8) {
                 Text("Logo").font(.subheadline.weight(.semibold))
                 HStack(spacing: 8) {
@@ -226,5 +228,68 @@ private struct EraCard: View {
             .contentShape(.rect(cornerRadius: 14))
         }
         .buttonStyle(.plain)
+    }
+}
+
+/// Choose the lab's founding doctrine and the founder's background.
+private struct TraitPicker: View {
+    @Binding var doctrine: LabDoctrine
+    @Binding var background: FounderBackground
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Lab doctrine").font(.subheadline.weight(.semibold))
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 8)], spacing: 8) {
+                ForEach(LabDoctrine.allCases) { d in
+                    Button { doctrine = d } label: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Image(systemName: d.symbol).font(.title3).foregroundStyle(doctrine == d ? Color.accentColor : .secondary)
+                            Text(d.title).font(.callout.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.8)
+                        }
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(doctrine == d ? Color.accentColor.opacity(0.18) : Color.white.opacity(0.05), in: .rect(cornerRadius: 10))
+                        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(doctrine == d ? Color.accentColor : .clear, lineWidth: 1.5))
+                        .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            TraitSummary(title: doctrine.title, blurb: doctrine.tagline, pros: doctrine.pros, cons: doctrine.cons)
+
+            Text("Your background").font(.subheadline.weight(.semibold)).padding(.top, 4)
+            Picker("Background", selection: $background) {
+                ForEach(FounderBackground.choosable) { b in Label(b.title, systemImage: b.symbol).tag(b) }
+            }
+            .labelsHidden()
+            .frame(maxWidth: 320)
+            TraitSummary(title: background.title, blurb: background.blurb, pros: background.perks, cons: [])
+        }
+    }
+}
+
+private struct TraitSummary: View {
+    let title: String
+    let blurb: String
+    let pros: [String]
+    let cons: [String]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(blurb).font(.caption).foregroundStyle(.secondary)
+            HStack(alignment: .top, spacing: 18) {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(pros, id: \.self) { p in Label(p, systemImage: "plus.circle.fill").font(.caption).foregroundStyle(.green) }
+                }
+                if !cons.isEmpty {
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(cons, id: \.self) { c in Label(c, systemImage: "minus.circle.fill").font(.caption).foregroundStyle(.orange) }
+                    }
+                }
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.white.opacity(0.04), in: .rect(cornerRadius: 10))
     }
 }

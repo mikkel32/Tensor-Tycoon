@@ -58,7 +58,8 @@ Or open `Package.swift` in Xcode and press Run. `swift run TensorTycoon --simula
 headless balance report: benchmark calibration, a scripted playthrough, the benchmark lifecycle, an RSI
 test and a custom-silicon test (including a year of selling the chip). `swift run TensorTycoon --ventures 2026` checks
 agent swarms, alien architectures, chip sales, licensing, compute leasing and the money systems from a frontier lab
-in that year. `swift run TensorTycoon --forecast-check` replays real training runs (GPT-3,
+in that year. `swift run TensorTycoon --strategy 2022` prints what each doctrine and founder background changes, three
+years of board goals, and rival acquisitions. `swift run TensorTycoon --forecast-check` replays real training runs (GPT-3,
 Chinchilla, LLaMA, GPT-4, Llama 3, DeepSeek-V3, Kimi K2, Grok 4…) through the forecast engine and prints the error.
 
 Saves live in `~/Library/Application Support/TensorTycoon/Saves` (autosave every month, ⌘S to save).
@@ -110,6 +111,22 @@ Speed: ⌘⇧P play/pause, ⌘1–⌘5 speeds (1.5 to 90 days per second), ⌘�
   generation (capabilities, automated research or inference efficiency). Autonomy and oversight trade speed for
   safety; alignment drifts, reward hacking inflates evals, and incidents can end the game. Checkpoints can be
   promoted to models, rolled back or deep-audited.
+- **Traits**: found your lab on one of nine doctrines (Scaling Maximalists, Safety First, Open Science, Product
+  Studio, Efficiency Hackers, Silicon Natives, Agent Pioneers, Superintelligence Moonshot or Generalists) and pick a
+  founder background (star researcher, ex-hardware executive, serial founder, big-tech veteran, policy insider, dropout
+  hacker). Each has real upsides and costs. Culture points — from achievements, board goals and anniversaries — buy
+  perks in a 24-perk culture tree across research, compute, product, finance, safety and agents.
+- **The board**: three rotating goals at a time (revenue, frontier models, leaderboard rank, users, valuation,
+  profitability, compute, safety, research, agents, compute sales) pay milestone tranches, culture points and board
+  confidence. Confidence moves round pricing; let it collapse while investors control the board and they may replace
+  you as CEO.
+- **Acquisitions**: buy a rival lab with cash and stock at a control premium. Survive the antitrust review and you
+  inherit its secret techniques, top researchers, a datacenter of chips, its users and its flagship model. Rivals may
+  also come to you asking to be bought.
+- **Strategic events**: exclusive-supply offers for your chips, regulators auditing your swarms, star researchers who
+  want to found their own lab, sovereign AI contracts and talent raids.
+- **Chief of Staff**: a prioritised to-do list on the dashboard — runway, idle chips, stale prices, over-capacity
+  models, drifting swarms, expiring offers, board deadlines.
 - **Agent swarms**: spin up 10 to 50 million copies of one of your models on your own inference chips and give them a
   mission — automated research, alien-architecture search, training operations (higher MFU, fewer loss spikes, faster
   recovery from failures, more silent bugs caught), chip design (faster tape-outs, better silicon), alignment research

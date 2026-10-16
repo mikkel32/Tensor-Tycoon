@@ -856,11 +856,35 @@ struct GameState: Codable {
     @D var founderCash: Double = 0
     @D var lastFounderSale: Date? = nil
 
+    // v4.1: traits, the board, acquisitions
+    @D var traitsInitialized: Bool = false
+    @D var doctrineID: String = ""
+    @D var backgroundID: String = ""
+    @D var perks: Set<String> = []
+    @D var culturePoints: Int = 0
+    @D var objectives: [Objective] = []
+    @D var objectivesCompleted: Int = 0
+    @D var objectivesFailed: Int = 0
+    @D var boardConfidence: Double = 0
+    @D var lastBoardThreat: Date? = nil
+    @D var acquiredLabs: [String] = []
+    @D var lastAntitrustBlock: Date? = nil
+    @D var exclusiveSupplyUntil: Date? = nil
+    /// The game ended with you leaving the CEO job but keeping your shares.
+    @D var keptStake: Bool = false
+
     var totalShares: Double {
         founderShares + employeePoolShares + publicShares + holdings.reduce(0) { $0 + $1.shares }
     }
 
     var founderStake: Double { founderShares / max(1, totalShares) }
+
+    var doctrine: LabDoctrine { LabDoctrine(rawValue: doctrineID) ?? .balanced }
+    var background: FounderBackground { FounderBackground(rawValue: backgroundID) ?? .none }
+    /// Doctrine + founder background + culture perks.
+    var traits: TraitBonuses { CultureCatalog.bonuses(doctrine: doctrine, background: background, perks: perks) }
+    /// You control the board while you hold a majority of the shares.
+    var founderControls: Bool { founderStake >= 0.5 }
 
     /// Your stake at today's valuation plus everything you've cashed out.
     var founderNetWorth: Double { founderStake * valuation + founderCash }

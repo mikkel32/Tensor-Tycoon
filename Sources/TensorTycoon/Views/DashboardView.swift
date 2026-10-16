@@ -20,7 +20,10 @@ struct DashboardView: View {
                 HStack(alignment: .bottom) {
                     CompanyLogo(symbol: s.logoSymbol, color: Theme.logoColor(s.logoColor), size: 56)
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(s.companyName).font(.system(size: 30, weight: .bold))
+                        HStack(spacing: 8) {
+                            Text(s.companyName).font(.system(size: 30, weight: .bold))
+                            PhotoPill(text: s.doctrine.title, symbol: s.doctrine.symbol)
+                        }
                         Text("\(Economy.officeLevels[min(s.officeLevel, 5)].name) · \(s.employees.count + 1) people · \(Fmt.int(d.totalChips)) accelerators · \(Fmt.count(d.h100e)) H100-equivalents")
                             .font(.callout).opacity(0.9)
                     }
@@ -54,6 +57,8 @@ struct DashboardView: View {
                 }
                 StatTile(title: "Treasury yield", value: "\(Fmt.trim(Treasury.yieldRate(s), 2))%", detail: "\(Fmt.money(s.month.interestIncome)) interest this month", symbol: "percent", tint: .mint)
             }
+
+            ChiefOfStaffCard(items: Advisor.items(s, pools: d.pools))
 
             HStack(alignment: .top, spacing: 16) {
                 Card {
@@ -160,6 +165,56 @@ struct RSIStatusCard: View {
                     Meter(value: r.genProgress, tint: .purple, height: 6)
                 }
             }
+        }
+    }
+}
+
+/// Prioritised to-do list: what needs your attention right now.
+struct ChiefOfStaffCard: View {
+    @Environment(GameStore.self) private var store
+    let items: [AdvisorItem]
+    @State private var expanded = false
+
+    var body: some View {
+        Card {
+            CardHeader(title: "Chief of Staff", symbol: "person.crop.circle.badge.checkmark",
+                       subtitle: items.isEmpty ? "Nothing needs you right now." : "\(items.count) thing\(items.count == 1 ? "" : "s") need\(items.count == 1 ? "s" : "") your attention") {
+                if items.count > 4 {
+                    Button(expanded ? "Show less" : "Show all") { expanded.toggle() }.buttonStyle(.link)
+                }
+            }
+            if !items.isEmpty {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 300), spacing: 10)], spacing: 8) {
+                    ForEach(expanded ? items : Array(items.prefix(4))) { item in
+                        Button { store.open(item.screen) } label: {
+                            HStack(alignment: .top, spacing: 10) {
+                                Image(systemName: item.symbol)
+                                    .foregroundStyle(color(item.level))
+                                    .frame(width: 22)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(item.title).font(.callout.weight(.semibold)).lineLimit(1)
+                                    Text(item.detail).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                                }
+                                Spacer(minLength: 0)
+                                Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+                            }
+                            .padding(10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(color(item.level).opacity(0.08), in: .rect(cornerRadius: 10))
+                            .contentShape(.rect)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+    }
+
+    private func color(_ l: AdvisorItem.Level) -> Color {
+        switch l {
+        case .urgent: .red
+        case .warning: .orange
+        case .info: .blue
         }
     }
 }

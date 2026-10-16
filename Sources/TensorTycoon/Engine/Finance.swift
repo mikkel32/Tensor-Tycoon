@@ -41,7 +41,8 @@ enum Finance {
     static func makeOffer(_ s: inout GameState) {
         let v = privateValue(s)
         let strategic = s.rng.chance(s.year > 2019 ? 0.3 : 0.1)
-        var pre = v * s.rng.range(0.85, 1.2) * (strategic ? 1.15 : 1)
+        // Lab identity and how much the board believes in you move the price.
+        var pre = v * s.rng.range(0.85, 1.2) * (strategic ? 1.15 : 1) * max(0.6, 1 + s.traits.valuation) * Board.valuationFactor(s)
         pre = max(pre, 2_000_000)
         if let last = s.rounds.last, GameCalendar.daysBetween(last.date, s.date) < 400 {
             pre = min(pre, (last.preMoney + last.amount) * 3.5)
@@ -212,17 +213,19 @@ enum Monthly {
         let reach = 9 * log10(1 + s.consumerUsers / 1e5) + 6 * log10(1 + (s.history.last?.revAPI ?? 0) / 1e5)
         let deserved = clamp(8 + quality + reach, 0, 92)
         s.brand += (deserved - s.brand) * 0.08
-        s.brand = clamp(s.brand + marketingBoost * 0.5 + min(2, sales * 0.2) + leader + (s.reliability - 0.9) * 5, 0, 100)
+        s.brand = clamp(s.brand + marketingBoost * 0.5 + min(2, sales * 0.2) + leader + (s.reliability - 0.9) * 5 + s.traits.brand, 0, 100)
 
         // Safety score: team + research + released models
         let safetyTeam = s.employees.filter { $0.role == .safety }.reduce(0.0) { $0 + $1.skill / 50 }
         let released = s.releasedModels
         let modelSafety = released.isEmpty ? 40 : released.map(\.safety).reduce(0, +) / Double(released.count)
-        s.safetyScore = clamp(modelSafety * 0.6 + b.safety * 0.4 + min(25, safetyTeam * 4) + 10 * s.swarmSafety, 0, 100)
+        s.safetyScore = clamp(modelSafety * 0.6 + b.safety * 0.4 + min(25, safetyTeam * 4) + 10 * s.swarmSafety + s.traits.safety * 0.5, 0, 100)
 
         People.monthly(&s)
         Competitors.monthly(&s)
         Events.monthly(&s)
+        Board.monthly(&s)
+        StrategyEvents.monthly(&s)
 
         // Valuation and records
         s.valuation = Economy.valuation(s)
@@ -247,7 +250,7 @@ enum Business {
         guard pending < 4 else { return }
         let frontier = Macro.frontier(s.year)
         let quality = exp(1.2 * (best.c - frontier))
-        let p = clamp(0.15 + sales * 0.12 + s.brand / 300, 0, 0.9) * (1 + b.enterpriseDemand)
+        let p = clamp(0.15 + sales * 0.12 + s.brand / 300, 0, 0.9) * (1 + b.enterpriseDemand) * max(0.3, 1 + s.traits.enterprise)
         let n = s.rng.chance(p) ? (s.rng.chance(p * 0.5) ? 2 : 1) : 0
         for _ in 0..<n {
             let size = Macro.marketSize(s.year) * Macro.segmentSplit(s.year, chatMoment: s.chatMoment != nil).enterprise

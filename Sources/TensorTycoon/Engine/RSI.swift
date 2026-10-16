@@ -54,7 +54,7 @@ enum RSI {
         if accelID == "tpu8t" { days *= 0.85 }
         let maxGain = maxGainFor(pf: pf, s, b)
         let gain = 0.03 * autonomyGain[autonomy] * (target == .capabilities ? 1 : 0.15)
-        let drift = 1.1 * autonomyDrift[autonomy] * max(0.05, 1 - 1.6 * oversight) * (1 - safetyFactor(s, b)) * (b.has(.aiControl) ? 0.65 : 1)
+        let drift = 1.1 * autonomyDrift[autonomy] * max(0.05, 1 - 1.6 * oversight) * (1 - safetyFactor(s, b)) * (b.has(.aiControl) ? 0.65 : 1) * s.traits.driftKeep
         let rp = target == .research ? researchRP(pf: pf, c: c, autonomy: autonomy, s) : 0
         var probe = RSIRun(name: "", baseModelID: UUID(), design: ModelDesign(), started: s.date, target: target, autonomy: autonomy,
                            oversight: oversight, checkpointEvery: 1, accelID: accelID, chips: chips, cStart: c, c: c, cMeasured: c,
@@ -79,7 +79,7 @@ enum RSI {
 
     /// Alien-architecture insight per day from a model searching its own design space.
     static func architectureInsight(pf: Double, c: Double, autonomy: Int, _ s: GameState) -> Double {
-        0.4 * sqrt(max(pf, 0)) * exp(0.8 * min(1.5, c - Macro.frontier(s.year))) * autonomyGain[autonomy]
+        0.4 * sqrt(max(pf, 0)) * exp(0.8 * min(1.5, c - Macro.frontier(s.year))) * autonomyGain[autonomy] * (1 + s.traits.insight)
     }
 
     // MARK: Daily step
@@ -123,7 +123,7 @@ enum RSI {
         let p = run.c - run.cStart
         let maxGain = maxGainFor(pf: pf, s, b)
         let ceiling = max(0.03, 1 - pow(max(0, p) / maxGain, 2))
-        var dc = 0.03 * autonomyGain[run.autonomy] * (1 + 1.5 * max(0, p)) * ceiling
+        var dc = 0.03 * autonomyGain[run.autonomy] * (1 + 1.5 * max(0, p)) * ceiling * (1 + s.traits.rsi)
         if p > maxGain { dc = 0.004 }
         if run.target != .capabilities { dc *= 0.15 }
 
@@ -131,6 +131,7 @@ enum RSI {
         var drift = s.rng.range(0.4, 1.8) * autonomyDrift[run.autonomy] * max(0.05, 1 - 1.6 * run.oversight)
             * (1 - safetyFactor(s, b)) * (1 + 0.6 * max(0, p))
         if b.has(.aiControl) { drift *= 0.65 }
+        drift *= s.traits.driftKeep
         run.alignment -= drift
         if run.oversight >= 0.25 { run.alignment += 0.4 }
         run.alignment = clamp(run.alignment, 0, 100)

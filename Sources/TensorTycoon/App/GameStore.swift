@@ -2,86 +2,6 @@ import AppKit
 import Foundation
 import Observation
 
-enum Screen: String, CaseIterable, Identifiable, Hashable {
-    case dashboard, lab, training, models, leaderboard, benchmarks, rsi, swarms, xeno
-    case hardware, partners, compute, datacenters, silicon
-    case research, team, data
-    case market, chipSales, competitors, finance, funding
-    case news, achievements, credits
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .dashboard: "Dashboard"
-        case .lab: "Model Lab"
-        case .training: "Training Runs"
-        case .models: "Models & Serving"
-        case .leaderboard: "Leaderboard"
-        case .benchmarks: "Benchmarks"
-        case .rsi: "Self-Improvement Lab"
-        case .swarms: "Agent Swarms"
-        case .xeno: "Alien Tech"
-        case .hardware: "Hardware Store"
-        case .compute: "Compute Fleet"
-        case .datacenters: "Datacenters & Power"
-        case .silicon: "Custom Silicon"
-        case .partners: "Compute Partners"
-        case .research: "Research"
-        case .team: "Team"
-        case .data: "Training Data"
-        case .market: "Market & Products"
-        case .chipSales: "Chip & Cloud Sales"
-        case .competitors: "Competitors"
-        case .finance: "Finance"
-        case .funding: "Funding & Equity"
-        case .news: "News"
-        case .achievements: "Achievements"
-        case .credits: "Credits & Sources"
-        }
-    }
-
-    var symbol: String {
-        switch self {
-        case .dashboard: "gauge.with.dots.needle.67percent"
-        case .lab: "flask.fill"
-        case .training: "chart.line.downtrend.xyaxis"
-        case .models: "cube.box.fill"
-        case .leaderboard: "trophy.fill"
-        case .benchmarks: "checklist.checked"
-        case .rsi: "arrow.triangle.2.circlepath.circle.fill"
-        case .swarms: "person.3.sequence.fill"
-        case .xeno: "atom"
-        case .hardware: "cart.fill"
-        case .compute: "cpu.fill"
-        case .datacenters: "building.columns.fill"
-        case .silicon: "memorychip.fill"
-        case .partners: "signature"
-        case .research: "lightbulb.fill"
-        case .team: "person.3.fill"
-        case .data: "externaldrive.fill"
-        case .market: "chart.pie.fill"
-        case .chipSales: "shippingbox.fill"
-        case .competitors: "flag.2.crossed.fill"
-        case .finance: "dollarsign.circle.fill"
-        case .funding: "banknote.fill"
-        case .news: "newspaper.fill"
-        case .achievements: "medal.fill"
-        case .credits: "info.circle.fill"
-        }
-    }
-
-    static let sections: [(String, [Screen])] = [
-        ("Company", [.dashboard, .news]),
-        ("Build AI", [.lab, .training, .models, .rsi, .swarms, .xeno]),
-        ("Evaluate", [.leaderboard, .benchmarks]),
-        ("Infrastructure", [.hardware, .partners, .compute, .datacenters, .silicon]),
-        ("R&D", [.research, .team, .data]),
-        ("Business", [.market, .chipSales, .competitors, .finance, .funding]),
-        ("More", [.achievements, .credits]),
-    ]
-}
-
 struct Toast: Identifiable, Equatable {
     let id = UUID()
     let message: String
@@ -360,6 +280,15 @@ final class GameStore {
     /// Bring saves from older versions up to date.
     static func migrate(_ s: inout GameState) {
         if s.agentPrice <= 0 { s.agentPrice = 100 }
+        // Saves from before traits: a generalist lab with points for what it already achieved.
+        if !s.traitsInitialized {
+            s.traitsInitialized = true
+            s.doctrineID = LabDoctrine.balanced.rawValue
+            s.backgroundID = FounderBackground.none.rawValue
+            s.culturePoints = 2 + s.achievements.count
+            s.boardConfidence = 60
+            Board.refill(&s)
+        }
         // Chips added to the catalog after this save was made: treat anything older than a month as old news.
         let cutoff = GameCalendar.addMonths(s.date, -1).ym
         for a in HardwareCatalog.all {

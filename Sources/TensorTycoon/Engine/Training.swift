@@ -173,7 +173,7 @@ enum Training {
         if d.isMoE { arch *= s.researched.contains("aux_free") ? 1.0 : 1.35 }
         if d.mixer == .diffusion { arch *= 1.2 }
         if d.mixer == .alien { arch *= 1.25 }
-        arch *= 1 - 0.35 * s.swarmOps
+        arch *= (1 - 0.35 * s.swarmOps) * max(0.3, 1 - s.traits.spikes)
         let engineers = s.employees.filter { $0.role == .mlEngineer }.reduce(0.0) { $0 + $1.skill / 50 }
         let skill = min(0.5, engineers * 0.05)
         let scale = pow(Double(d.chips) / 256 + 1, 0.3) * pow(max(d.activeParamsB, 0.1) / 10, 0.12)

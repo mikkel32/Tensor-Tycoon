@@ -18,7 +18,7 @@ enum Xeno {
     static func fabCost(_ s: GameState) -> Double { 2.5e8 }
 
     static func fabDays(_ s: GameState, _ b: ResearchBonuses) -> Double {
-        150 * (1 - 0.35 * s.swarmSilicon) * (b.has(.customSilicon) ? 1 : 1.3)
+        150 * (1 - 0.35 * s.swarmSilicon) * (b.has(.customSilicon) ? 1 : 1.3) * max(0.4, 1 - s.traits.chipDesign)
     }
 
     // MARK: Daily
