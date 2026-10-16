@@ -376,6 +376,7 @@ extension GameState {
     mutating func setSwarmPaused(_ id: UUID, _ paused: Bool) -> String? {
         guard let i = swarms.firstIndex(where: { $0.id == id }) else { return "Not found." }
         if !paused && swarms[i].paused {
+            if swarms[i].chips < 1 { return "This swarm lost its chips. Retune it with new chips first." }
             let free = Economy.freeChips(self, swarms[i].accelID)
             if free < swarms[i].chips { return "Need \(Fmt.int(swarms[i].chips)) free chips, have \(Fmt.int(free))." }
             if models.first(where: { $0.id == swarms[i].modelID })?.retired ?? true { return "This swarm's model was retired. Disband it and start a new one." }
