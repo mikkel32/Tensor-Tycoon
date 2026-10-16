@@ -18,7 +18,7 @@ struct UpdateBanner: View {
                         .symbolEffect(.bounce, value: updater.isReady)
                 }
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(updater.isReady ? "Tensor Tycoon \(release.version) is ready to install" : "Tensor Tycoon \(release.version) is available")
+                    Text(updater.isReady ? "Tensor Tycoon \(release.version.description) is ready to install" : "Tensor Tycoon \(release.version.description) is available")
                         .font(.headline)
                     UpdateProgressLine(release: release)
                 }
@@ -75,7 +75,7 @@ struct UpdateToolbarButton: View {
             Button { updater.showSheet = true } label: {
                 HStack(spacing: 5) {
                     Image(systemName: updater.isReady ? "checkmark.seal.fill" : "arrow.down.circle.fill")
-                    Text(updater.isReady ? "Restart to update" : "Update \(release.version)")
+                    Text(updater.isReady ? "Restart to update" : "Update \(release.version.description)")
                 }
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.white)
@@ -84,7 +84,7 @@ struct UpdateToolbarButton: View {
                 .background(Theme.accentGradient, in: .capsule)
             }
             .buttonStyle(.plain)
-            .help("Tensor Tycoon \(release.version) is available")
+            .help("Tensor Tycoon \(release.version.description) is available")
         }
     }
 }
@@ -216,7 +216,7 @@ struct UpdateSheet: View {
         case .installing: "Installing…"
         case .failed where updater.latest == nil: "Couldn't check for updates"
         default:
-            if let r = updater.latest { updater.isReady ? "Tensor Tycoon \(r.version) is ready" : "Tensor Tycoon \(r.version) is available" } else { "Software Update" }
+            if let r = updater.latest { updater.isReady ? "Tensor Tycoon \(r.version.description) is ready" : "Tensor Tycoon \(r.version.description) is available" } else { "Software Update" }
         }
     }
 
