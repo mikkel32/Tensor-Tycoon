@@ -268,7 +268,7 @@ final class GameStore {
 
     // MARK: Persistence
 
-    static var saveDirectory: URL {
+    nonisolated static var saveDirectory: URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         let dir = base.appendingPathComponent("TensorTycoon/Saves", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -280,18 +280,32 @@ final class GameStore {
         return "\(safe.isEmpty ? "Company" : safe).json"
     }
 
-    /// Encodes and writes on a background thread so saving never stalls the UI.
+    /// Saves are written in order on one serial queue, so a late background write can never overwrite a newer save.
+    private static let saveQueue = DispatchQueue(label: "TensorTycoon.save", qos: .utility)
+
+    /// File of the game in progress.
+    var currentSaveURL: URL? { state.map { Self.saveDirectory.appendingPathComponent(Self.fileName(for: $0)) } }
+
+    /// Encodes and writes on a background queue so saving never stalls the UI.
     func save(force: Bool = false) {
-        guard let s = state else { return }
+        guard let s = state, let url = currentSaveURL else { return }
         if !force && Date().timeIntervalSince(lastSave) < 12 { return }
         lastSave = Date()
-        let url = Self.saveDirectory.appendingPathComponent(Self.fileName(for: s))
-        Task.detached(priority: .utility) {
-            let enc = JSONEncoder()
-            enc.dateEncodingStrategy = .secondsSince1970
-            if let data = try? enc.encode(s) {
-                try? data.write(to: url, options: .atomic)
-            }
+        Self.saveQueue.async { Self.write(s, to: url) }
+    }
+
+    /// Writes the save before returning: used when quitting or relaunching for an update.
+    func saveNow() {
+        guard let s = state, let url = currentSaveURL else { return }
+        lastSave = Date()
+        Self.saveQueue.sync { Self.write(s, to: url) }
+    }
+
+    private nonisolated static func write(_ s: GameState, to url: URL) {
+        let enc = JSONEncoder()
+        enc.dateEncodingStrategy = .secondsSince1970
+        if let data = try? enc.encode(s) {
+            try? data.write(to: url, options: .atomic)
         }
     }
 

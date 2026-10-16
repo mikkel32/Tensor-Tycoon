@@ -2,8 +2,10 @@ import SwiftUI
 
 struct RootView: View {
     @Environment(GameStore.self) private var store
+    @Environment(Updater.self) private var updater
 
     var body: some View {
+        @Bindable var updater = updater
         ZStack(alignment: .bottom) {
             if store.state != nil {
                 GameShell()
@@ -18,6 +20,15 @@ struct RootView: View {
             }
         }
         .animation(.spring(duration: 0.35), value: store.toast)
+        .sheet(isPresented: $updater.showSheet) { UpdateSheet() }
+        .sheet(item: $updater.whatsNew, onDismiss: resumeAfterUpdate) { info in
+            WhatsNewSheet(info: info) { updater.whatsNew = nil }
+        }
+    }
+
+    /// After an update relaunch, reopen the game that was running.
+    private func resumeAfterUpdate() {
+        if store.state == nil, let url = updater.takeResumeSave() { store.load(url) }
     }
 }
 
@@ -136,6 +147,7 @@ struct Sidebar: View {
 
 struct GameToolbar: ToolbarContent {
     @Environment(GameStore.self) private var store
+    @Environment(Updater.self) private var updater
 
     var body: some ToolbarContent {
         // Optional reads: the toolbar can be re-evaluated while the window tears down after quitting to the menu.
@@ -167,6 +179,9 @@ struct GameToolbar: ToolbarContent {
             }
             Button { store.step() } label: { Label("Advance one day", systemImage: "forward.frame.fill").labelStyle(.iconOnly) }
                 .help("Advance one day")
+        }
+        if updater.updateAvailable {
+            ToolbarItem(placement: .primaryAction) { UpdateToolbarButton() }
         }
         ToolbarItem(placement: .primaryAction) {
             HStack(spacing: 14) {

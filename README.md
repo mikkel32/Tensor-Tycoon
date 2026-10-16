@@ -6,8 +6,9 @@ way to recursive self-improvement.
 
 ## Download
 
-Get **Tensor-Tycoon-3.0.zip** from the [Releases page](https://github.com/mikkel32/Tensor-Tycoon/releases/latest),
-unzip it and drag **Tensor Tycoon** into Applications. Requires macOS 26 or later.
+Get the latest **Tensor-Tycoon-x.y.zip** from the [Releases page](https://github.com/mikkel32/Tensor-Tycoon/releases/latest),
+unzip it and drag **Tensor Tycoon** into Applications. Requires macOS 26 or later; runs on Apple silicon and Intel.
+After that, the app keeps itself up to date (see below).
 
 The app is ad-hoc signed, not notarized, so macOS blocks the first launch. Open it once, then go to
 **System Settings → Privacy & Security** and click **Open Anyway**. Or run:
@@ -15,6 +16,34 @@ The app is ad-hoc signed, not notarized, so macOS blocks the first launch. Open 
 ```bash
 xattr -dr com.apple.quarantine "/Applications/Tensor Tycoon.app"
 ```
+
+## Updates
+
+From 3.1 on, Tensor Tycoon updates itself from this repository's Releases. It checks at launch and every six hours,
+or right away with **Tensor Tycoon → Check for Updates…**. New versions download in the background and are verified
+before anything is installed:
+
+- the file size and the SHA-256 checksum GitHub publishes for the download,
+- an Ed25519 signature from the Tensor Tycoon release key, bound to the version number so an older build can't be
+  passed off as a newer one,
+- the app inside: same bundle identifier, the advertised version, your macOS version and your Mac's processor, and
+  an intact code signature.
+
+**Install & Relaunch** saves your game, backs up every save to `Saves/Backups`, swaps the new app into place and
+reopens your company where you left off, then shows what's new. If you choose **Later**, a downloaded update installs
+when you quit. You can skip a version or turn off automatic checks and downloads in the update window.
+
+## Releasing a new version
+
+```bash
+Scripts/release.sh 3.2 notes.md     # or leave out notes.md to generate notes from commits
+```
+
+The script builds a universal app, signs the zip with the key stored in your login Keychain as
+"Tensor Tycoon update signing key", checks the signature against the key the app trusts
+(`UpdateConfig.publicKeys` in `Sources/TensorTycoon/App/Updater.swift`), then tags, pushes and creates the GitHub
+release. Every installed copy offers it within six hours. Keep a backup of the signing key (for example in a password
+manager): without it, new releases can't be signed for existing installs.
 
 ## Build from source
 

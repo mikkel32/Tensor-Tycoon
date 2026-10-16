@@ -14,9 +14,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 struct TensorTycoonApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @State private var store = GameStore()
+    @State private var updater = Updater()
 
     init() {
         let args = CommandLine.arguments
+        if let i = args.firstIndex(of: "--verify-update"), i + 3 < args.count {
+            exit(UpdateSelfTest.verifyLocal(zip: args[i + 1], version: args[i + 2], signatureFile: args[i + 3]))
+        }
+        if let i = args.firstIndex(of: "--update-selftest") {
+            exit(UpdateSelfTest.run(pretending: i + 1 < args.count ? args[i + 1] : "0.0.1"))
+        }
         if args.contains("--forecast-check") {
             BalanceHarness.forecastCheck()
             exit(0)
@@ -31,13 +38,28 @@ struct TensorTycoonApp: App {
         WindowGroup("Tensor Tycoon") {
             RootView()
                 .environment(store)
+                .environment(updater)
                 .frame(minWidth: 1180, minHeight: 760)
+                .task {
+                    updater.prepareForRelaunch = { [store] in
+                        store.setSpeed(0)
+                        store.saveNow()
+                        return store.currentSaveURL
+                    }
+                    updater.start()
+                    // Relaunched by an update without release notes to show: go straight back into the game.
+                    if updater.whatsNew == nil, let url = updater.takeResumeSave() { store.load(url) }
+                }
                 .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
-                    store.save()
+                    store.saveNow()
+                    updater.installOnQuitIfReady()
                 }
         }
         .defaultSize(width: 1480, height: 940)
         .commands {
+            CommandGroup(after: .appInfo) {
+                Button("Check for Updates…") { Task { await updater.check(userInitiated: true) } }
+            }
             CommandGroup(replacing: .newItem) {
                 Button("Main Menu") { store.quitToMenu() }
                     .keyboardShortcut("n", modifiers: [.command, .shift])

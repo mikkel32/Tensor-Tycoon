@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MainMenuView: View {
     @Environment(GameStore.self) private var store
+    @Environment(Updater.self) private var updater
     @State private var settings = NewGameSettings()
     @State private var saves: [GameStore.SaveInfo] = []
 
@@ -16,6 +17,7 @@ struct MainMenuView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 26) {
                     header
+                    UpdateBanner()
                     HStack(alignment: .top, spacing: 22) {
                         newCompanyCard
                         if !saves.isEmpty { continueCard.frame(width: 340) }
@@ -29,6 +31,7 @@ struct MainMenuView: View {
             }
         }
         .onAppear { saves = GameStore.listSaves() }
+        .animation(.spring(duration: 0.4), value: updater.updateAvailable)
     }
 
     private var header: some View {
@@ -42,6 +45,7 @@ struct MainMenuView: View {
             Text("Found an AI lab. Buy GPUs and rent TPUs. Train frontier models, win the benchmarks, and out-raise the giants.")
                 .font(.title3)
                 .foregroundStyle(.white.opacity(0.85))
+            UpdateStatusLine()
         }
     }
 

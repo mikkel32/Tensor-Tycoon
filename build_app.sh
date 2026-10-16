@@ -12,6 +12,10 @@ else
     BIN=".build/release/TensorTycoon"
 fi
 
+# Version comes from the VERSION file; the build number counts commits so it always increases.
+VERSION="$(tr -d '[:space:]' < VERSION 2>/dev/null || echo 0.0.0)"
+BUILD="$(git rev-list --count HEAD 2>/dev/null || echo 1)"
+
 APP="build/Tensor Tycoon.app"
 rm -rf "${APP:?}"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/Images"
@@ -19,7 +23,7 @@ cp "$BIN" "$APP/Contents/MacOS/TensorTycoon"
 cp Resources/Images/* "$APP/Contents/Resources/Images/"
 cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 
-cat > "$APP/Contents/Info.plist" <<'PLIST'
+cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -27,8 +31,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
     <key>CFBundleName</key><string>Tensor Tycoon</string>
     <key>CFBundleDisplayName</key><string>Tensor Tycoon</string>
     <key>CFBundleIdentifier</key><string>com.tensortycoon.game</string>
-    <key>CFBundleVersion</key><string>3</string>
-    <key>CFBundleShortVersionString</key><string>3.0</string>
+    <key>CFBundleVersion</key><string>${BUILD}</string>
+    <key>CFBundleShortVersionString</key><string>${VERSION}</string>
     <key>CFBundleExecutable</key><string>TensorTycoon</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
@@ -41,4 +45,4 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 PLIST
 
 codesign --force --sign - "$APP" >/dev/null 2>&1 || true
-echo "Built: $PWD/$APP"
+echo "Built: $PWD/$APP (version $VERSION, build $BUILD)"
