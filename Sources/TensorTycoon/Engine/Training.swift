@@ -54,7 +54,7 @@ enum Training {
                                    comparable: RealModels.closest(index: band.mean, set: set).map { "\($0.name) (\($0.lab), \($0.date.label))" } ?? "—",
                                    finalLoss: f.finalLoss)
         run.epsilon = s.rng.gaussian() * f.sigma
-        if s.rng.chance(f.bugRisk) {
+        if s.rng.chance(f.bugRisk * (1 - 0.4 * s.swarmOps)) {
             run.bugPenalty = s.rng.range(0.08, 0.32)
             run.bugOnset = s.rng.range(0.08, 0.6)
         }
@@ -172,7 +172,9 @@ enum Training {
         if d.optimizer == .muon { arch *= s.researched.contains("muon_clip") ? 0.9 : 1.8 }
         if d.isMoE { arch *= s.researched.contains("aux_free") ? 1.0 : 1.35 }
         if d.mixer == .diffusion { arch *= 1.2 }
-        let engineers = s.employees.filter { $0.role == .mlEngineer }.reduce(0.0) { $0 + $1.skill / 50 }
+        if d.mixer == .alien { arch *= 1.25 }
+        arch *= (1 - 0.35 * s.swarmOps) * max(0.3, 1 - s.traits.spikes)
+        let engineers = s.employees.filter { $0.role == .mlEngineer }.reduce(0.0) { $0 + $1.weight }
         let skill = min(0.5, engineers * 0.05)
         let scale = pow(Double(d.chips) / 256 + 1, 0.3) * pow(max(d.activeParamsB, 0.1) / 10, 0.12)
         return 0.0035 * scale * precision * arch * run.schedule.spikeMult * (1 - skill) * max(0.1, 1 - b.stability)
@@ -265,8 +267,8 @@ enum Training {
         emergence(&s, i, profile: p, set: s.benchmarks.filter { $0.isActive(s.date, saturated: s.benchSaturated) })
         // A silent bug can be caught once its signature shows up in evals.
         if run.bugPenalty > 0 && !run.bugFound && f > run.bugOnset + 0.04 && !s.runs[i].decided.contains("train_bug") {
-            let engineers = s.employees.filter { $0.role == .mlEngineer }.reduce(0.0) { $0 + $1.skill / 50 }
-            let p = clamp(0.3 * (1 + engineers / 4) / max(0.3, s.bonuses.bugKeep), 0.15, 0.9)
+            let engineers = s.employees.filter { $0.role == .mlEngineer }.reduce(0.0) { $0 + $1.weight }
+            let p = clamp(0.3 * (1 + engineers / 4) * (1 + s.swarmOps) / max(0.3, s.bonuses.bugKeep), 0.15, 0.95)
             if s.rng.chance(p) { trainingBug(&s, i) }
         }
     }
@@ -574,6 +576,8 @@ enum Training {
         model.servingPrecision = b.has(.int8Serving) ? .fp8 : .bf16
         if d.mixer == .diffusion { model.efficiencyBoost += 1.5 * b.result("x_diffusion_lm") }
         if d.mixer == .hybrid { model.efficiencyBoost += 0.3 }
+        if d.mixer == .alien { model.efficiencyBoost += 0.4 }
+        model.autoPrice = true
         let set = Leaderboard.indexSet(s)
         model.index = BenchmarkCatalog.index(Leaderboard.profile(model), set: set)
         let top = Leaderboard.entries(s, set: set, includeUnreleased: false).filter { !$0.isPlayer }.map(\.index).max() ?? 0

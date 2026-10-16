@@ -10,9 +10,11 @@ struct ComputePool: Identifiable {
     var inference = 0
     var research = 0
     var rsi = 0
+    var swarm = 0
+    var leased = 0
 
     var total: Int { owned + rented }
-    var allocated: Int { training + inference + research + rsi }
+    var allocated: Int { training + inference + research + rsi + swarm + leased }
     var free: Int { max(0, total - allocated) }
 }
 
@@ -64,7 +66,7 @@ enum Economy {
         var mult = s.market.hardwarePrice
         if a.cls == .consumer { mult = s.market.consumerGPUPrice }
         if a.cls == .workstation { mult = (s.market.consumerGPUPrice + s.market.hardwarePrice) / 2 }
-        return base * dep * mult * (1 - dealDiscount(a, s)) * (1 - Partners.discount(a, s))
+        return base * dep * mult * (1 - dealDiscount(a, s)) * (1 - Partners.discount(a, s)) * (1 - s.traits.hardware)
     }
 
     static func rent(_ a: Accelerator, _ s: GameState) -> Double? {
@@ -72,7 +74,8 @@ enum Economy {
         let age = max(0, ageYears(a, s))
         let decayed = max(a.rentFloor, base * pow(0.78, age))
         let mult = a.cls == .consumer ? (s.market.consumerGPUPrice + s.market.rentPrice) / 2 : s.market.rentPrice
-        return decayed * mult * (1 - dealDiscount(a, s)) * (1 - Partners.discount(a, s))
+        return decayed * mult * (1 - dealDiscount(a, s)) * (1 - Partners.discount(a, s)) * (1 - s.traits.hardware)
+            * (s.lawsPassed.contains("nairr") ? 0.95 : 1)
     }
 
     static func resaleValue(_ a: Accelerator, _ s: GameState, unitCost: Double, purchased: Date) -> Double {
@@ -90,7 +93,7 @@ enum Economy {
         if Partners.covering(a, s) != nil { d *= 0.6 }
         if ageYears(a, s) < 0.5 { d += 45 }
         if a.cls == .wafer { d += 60 }
-        return Int(d)
+        return Int(d * max(0.3, 1 - s.traits.leadTime))
     }
 
     /// Max chips per order for hot new hardware — vendors allocate to big customers first.
@@ -99,7 +102,7 @@ enum Economy {
         if a.cls == .consumer || a.cls == .workstation { return 2_000 }
         if a.vendor == .custom { return 2_000_000 }
         let divisor = age < 0.5 ? 700_000.0 : (age < 1.5 ? 400_000 : 100_000)
-        let deal = (hasDeal(a, s) ? 4.0 : 1.0) * Partners.allocationMult(a, s)
+        let deal = (hasDeal(a, s) ? 4.0 : 1.0) * Partners.allocationMult(a, s) * (1 + s.traits.allocation)
         return Int(clamp(s.valuation / divisor * deal, Double(max(64, a.minOrder * 2)), 2_000_000))
     }
 
@@ -107,7 +110,7 @@ enum Economy {
         let age = ageYears(a, s)
         if a.cls == .consumer || a.cls == .workstation { return 2_000 }
         let divisor = age < 0.5 ? 600_000.0 : (age < 1.5 ? 350_000 : 100_000)
-        let deal = (hasDeal(a, s) ? 4.0 : 1.0) * Partners.allocationMult(a, s)
+        let deal = (hasDeal(a, s) ? 4.0 : 1.0) * Partners.allocationMult(a, s) * (1 + s.traits.allocation)
         return Int(clamp(s.valuation / divisor * deal, 32, 2_000_000))
     }
 
@@ -119,6 +122,7 @@ enum Economy {
     static func pools(_ s: GameState) -> [ComputePool] {
         var owned: [String: Int] = [:], rented: [String: Int] = [:], training: [String: Int] = [:]
         var inference: [String: Int] = [:], research: [String: Int] = [:], rsi: [String: Int] = [:]
+        var swarm: [String: Int] = [:], leased: [String: Int] = [:]
         let readySites = Set(s.sites.lazy.filter { $0.isReady(s.date) }.map(\.id))
         for b in s.owned where readySites.contains(b.siteID) { owned[b.accelID, default: 0] += b.count }
         for r in s.rentals { rented[r.accelID, default: 0] += r.count }
@@ -130,13 +134,17 @@ enum Economy {
         }
         for (id, n) in s.researchChips where n > 0 { research[id, default: 0] += n }
         for i in s.rsiRuns.indices where s.rsiRuns[i].status == .running { rsi[s.rsiRuns[i].accelID, default: 0] += s.rsiRuns[i].chips }
+        for sw in s.swarms where !sw.paused { swarm[sw.accelID, default: 0] += sw.chips }
+        for (id, n) in s.leases where n > 0 { leased[id, default: 0] += n }
         let ids = Set(owned.keys).union(rented.keys).union(training.keys).union(inference.keys).union(research.keys).union(rsi.keys)
+            .union(swarm.keys).union(leased.keys)
         var out: [ComputePool] = []
         out.reserveCapacity(ids.count)
         for id in ids {
             guard let a = HardwareCatalog.get(id) else { continue }
             out.append(ComputePool(accel: a, owned: owned[id] ?? 0, rented: rented[id] ?? 0, training: training[id] ?? 0,
-                                   inference: inference[id] ?? 0, research: research[id] ?? 0, rsi: rsi[id] ?? 0))
+                                   inference: inference[id] ?? 0, research: research[id] ?? 0, rsi: rsi[id] ?? 0,
+                                   swarm: swarm[id] ?? 0, leased: leased[id] ?? 0))
         }
         return out.sorted { $0.accel.best * Double($0.total) > $1.accel.best * Double($1.total) }
     }
@@ -196,7 +204,7 @@ enum Economy {
 
     static func debt(_ s: GameState) -> Double { s.loans.reduce(0) { $0 + $1.balance } }
 
-    static func payrollYear(_ s: GameState) -> Double { s.employees.reduce(0) { $0 + $1.salary } }
+    static func payrollYear(_ s: GameState) -> Double { s.employees.reduce(0) { $0 + $1.salary } * max(0.5, 1 + s.traits.payroll) }
 
     static let officeLevels: [(name: String, capacity: Int, monthly: Double, image: String)] = [
         ("Garage", 6, 0, "garage"),
@@ -228,7 +236,8 @@ enum Economy {
     static func valuation(_ s: GameState) -> Double {
         if s.isPublic { return s.sharePrice * s.totalShares }
         let y = s.year
-        let rr = runRate(s)
+        // Chip sales and leased compute earn hardware multiples, not software ones.
+        let rr = max(0, runRate(s) - 0.6 * hardwareRunRate(s))
         var growth = 0.0
         if s.history.count >= 7 {
             let now = s.history.last!.revenue
@@ -250,7 +259,18 @@ enum Economy {
             let years = Double(GameCalendar.daysBetween(r.date, s.date)) / 365
             floor = (r.preMoney + r.amount) * max(0.4, 1 - 0.3 * years)
         }
-        return max(max(revVal, hypeVal, seed, talent) + assets * 0.6, floor)
+        return max(max(revVal, hypeVal, seed, talent) + assets * 0.6 + Xeno.moatValue(s), floor)
+    }
+
+    /// Annualised revenue from selling chips and leasing compute.
+    static func hardwareRunRate(_ s: GameState) -> Double {
+        let daysIn = max(1, GameCalendar.components(s.date).day)
+        let current = s.month.hardwareRevenue / Double(daysIn) * 365
+        if let last = s.history.last {
+            let lastRate = last.hardwareRevenue * 12
+            return daysIn < 10 ? lastRate : (current * 0.6 + lastRate * 0.4)
+        }
+        return current
     }
 
     static func fedRate(_ s: GameState) -> Double {
@@ -271,7 +291,7 @@ enum Economy {
     }
 
     static func loanQuotes(_ s: GameState) -> [LoanQuote] {
-        let fed = fedRate(s)
+        let fed = max(0.25, fedRate(s) - s.traits.loanRate)
         let spread = creditSpread(s)
         let rr = runRate(s)
         let hw = hardwareValue(s)

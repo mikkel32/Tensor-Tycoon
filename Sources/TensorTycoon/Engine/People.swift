@@ -25,13 +25,20 @@ enum People {
         let r = role ?? s.rng.pick(roles)
         let isStar = star ?? s.rng.chance(0.06)
         let pull = r == .researcher ? (s.publication == .open ? 4.0 : s.publication == .secret ? -5.0 : 0) : 0
-        let skill = isStar ? s.rng.range(85, 99) : clamp(45 + pull + s.rng.gaussian() * 15, 15, 88)
+        let skill = isStar ? s.rng.range(85, 99) : clamp(45 + pull + s.traits.hiring + s.rng.gaussian() * 15, 15, 90)
         var salary = Macro.salary(r, s.year) * pow(skill / 50, 1.6)
         if isStar && s.year > 2024.5 && r == .researcher { salary *= s.rng.range(3, 12) }   // 2025 talent wars
         let equity = isStar ? s.rng.range(0.05, 0.6) : s.rng.range(0, 0.05)
         let name = "\(s.rng.pick(NameBank.first)) \(s.rng.pick(NameBank.last))"
-        return Candidate(name: name, role: r, skill: skill.rounded(), salary: (salary / 1000).rounded() * 1000, equity: equity,
-                         star: isStar, expires: GameCalendar.addDays(s.date, 45), bio: s.rng.pick(bios[r] ?? [""]))
+        var c = Candidate(name: name, role: r, skill: skill.rounded(), salary: (salary / 1000).rounded() * 1000, equity: equity,
+                          star: isStar, expires: GameCalendar.addDays(s.date, 45), bio: s.rng.pick(bios[r] ?? [""]))
+        // Stars always bring something special; one in seven others do too.
+        if isStar || s.rng.chance(0.15) {
+            let t = s.rng.chance(isStar ? 0.5 : 0.3) ? TalentTrait.specialty(r) : s.rng.pick([TalentTrait.mentor, .workhorse, .loyal, .diva])
+            c.trait = t.rawValue
+            c.salary = (c.salary * (1 + (t.multiplier - 1) * 0.4) / 1000).rounded() * 1000
+        }
+        return c
     }
 
     static func refreshCandidates(_ s: inout GameState) {
@@ -54,9 +61,19 @@ enum People {
             m += (payRatio - 1) * 6 + momentum + (crowded ? -4 : 0) + (s.cash < 0 ? -10 : 0)
             m += (70 - m) * 0.05
             s.employees[i].morale = clamp(m, 0, 100)
-            // Rival labs poach unhappy, highly skilled people
-            let risk = (s.employees[i].skill / 100) * max(0, 0.6 - s.employees[i].morale / 100) * 0.12 + (s.employees[i].star ? 0.01 : 0)
+            // Rival labs poach unhappy, highly skilled people (never the loyal ones)
+            var risk = (s.employees[i].skill / 100) * max(0, 0.6 - s.employees[i].morale / 100) * 0.12 + (s.employees[i].star ? 0.01 : 0)
+            if s.employees[i].talent == .loyal { risk = 0 }
             if s.rng.chance(risk) { poached.append(s.employees[i]) }
+        }
+        // Mentors lift everyone; divas grate on their peers.
+        let mentors = s.employees.filter { $0.talent == .mentor }.count
+        let divaRoles = s.employees.filter { $0.talent == .diva }.map(\.role)
+        for i in s.employees.indices {
+            s.employees[i].morale += min(6, Double(mentors) * 1.5)
+            let divas = divaRoles.filter { $0 == s.employees[i].role }.count - (s.employees[i].talent == .diva ? 1 : 0)
+            s.employees[i].morale -= Double(max(0, divas)) * 2.5
+            s.employees[i].morale = clamp(s.employees[i].morale, 0, 100)
         }
         for p in poached {
             s.employees.removeAll { $0.id == p.id }
@@ -130,9 +147,10 @@ enum Events {
         }
 
         // Copyright lawsuit
-        if y >= 2023, let m = released.first(where: { $0.usedShadowData && !$0.lawsuitResolved }), s.rng.chance(0.07 * s.market.copyrightHeat) {
+        if y >= 2023, let m = released.first(where: { $0.usedShadowData && !$0.lawsuitResolved }),
+           s.rng.chance(0.07 * s.market.copyrightHeat * (s.lawsPassed.contains("liability") ? 1.5 : 1)) {
             let rr = Economy.runRate(s)
-            let fine = clamp(max(5e6, rr * 0.25), 5e6, 1.5e9) * (y > 2025.6 ? 1.5 : 1)
+            let fine = clamp(max(5e6, rr * 0.25), 5e6, 1.5e9) * (y > 2025.6 ? 1.5 : 1) * Policy.fineFactor(s)
             addDecision(&s, kind: "lawsuit", title: "Authors sue over pirated training data",
                         body: "A class action says \(m.name) was trained on shadow-library books. Lawyers estimate \(Fmt.money(fine)) to settle.",
                         image: "stock_exchange",
@@ -144,7 +162,7 @@ enum Events {
         // EU AI Act: near-frontier models without evals
         if s.market.euAIAct, !s.researched.contains("evals_rsp"),
            released.contains(where: { $0.c > Macro.frontier(y) - 0.4 }), s.rng.chance(0.2) {
-            let fine = max(2e6, Economy.runRate(s) * 0.03)
+            let fine = max(2e6, Economy.runRate(s) * 0.03) * Policy.fineFactor(s)
             s.cash -= fine
             s.month.costOther += fine
             Sim.news(&s, "EU fines \(s.companyName) \(Fmt.money(fine))", "Your general-purpose model shipped without the required risk evaluations. Research Dangerous-Capability Evals to comply.",
@@ -294,6 +312,15 @@ enum Events {
             break
         case ("rsi_resource", _), ("rsi_exfil", _):
             RSI.resolve(&s, kind: d.kind, option: option, ref: d.ref)
+        case ("swarm_collusion", _), ("swarm_escape", _):
+            Swarms.resolve(&s, kind: d.kind, option: option, ref: d.ref)
+        case ("policy_bill", _):
+            Policy.resolve(&s, d, option: option)
+        case ("victory", _):
+            Victory.resolve(&s, d, option: option)
+        case ("board_ouster", _), ("exclusive_supply", _), ("swarm_audit", _), ("merger_offer", _), ("spinoff", _), ("sovereign_deal", _), ("talent_raid", _),
+             ("distill_campaign", _), ("eval_escape", _), ("insider_caught", _):
+            StrategyEvents.resolve(&s, d, option: option)
         case ("acquisition", 0):
             s.exitValue = d.amount
             s.gameOver = "Acquired for \(Fmt.money(d.amount)) on \(s.date.gameShort). Your stake: \(Fmt.money(d.amount * s.founderStake))."
@@ -312,6 +339,7 @@ enum Achievements {
     static func unlock(_ s: inout GameState, _ id: String) {
         guard !s.achievements.contains(id), let a = AchievementCatalog.byID[id] else { return }
         s.achievements.insert(id)
+        s.culturePoints += 1
         Sim.news(&s, "🏆 Achievement: \(a.title)", a.detail, .company, important: true, good: true)
     }
 

@@ -114,7 +114,7 @@ extension GameState {
     }
 
     func buildMonths(mw: Double, loc: Location, power: PowerDeal) -> Double {
-        var m = (7 + min(22, mw * 0.025)) / loc.buildSpeed * market.buildDelay
+        var m = (7 + min(22, mw * 0.025)) / loc.buildSpeed * market.buildDelay * Policy.buildFactor(self)
         if power == .gas { m *= 0.7 }
         return m
     }
@@ -186,6 +186,7 @@ extension GameState {
         if d.attention == .mla && !b.has(.mla) { return "Research multi-head latent attention first." }
         if d.mixer == .hybrid && !b.has(.ssmHybrid) { return "Research hybrid SSM architectures first." }
         if d.mixer == .diffusion && !b.has(.diffusionLM) { return "Diffusion LMs need your lab's unique breakthrough." }
+        if d.mixer == .alien && alienArchs.isEmpty { return "Your agents haven't found an alien architecture yet (Agent Swarms → alien architecture search)." }
         if d.mtp && !b.has(.mtp) { return "Research multi-token prediction first." }
         if d.schedule == .wsd && !b.has(.wsd) { return "Research WSD schedules first." }
         if d.isMoE && d.activeFraction < 0.05 && !b.has(.fineMoE) { return "Research fine-grained experts for sparsity beyond 1/16." }
@@ -205,6 +206,15 @@ extension GameState {
             month.costOther += 1_500_000
             Sim.news(&self, "Training run reported to the US government", "Runs above 10^26 FLOPs must be reported under the October 2023 executive order. Compliance cost: $1.5M.",
                      .policy, important: false)
+        }
+        if pre >= 1e26 && lawsPassed.contains("transparency") {
+            cash -= 2_000_000
+            month.costOther += 2_000_000
+        }
+        if pre >= 1e27 && lawsPassed.contains("compute_licensing") {
+            cash -= 25_000_000
+            month.costOther += 25_000_000
+            Sim.news(&self, "Federal compute licence granted for \(d.name)", "Runs above 10^27 FLOP need a licence: $25M.", .policy)
         }
         if pre >= 1e25 && market.euAIAct && !researched.contains("evals_rsp") {
             Sim.news(&self, "EU flags \(d.name) as a systemic-risk model", "Above 10^25 FLOPs the EU AI Act requires model evaluations. Research Dangerous-Capability Evals before release or expect fines.",
@@ -268,12 +278,32 @@ extension GameState {
 
     // MARK: Models & products
 
-    mutating func release(_ id: UUID, api: Bool, openWeights: Bool) -> String? {
+    static func keynoteCost(_ s: GameState) -> Double { clamp(s.valuation * 0.0005, 200_000, 50_000_000) }
+
+    mutating func release(_ id: UUID, api: Bool, openWeights: Bool, launch: LaunchStyle = .standard) -> String? {
         guard let i = models.firstIndex(where: { $0.id == id }) else { return "Not found." }
         if !models[i].released {
+            if launch == .keynote && GameState.keynoteCost(self) > cash { return "A keynote costs \(Fmt.money(GameState.keynoteCost(self)))." }
             models[i].released = true
             models[i].releaseDate = date
-            brand = min(100, brand + max(1, 6 + 4 * (models[i].c - Macro.frontier(year))))
+            var gain = max(1, 6 + 4 * (models[i].c - Macro.frontier(year)))
+            switch launch {
+            case .standard: break
+            case .keynote:
+                let cost = GameState.keynoteCost(self)
+                cash -= cost
+                month.costMarketing += cost
+                gain *= 1.6
+                market.hype += 0.02
+            case .blitz:
+                let rank = Leaderboard.rank(of: id, in: self)
+                gain += rank == 1 ? 8 : (rank <= 3 ? 2 : -7)
+            case .staged:
+                gain *= 0.5
+                models[i].safety = min(100, models[i].safety + 4)
+                safetyScore = min(100, safetyScore + 2)
+            }
+            brand = clamp(brand + gain, 0, 100)
             let rank = Leaderboard.rank(of: id, in: self)
             Sim.news(&self, "\(companyName) releases \(models[i].name)", "Intelligence Index \(Fmt.score(models[i].index)) — #\(rank) on the leaderboard.",
                      .company, image: "sf_skyline", important: true, good: true)
@@ -282,8 +312,9 @@ extension GameState {
         models[i].api = api
         if openWeights && !models[i].openWeights {
             models[i].openWeights = true
-            brand = min(100, brand + 8)
-            Sim.news(&self, "\(models[i].name) weights released", "Developers worldwide are downloading your model. Brand +8, but rivals can build on it too.", .company, good: true)
+            let gain = 8 * (1 + traits.openBrand)
+            brand = min(100, brand + gain)
+            Sim.news(&self, "\(models[i].name) weights released", "Developers worldwide are downloading your model. Brand +\(Int(gain)), but rivals can build on it too.", .company, good: true)
         }
         return nil
     }
@@ -306,6 +337,7 @@ extension GameState {
     mutating func setAPIPrice(_ id: UUID, _ price: Double) {
         guard let i = models.firstIndex(where: { $0.id == id }) else { return }
         models[i].apiPrice = max(0.001, price)
+        models[i].autoPrice = false
     }
 
     mutating func retire(_ id: UUID) {
@@ -335,6 +367,7 @@ extension GameState {
     mutating func queueResearch(_ id: String) {
         guard !researched.contains(id), !researchQueue.contains(id), let item = ResearchCatalog.byID[id] else { return }
         if item.isExotic && !exoticOwned.contains(id) { return }
+        if id.hasPrefix("xeno_") && alienArchs.isEmpty { return }
         researchQueue.append(id)
     }
 
@@ -420,7 +453,9 @@ extension GameState {
             let shares = totalShares * c.equity / 100
             employeePoolShares += shares
         }
-        employees.append(Employee(name: c.name, role: c.role, skill: c.skill, salary: c.salary, morale: 80, hired: date, star: c.star, equity: c.equity))
+        var e = Employee(name: c.name, role: c.role, skill: c.skill, salary: c.salary, morale: 80, hired: date, star: c.star, equity: c.equity)
+        e.trait = c.trait
+        employees.append(e)
         candidates.remove(at: i)
         return nil
     }
@@ -431,6 +466,25 @@ extension GameState {
         month.costPayroll += e.salary * 0.25
         employees.removeAll { $0.id == id }
         for i in employees.indices { employees[i].morale -= 2 }
+    }
+
+    /// Veterans (a year in, skill 65+) can be promoted into a trait of your choice.
+    func canPromote(_ e: Employee) -> Bool {
+        !e.promoted && e.skill >= 65 && GameCalendar.daysBetween(e.hired, date) >= 365
+    }
+
+    mutating func promote(_ id: UUID, to trait: TalentTrait) -> String? {
+        guard let i = employees.firstIndex(where: { $0.id == id }) else { return "Not found." }
+        let e = employees[i]
+        if !canPromote(e) { return "\(e.name) needs a year here and skill 65+ to be promoted (once)." }
+        if !TalentTrait.promotions(e.role).contains(trait) { return "That isn't a path for a \(e.role.title.lowercased())." }
+        employees[i].trait = trait.rawValue
+        employees[i].promoted = true
+        employees[i].salary *= 1.2
+        employees[i].skill = min(100, e.skill + 3)
+        employees[i].morale = min(100, e.morale + 15)
+        Sim.news(&self, "\(e.name) promoted: \(trait.title)", "\(trait.detail) Salary +20%.", .company, good: true)
+        return nil
     }
 
     mutating func giveRaise(_ id: UUID) {
@@ -579,6 +633,7 @@ extension GameState {
         m.visSkill = fc.vis
         m.safety = fc.safety
         m.preview = true
+        m.autoPrice = true
         m.apiPrice = max(0.01, (Macro.referencePrice(c: cp.c, y: year) * market.apiPricePressure * 0.85 * 1000).rounded() / 1000)
         m.servingPrecision = b.has(.int8Serving) ? .fp8 : .bf16
         m.index = BenchmarkCatalog.index(Leaderboard.profile(m), set: Leaderboard.indexSet(self))

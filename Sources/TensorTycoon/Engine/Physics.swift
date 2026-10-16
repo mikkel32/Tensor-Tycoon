@@ -40,9 +40,11 @@ enum Physics {
 
     static func mfu(accel: Accelerator, chips: Int, state s: GameState, bonuses b: ResearchBonuses) -> Double {
         var base = accel.baseMFU + min(0.10, b.mfu) + Partners.mfuBonus(accel, s)
-        let engineers = s.employees.filter { $0.role == .mlEngineer }.reduce(0.0) { $0 + $1.skill / 50 }
+        let engineers = s.employees.filter { $0.role == .mlEngineer }.reduce(0.0) { $0 + $1.weight }
         let needed = 0.5 + Double(chips) / 1_500
         base += 0.04 * min(1, engineers / needed)
+        // Agent swarms on training operations tune kernels and route around bad nodes.
+        base += 0.04 * s.swarmOps + s.traits.mfu
         if engineers < 0.5 && chips > 64 { base -= 0.05 }
         var mult = 1.0
         if chips > accel.scaleUp {
@@ -55,10 +57,10 @@ enum Physics {
 
     /// Hours of progress lost per hardware interruption (restart + work since the last save).
     static func hoursLostPerFailure(state s: GameState, bonuses b: ResearchBonuses) -> Double {
-        let infra = s.employees.filter { $0.role == .infra }.reduce(0.0) { $0 + $1.skill / 50 }
+        let infra = s.employees.filter { $0.role == .infra }.reduce(0.0) { $0 + $1.weight }
         let chips = max(1, s.runs.filter { $0.status == .running || $0.status == .postTraining }.map(\.design.chips).max() ?? 1)
         let staffing = min(1, infra / max(0.5, Double(chips) / 600))
-        return 1.5 * b.failureKeep * (1.3 - 0.3 * staffing)
+        return 1.5 * b.failureKeep * (1.3 - 0.3 * staffing) * (1 - 0.4 * s.swarmOps)
     }
 
     /// Small synchronisation losses from stragglers and slow nodes at scale.

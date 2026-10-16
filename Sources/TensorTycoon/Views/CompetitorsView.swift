@@ -38,6 +38,7 @@ struct CompetitorsView: View {
 private struct CompetitorCard: View {
     let comp: CompetitorState
     let state: GameState
+    @State private var showAcquire = false
 
     var body: some View {
         let d = comp.def
@@ -76,6 +77,12 @@ private struct CompetitorCard: View {
                 Label("Signature: \(trait.signature)", systemImage: "seal.fill")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(color)
+                let armed = Xeno.rivalC(s, comp.id, at: s.date)
+                if armed > 0.005 {
+                    Label("Running on your tech: +\(Fmt.trim(armed, 2)) capability from chips and licenses you sold them", systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.orange)
+                }
                 let techs = (s.rivalTech[comp.id] ?? []).compactMap { ResearchCatalog.byID[$0] }.filter { $0.year <= s.year + 1 }
                 if !techs.isEmpty {
                     HStack(spacing: 6) {
@@ -109,9 +116,19 @@ private struct CompetitorCard: View {
                 if comp.nextRelease > s.date && comp.nextRelease < GameCalendar.addDays(s.date, 120) {
                     Text("Rumour: next model expected around \(comp.nextRelease.gameMonth)").font(.caption).foregroundStyle(.orange)
                 }
+                if comp.acquired {
+                    Label(s.acquiredLabs.contains(comp.id) ? "Acquired by \(s.companyName)" : "Acquired by a big-tech giant", systemImage: "building.2.crop.circle.fill")
+                        .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                } else {
+                    HStack {
+                        Spacer()
+                        Button("Acquire \(d.name)…") { showAcquire = true }
+                    }
+                }
             }
         }
-        .opacity(founded ? 1 : 0.6)
+        .opacity(founded ? (comp.acquired ? 0.7 : 1) : 0.6)
+        .popover(isPresented: $showAcquire) { AcquirePanel(comp: comp, state: s) }
     }
 }
 
@@ -123,5 +140,55 @@ private struct Mini: View {
             Text(value).font(.callout.weight(.semibold).monospacedDigit()).lineLimit(1).minimumScaleFactor(0.7)
             Text(label).font(.caption2).foregroundStyle(.secondary)
         }
+    }
+}
+
+/// Price, payment mix, antitrust risk and what you'd get for buying a rival.
+private struct AcquirePanel: View {
+    @Environment(GameStore.self) private var store
+    @Environment(\.dismiss) private var dismiss
+    let comp: CompetitorState
+    let state: GameState
+    @State private var stockShare = 0.5
+
+    var body: some View {
+        let s = state
+        let price = Acquisitions.price(comp, s)
+        let risk = Acquisitions.antitrustRisk(comp, s)
+        let haul = Acquisitions.haul(comp, s)
+        let blocker = Acquisitions.blocker(comp, s)
+        let cashPart = price * (1 - stockShare)
+        let dilution = price * stockShare / max(1, s.valuation + price * stockShare)
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Acquire \(comp.def.name)").font(.title3.weight(.bold))
+            SpecRow(label: "Their valuation", value: Fmt.money(comp.valuation))
+            SpecRow(label: "Price (\(Int((Acquisitions.premium - 1) * 100))% control premium)", value: Fmt.money(price))
+            HStack {
+                Text("Pay in stock")
+                Slider(value: $stockShare, in: 0...0.8, step: 0.05)
+                Text(Fmt.pct(stockShare, decimals: 0)).font(.callout.monospacedDigit()).frame(width: 44)
+            }
+            SpecRow(label: "Cash", value: "\(Fmt.money(cashPart)) of \(Fmt.money(s.cash))")
+            SpecRow(label: "New shares (dilution)", value: Fmt.pct(dilution, decimals: 1))
+            SpecRow(label: "Antitrust block risk", value: Fmt.pct(risk, decimals: 0))
+            Divider()
+            Text("You'd inherit").font(.headline)
+            Text("\(haul.techs.count) secret technique\(haul.techs.count == 1 ? "" : "s") · \(haul.researchers) researchers · \(Fmt.int(haul.chips))× \(haul.chipName) · \(Fmt.count(haul.users)) chat users · \(Fmt.count(haul.seats)) agent seats\(haul.model.map { " · their model \($0)" } ?? "")")
+                .font(.callout).foregroundStyle(.secondary)
+            if let blocker {
+                Label(blocker, systemImage: "lock.fill").font(.caption).foregroundStyle(.orange)
+            }
+            Button {
+                store.act("Deal announced") { $0.acquireRival(comp.id, stockShare: stockShare) }
+                dismiss()
+            } label: {
+                Label("Make the offer", systemImage: "signature").frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(blocker != nil || cashPart > s.cash)
+            Text("If regulators block it you pay a 2% break fee and wait a year.").font(.caption2).foregroundStyle(.tertiary)
+        }
+        .padding(16)
+        .frame(width: 420)
     }
 }

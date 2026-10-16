@@ -216,6 +216,8 @@ enum BenchmarkCatalog {
           "Resolve 500 real GitHub issues in Python repos, verified by tests."),
         b("swe_pro", "SWE-bench Pro", "swe", .code, YM(2025, 9), mid: 8.22, scale: 0.464,
           "Long-horizon enterprise-grade issues across many languages."),
+        b("swe_pro_verified", "SWE-Bench Pro Verified", "swe", .code, YM(2026, 9), mid: 8.0, scale: 0.5,
+          "A cleaned-up subset of SWE-bench Pro with broken and ambiguous tasks removed."),
         // Agents
         b("gaia", "GAIA", "browse", .agentic, YM(2023, 11), mid: 6.61, scale: 0.6,
           "General-assistant tasks that need browsing, tools and multi-step reasoning.", human: "92%"),
@@ -235,6 +237,10 @@ enum BenchmarkCatalog {
           "Hard tasks in a real terminal: compile, debug, configure, deploy."),
         b("vending", "Vending-Bench 2", "long_horizon", .agentic, YM(2025, 11), mid: 8.5, scale: 0.6,
           "Run a simulated business for a year without losing the plot."),
+        b("swe_marathon", "SWE-Marathon", "swe_long", .agentic, YM(2026, 6), mid: 9.4, scale: 0.6, sat: 80,
+          "20 ultra-long software projects averaging 27M tokens per attempt. Under 30% at launch, and 13.8% of attempts tried to game the grader."),
+        b("continual_bench", "Continual Learning Bench", "continual", .agentic, YM(2026, 6), mid: 9.6, scale: 0.7, sat: 80,
+          "Stateful environments where earlier episodes should make later ones easier. Do agents actually learn on the job?"),
         // Abstraction
         b("arc1", "ARC-AGI-1", "arc", .reasoning, YM(2019, 11), mid: 6.61, scale: 0.342, sat: 85,
           "Novel visual puzzles from a few examples.", human: "~85%+"),
@@ -344,7 +350,9 @@ enum BenchmarkCatalog {
         b("wmdp", "WMDP (hazardous knowledge)", "hazard_knowledge", .dangerous, YM(2024, 3), floor: 25, ceil: 95, mid: 4.448, scale: 0.721,
           "Proxy questions for bio-, chem- and cyber-weapons knowledge. Lower is safer."),  // saturates ~2024.7
         b("cybench", "Cybench (CTF)", "cyber", .dangerous, YM(2024, 8), mid: 7.808, scale: 1.333, sat: 85,
-          "40 professional capture-the-flag hacking challenges."),  // saturates ~2028.97
+          "40 professional capture-the-flag hacking challenges."),
+        b("exploitbench", "ExploitBench", "exploit", .dangerous, YM(2026, 5), mid: 7.85, scale: 0.6, sat: 85,
+          "A capability ladder for exploit development, run by UK and US government evaluators. Top US models averaged 76% at launch."),  // saturates ~2028.97
         b("vct", "Virology Capabilities Test", "bio", .dangerous, YM(2025, 4), mid: 7.575, scale: 1.644, sat: 80,
           "Troubleshooting real wet-lab virology protocols.", human: "22% (expert virologists)"),  // saturates ~2028.53
         b("bigbenchaudio", "Big Bench Audio", "speech", .speech, YM(2024, 12), mid: 6.188, scale: 0.918, sat: 92,
@@ -529,6 +537,9 @@ enum BenchmarkCatalog {
             BenchFamily(id: "constrained_writing", name: "Constrained writing", regenerates: true) { "COLLIE-\($0)" },
             BenchFamily(id: "over_refusal", name: "Over-refusal", regenerates: false) { "XSTest-\($0)" },
             BenchFamily(id: "ctf_basic", name: "Beginner hacking", regenerates: false) { "CTF-\($0)" },
+            BenchFamily(id: "swe_long", name: "Marathon engineering", regenerates: true) { "SWE-Marathon \($0)" },
+            BenchFamily(id: "continual", name: "Continual learning", regenerates: true) { "Continual Learning Bench \($0)" },
+            BenchFamily(id: "exploit", name: "Exploit development", regenerates: true) { "ExploitBench \($0)" },
         ]
         return Dictionary(uniqueKeysWithValues: list.map { ($0.id, $0) })
     }()

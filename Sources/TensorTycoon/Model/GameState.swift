@@ -66,6 +66,8 @@ struct Employee: Codable, Identifiable, Hashable {
     var hired: Date
     var star: Bool = false
     var equity: Double = 0
+    @D var trait: String = ""
+    @D var promoted: Bool = false
 }
 
 struct Candidate: Codable, Identifiable, Hashable {
@@ -78,6 +80,7 @@ struct Candidate: Codable, Identifiable, Hashable {
     var star: Bool
     var expires: Date
     var bio: String
+    @D var trait: String = ""
 }
 
 // MARK: - Hardware
@@ -200,6 +203,7 @@ enum MixerKind: String, Codable, CaseIterable, Identifiable {
     case transformer = "Transformer"
     case hybrid = "Hybrid SSM"
     case diffusion = "Diffusion LM"
+    case alien = "Alien (xeno)"
     var id: String { rawValue }
 }
 
@@ -485,6 +489,8 @@ struct AIModel: Codable, Identifiable, Hashable {
     @D var preview: Bool = false
     @D var safeguards: Bool = false
     @D var unsafeRelease: Bool = false
+    /// Re-price daily to track the market for this capability level.
+    @D var autoPrice: Bool = false
     var chatSkill: Double = 0.8
     var langSkill: Double = 0
     var longctxSkill: Double = 0
@@ -644,6 +650,8 @@ struct CompetitorState: Codable, Identifiable, Hashable {
     var acquired = false
     @D var priceCut: Double = 0
     @D var agentShare: Double = 0
+    /// H100-equivalents of your chips this lab has bought (ages out slowly).
+    @D var armedH100e: Double = 0
 
     var def: CompetitorDef { CompetitorCatalog.byID[id]! }
     var latest: CompetitorModel? { models.last }
@@ -657,6 +665,15 @@ struct MonthRecord: Codable, Identifiable, Hashable {
     var revEnterprise = 0.0
     var revOther = 0.0
     @D var revAgents: Double = 0
+    @D var revCloud: Double = 0
+    @D var revChips: Double = 0
+    @D var revLicensing: Double = 0
+    @D var revLabor: Double = 0
+    @D var interestIncome: Double = 0
+    /// Upfront license fees and other one-off income (not recurring revenue).
+    @D var oneOffIncome: Double = 0
+    /// Cost of goods for chips you sell.
+    @D var costChips: Double = 0
     var costRent = 0.0
     var costPower = 0.0
     var costSites = 0.0
@@ -675,9 +692,11 @@ struct MonthRecord: Codable, Identifiable, Hashable {
     var bestIndex = 0.0
     var chips = 0.0
 
-    var revenue: Double { revAPI + revConsumer + revEnterprise + revOther + revAgents }
-    var opex: Double { costRent + costPower + costSites + costPayroll + costData + costMarketing + costOther }
-    var profit: Double { revenue - opex - costInterest - taxes }
+    var revenue: Double { revAPI + revConsumer + revEnterprise + revOther + revAgents + revCloud + revChips + revLicensing + revLabor }
+    /// Selling hardware and leasing compute: valued like a hardware business, not a software one.
+    var hardwareRevenue: Double { revCloud + revChips }
+    var opex: Double { costRent + costPower + costSites + costPayroll + costData + costMarketing + costOther + costChips }
+    var profit: Double { revenue + interestIncome + oneOffIncome - opex - costInterest - taxes }
 }
 
 struct StockPoint: Codable, Hashable {
@@ -822,11 +841,80 @@ struct GameState: Codable {
     /// Your unique breakthroughs you published under an open-science policy (rivals adopt them ~6 months later).
     @D var publishedTech: [String: Date] = [:]
 
+    // v4 systems: agent swarms, alien architectures, selling compute, personal wealth
+    @D var swarms: [AgentSwarm] = []
+    @D var swarmRPToday: Double = 0
+    /// Mission levels (0–1) from today's swarms, read by training, silicon and safety.
+    @D var swarmOps: Double = 0
+    @D var swarmSilicon: Double = 0
+    @D var swarmSafety: Double = 0
+    @D var laborToday: Double = 0
+    @D var xenoInsight: Double = 0
+    @D var xenoInsightToday: Double = 0
+    @D var alienArchs: [AlienArch] = []
+    @D var chipLines: [ChipLine] = []
+    /// Accelerator ID → chips leased out to other companies.
+    @D var leases: [String: Int] = [:]
+    @D var leaseRevenueToday: Double = 0
+    @D var founderCash: Double = 0
+    @D var lastFounderSale: Date? = nil
+
+    // v4.1: traits, the board, acquisitions
+    @D var traitsInitialized: Bool = false
+    @D var doctrineID: String = ""
+    @D var backgroundID: String = ""
+    @D var perks: Set<String> = []
+    @D var culturePoints: Int = 0
+    @D var objectives: [Objective] = []
+    @D var objectivesCompleted: Int = 0
+    @D var objectivesFailed: Int = 0
+    @D var boardConfidence: Double = 0
+    @D var lastBoardThreat: Date? = nil
+    @D var acquiredLabs: [String] = []
+    @D var lastAntitrustBlock: Date? = nil
+    @D var exclusiveSupplyUntil: Date? = nil
+    /// The game ended with you leaving the CEO job but keeping your shares.
+    @D var keptStake: Bool = false
+
+    // v4.2: security, policy
+    /// Model-weight security level (1–5; 0 in old saves means SL1).
+    @D var securityRaw: Int = 0
+    @D var securityTarget: Int = 0
+    @D var securityDaysLeft: Double = 0
+    @D var thefts: Int = 0
+    @D var attacksFoiled: Int = 0
+    /// Rival lab ID → capability of the weights they stole from you.
+    @D var stolenC: [String: Double] = [:]
+    @D var lobbyBudget: Double = 0
+    @D var politicalCapital: Double = 0
+    @D var bills: [PolicyBill] = []
+    @D var lawsPassed: Set<String> = []
+    @D var lawsFailed: Set<String> = []
+    // v4.2: victories, rival alien tech
+    @D var victories: Set<String> = []
+    @D var monthsAtTop: Int = 0
+    @D var monthsGuardian: Int = 0
+    @D var apiShareNow: Double = 0
+    /// Rival lab ID → when it found its own alien architecture.
+    @D var rivalXeno: [String: Date] = [:]
+
     var totalShares: Double {
         founderShares + employeePoolShares + publicShares + holdings.reduce(0) { $0 + $1.shares }
     }
 
     var founderStake: Double { founderShares / max(1, totalShares) }
+
+    var doctrine: LabDoctrine { LabDoctrine(rawValue: doctrineID) ?? .balanced }
+    var background: FounderBackground { FounderBackground(rawValue: backgroundID) ?? .none }
+    /// Doctrine + founder background + culture perks.
+    var traits: TraitBonuses { CultureCatalog.bonuses(doctrine: doctrine, background: background, perks: perks) }
+    var security: SecurityLevel { SecurityLevel(rawValue: max(1, securityRaw)) ?? .sl1 }
+
+    /// You control the board while you hold a majority of the shares.
+    var founderControls: Bool { founderStake >= 0.5 }
+
+    /// Your stake at today's valuation plus everything you've cashed out.
+    var founderNetWorth: Double { founderStake * valuation + founderCash }
 
     var year: Double { date.decimalYear }
 
@@ -847,6 +935,7 @@ enum RSITarget: String, Codable, CaseIterable, Identifiable {
     case capabilities = "Capabilities"
     case research = "Automated research"
     case efficiency = "Inference efficiency"
+    case architecture = "Architecture search"
     var id: String { rawValue }
 
     var blurb: String {
@@ -854,6 +943,7 @@ enum RSITarget: String, Codable, CaseIterable, Identifiable {
         case .capabilities: "The model rewrites its own training recipe, data and architecture. Each generation is smarter."
         case .research: "Thousands of model instances run experiments for you, producing research points around the clock."
         case .efficiency: "The model optimises its own kernels, quantisation and distillation: more tokens per chip."
+        case .architecture: "The model redesigns its own architecture and the chip it runs on, piling up insight toward an alien architecture."
         }
     }
 
@@ -862,6 +952,7 @@ enum RSITarget: String, Codable, CaseIterable, Identifiable {
         case .capabilities: "arrow.up.forward.circle.fill"
         case .research: "lightbulb.max.fill"
         case .efficiency: "gauge.with.dots.needle.100percent"
+        case .architecture: "atom"
         }
     }
 }
@@ -1009,6 +1100,8 @@ struct CustomChip: Codable, Identifiable, Hashable {
     var decodeEff: Double
     var scaleUp: Int
     var generation: Int
+    /// Designed by your agents from an alien architecture.
+    @D var alien: Bool = false
 }
 
 // MARK: - Supply agreements

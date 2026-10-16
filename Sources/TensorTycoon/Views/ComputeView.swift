@@ -27,13 +27,15 @@ struct ComputeView: View {
                 }
             } else {
                 Card {
-                    CardHeader("Allocation", symbol: "rectangle.split.3x1.fill", subtitle: "Training · Inference · Research · Self-improvement · Idle")
+                    CardHeader("Allocation", symbol: "rectangle.split.3x1.fill", subtitle: "Training · Inference · Research · Self-improvement · Agent swarms · Leased out · Idle")
                     ForEach(pools) { p in PoolRow(pool: p).equatable() }
                     HStack(spacing: 14) {
                         LegendDot(color: .blue, label: "Training")
                         LegendDot(color: .green, label: "Inference")
                         LegendDot(color: .purple, label: "Research")
                         LegendDot(color: .pink, label: "Self-improvement")
+                        LegendDot(color: .indigo, label: "Agent swarms")
+                        LegendDot(color: .orange, label: "Leased out")
                         LegendDot(color: .gray.opacity(0.4), label: "Idle")
                     }
                     .font(.caption)
@@ -88,6 +90,7 @@ private struct PoolRow: View, Equatable {
     static func == (a: PoolRow, b: PoolRow) -> Bool {
         a.pool.accel.id == b.pool.accel.id && a.pool.owned == b.pool.owned && a.pool.rented == b.pool.rented && a.pool.training == b.pool.training
             && a.pool.inference == b.pool.inference && a.pool.research == b.pool.research && a.pool.rsi == b.pool.rsi
+            && a.pool.swarm == b.pool.swarm && a.pool.leased == b.pool.leased
     }
 
     let pool: ComputePool
@@ -110,6 +113,8 @@ private struct PoolRow: View, Equatable {
                         Rectangle().fill(.green).frame(width: geo.size.width * Double(p.inference) / total)
                         Rectangle().fill(.purple).frame(width: geo.size.width * Double(p.research) / total)
                         Rectangle().fill(.pink).frame(width: geo.size.width * Double(p.rsi) / total)
+                        Rectangle().fill(.indigo).frame(width: geo.size.width * Double(p.swarm) / total)
+                        Rectangle().fill(.orange).frame(width: geo.size.width * Double(p.leased) / total)
                         Rectangle().fill(.gray.opacity(0.25))
                     }
                     .clipShape(.capsule)

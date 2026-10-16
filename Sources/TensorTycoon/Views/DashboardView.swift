@@ -20,15 +20,18 @@ struct DashboardView: View {
                 HStack(alignment: .bottom) {
                     CompanyLogo(symbol: s.logoSymbol, color: Theme.logoColor(s.logoColor), size: 56)
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(s.companyName).font(.system(size: 30, weight: .bold))
+                        HStack(spacing: 8) {
+                            Text(s.companyName).font(.system(size: 30, weight: .bold))
+                            PhotoPill(text: s.doctrine.title, symbol: s.doctrine.symbol)
+                        }
                         Text("\(Economy.officeLevels[min(s.officeLevel, 5)].name) · \(s.employees.count + 1) people · \(Fmt.int(d.totalChips)) accelerators · \(Fmt.count(d.h100e)) H100-equivalents")
                             .font(.callout).opacity(0.9)
                     }
                     Spacer()
                     VStack(alignment: .trailing, spacing: 2) {
-                        Text("Your stake").font(.caption).opacity(0.8)
-                        Text(Fmt.money(s.valuation * s.founderStake)).font(.title2.weight(.bold).monospacedDigit())
-                        Text("\(Fmt.pct(s.founderStake)) of \(Fmt.money(s.valuation))").font(.caption).opacity(0.8)
+                        Text("Your net worth").font(.caption).opacity(0.8)
+                        Text(Fmt.money(s.founderNetWorth)).font(.title2.weight(.bold).monospacedDigit())
+                        Text("\(Fmt.pct(s.founderStake)) of \(Fmt.money(s.valuation))\(s.founderCash > 0 ? " + \(Fmt.money(s.founderCash)) cashed out" : "")").font(.caption).opacity(0.8)
                     }
                 }
             }
@@ -44,7 +47,18 @@ struct DashboardView: View {
                 StatTile(title: "API tokens / day", value: Fmt.count(s.models.reduce(0) { $0 + $1.servedTokensDay }), detail: "Reliability \(Fmt.pct(s.reliability, decimals: 0))", symbol: "bolt.horizontal.fill", tint: .teal)
                 StatTile(title: "Best model", value: best.map { "\(Fmt.score($0.index))" } ?? "—", detail: best.map { "\($0.model) · #\(rank ?? 0) worldwide\($0.released ? "" : " (unreleased)")" } ?? "Train one in the Model Lab", symbol: "trophy.fill", tint: .orange)
                 StatTile(title: "Agent seats", value: Fmt.count(s.agentSeats), detail: s.agentModelID == nil ? "Launch in Market" : "\(Fmt.pct(s.agentShare, decimals: 1)) share · \(Fmt.money(s.agentPrice))/seat", symbol: "person.badge.key.fill", tint: .indigo)
+                if !s.swarms.isEmpty {
+                    StatTile(title: "Agent swarms", value: Fmt.count(s.swarms.filter { !$0.paused }.reduce(0) { $0 + $1.active }),
+                             detail: "\(Fmt.count(s.swarmRPToday)) RP/day · \(Fmt.money(s.laborToday * 30.4))/mo labor", symbol: "person.3.sequence.fill", tint: .purple)
+                }
+                if !s.leases.isEmpty || !s.chipLines.isEmpty {
+                    StatTile(title: "Compute sales", value: "\(Fmt.money((s.leaseRevenueToday + s.chipLines.reduce(0) { $0 + $1.unitsToday * $1.price }) * 365))/yr",
+                             detail: "Leasing + chip sales", symbol: "shippingbox.fill", tint: .green)
+                }
+                StatTile(title: "Treasury yield", value: "\(Fmt.trim(Treasury.yieldRate(s), 2))%", detail: "\(Fmt.money(s.month.interestIncome)) interest this month", symbol: "percent", tint: .mint)
             }
+
+            ChiefOfStaffCard(items: Advisor.items(s, pools: d.pools))
 
             HStack(alignment: .top, spacing: 16) {
                 Card {
@@ -65,6 +79,7 @@ struct DashboardView: View {
                     GettingStarted(state: s, chips: d.totalChips)
                     ActiveRunsCard(state: s)
                     if !s.rsiRuns.filter({ $0.status != .halted }).isEmpty { RSIStatusCard(runs: s.rsiRuns.filter { $0.status != .halted }) }
+                    if !s.swarms.isEmpty || s.xenoInsight > 0 || !s.alienArchs.isEmpty { SwarmStatusCard(state: s) }
                 }
                 .frame(maxWidth: .infinity)
                 VStack(spacing: 16) {
@@ -154,6 +169,87 @@ struct RSIStatusCard: View {
     }
 }
 
+/// Prioritised to-do list: what needs your attention right now.
+struct ChiefOfStaffCard: View {
+    @Environment(GameStore.self) private var store
+    let items: [AdvisorItem]
+    @State private var expanded = false
+
+    var body: some View {
+        Card {
+            CardHeader(title: "Chief of Staff", symbol: "person.crop.circle.badge.checkmark",
+                       subtitle: items.isEmpty ? "Nothing needs you right now." : "\(items.count) thing\(items.count == 1 ? "" : "s") need\(items.count == 1 ? "s" : "") your attention") {
+                if items.count > 4 {
+                    Button(expanded ? "Show less" : "Show all") { expanded.toggle() }.buttonStyle(.link)
+                }
+            }
+            if !items.isEmpty {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 300), spacing: 10)], spacing: 8) {
+                    ForEach(expanded ? items : Array(items.prefix(4))) { item in
+                        Button { store.open(item.screen) } label: {
+                            HStack(alignment: .top, spacing: 10) {
+                                Image(systemName: item.symbol)
+                                    .foregroundStyle(color(item.level))
+                                    .frame(width: 22)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(item.title).font(.callout.weight(.semibold)).lineLimit(1)
+                                    Text(item.detail).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                                }
+                                Spacer(minLength: 0)
+                                Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+                            }
+                            .padding(10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(color(item.level).opacity(0.08), in: .rect(cornerRadius: 10))
+                            .contentShape(.rect)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+    }
+
+    private func color(_ l: AdvisorItem.Level) -> Color {
+        switch l {
+        case .urgent: .red
+        case .warning: .orange
+        case .info: .blue
+        }
+    }
+}
+
+struct SwarmStatusCard: View {
+    @Environment(GameStore.self) private var store
+    let state: GameState
+
+    var body: some View {
+        let s = state
+        Card {
+            CardHeader(title: "Agent swarms", symbol: "person.3.sequence.fill") {
+                Button("Swarms") { store.open(.swarms) }.buttonStyle(.link)
+            }
+            ForEach(s.swarms) { sw in
+                HStack {
+                    Image(systemName: sw.mission.symbol).foregroundStyle(.secondary).frame(width: 18)
+                    Text(sw.name).font(.callout.weight(.semibold)).lineLimit(1)
+                    Text("\(Fmt.count(sw.active)) agents").font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    let a = sw.alignmentMeasured
+                    Label("\(Int(a))", systemImage: "shield.lefthalf.filled").font(.caption)
+                        .foregroundStyle(a >= 70 ? .green : (a >= 45 ? .yellow : .red))
+                }
+            }
+            if s.xenoInsightToday > 0 || s.xenoInsight > 0 {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Alien architecture #\(s.alienArchs.count + 1): \(Fmt.pct(s.xenoInsight / Xeno.insightNeeded(s), decimals: 0))").font(.caption.weight(.semibold))
+                    Meter(value: s.xenoInsight / Xeno.insightNeeded(s), tint: .purple, height: 6)
+                }
+            }
+        }
+    }
+}
+
 struct RevenueChart: View {
     let history: [MonthRecord]
 
@@ -169,7 +265,9 @@ struct RevenueChart: View {
             [Bar(month: m.month, kind: "API", value: m.revAPI),
              Bar(month: m.month, kind: "Consumer", value: m.revConsumer),
              Bar(month: m.month, kind: "Enterprise", value: m.revEnterprise + m.revOther),
-             Bar(month: m.month, kind: "Agents", value: m.revAgents)]
+             Bar(month: m.month, kind: "Agents", value: m.revAgents),
+             Bar(month: m.month, kind: "Compute & chips", value: m.revCloud + m.revChips),
+             Bar(month: m.month, kind: "Labor & licensing", value: m.revLabor + m.revLicensing)]
         }
         if history.allSatisfy({ $0.revenue == 0 && $0.opex == 0 }) {
             EmptyStateView(symbol: "chart.bar", title: "No numbers yet", message: "Revenue and costs appear here as months close.")
@@ -186,7 +284,8 @@ struct RevenueChart: View {
                         .interpolationMethod(.monotone)
                 }
             }
-            .chartForegroundStyleScale(["API": Color.teal, "Consumer": Color.pink, "Enterprise": Color.indigo, "Agents": Color.orange])
+            .chartForegroundStyleScale(["API": Color.teal, "Consumer": Color.pink, "Enterprise": Color.indigo, "Agents": Color.orange,
+                                        "Compute & chips": Color.green, "Labor & licensing": Color.purple])
             .chartYAxis { AxisMarks { v in AxisGridLine(); AxisValueLabel { if let d = v.as(Double.self) { Text(Fmt.money(d, decimals: 0)) } } } }
             .chartLegend(position: .bottom, alignment: .leading)
         }

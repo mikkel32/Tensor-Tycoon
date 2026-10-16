@@ -276,11 +276,11 @@ struct ModelLabView: View {
                     }
                     LabeledPicker(title: "Attention", selection: $design.attention, options: AttentionKind.allCases,
                                   enabled: { $0 == .mha || ($0 == .gqa && b.has(.gqa)) || ($0 == .mla && b.has(.mla)) })
+                    let hasAlien = !s.alienArchs.isEmpty
                     LabeledPicker(title: "Architecture", selection: $design.mixer, options: MixerKind.allCases,
-                                  enabled: { $0 == .transformer || ($0 == .hybrid && b.has(.ssmHybrid)) || ($0 == .diffusion && b.has(.diffusionLM)) })
+                                  enabled: { $0 == .transformer || ($0 == .hybrid && b.has(.ssmHybrid)) || ($0 == .diffusion && b.has(.diffusionLM)) || ($0 == .alien && hasAlien) })
                     if design.mixer != .transformer {
-                        Text(design.mixer == .hybrid ? "Mamba layers between attention: faster decoding, longer context, slightly weaker reasoning."
-                                                     : "Generates by denoising: 5–10× faster output, lower quality.")
+                        Text(mixerNote(design.mixer, s))
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     FeatureToggle(title: "Multi-token prediction", detail: "Better training signal + built-in speculative decoding.", isOn: $design.mtp, enabled: b.has(.mtp))
@@ -529,6 +529,19 @@ enum LabMath {
             if ForecastEngine.index(p, set: set) < target { lo = mid } else { hi = mid }
         }
         return hi
+    }
+}
+
+/// One-line explanation of a non-Transformer architecture choice.
+private func mixerNote(_ m: MixerKind, _ s: GameState) -> String {
+    switch m {
+    case .transformer: return ""
+    case .hybrid: return "Mamba layers between attention: faster decoding, longer context, slightly weaker reasoning."
+    case .diffusion: return "Generates by denoising: 5–10× faster output, lower quality."
+    case .alien:
+        guard let a = Xeno.best(s) else { return "Your agents haven't found an alien architecture yet." }
+        let legible = Xeno.legibility(a, s)
+        return "\(a.name), found by your agents: trains like ×\(Fmt.trim(a.multiplier, 1)) the compute and serves cheaper — but humans follow only \(Int(legible * 100))% of it (up to −\(Int(25 * (1 - legible))) safety)."
     }
 }
 

@@ -1,0 +1,85 @@
+import Foundation
+
+enum Screen: String, CaseIterable, Identifiable, Hashable {
+    case dashboard, strategy, security, lab, training, models, leaderboard, benchmarks, rsi, swarms, xeno
+    case hardware, partners, compute, datacenters, silicon
+    case research, team, data
+    case market, chipSales, competitors, finance, funding
+    case news, achievements, credits
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .dashboard: "Dashboard"
+        case .strategy: "Strategy & Traits"
+        case .security: "Security & Policy"
+        case .lab: "Model Lab"
+        case .training: "Training Runs"
+        case .models: "Models & Serving"
+        case .leaderboard: "Leaderboard"
+        case .benchmarks: "Benchmarks"
+        case .rsi: "Self-Improvement Lab"
+        case .swarms: "Agent Swarms"
+        case .xeno: "Alien Tech"
+        case .hardware: "Hardware Store"
+        case .compute: "Compute Fleet"
+        case .datacenters: "Datacenters & Power"
+        case .silicon: "Custom Silicon"
+        case .partners: "Compute Partners"
+        case .research: "Research"
+        case .team: "Team"
+        case .data: "Training Data"
+        case .market: "Market & Products"
+        case .chipSales: "Chip & Cloud Sales"
+        case .competitors: "Competitors"
+        case .finance: "Finance"
+        case .funding: "Funding & Equity"
+        case .news: "News"
+        case .achievements: "Achievements"
+        case .credits: "Credits & Sources"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .dashboard: "gauge.with.dots.needle.67percent"
+        case .strategy: "theatermasks.fill"
+        case .security: "lock.shield.fill"
+        case .lab: "flask.fill"
+        case .training: "chart.line.downtrend.xyaxis"
+        case .models: "cube.box.fill"
+        case .leaderboard: "trophy.fill"
+        case .benchmarks: "checklist.checked"
+        case .rsi: "arrow.triangle.2.circlepath.circle.fill"
+        case .swarms: "person.3.sequence.fill"
+        case .xeno: "atom"
+        case .hardware: "cart.fill"
+        case .compute: "cpu.fill"
+        case .datacenters: "building.columns.fill"
+        case .silicon: "memorychip.fill"
+        case .partners: "signature"
+        case .research: "lightbulb.fill"
+        case .team: "person.3.fill"
+        case .data: "externaldrive.fill"
+        case .market: "chart.pie.fill"
+        case .chipSales: "shippingbox.fill"
+        case .competitors: "flag.2.crossed.fill"
+        case .finance: "dollarsign.circle.fill"
+        case .funding: "banknote.fill"
+        case .news: "newspaper.fill"
+        case .achievements: "medal.fill"
+        case .credits: "info.circle.fill"
+        }
+    }
+
+    static let sections: [(String, [Screen])] = [
+        ("Company", [.dashboard, .strategy, .security, .news]),
+        ("Build AI", [.lab, .training, .models, .rsi, .swarms, .xeno]),
+        ("Evaluate", [.leaderboard, .benchmarks]),
+        ("Infrastructure", [.hardware, .partners, .compute, .datacenters, .silicon]),
+        ("R&D", [.research, .team, .data]),
+        ("Business", [.market, .chipSales, .competitors, .finance, .funding]),
+        ("More", [.achievements, .credits]),
+    ]
+}

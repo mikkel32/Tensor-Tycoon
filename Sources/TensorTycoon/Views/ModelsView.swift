@@ -36,6 +36,7 @@ private struct ModelCard: View {
     let model: AIModel
     let state: GameState
     @State private var priceText = ""
+    @State private var launch: LaunchStyle = .standard
     @State private var addAccel = ""
 
     var body: some View {
@@ -97,10 +98,15 @@ private struct ModelCard: View {
             Text("Distribution").font(.headline)
             if !m.released {
                 Text("Releasing boosts your brand. Then deploy chips and set a price.").font(.caption).foregroundStyle(.secondary)
+                Picker("Launch", selection: $launch) {
+                    ForEach(LaunchStyle.allCases) { l in Text(l.title).tag(l) }
+                }
+                Text(launch == .keynote ? "\(launch.detail) \(Fmt.money(GameState.keynoteCost(s)))." : launch.detail)
+                    .font(.caption2).foregroundStyle(.secondary)
                 HStack {
-                    Button("Release via API") { store.act("\(m.name) released") { $0.release(m.id, api: true, openWeights: false) } }
+                    Button("Release via API") { store.act("\(m.name) released") { $0.release(m.id, api: true, openWeights: false, launch: launch) } }
                         .buttonStyle(.borderedProminent)
-                    Button("Release open weights") { store.act("\(m.name) released with open weights") { $0.release(m.id, api: true, openWeights: true) } }
+                    Button("Release open weights") { store.act("\(m.name) released with open weights") { $0.release(m.id, api: true, openWeights: true, launch: launch) } }
                 }
             } else {
                 Toggle("Sell via API", isOn: Binding(get: { m.api }, set: { on in store.act { $0.release(m.id, api: on, openWeights: m.openWeights) } }))
@@ -195,6 +201,10 @@ private struct ModelCard: View {
                     if load > 1 { Text("Over capacity: requests are failing and users are churning. Add chips!").font(.caption).foregroundStyle(.red) }
                 }
                 if m.api {
+                    Toggle(isOn: Binding(get: { m.autoPrice }, set: { v in store.mutate { $0.setAutoPrice(m.id, v) } })) {
+                        Text("Auto-price: track the market for this quality (\(Fmt.price(Treasury.targetPrice(m, s))) today)")
+                    }
+                    .help("Re-prices a little every day so an older model stays competitive as the frontier moves. Setting a price by hand turns it off.")
                     HStack {
                         Text("API price $/1M tokens")
                         TextField("Price", text: $priceText)

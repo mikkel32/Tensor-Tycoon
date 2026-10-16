@@ -5,6 +5,7 @@ struct FundingView: View {
     @Environment(GameStore.self) private var store
     @State private var fraction = 0.15
     @State private var secondary = 0.05
+    @State private var founderSale = 0.05
 
     var body: some View {
         let s = store.game
@@ -42,6 +43,7 @@ struct FundingView: View {
                 VStack(spacing: 12) {
                     StatTile(title: "Valuation", value: Fmt.money(s.valuation), detail: s.isPublic ? "Market cap" : "Private mark", symbol: "building.columns.fill", tint: .purple)
                     StatTile(title: "Your stake", value: Fmt.money(s.valuation * s.founderStake), detail: Fmt.pct(s.founderStake), symbol: "person.crop.circle.fill", tint: .green)
+                    StatTile(title: "Your net worth", value: Fmt.money(s.founderNetWorth), detail: s.founderCash > 0 ? "\(Fmt.money(s.founderCash)) cashed out" : "All on paper", symbol: "dollarsign.circle.fill", tint: .yellow)
                 }
                 .frame(width: 260)
             }
@@ -107,6 +109,25 @@ struct FundingView: View {
                     }
                     .frame(width: 320)
                 }
+            }
+
+            Card {
+                CardHeader("Founder liquidity", symbol: "person.crop.circle.badge.checkmark",
+                           subtitle: "Sell part of your own stake. The money is yours, not the company's — it counts toward your net worth.")
+                let blocker = Treasury.founderSaleBlocker(s)
+                let price = Treasury.founderSalePrice(s)
+                let gross = s.founderShares * founderSale * price
+                HStack {
+                    Text("Sell")
+                    Slider(value: $founderSale, in: 0.01...0.25, step: 0.01)
+                    Text("\(Fmt.pct(founderSale, decimals: 0)) of your shares").font(.callout.monospacedDigit()).frame(width: 150)
+                    Text("≈ \(Fmt.money(gross * (1 - Treasury.capitalGainsTax))) after tax").font(.callout.monospacedDigit()).foregroundStyle(.green)
+                    Button("Sell shares") { store.act("Shares sold") { $0.sellFounderShares(fraction: founderSale) } }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(blocker != nil)
+                }
+                Text(blocker ?? "\(s.isPublic ? "Sold into the market at" : "Secondary buyers pay") \(Fmt.price(price))/share\(s.isPublic ? " (the stock dips a little)" : " — a 15% discount to the last mark")). One sale every six months; over 10% at once spooks the press.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
 
             Card {

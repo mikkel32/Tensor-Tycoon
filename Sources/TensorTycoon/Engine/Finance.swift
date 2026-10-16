@@ -41,7 +41,8 @@ enum Finance {
     static func makeOffer(_ s: inout GameState) {
         let v = privateValue(s)
         let strategic = s.rng.chance(s.year > 2019 ? 0.3 : 0.1)
-        var pre = v * s.rng.range(0.85, 1.2) * (strategic ? 1.15 : 1)
+        // Lab identity and how much the board believes in you move the price.
+        var pre = v * s.rng.range(0.85, 1.2) * (strategic ? 1.15 : 1) * max(0.6, 1 + s.traits.valuation) * Board.valuationFactor(s)
         pre = max(pre, 2_000_000)
         if let last = s.rounds.last, GameCalendar.daysBetween(last.date, s.date) < 400 {
             pre = min(pre, (last.preMoney + last.amount) * 3.5)
@@ -159,6 +160,9 @@ enum Monthly {
     static func close(_ s: inout GameState) {
         let b = s.bonuses
         Partners.monthly(&s)
+        Xeno.monthly(&s)
+        SecurityOps.monthly(&s)
+        Policy.monthly(&s)
         if s.publication == .secret { s.brand = max(0, s.brand - 0.25) }
         // Enterprise contracts tick
         for i in s.deals.indices where s.deals[i].active {
@@ -183,7 +187,7 @@ enum Monthly {
         Finance.settleSupplyDeals(&s)
 
         // Taxes on positive monthly profit
-        let pre = s.month.revenue - s.month.opex - s.month.costInterest
+        let pre = s.month.revenue + s.month.interestIncome + s.month.oneOffIncome - s.month.opex - s.month.costInterest
         if pre > 0 {
             let tax = pre * 0.21
             s.month.taxes = tax
@@ -202,7 +206,7 @@ enum Monthly {
 
         // Brand: decays, marketing and leadership grow it
         let marketingBoost = s.marketingBudget > 0 ? 3.0 * log10(1 + s.marketingBudget / 50_000) : 0
-        let sales = s.employees.filter { $0.role == .sales }.reduce(0.0) { $0 + $1.skill / 50 }
+        let sales = s.employees.filter { $0.role == .sales }.reduce(0.0) { $0 + $1.weight }
         var leader = 0.0
         if let top = Leaderboard.entries(s, includeUnreleased: false).first, top.isPlayer { leader = 4 }
         // Brand drifts toward what your reach and quality "deserve"
@@ -211,17 +215,22 @@ enum Monthly {
         let reach = 9 * log10(1 + s.consumerUsers / 1e5) + 6 * log10(1 + (s.history.last?.revAPI ?? 0) / 1e5)
         let deserved = clamp(8 + quality + reach, 0, 92)
         s.brand += (deserved - s.brand) * 0.08
-        s.brand = clamp(s.brand + marketingBoost * 0.5 + min(2, sales * 0.2) + leader + (s.reliability - 0.9) * 5, 0, 100)
+        s.brand = clamp(s.brand + marketingBoost * 0.5 + min(2, sales * 0.2) + leader + (s.reliability - 0.9) * 5 + s.traits.brand, 0, 100)
 
         // Safety score: team + research + released models
-        let safetyTeam = s.employees.filter { $0.role == .safety }.reduce(0.0) { $0 + $1.skill / 50 }
+        let safetyTeam = s.employees.filter { $0.role == .safety }.reduce(0.0) { $0 + $1.weight }
         let released = s.releasedModels
         let modelSafety = released.isEmpty ? 40 : released.map(\.safety).reduce(0, +) / Double(released.count)
-        s.safetyScore = clamp(modelSafety * 0.6 + b.safety * 0.4 + min(25, safetyTeam * 4), 0, 100)
+        s.safetyScore = clamp(modelSafety * 0.6 + b.safety * 0.4 + min(25, safetyTeam * 4) + 10 * s.swarmSafety + s.traits.safety * 0.5
+                              + (s.lawsPassed.contains("transparency") ? 5 : 0), 0, 100)
 
         People.monthly(&s)
         Competitors.monthly(&s)
         Events.monthly(&s)
+        Board.monthly(&s)
+        StrategyEvents.monthly(&s)
+        Victory.monthly(&s)
+        Xeno.rivalDiscovery(&s)
 
         // Valuation and records
         s.valuation = Economy.valuation(s)
@@ -241,12 +250,13 @@ enum Business {
     static func generateDeals(_ s: inout GameState, _ b: ResearchBonuses) {
         s.deals.removeAll { !$0.active && $0.expires < s.date }
         guard let best = s.releasedModels.max(by: { $0.index < $1.index }) else { return }
-        let sales = s.employees.filter { $0.role == .sales }.reduce(0.0) { $0 + $1.skill / 50 }
+        let sales = s.employees.filter { $0.role == .sales }.reduce(0.0) { $0 + $1.weight }
         let pending = s.deals.filter { !$0.active }.count
         guard pending < 4 else { return }
         let frontier = Macro.frontier(s.year)
         let quality = exp(1.2 * (best.c - frontier))
-        let p = clamp(0.15 + sales * 0.12 + s.brand / 300, 0, 0.9) * (1 + b.enterpriseDemand)
+        var p = clamp(0.15 + sales * 0.12 + s.brand / 300, 0, 0.9) * (1 + b.enterpriseDemand) * max(0.3, 1 + s.traits.enterprise)
+        if s.lawsPassed.contains("liability") { p *= clamp(1 + (s.safetyScore - 50) / 150, 0.6, 1.4) }
         let n = s.rng.chance(p) ? (s.rng.chance(p * 0.5) ? 2 : 1) : 0
         for _ in 0..<n {
             let size = Macro.marketSize(s.year) * Macro.segmentSplit(s.year, chatMoment: s.chatMoment != nil).enterprise

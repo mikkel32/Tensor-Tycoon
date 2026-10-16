@@ -1,0 +1,25 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  macos:
+    name: Build & balance checks (macOS 26)
+    runs-on: macos-26
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: swift --version
+      - name: Build (release)
+        run: swift build -c release
+      - name: Ventures check (swarms, alien tech, chip sales, money)
+        run: .build/release/TensorTycoon --ventures 2026
+      - name: Strategy check (traits, board, acquisitions, security, policy)
+        run: .build/release/TensorTycoon --strategy 2022
+      - name: Balance playthrough
+        run: .build/release/TensorTycoon --simulate 2022 | tail -60

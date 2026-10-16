@@ -6,13 +6,13 @@ enum Silicon {
     static let codenames = ["Lumen", "Quasar", "Helix", "Nova", "Atlas", "Zephyr", "Orion", "Vega", "Cobalt", "Ember"]
 
     static func designerFactor(_ s: GameState) -> Double {
-        let skill = s.employees.filter { $0.role == .chipDesigner }.reduce(0.0) { $0 + $1.skill / 50 }
+        let skill = s.employees.filter { $0.role == .chipDesigner }.reduce(0.0) { $0 + $1.weight }
         return min(1, skill / 20)
     }
 
     static func speed(_ p: ChipProject, _ s: GameState) -> Double {
         // > 1 means slower
-        p.partner.speed * (1.25 - 0.35 * designerFactor(s))
+        p.partner.speed * (1.25 - 0.35 * designerFactor(s)) * (1 - 0.3 * s.swarmSilicon) * max(0.4, 1 - s.traits.chipDesign - s.bonuses.chipDesign)
     }
 
     static func totalDays(_ p: ChipProject, _ s: GameState) -> Double {
@@ -74,7 +74,7 @@ enum Silicon {
         let p = s.chipProjects[i]
         let ref = reference(s)
         let budgetF = 0.15 * log10(max(p.budget, 1e7) / 1e8)
-        var perf = 0.6 + budgetF + 0.08 * designerFactor(s) + p.partner.quality + 0.07 * Double(p.generation - 1)
+        var perf = 0.6 + budgetF + 0.08 * designerFactor(s) + p.partner.quality + 0.07 * Double(p.generation - 1) + 0.08 * s.swarmSilicon + 0.25 * (s.traits.chipDesign + s.bonuses.chipDesign)
         perf = clamp(perf, 0.45, 1.3)
         let training = p.focus == .training
         let mem = ref.memoryGB * (training ? 1.0 : 1.25)

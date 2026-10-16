@@ -8,6 +8,8 @@ struct NewGameSettings {
     var locationID = "nova"
     var logoSymbol = "brain.head.profile"
     var logoColor = 0
+    var doctrine: LabDoctrine = .balanced
+    var background: FounderBackground = .researcher
 
     /// First name of the Mac's user account, so the founder defaults to the player.
     static var defaultFounder: String {
@@ -27,9 +29,14 @@ enum NewGame {
                           founderName: settings.founderName.isEmpty ? "Founder" : settings.founderName,
                           logoSymbol: settings.logoSymbol, logoColor: settings.logoColor,
                           difficulty: settings.difficulty, eraID: era.id, startDate: start, date: start,
-                          cash: era.cash * settings.difficulty.cashMultiplier, rng: GameRNG(seed: seed),
+                          cash: era.cash * settings.difficulty.cashMultiplier * settings.background.startCash, rng: GameRNG(seed: seed),
                           month: MonthRecord(month: GameCalendar.date(start.ym.year, start.ym.month, 1)))
         let y = start.decimalYear
+        s.traitsInitialized = true
+        s.doctrineID = settings.doctrine.rawValue
+        s.backgroundID = settings.background.rawValue
+        s.culturePoints = 2
+        s.boardConfidence = 60
 
         // Public research is already known.
         for r in ResearchCatalog.core where r.year <= y - 0.05 && r.category != .frontier {
@@ -110,7 +117,13 @@ enum NewGame {
         BenchLife.replayHistory(&s)
         BenchLife.refreshIndexes(&s)
         s.valuation = seedPre + raised
-        s.brand = 8
+        s.brand = 8 + (settings.background == .policy ? 5 : 0)
+        if settings.doctrine == .open { s.publication = .open }
+        if settings.doctrine == .hardware {
+            s.researched.insert("custom_silicon")
+            s.researchQueue.removeAll { $0 == "custom_silicon" }
+        }
+        Board.refill(&s)
         s.market.interestRate = Macro.historicalRate(y) ?? 3.4
 
         // Welcome news

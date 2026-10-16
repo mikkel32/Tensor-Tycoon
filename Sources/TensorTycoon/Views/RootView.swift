@@ -71,12 +71,17 @@ struct ScreenRouter: View {
     var body: some View {
         switch screen {
         case .dashboard: DashboardView()
+        case .strategy: StrategyView()
+        case .security: SecurityView()
         case .lab: ModelLabView()
         case .training: TrainingView()
         case .models: ModelsView()
         case .leaderboard: LeaderboardView()
         case .benchmarks: BenchmarksView()
         case .rsi: RSIView()
+        case .swarms: SwarmView()
+        case .xeno: XenoView()
+        case .chipSales: ChipSalesView()
         case .silicon: SiliconView()
         case .partners: PartnersView()
         case .hardware: HardwareStoreView()
@@ -138,6 +143,10 @@ struct Sidebar: View {
         case .funding: s.raiseOffers.count
         case .research: s.researchQueue.isEmpty ? 1 : 0
         case .rsi: s.rsiRuns.filter { $0.status == .running }.count
+        case .swarms: s.swarms.filter { !$0.paused }.count
+        case .strategy: s.culturePoints
+        case .security: s.bills.filter { $0.stance == 0 }.count
+        case .xeno: s.alienArchs.reduce(0) { $0 + $1.offers.count }
         case .silicon: s.chipProjects.filter { !$0.done }.count
         case .partners: s.partnerships.count
         default: 0
@@ -296,6 +305,17 @@ struct GameOverSheet: View {
                     GridRow { Text("Achievements").foregroundStyle(.secondary); Text("\(s.achievements.count) / \(AchievementCatalog.all.count)") }
                     if let v = s.exitValue {
                         GridRow { Text("Your payout").foregroundStyle(.secondary); Text(Fmt.money(v * s.founderStake)).bold() }
+                    }
+                    if s.founderCash > 0 {
+                        GridRow { Text("Cashed out before").foregroundStyle(.secondary); Text(Fmt.money(s.founderCash)) }
+                    }
+                    GridRow { Text("Legacy score").foregroundStyle(.secondary); Text("\(Victory.legacyScore(s))").bold() }
+                    if !s.victories.isEmpty {
+                        GridRow { Text("Victories").foregroundStyle(.secondary); Text(s.victories.compactMap { VictoryPath(rawValue: $0)?.title }.sorted().joined(separator: ", ")) }
+                    }
+                    GridRow {
+                        Text("Founder net worth").foregroundStyle(.secondary)
+                        Text(Fmt.money(s.founderCash + s.founderStake * (s.exitValue ?? ((s.keptStake || s.gameOver == nil) ? s.valuation : 0)))).bold()
                     }
                 }
                 HStack {

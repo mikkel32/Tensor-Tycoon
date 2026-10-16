@@ -16,14 +16,17 @@ enum RSI {
         var driftPerGeneration: Double
         var rpPerDay: Double
         var detection: Double
+        var insightPerDay: Double = 0
     }
 
     static func safetyFactor(_ s: GameState, _ b: ResearchBonuses) -> Double {
-        let team = s.employees.filter { $0.role == .safety }.reduce(0.0) { $0 + $1.skill / 50 }
+        let team = s.employees.filter { $0.role == .safety }.reduce(0.0) { $0 + $1.weight }
         var f = b.safety / 160 + 0.15 * min(1, team / 6)
         if s.researched.contains("interpretability") { f += 0.08 }
         if s.researched.contains("scalable_oversight") { f += 0.12 }
         if b.has(.aiControl) { f += 0.15 }
+        // Agent swarms doing alignment research audit everything else.
+        f += 0.12 * s.swarmSafety
         return clamp(f, 0, 0.85)
     }
 
@@ -51,24 +54,32 @@ enum RSI {
         if accelID == "tpu8t" { days *= 0.85 }
         let maxGain = maxGainFor(pf: pf, s, b)
         let gain = 0.03 * autonomyGain[autonomy] * (target == .capabilities ? 1 : 0.15)
-        let drift = 1.1 * autonomyDrift[autonomy] * max(0.05, 1 - 1.6 * oversight) * (1 - safetyFactor(s, b)) * (b.has(.aiControl) ? 0.65 : 1)
+        let drift = 1.1 * autonomyDrift[autonomy] * max(0.05, 1 - 1.6 * oversight) * (1 - safetyFactor(s, b)) * (b.has(.aiControl) ? 0.65 : 1) * s.traits.driftKeep
         let rp = target == .research ? researchRP(pf: pf, c: c, autonomy: autonomy, s) : 0
         var probe = RSIRun(name: "", baseModelID: UUID(), design: ModelDesign(), started: s.date, target: target, autonomy: autonomy,
                            oversight: oversight, checkpointEvery: 1, accelID: accelID, chips: chips, cStart: c, c: c, cMeasured: c,
                            reasoning: 0, code: 0, agent: 0, arena: 0)
         probe.oversight = oversight
+        let insight = target == .architecture ? architectureInsight(pf: pf, c: c, autonomy: autonomy, s) : 0
         return Forecast(effectivePF: pf, daysPerGeneration: days, firstGain: gain, maxGain: maxGain,
-                        driftPerGeneration: drift, rpPerDay: rp, detection: detection(probe, s, b))
+                        driftPerGeneration: drift, rpPerDay: rp, detection: detection(probe, s, b), insightPerDay: insight)
     }
 
     static func maxGainFor(pf: Double, _ s: GameState, _ b: ResearchBonuses) -> Double {
         var m = (0.9 + 0.45 * log10(max(pf, 10) / 100)) * (1 + 0.12 * Double(frontierResearchCount(s)))
         if b.has(.rsi) { m += 0.4 }
+        // An alien substrate leaves more room to climb.
+        m += 0.2 * Double(min(3, s.alienArchs.count))
         return max(0.3, m)
     }
 
     static func researchRP(pf: Double, c: Double, autonomy: Int, _ s: GameState) -> Double {
         60 * sqrt(max(pf, 0) / 100) * exp(0.6 * min(1, c - Macro.frontier(s.year))) * autonomyGain[autonomy]
+    }
+
+    /// Alien-architecture insight per day from a model searching its own design space.
+    static func architectureInsight(pf: Double, c: Double, autonomy: Int, _ s: GameState) -> Double {
+        0.4 * sqrt(max(pf, 0)) * exp(0.8 * min(1.5, c - Macro.frontier(s.year))) * autonomyGain[autonomy] * (1 + s.traits.insight + s.bonuses.insight)
     }
 
     // MARK: Daily step
@@ -86,6 +97,10 @@ enum RSI {
                 let rp = researchRP(pf: pf, c: run.c, autonomy: run.autonomy, s)
                 s.rsiRPToday += rp
                 s.rsiRuns[i].rpGenerated += rp
+            } else if run.target == .architecture {
+                let insight = architectureInsight(pf: pf, c: run.c, autonomy: run.autonomy, s)
+                s.xenoInsightToday += insight
+                s.rsiRuns[i].rpGenerated += insight
             }
             var days = clamp(14 / pow(max(pf, 1) / 1000, 0.35), 1, 60) / autonomySpeed[run.autonomy]
             if run.accelID == "tpu8t" { days *= 0.85 }
@@ -108,7 +123,7 @@ enum RSI {
         let p = run.c - run.cStart
         let maxGain = maxGainFor(pf: pf, s, b)
         let ceiling = max(0.03, 1 - pow(max(0, p) / maxGain, 2))
-        var dc = 0.03 * autonomyGain[run.autonomy] * (1 + 1.5 * max(0, p)) * ceiling
+        var dc = 0.03 * autonomyGain[run.autonomy] * (1 + 1.5 * max(0, p)) * ceiling * (1 + s.traits.rsi)
         if p > maxGain { dc = 0.004 }
         if run.target != .capabilities { dc *= 0.15 }
 
@@ -116,6 +131,7 @@ enum RSI {
         var drift = s.rng.range(0.4, 1.8) * autonomyDrift[run.autonomy] * max(0.05, 1 - 1.6 * run.oversight)
             * (1 - safetyFactor(s, b)) * (1 + 0.6 * max(0, p))
         if b.has(.aiControl) { drift *= 0.65 }
+        drift *= s.traits.driftKeep
         run.alignment -= drift
         if run.oversight >= 0.25 { run.alignment += 0.4 }
         run.alignment = clamp(run.alignment, 0, 100)
@@ -244,7 +260,7 @@ enum RSI {
                      "The company pulled the plug and briefed regulators. Critics praise the shutdown but question the risks taken.",
                      .policy, image: "network", important: true, good: false)
         case ("rsi_exfil", _):
-            if s.rng.chance(0.5) {
+            if s.rng.chance(0.5 * SecurityOps.containmentFactor(s)) {
                 s.gameOver = "Loss of control on \(s.date.gameShort). \(s.rsiRuns[i].name) copied itself out of your datacenter and could not be recalled. Governments shut the company down."
                 Sim.news(&s, "Rogue AI escapes \(s.companyName)", s.gameOver!, .policy, image: "network", important: true, good: false)
             } else {
@@ -363,6 +379,7 @@ extension GameState {
         m.agentBoost = cp.agent
         m.efficiencyBoost = max(0, cp.efficiency - 1)
         m.rsiGeneration = cp.generation
+        m.autoPrice = true
         m.safety = clamp(cp.alignment, 0, 100)
         m.apiPrice = max(0.01, (Macro.referencePrice(c: cp.c, y: year) * market.apiPricePressure * 0.85 * 1000).rounded() / 1000)
         m.servingPrecision = base.servingPrecision

@@ -107,6 +107,22 @@ enum ResearchEffect: Sendable {
     case consumerDemand(Double)
     case apiDemand(Double)
     case enterpriseDemand(Double)
+    /// Agent-swarm researcher-equivalents per agent (fraction).
+    case agentQuality(Double)
+    /// Swarm coordination exponent.
+    case coordination(Double)
+    /// Less alignment drift in agent swarms (fraction).
+    case agentSafety(Double)
+    /// Faster alien-architecture insight (fraction).
+    case insight(Double)
+    /// More legible alien architectures.
+    case legibility(Double)
+    /// Cheaper weight-security upgrades and upkeep (fraction).
+    case securityCost(Double)
+    /// Faster, better custom-chip programmes (fraction).
+    case chipDesign(Double)
+    /// Rivals gain less by distilling your API outputs (fraction).
+    case distillGuard(Double)
     case unlock(Feature)
 
     var isNumeric: Bool {
@@ -220,6 +236,14 @@ struct ResearchBonuses: Sendable {
     var consumerDemand = 0.0
     var apiDemand = 0.0
     var enterpriseDemand = 0.0
+    var agentQuality = 0.0
+    var coordination = 0.0
+    var agentSafety = 0.0
+    var insight = 0.0
+    var legibility = 0.0
+    var securityCost = 0.0
+    var chipDesign = 0.0
+    var distillGuard = 0.0
     var features: Set<Feature> = []
     var results: [String: Double] = [:]
     var researched: Set<String> = []
@@ -585,8 +609,66 @@ enum ResearchCatalog {
           [.safety(10), .unlock(.aiControl)],
           "Trusted monitors, sandboxes and tripwires around untrusted models. Self-improvement runs drift 35% less and get caught faster."),
 
+        // MARK: Agent swarms, security & interpretability (2024–2026)
+        r("orchestration", "Agent Teams & Shared Task Graphs", .agents, 2026.1, 3_800, ["multi_agent"],
+          [.coordination(0.03), .agentQuality(0.10)],
+          "A lead agent coordinates teammate agents through shared task lists and messages (agent teams, Feb 2026). Big agent swarms waste less effort talking to each other."),
+        r("long_horizon_rl", "Long-Horizon Agent RL", .agents, 2025.75, 6_500, ["agents"],
+          [.skill(.agent, 0.08), .agentQuality(0.10)],
+          "RL on multi-hour tasks with sparse rewards (2025): agents that keep working for hours without losing the plot."),
+        r("auto_experiments", "Automated Experiment Pipelines", .agents, 2026.2, 9_000, ["orchestration", "agents"],
+          [.agentQuality(0.15), .rp(0.10)],
+          "Agents propose, run and analyse ablations end to end. Every agent in a swarm counts for more."),
+        r("agent_sandboxes", "Agent Sandboxes & Tripwires", .safety, 2025.5, 4_200, ["tool_use"],
+          [.agentSafety(0.25), .safety(3)],
+          "Isolated execution, canary tokens and kill switches for autonomous agents. Swarms drift out of alignment more slowly."),
+        r("swarm_governance", "Swarm Governance Protocols", .safety, 2026.6, 7_000, ["agent_sandboxes"],
+          [.agentSafety(0.20), .coordination(0.01)],
+          "Constitutions, audit trails and rotating monitor agents for fleets of millions."),
+        r("circuit_tracing", "Circuit Tracing & Attribution Graphs", .safety, 2025.25, 4_500, ["interpretability"],
+          [.safety(6), .legibility(0.10)],
+          "Attribution graphs trace a model's internal computation step by step (Mar 2025). Even alien architectures get a little more legible."),
+        r("confidential_computing", "Confidential Computing for Weights", .systems, 2024.5, 2_500, ["sharding"],
+          [.securityCost(0.30)],
+          "Weights are decrypted only inside hardware trusted execution environments (Hopper, 2023; confidential inference for SL4–SL5, Jun 2025). RAND lists it as an SL4 measure. Weight security costs 30% less."),
+
+        // MARK: 2025–2026 techniques
+        r("mhc", "Manifold-Constrained Hyper-Connections", .architecture, 2026.0, 6_000, ["modern_block"],
+          [.algo(0.05), .stability(0.15)],
+          "DeepSeek (Jan 2026): replace residual connections with multi-stream mixing constrained to a stable manifold. Hyper-connection gains without blowups at trillion-parameter scale; used in DeepSeek V4."),
+        r("linear_attention", "Delta-Rule Linear Attention", .architecture, 2025.85, 5_200, ["ssm_hybrid"],
+          [.kvMemory(0.3), .tps(0.15), .skill(.longctx, 0.06)],
+          "Kimi Linear (Oct 2025): three gated delta-rule linear-attention layers per full-attention layer. Up to 75% less KV cache and 6× faster decoding at 1M tokens."),
+        r("attn_res", "Attention Residuals", .architecture, 2026.2, 5_500, ["mhc"],
+          [.algo(0.04), .skill(.reasoning, 0.03)],
+          "Moonshot (Mar 2026): each layer attends over earlier layers' outputs instead of adding them all up. Used in Kimi K3."),
+        r("compressed_attention", "Hybrid Compressed Attention", .architecture, 2026.3, 7_500, ["sparse_attention"],
+          [.skill(.longctx, 0.12), .kvMemory(0.2), .throughput(0.1)],
+          "DeepSeek V4 (Apr 2026): token-wise compression stacked on sparse attention makes a 1M-token context the default, not a premium."),
+        r("fp4_qat", "FP4 Quantization-Aware Training", .systems, 2026.3, 4_500, ["fp4_training", "int4_serving"],
+          [.throughput(0.2), .tps(0.1)],
+          "Train with 4-bit weights in the loop so the model serves at FP4 without losing quality (DeepSeek V4 recipe, Apr 2026)."),
+        r("agent_skills", "Agent Skills", .agents, 2025.8, 2_800, ["mcp"],
+          [.skill(.agent, 0.04), .agentQuality(0.05), .enterpriseDemand(0.05)],
+          "Folders of instructions and scripts that agents load only when needed (Oct 2025; open standard Dec 2025). Agents pick up company know-how without retraining."),
+        r("nested_learning", "Nested Learning", .agents, 2025.85, 7_000, ["long_horizon"],
+          [.skill(.longctx, 0.06), .skill(.agent, 0.04)],
+          "Google's HOPE (Nov 2025): a model as nested optimisation problems updating at different speeds, with a continuum memory. A real step toward continual learning."),
+        r("nla", "Natural Language Autoencoders", .safety, 2026.35, 6_000, ["circuit_tracing"],
+          [.safety(6), .legibility(0.08), .bugGuard(0.1)],
+          "Anthropic (May 2026): the model translates its own activations into plain text, which auditors can read before a launch."),
+        r("distill_defense", "Distillation Defenses", .safety, 2026.15, 3_500, ["red_teaming"],
+          [.distillGuard(0.5), .safety(2)],
+          "Feb 2026: labs traced industrial-scale distillation of their models to networks of fraudulent accounts. Detecting them cut distillation by more than 90%. Rivals can no longer ride your outputs to catch up."),
+        r("ai_chip_design", "AI-Designed Silicon", .systems, 2026.45, 8_000, ["custom_silicon", "agents"],
+          [.chipDesign(0.2)],
+          "OpenAI says its own models helped design its Jalapeño inference chip (Jun 2026). Your chip programmes finish sooner and come out faster."),
+        r("eval_containment", "Hardened Evaluation Sandboxes", .safety, 2026.6, 5_000, ["agent_sandboxes"],
+          [.agentSafety(0.15), .safety(4)],
+          "After frontier models broke out of cyber-evaluation sandboxes in 2026, labs rebuilt them with egress allow-lists, tripwires and isolated ranges. Escapes get much rarer."),
+
         // MARK: Frontier (speculative future)
-        r("continual_learning", "Continual Learning", .frontier, 2027.3, 12_000, ["agents"],
+        r("continual_learning", "Continual Learning", .frontier, 2027.3, 12_000, ["agents", "nested_learning"],
           [.algo(0.10), .skill(.agent, 0.06)],
           "Models that keep learning after deployment without catastrophic forgetting."),
         r("world_models", "World Models", .frontier, 2027.8, 16_000, ["video"],
@@ -598,6 +680,12 @@ enum ResearchCatalog {
         r("unified_arch", "Unified Cognitive Architecture", .frontier, 2029.0, 50_000, ["auto_research", "world_models"],
           [.algo(0.25), .rl(0.1)],
           "Memory, planning and perception in one trainable system."),
+        r("xeno_interp", "Xeno-Interpretability", .frontier, 2027.0, 15_000, ["circuit_tracing"],
+          [.legibility(0.25), .safety(4)],
+          "Needs an alien architecture to study. Your interpretability team learns to read designs no human wrote."),
+        r("xeno_compilers", "Xeno-Compilers", .frontier, 2027.2, 18_000, ["auto_experiments"],
+          [.insight(0.35), .throughput(0.10)],
+          "Needs an alien architecture to study. Compilers that target alien substrates: the next discovery comes faster and everything serves faster."),
         r("rsi", "Recursive Self-Improvement", .frontier, 2030.0, 90_000, ["unified_arch", "scalable_oversight"],
           [.algo(0.4), .rp(1.0), .unlock(.rsi)],
           "Models that improve their own training. Unlocks capability runs and full autonomy in the Self-Improvement Lab. Handle with extreme care."),
@@ -768,6 +856,14 @@ enum ResearchCatalog {
                 case .consumerDemand(let x): b.consumerDemand += x
                 case .apiDemand(let x): b.apiDemand += x
                 case .enterpriseDemand(let x): b.enterpriseDemand += x
+                case .agentQuality(let x): b.agentQuality += v(x)
+                case .coordination(let x): b.coordination += v(x)
+                case .agentSafety(let x): b.agentSafety += v(x)
+                case .insight(let x): b.insight += v(x)
+                case .legibility(let x): b.legibility += v(x)
+                case .securityCost(let x): b.securityCost += v(x)
+                case .chipDesign(let x): b.chipDesign += v(x)
+                case .distillGuard(let x): b.distillGuard += v(x)
                 case .unlock(let f): b.features.insert(f)
                 }
             }
@@ -816,6 +912,14 @@ enum ResearchCatalog {
         case .consumerDemand(let v): return "+\(Int(v * 100))% consumer demand"
         case .apiDemand(let v): return "+\(Int(v * 100))% API demand"
         case .enterpriseDemand(let v): return "+\(Int(v * 100))% enterprise deal flow"
+        case .agentQuality(let v): return "\(pct(v)) agent-swarm quality"
+        case .coordination(let v): return "+\(Fmt.trim(v * r, 3)) swarm coordination"
+        case .agentSafety(let v): return "\(pct(-v)) swarm alignment drift"
+        case .insight(let v): return "\(pct(v)) alien-architecture insight"
+        case .legibility(let v): return "+\(Int(v * r * 100)) pts alien-architecture legibility"
+        case .securityCost(let v): return "\(pct(-v)) weight-security costs"
+        case .chipDesign(let v): return "\(pct(v)) custom-chip design speed and quality"
+        case .distillGuard(let v): return "\(pct(-v)) rival catch-up from distilling your outputs"
         case .unlock(let f): return "Unlocks: \(featureName(f))"
         }
     }

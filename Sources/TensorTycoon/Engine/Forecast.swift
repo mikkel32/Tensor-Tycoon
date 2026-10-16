@@ -186,6 +186,13 @@ enum ForecastEngine {
                 algo += pen
                 drivers.append(ForecastDriver(name: "Diffusion decoding", value: pen, kind: .penalty, detail: "5–10× faster generation"))
                 f.keyTech.append("Diffusion LM")
+            case .alien:
+                if let arch = Xeno.best(s) {
+                    algo += arch.computeGain
+                    drivers.append(ForecastDriver(name: "Alien architecture (\(arch.name))", value: arch.computeGain, kind: .gain,
+                                                  detail: "Found by your agents. Humans follow about \(Int(arch.legibility * 100))% of it"))
+                    f.keyTech.append("Alien: \(arch.name)")
+                }
             default: break
             }
             if d.mtp && b.has(.mtp) {
@@ -208,14 +215,19 @@ enum ForecastEngine {
                 f.penalties.append("FP4 training noise (×0.91)")
             }
             // Team: careful hyperparameter work
-            let team = s.employees.filter { $0.role == .researcher || $0.role == .mlEngineer }.reduce(0.0) { $0 + $1.skill / 50 }
+            let team = s.employees.filter { $0.role == .researcher || $0.role == .mlEngineer }.reduce(0.0) { $0 + $1.weight }
             let teamGain = 0.03 * min(1, team / 8)
             algo += teamGain
+            let culture = s.traits.algo
+            if abs(culture) > 0.001 {
+                algo += culture
+                drivers.append(ForecastDriver(name: "Lab doctrine & culture", value: culture, kind: .gain, detail: "\(s.doctrine.title), \(s.background.title.lowercased()) founder and culture perks"))
+            }
             f.algo = algo
 
             // Data quality
             var data = b.dataAlgo + sources.reduce(0) { $0 + $1.quality }
-            let dataTeam = s.employees.filter { $0.role == .data }.reduce(0.0) { $0 + $1.skill / 50 }
+            let dataTeam = s.employees.filter { $0.role == .data }.reduce(0.0) { $0 + $1.weight }
             data += 0.08 * min(1, dataTeam / 3)
             switch d.dataMix {
             case .balanced: break
@@ -311,8 +323,15 @@ enum ForecastEngine {
         if d.mixer == .hybrid { longctx += 0.1 }
         let vis = d.vision ? b.skill(.vis) : 0
         var safety = 25 + b.safety + (d.safetyTraining ? 15 : 0) + (d.rlhf ? 5 : 0)
-        let safetyTeam = s.employees.filter { $0.role == .safety }.reduce(0.0) { $0 + $1.skill / 50 }
+        let safetyTeam = s.employees.filter { $0.role == .safety }.reduce(0.0) { $0 + $1.weight }
         safety += 20 * min(1, safetyTeam / 4)
+        safety += s.traits.safety
+        if d.mixer == .alien {
+            // You can't audit what you can't read.
+            safety -= 25 * (1 - Xeno.bestLegibility(s))
+            reasoning += 0.05
+            agent += 0.05
+        }
         f.reasoning = reasoning
         f.code = code
         f.agent = agent
@@ -358,6 +377,7 @@ enum ForecastEngine {
         switch d.mixer {
         case .hybrid: out.append(("hybrid", "Hybrid SSM", 0.08))
         case .diffusion: out.append(("diffusion", "Diffusion LM", 0.15))
+        case .alien: out.append(("alien", "Alien architecture", 0.18))
         case .transformer: break
         }
         if d.mtp { out.append(("mtp", "Multi-token prediction", 0.02)) }
@@ -390,7 +410,7 @@ enum ForecastEngine {
                 novel.append(name)
             }
         }
-        let team = s.employees.filter { $0.role == .researcher || $0.role == .mlEngineer }.reduce(0.0) { $0 + $1.skill / 50 }
+        let team = s.employees.filter { $0.role == .researcher || $0.role == .mlEngineer }.reduce(0.0) { $0 + $1.weight }
         let teamSig = 0.05 * max(0, 1 - team / 6)
         let covered = s.scalingFits.contains { $0.signature == d.recipeSignature && flops <= $0.maxCompute * pow(10, 3.7) }
         var sigma = sqrt(base * base + ext * ext + novelSq * (covered ? 0.16 : 1) + teamSig * teamSig)
@@ -407,7 +427,7 @@ enum ForecastEngine {
 
     static func bugRisk(_ d: ModelDesign, state s: GameState, covered: Bool, novelCount: Int) -> Double {
         let b = s.bonuses
-        let engineers = s.employees.filter { $0.role == .mlEngineer }.reduce(0.0) { $0 + $1.skill / 50 }
+        let engineers = s.employees.filter { $0.role == .mlEngineer }.reduce(0.0) { $0 + $1.weight }
         var p = 0.18 + 0.04 * Double(novelCount)
         p *= b.bugKeep
         if covered { p *= 0.4 }
