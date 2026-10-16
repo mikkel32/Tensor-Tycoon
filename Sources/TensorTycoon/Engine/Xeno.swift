@@ -12,7 +12,10 @@ enum Xeno {
 
     static func best(_ s: GameState) -> AlienArch? { s.alienArchs.max { $0.computeGain < $1.computeGain } }
     static func bestGain(_ s: GameState) -> Double { best(s)?.computeGain ?? 0 }
-    static func bestLegibility(_ s: GameState) -> Double { best(s)?.legibility ?? 1 }
+    static func bestLegibility(_ s: GameState) -> Double { best(s).map { legibility($0, s) } ?? 1 }
+
+    /// Legibility after your interpretability research.
+    static func legibility(_ a: AlienArch, _ s: GameState) -> Double { min(0.95, a.legibility + s.bonuses.legibility) }
 
     /// One-time cost to tape out an alien chip. The agents already wrote the RTL.
     static func fabCost(_ s: GameState) -> Double { 2.5e8 }

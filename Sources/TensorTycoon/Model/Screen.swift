@@ -1,7 +1,7 @@
 import Foundation
 
 enum Screen: String, CaseIterable, Identifiable, Hashable {
-    case dashboard, strategy, lab, training, models, leaderboard, benchmarks, rsi, swarms, xeno
+    case dashboard, strategy, security, lab, training, models, leaderboard, benchmarks, rsi, swarms, xeno
     case hardware, partners, compute, datacenters, silicon
     case research, team, data
     case market, chipSales, competitors, finance, funding
@@ -13,6 +13,7 @@ enum Screen: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .dashboard: "Dashboard"
         case .strategy: "Strategy & Traits"
+        case .security: "Security & Policy"
         case .lab: "Model Lab"
         case .training: "Training Runs"
         case .models: "Models & Serving"
@@ -44,6 +45,7 @@ enum Screen: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .dashboard: "gauge.with.dots.needle.67percent"
         case .strategy: "theatermasks.fill"
+        case .security: "lock.shield.fill"
         case .lab: "flask.fill"
         case .training: "chart.line.downtrend.xyaxis"
         case .models: "cube.box.fill"
@@ -72,7 +74,7 @@ enum Screen: String, CaseIterable, Identifiable, Hashable {
     }
 
     static let sections: [(String, [Screen])] = [
-        ("Company", [.dashboard, .strategy, .news]),
+        ("Company", [.dashboard, .strategy, .security, .news]),
         ("Build AI", [.lab, .training, .models, .rsi, .swarms, .xeno]),
         ("Evaluate", [.leaderboard, .benchmarks]),
         ("Infrastructure", [.hardware, .partners, .compute, .datacenters, .silicon]),

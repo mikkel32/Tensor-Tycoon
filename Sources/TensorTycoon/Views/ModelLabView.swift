@@ -540,7 +540,8 @@ private func mixerNote(_ m: MixerKind, _ s: GameState) -> String {
     case .diffusion: return "Generates by denoising: 5–10× faster output, lower quality."
     case .alien:
         guard let a = Xeno.best(s) else { return "Your agents haven't found an alien architecture yet." }
-        return "\(a.name), found by your agents: trains like ×\(Fmt.trim(a.multiplier, 1)) the compute and serves cheaper — but humans follow only \(Int(a.legibility * 100))% of it (up to −\(Int(25 * (1 - a.legibility))) safety)."
+        let legible = Xeno.legibility(a, s)
+        return "\(a.name), found by your agents: trains like ×\(Fmt.trim(a.multiplier, 1)) the compute and serves cheaper — but humans follow only \(Int(legible * 100))% of it (up to −\(Int(25 * (1 - legible))) safety)."
     }
 }
 

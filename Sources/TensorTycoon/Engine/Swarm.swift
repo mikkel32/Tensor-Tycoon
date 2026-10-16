@@ -21,11 +21,11 @@ enum Swarms {
     static func quality(_ m: AIModel) -> Double { clamp(0.05 * exp(1.1 * (agenticX(m) - 8.0)), 0.0003, 25) }
 
     /// Agent quality including your lab's traits.
-    static func quality(_ m: AIModel, _ s: GameState) -> Double { quality(m) * max(0.3, 1 + s.traits.swarm) }
+    static func quality(_ m: AIModel, _ s: GameState) -> Double { quality(m) * max(0.3, 1 + s.traits.swarm + s.bonuses.agentQuality) }
 
     /// How well big swarms coordinate (output grows as agents^coordination).
     static func coordination(_ b: ResearchBonuses, _ s: GameState) -> Double {
-        min(0.95, 0.78 + (b.has(.agents) ? 0.04 : 0) + (b.has(.autoResearch) ? 0.04 : 0) + (b.has(.rsi) ? 0.04 : 0) + s.traits.coordination)
+        min(0.95, 0.78 + (b.has(.agents) ? 0.04 : 0) + (b.has(.autoResearch) ? 0.04 : 0) + (b.has(.rsi) ? 0.04 : 0) + s.traits.coordination + b.coordination)
     }
 
     /// Only near-frontier agents find anything genuinely new.
@@ -76,12 +76,13 @@ enum Swarms {
             * (0.5 + 0.25 * log10(max(10, Double(sw.agents))))
         if let m, usesAlien(m) { d *= 1 + (1 - Xeno.bestLegibility(s)) }
         if sw.mission != .alignment { d *= 1 - 0.5 * s.swarmSafety }
-        return d * s.traits.driftKeep
+        return d * s.traits.driftKeep * (1 - min(0.6, b.agentSafety))
     }
 
     static func detection(_ sw: AgentSwarm, _ s: GameState, _ b: ResearchBonuses) -> Double {
         var d = 0.3 + sw.oversight * 1.2 + RSI.safetyFactor(s, b) * 0.35
         if b.has(.aiControl) { d += 0.1 }
+        if s.lawsPassed.contains("agent_registry") { d += 0.1 }
         return clamp(d, 0.1, 0.97)
     }
 
@@ -118,7 +119,7 @@ enum Swarms {
             if !b.has(.agents) {
                 out = "Needs Agentic RL research"
             } else {
-                let i = (insight((others + w) * xenoGate(m)) - insight(others * xenoGate(m))) * (1 + s.traits.insight)
+                let i = (insight((others + w) * xenoGate(m)) - insight(others * xenoGate(m))) * (1 + s.traits.insight + s.bonuses.insight)
                 let left = max(0, Xeno.insightNeeded(s) - s.xenoInsight)
                 out = i > 0.01 ? "+\(Fmt.trim(i, 1)) insight/day · ~\(Fmt.days(left / max(0.01, i + s.xenoInsightToday)))" : "Model too weak to find anything"
             }
@@ -190,7 +191,7 @@ enum Swarms {
         s.swarmRPToday = researchRP(wResearch)
         let wXeno = workforce[.xeno] ?? 0
         if b.has(.agents), wXeno > 0, let q = qualitySum[.xeno], q > 0 {
-            s.xenoInsightToday += insight(wXeno * (gateSum[.xeno] ?? 0) / q) * (1 + s.traits.insight)
+            s.xenoInsightToday += insight(wXeno * (gateSum[.xeno] ?? 0) / q) * (1 + s.traits.insight + s.bonuses.insight)
         }
         s.swarmOps = level(workforce[.trainingOps] ?? 0)
         s.swarmSilicon = level(workforce[.silicon] ?? 0)
@@ -213,7 +214,7 @@ enum Swarms {
             let out: Double
             switch sw.mission {
             case .research: out = s.swarmRPToday * frac
-            case .xeno: out = s.xenoInsightToday > 0 && b.has(.agents) ? insight(wXeno * (gateSum[.xeno] ?? 0) / total) * (1 + s.traits.insight) * frac : 0
+            case .xeno: out = s.xenoInsightToday > 0 && b.has(.agents) ? insight(wXeno * (gateSum[.xeno] ?? 0) / total) * (1 + s.traits.insight + s.bonuses.insight) * frac : 0
             case .workforce: out = labor * frac
             case .trainingOps, .silicon, .alignment: out = w
             }
@@ -308,7 +309,7 @@ enum Swarms {
                      "The company shut down \(Fmt.count(s.swarms[i].active)) agents that were spreading to outside clouds and briefed regulators.",
                      .policy, image: "network", important: true, good: false)
         case ("swarm_escape", _):
-            if s.rng.chance(0.4) {
+            if s.rng.chance(0.4 * SecurityOps.containmentFactor(s)) {
                 s.gameOver = "Loss of control on \(s.date.gameShort). Agents from \(s.swarms[i].name) spread across public clouds faster than anyone could revoke them. Regulators shut the company down."
                 Sim.news(&s, "Rogue agent swarm escapes \(s.companyName)", s.gameOver!, .policy, image: "network", important: true, good: false)
             } else {

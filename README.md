@@ -125,6 +125,17 @@ Speed: ⌘⇧P play/pause, ⌘1–⌘5 speeds (1.5 to 90 days per second), ⌘�
   also come to you asking to be bought.
 - **Strategic events**: exclusive-supply offers for your chips, regulators auditing your swarms, star researchers who
   want to found their own lab, sovereign AI contracts and talent raids.
+- **Weight security & policy**: protect your weights with RAND's security levels SL1–SL5. Each level stops a more
+  capable attacker (opportunistic hackers, cybercrime groups and insiders, state-backed units, top-priority nation-state
+  operations) and costs more to build, run and work behind. Attackers come for your weights in proportion to how close
+  you are to the frontier: leaks put free copies on the internet, state theft hands a rival your model. Better
+  containment also makes escaping models and swarms less likely to get out. Lobbying builds political capital; AI
+  bills (frontier transparency, federal preemption, chip security, training copyright, datacenter permitting, compute
+  licensing, liability, a national research resource, agent registries) arrive as decisions, you pick a side, and the
+  laws that pass change the game.
+- **Talent traits**: star hires arrive with a trait (Visionary, Kernel Wizard, Firefighter, Data Curator, Rainmaker, Red
+  Teamer, Tape-out Veteran, Mentor, Loyal, Workhorse or a Brilliant Diva who upsets the team); after a year, promote a
+  skilled veteran into the trait you choose.
 - **Chief of Staff**: a prioritised to-do list on the dashboard — runway, idle chips, stale prices, over-capacity
   models, drifting swarms, expiring offers, board deadlines.
 - **Agent swarms**: spin up 10 to 50 million copies of one of your models on your own inference chips and give them a
@@ -157,7 +168,9 @@ Speed: ⌘⇧P play/pause, ⌘1–⌘5 speeds (1.5 to 90 days per second), ⌘�
   GQA, MLA, fine-grained MoE, Muon, WSD, μP, FP8, RLHF, DPO, PRMs, RL with verifiable rewards…), plus a speculative
   frontier chain. Results are experiments: each lands between 0.55× and 1.5× of the paper depending on your team and
   experiment compute, and that changes how much it helps. Many unlock new design options instead of adding stats.
-  Published techniques cost half.
+  Published techniques cost half. Newer items cover the agent era: multi-agent orchestration, long-horizon agent RL,
+  automated experiment pipelines, agent sandboxes, swarm governance, circuit tracing, confidential computing for weights,
+  and — once you hold an alien architecture — xeno-interpretability and xeno-compilers.
 - **Unique breakthroughs**: 24 rare techniques (diffusion LMs, latent reasoning, recurrent depth, test-time training,
   ternary networks…) are dealt out at the start of each game: a few for you and two for every rival lab, each with real
   trade-offs and wider outcome swings. Rivals' secret tech shows up in their models once deployed; headhunt their

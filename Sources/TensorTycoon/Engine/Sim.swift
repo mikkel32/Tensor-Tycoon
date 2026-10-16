@@ -21,6 +21,7 @@ enum Sim {
         Swarms.daily(&s, b)
         Silicon.daily(&s)
         Xeno.daily(&s, b)
+        SecurityOps.daily(&s)
         research(&s, b)
         Treasury.autoPrice(&s)
         dailyMarket(&s, b)
@@ -227,7 +228,7 @@ enum Sim {
     // MARK: - Research
 
     static func researchRate(_ s: GameState, _ b: ResearchBonuses) -> Double {
-        let people = s.employees.filter { $0.role == .researcher }.reduce(0.0) { $0 + pow($1.skill / 50, 1.3) * (0.6 + $1.morale / 250) }
+        let people = s.employees.filter { $0.role == .researcher }.reduce(0.0) { $0 + pow($1.skill / 50, 1.3) * $1.traitMultiplier * (0.6 + $1.morale / 250) }
         let t = s.traits
         let founder = 0.8 * (1 + t.founderRP)
         var computePF = 0.0
@@ -238,6 +239,7 @@ enum Sim {
         // Compute is a multiplier on people, plus a little on its own.
         let community = s.publication == .open ? 1.1 : 1.0
         return ((founder + people) * (1 + min(3, computeRP / 10)) * (1 + b.rp) + computeRP * 0.2) * community * max(0.5, 1 + t.rp)
+            * (1 - s.security.friction)
     }
 
     static func researchCost(_ item: ResearchItem, year: Double) -> Double {
@@ -250,7 +252,8 @@ enum Sim {
         let rate = researchRate(s, b) + s.rsiRPToday + s.swarmRPToday
         s.rpToday = rate
         guard let current = s.researchQueue.first, let item = ResearchCatalog.byID[current] else { return }
-        if s.researched.contains(current) || (item.isExotic && !s.exoticOwned.contains(current)) { s.researchQueue.removeFirst(); return }
+        if s.researched.contains(current) || (item.isExotic && !s.exoticOwned.contains(current))
+            || (current.hasPrefix("xeno_") && s.alienArchs.isEmpty) { s.researchQueue.removeFirst(); return }
         let missing = item.prereqs.filter { !s.researched.contains($0) }
         if !missing.isEmpty {
             // Auto-queue prerequisites ahead of this item.

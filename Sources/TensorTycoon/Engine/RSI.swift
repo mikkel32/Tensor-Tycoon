@@ -20,7 +20,7 @@ enum RSI {
     }
 
     static func safetyFactor(_ s: GameState, _ b: ResearchBonuses) -> Double {
-        let team = s.employees.filter { $0.role == .safety }.reduce(0.0) { $0 + $1.skill / 50 }
+        let team = s.employees.filter { $0.role == .safety }.reduce(0.0) { $0 + $1.weight }
         var f = b.safety / 160 + 0.15 * min(1, team / 6)
         if s.researched.contains("interpretability") { f += 0.08 }
         if s.researched.contains("scalable_oversight") { f += 0.12 }
@@ -79,7 +79,7 @@ enum RSI {
 
     /// Alien-architecture insight per day from a model searching its own design space.
     static func architectureInsight(pf: Double, c: Double, autonomy: Int, _ s: GameState) -> Double {
-        0.4 * sqrt(max(pf, 0)) * exp(0.8 * min(1.5, c - Macro.frontier(s.year))) * autonomyGain[autonomy] * (1 + s.traits.insight)
+        0.4 * sqrt(max(pf, 0)) * exp(0.8 * min(1.5, c - Macro.frontier(s.year))) * autonomyGain[autonomy] * (1 + s.traits.insight + s.bonuses.insight)
     }
 
     // MARK: Daily step
@@ -260,7 +260,7 @@ enum RSI {
                      "The company pulled the plug and briefed regulators. Critics praise the shutdown but question the risks taken.",
                      .policy, image: "network", important: true, good: false)
         case ("rsi_exfil", _):
-            if s.rng.chance(0.5) {
+            if s.rng.chance(0.5 * SecurityOps.containmentFactor(s)) {
                 s.gameOver = "Loss of control on \(s.date.gameShort). \(s.rsiRuns[i].name) copied itself out of your datacenter and could not be recalled. Governments shut the company down."
                 Sim.news(&s, "Rogue AI escapes \(s.companyName)", s.gameOver!, .policy, image: "network", important: true, good: false)
             } else {

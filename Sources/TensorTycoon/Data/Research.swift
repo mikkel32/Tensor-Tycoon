@@ -107,6 +107,18 @@ enum ResearchEffect: Sendable {
     case consumerDemand(Double)
     case apiDemand(Double)
     case enterpriseDemand(Double)
+    /// Agent-swarm researcher-equivalents per agent (fraction).
+    case agentQuality(Double)
+    /// Swarm coordination exponent.
+    case coordination(Double)
+    /// Less alignment drift in agent swarms (fraction).
+    case agentSafety(Double)
+    /// Faster alien-architecture insight (fraction).
+    case insight(Double)
+    /// More legible alien architectures.
+    case legibility(Double)
+    /// Cheaper weight-security upgrades and upkeep (fraction).
+    case securityCost(Double)
     case unlock(Feature)
 
     var isNumeric: Bool {
@@ -220,6 +232,12 @@ struct ResearchBonuses: Sendable {
     var consumerDemand = 0.0
     var apiDemand = 0.0
     var enterpriseDemand = 0.0
+    var agentQuality = 0.0
+    var coordination = 0.0
+    var agentSafety = 0.0
+    var insight = 0.0
+    var legibility = 0.0
+    var securityCost = 0.0
     var features: Set<Feature> = []
     var results: [String: Double] = [:]
     var researched: Set<String> = []
@@ -585,6 +603,29 @@ enum ResearchCatalog {
           [.safety(10), .unlock(.aiControl)],
           "Trusted monitors, sandboxes and tripwires around untrusted models. Self-improvement runs drift 35% less and get caught faster."),
 
+        // MARK: Agent swarms, security & interpretability (2024–2026)
+        r("orchestration", "Multi-Agent Orchestration", .agents, 2025.25, 3_800, ["tool_use"],
+          [.coordination(0.03), .agentQuality(0.10)],
+          "Planner, worker and critic agents sharing memory and task graphs (2025). Big agent swarms waste less effort talking to each other."),
+        r("long_horizon_rl", "Long-Horizon Agent RL", .agents, 2025.75, 6_500, ["agents"],
+          [.skill(.agent, 0.08), .agentQuality(0.10)],
+          "RL on multi-hour tasks with sparse rewards (2025): agents that keep working for hours without losing the plot."),
+        r("auto_experiments", "Automated Experiment Pipelines", .agents, 2026.2, 9_000, ["orchestration", "agents"],
+          [.agentQuality(0.15), .rp(0.10)],
+          "Agents propose, run and analyse ablations end to end. Every agent in a swarm counts for more."),
+        r("agent_sandboxes", "Agent Sandboxes & Tripwires", .safety, 2025.5, 4_200, ["tool_use"],
+          [.agentSafety(0.25), .safety(3)],
+          "Isolated execution, canary tokens and kill switches for autonomous agents. Swarms drift out of alignment more slowly."),
+        r("swarm_governance", "Swarm Governance Protocols", .safety, 2026.6, 7_000, ["agent_sandboxes"],
+          [.agentSafety(0.20), .coordination(0.01)],
+          "Constitutions, audit trails and rotating monitor agents for fleets of millions."),
+        r("circuit_tracing", "Circuit Tracing & Attribution Graphs", .safety, 2025.25, 4_500, ["interpretability"],
+          [.safety(6), .legibility(0.10)],
+          "Attribution graphs trace a model's internal computation step by step (Mar 2025). Even alien architectures get a little more legible."),
+        r("confidential_computing", "Confidential Computing for Weights", .systems, 2024.5, 2_500, ["sharding"],
+          [.securityCost(0.30)],
+          "Weights stay encrypted even in accelerator memory (Hopper confidential computing, 2023–24). Weight security costs 30% less."),
+
         // MARK: Frontier (speculative future)
         r("continual_learning", "Continual Learning", .frontier, 2027.3, 12_000, ["agents"],
           [.algo(0.10), .skill(.agent, 0.06)],
@@ -598,6 +639,12 @@ enum ResearchCatalog {
         r("unified_arch", "Unified Cognitive Architecture", .frontier, 2029.0, 50_000, ["auto_research", "world_models"],
           [.algo(0.25), .rl(0.1)],
           "Memory, planning and perception in one trainable system."),
+        r("xeno_interp", "Xeno-Interpretability", .frontier, 2027.0, 15_000, ["circuit_tracing"],
+          [.legibility(0.25), .safety(4)],
+          "Needs an alien architecture to study. Your interpretability team learns to read designs no human wrote."),
+        r("xeno_compilers", "Xeno-Compilers", .frontier, 2027.2, 18_000, ["auto_experiments"],
+          [.insight(0.35), .throughput(0.10)],
+          "Needs an alien architecture to study. Compilers that target alien substrates: the next discovery comes faster and everything serves faster."),
         r("rsi", "Recursive Self-Improvement", .frontier, 2030.0, 90_000, ["unified_arch", "scalable_oversight"],
           [.algo(0.4), .rp(1.0), .unlock(.rsi)],
           "Models that improve their own training. Unlocks capability runs and full autonomy in the Self-Improvement Lab. Handle with extreme care."),
@@ -768,6 +815,12 @@ enum ResearchCatalog {
                 case .consumerDemand(let x): b.consumerDemand += x
                 case .apiDemand(let x): b.apiDemand += x
                 case .enterpriseDemand(let x): b.enterpriseDemand += x
+                case .agentQuality(let x): b.agentQuality += v(x)
+                case .coordination(let x): b.coordination += v(x)
+                case .agentSafety(let x): b.agentSafety += v(x)
+                case .insight(let x): b.insight += v(x)
+                case .legibility(let x): b.legibility += v(x)
+                case .securityCost(let x): b.securityCost += v(x)
                 case .unlock(let f): b.features.insert(f)
                 }
             }
@@ -816,6 +869,12 @@ enum ResearchCatalog {
         case .consumerDemand(let v): return "+\(Int(v * 100))% consumer demand"
         case .apiDemand(let v): return "+\(Int(v * 100))% API demand"
         case .enterpriseDemand(let v): return "+\(Int(v * 100))% enterprise deal flow"
+        case .agentQuality(let v): return "\(pct(v)) agent-swarm quality"
+        case .coordination(let v): return "+\(Fmt.trim(v * r, 3)) swarm coordination"
+        case .agentSafety(let v): return "\(pct(-v)) swarm alignment drift"
+        case .insight(let v): return "\(pct(v)) alien-architecture insight"
+        case .legibility(let v): return "+\(Int(v * r * 100)) pts alien-architecture legibility"
+        case .securityCost(let v): return "\(pct(-v)) weight-security costs"
         case .unlock(let f): return "Unlocks: \(featureName(f))"
         }
     }

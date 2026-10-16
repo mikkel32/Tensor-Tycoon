@@ -161,6 +161,8 @@ enum Monthly {
         let b = s.bonuses
         Partners.monthly(&s)
         Xeno.monthly(&s)
+        SecurityOps.monthly(&s)
+        Policy.monthly(&s)
         if s.publication == .secret { s.brand = max(0, s.brand - 0.25) }
         // Enterprise contracts tick
         for i in s.deals.indices where s.deals[i].active {
@@ -204,7 +206,7 @@ enum Monthly {
 
         // Brand: decays, marketing and leadership grow it
         let marketingBoost = s.marketingBudget > 0 ? 3.0 * log10(1 + s.marketingBudget / 50_000) : 0
-        let sales = s.employees.filter { $0.role == .sales }.reduce(0.0) { $0 + $1.skill / 50 }
+        let sales = s.employees.filter { $0.role == .sales }.reduce(0.0) { $0 + $1.weight }
         var leader = 0.0
         if let top = Leaderboard.entries(s, includeUnreleased: false).first, top.isPlayer { leader = 4 }
         // Brand drifts toward what your reach and quality "deserve"
@@ -216,10 +218,11 @@ enum Monthly {
         s.brand = clamp(s.brand + marketingBoost * 0.5 + min(2, sales * 0.2) + leader + (s.reliability - 0.9) * 5 + s.traits.brand, 0, 100)
 
         // Safety score: team + research + released models
-        let safetyTeam = s.employees.filter { $0.role == .safety }.reduce(0.0) { $0 + $1.skill / 50 }
+        let safetyTeam = s.employees.filter { $0.role == .safety }.reduce(0.0) { $0 + $1.weight }
         let released = s.releasedModels
         let modelSafety = released.isEmpty ? 40 : released.map(\.safety).reduce(0, +) / Double(released.count)
-        s.safetyScore = clamp(modelSafety * 0.6 + b.safety * 0.4 + min(25, safetyTeam * 4) + 10 * s.swarmSafety + s.traits.safety * 0.5, 0, 100)
+        s.safetyScore = clamp(modelSafety * 0.6 + b.safety * 0.4 + min(25, safetyTeam * 4) + 10 * s.swarmSafety + s.traits.safety * 0.5
+                              + (s.lawsPassed.contains("transparency") ? 5 : 0), 0, 100)
 
         People.monthly(&s)
         Competitors.monthly(&s)
@@ -245,12 +248,13 @@ enum Business {
     static func generateDeals(_ s: inout GameState, _ b: ResearchBonuses) {
         s.deals.removeAll { !$0.active && $0.expires < s.date }
         guard let best = s.releasedModels.max(by: { $0.index < $1.index }) else { return }
-        let sales = s.employees.filter { $0.role == .sales }.reduce(0.0) { $0 + $1.skill / 50 }
+        let sales = s.employees.filter { $0.role == .sales }.reduce(0.0) { $0 + $1.weight }
         let pending = s.deals.filter { !$0.active }.count
         guard pending < 4 else { return }
         let frontier = Macro.frontier(s.year)
         let quality = exp(1.2 * (best.c - frontier))
-        let p = clamp(0.15 + sales * 0.12 + s.brand / 300, 0, 0.9) * (1 + b.enterpriseDemand) * max(0.3, 1 + s.traits.enterprise)
+        var p = clamp(0.15 + sales * 0.12 + s.brand / 300, 0, 0.9) * (1 + b.enterpriseDemand) * max(0.3, 1 + s.traits.enterprise)
+        if s.lawsPassed.contains("liability") { p *= clamp(1 + (s.safetyScore - 50) / 150, 0.6, 1.4) }
         let n = s.rng.chance(p) ? (s.rng.chance(p * 0.5) ? 2 : 1) : 0
         for _ in 0..<n {
             let size = Macro.marketSize(s.year) * Macro.segmentSplit(s.year, chatMoment: s.chatMoment != nil).enterprise

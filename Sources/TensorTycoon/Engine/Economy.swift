@@ -75,6 +75,7 @@ enum Economy {
         let decayed = max(a.rentFloor, base * pow(0.78, age))
         let mult = a.cls == .consumer ? (s.market.consumerGPUPrice + s.market.rentPrice) / 2 : s.market.rentPrice
         return decayed * mult * (1 - dealDiscount(a, s)) * (1 - Partners.discount(a, s)) * (1 - s.traits.hardware)
+            * (s.lawsPassed.contains("nairr") ? 0.95 : 1)
     }
 
     static func resaleValue(_ a: Accelerator, _ s: GameState, unitCost: Double, purchased: Date) -> Double {

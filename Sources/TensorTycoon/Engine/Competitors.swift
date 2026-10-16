@@ -141,8 +141,13 @@ enum Competitors {
         let race = 0.5 * max(0, playerBest - Macro.frontier(y))
         let boost = boost(s, def.id, at: y)
         var c = Macro.frontier(y) + def.offset(y) + s.difficulty.competitorBoost + race + boost.c + s.rng.gaussian() * 0.05
-        // Whatever you sold or licensed them.
+        // Whatever you sold or licensed them — or they stole.
         c += Xeno.rivalC(s, def.id, at: date)
+        if let stolen = s.stolenC[def.id] { c = max(c, stolen + s.rng.gaussian() * 0.03) }
+        if def.id == "dragonlake" {
+            if s.lawsPassed.contains("chip_security") { c -= 0.1 }
+            if s.lawsFailed.contains("chip_security") { c += 0.05 }
+        }
         if y < 2017.4 { c -= 1.0 }
         let reasoning = y >= reasoningStart(def.id)
         let name = modelName(def, count: s.competitors[i].releaseCount)
@@ -164,7 +169,7 @@ enum Competitors {
             model.index = BenchmarkCatalog.index(Leaderboard.profile(model, def: def, boost: boost(s, def.id, at: s.year)), set: Leaderboard.indexSet(s))
             s.competitors[i].models.append(model)
             s.competitors[i].releaseCount += 1
-            let jitter = s.rng.range(0.8, 1.25)
+            let jitter = s.rng.range(0.8, 1.25) * (s.lawsPassed.contains("compute_licensing") ? 1.15 : 1)
             s.competitors[i].nextRelease = nextReleaseDate(def, count: s.competitors[i].releaseCount, after: s.date, jitter: jitter)
             s.competitors[i].brand = min(100, s.competitors[i].brand + 2)
             let isTop = prevTopC < model.c

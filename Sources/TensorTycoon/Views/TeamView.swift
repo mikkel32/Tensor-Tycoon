@@ -8,7 +8,7 @@ struct TeamView: View {
         let s = store.game
         let office = Economy.officeLevels[min(s.officeLevel, Economy.officeLevels.count - 1)]
         let next = s.officeLevel + 1 < Economy.officeLevels.count ? Economy.officeLevels[s.officeLevel + 1] : nil
-        Page(title: "Team", subtitle: "AI talent is the scarcest resource after GPUs. Underpaid stars get poached.") {
+        Page(title: "Team", subtitle: "AI talent is the scarcest resource after GPUs. Underpaid stars get poached. Stars bring traits; promote veterans (a year in, skill 65+) into the trait you choose.") {
             HStack(alignment: .top, spacing: 16) {
                 VStack(alignment: .leading, spacing: 0) {
                     Photo(key: office.image).frame(height: 130).frame(maxWidth: .infinity).clipped()
@@ -88,6 +88,23 @@ struct TeamView: View {
                             }
                         }
                         TableColumn("Role") { e in Text(e.role.title).foregroundStyle(.secondary) }
+                        TableColumn("Trait") { e in
+                            if let t = e.talent {
+                                Label(t.title, systemImage: t.symbol).font(.caption).help(t.detail)
+                            } else if s.canPromote(e) {
+                                Menu("Promote…") {
+                                    ForEach(TalentTrait.promotions(e.role)) { t in
+                                        Button("\(t.title) — \(t.detail)") { store.act("Promoted \(e.name)") { $0.promote(e.id, to: t) } }
+                                    }
+                                }
+                                .menuStyle(.borderlessButton)
+                                .fixedSize()
+                                .font(.caption)
+                            } else {
+                                Text("—").foregroundStyle(.tertiary)
+                            }
+                        }
+                        .width(140)
                         TableColumn("Skill") { e in Text("\(Int(e.skill))").monospacedDigit() }.width(45)
                         TableColumn("Salary") { e in Text(Fmt.money(e.salary)).monospacedDigit() }.width(80)
                         TableColumn("Morale") { e in Meter(value: e.morale / 100, tint: e.morale < 40 ? .red : (e.morale < 65 ? .orange : .green), height: 6) }.width(90)
@@ -134,6 +151,11 @@ private struct CandidateCard: View {
                 }
             }
             Text(c.bio).font(.caption).foregroundStyle(.secondary).lineLimit(2, reservesSpace: true)
+            if let t = c.talent {
+                Label("\(t.title): \(t.detail)", systemImage: t.symbol).font(.caption.weight(.semibold))
+                    .foregroundStyle(t == .diva ? .orange : .purple)
+                    .lineLimit(2)
+            }
             HStack {
                 VStack(alignment: .leading, spacing: 0) {
                     Text("\(Fmt.money(c.salary))/yr").font(.callout.weight(.semibold).monospacedDigit())

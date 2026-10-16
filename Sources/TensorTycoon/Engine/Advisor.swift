@@ -92,6 +92,16 @@ enum Advisor {
             add("fab-\(l.chipID)", .info, "shippingbox.fill", "Chip demand outstrips your foundry", "Buyers want \(Fmt.count(l.demandToday * 30.4))/month.", .chipSales)
         }
 
+        // Security & policy
+        let attract = SecurityOps.attractiveness(s)
+        if attract >= 1.0 && s.security < .sl3 && s.securityTarget <= s.security.rawValue {
+            add("security", .warning, "lock.shield.fill", "Your weights are a target at \(s.security.title)", "Near-frontier weights draw criminals and state hackers. Upgrade security.", .security)
+        }
+        let pending = s.bills.filter { $0.stance == 0 }
+        if let b = pending.first, let bill = PolicyCatalog.byID[b.id] {
+            add("bill-\(b.id)", .info, "building.columns.fill", "Vote coming on \(bill.title)", "Decide whether to lobby before \(b.vote.gameShort).", .security)
+        }
+
         // People
         if s.employees.count >= Economy.officeCapacity(s) {
             add("office", .info, "building.2.fill", "Office is full", "Upgrade it to keep hiring.", .team)

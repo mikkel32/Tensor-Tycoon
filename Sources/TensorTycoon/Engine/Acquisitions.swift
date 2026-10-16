@@ -30,6 +30,7 @@ enum Acquisitions {
         var r = (combined - 0.2) * 2.5
         if c.valuation > s.valuation * 0.5 { r += 0.15 }
         r -= s.traits.fines * 0.2
+        r *= 1 - s.politicalCapital / 200
         return clamp(r, 0.02, 0.85)
     }
 

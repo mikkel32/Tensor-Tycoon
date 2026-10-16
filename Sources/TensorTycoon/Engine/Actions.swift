@@ -114,7 +114,7 @@ extension GameState {
     }
 
     func buildMonths(mw: Double, loc: Location, power: PowerDeal) -> Double {
-        var m = (7 + min(22, mw * 0.025)) / loc.buildSpeed * market.buildDelay
+        var m = (7 + min(22, mw * 0.025)) / loc.buildSpeed * market.buildDelay * Policy.buildFactor(self)
         if power == .gas { m *= 0.7 }
         return m
     }
@@ -206,6 +206,15 @@ extension GameState {
             month.costOther += 1_500_000
             Sim.news(&self, "Training run reported to the US government", "Runs above 10^26 FLOPs must be reported under the October 2023 executive order. Compliance cost: $1.5M.",
                      .policy, important: false)
+        }
+        if pre >= 1e26 && lawsPassed.contains("transparency") {
+            cash -= 2_000_000
+            month.costOther += 2_000_000
+        }
+        if pre >= 1e27 && lawsPassed.contains("compute_licensing") {
+            cash -= 25_000_000
+            month.costOther += 25_000_000
+            Sim.news(&self, "Federal compute licence granted for \(d.name)", "Runs above 10^27 FLOP need a licence: $25M.", .policy)
         }
         if pre >= 1e25 && market.euAIAct && !researched.contains("evals_rsp") {
             Sim.news(&self, "EU flags \(d.name) as a systemic-risk model", "Above 10^25 FLOPs the EU AI Act requires model evaluations. Research Dangerous-Capability Evals before release or expect fines.",
@@ -338,6 +347,7 @@ extension GameState {
     mutating func queueResearch(_ id: String) {
         guard !researched.contains(id), !researchQueue.contains(id), let item = ResearchCatalog.byID[id] else { return }
         if item.isExotic && !exoticOwned.contains(id) { return }
+        if id.hasPrefix("xeno_") && alienArchs.isEmpty { return }
         researchQueue.append(id)
     }
 
@@ -423,7 +433,9 @@ extension GameState {
             let shares = totalShares * c.equity / 100
             employeePoolShares += shares
         }
-        employees.append(Employee(name: c.name, role: c.role, skill: c.skill, salary: c.salary, morale: 80, hired: date, star: c.star, equity: c.equity))
+        var e = Employee(name: c.name, role: c.role, skill: c.skill, salary: c.salary, morale: 80, hired: date, star: c.star, equity: c.equity)
+        e.trait = c.trait
+        employees.append(e)
         candidates.remove(at: i)
         return nil
     }
@@ -434,6 +446,25 @@ extension GameState {
         month.costPayroll += e.salary * 0.25
         employees.removeAll { $0.id == id }
         for i in employees.indices { employees[i].morale -= 2 }
+    }
+
+    /// Veterans (a year in, skill 65+) can be promoted into a trait of your choice.
+    func canPromote(_ e: Employee) -> Bool {
+        !e.promoted && e.skill >= 65 && GameCalendar.daysBetween(e.hired, date) >= 365
+    }
+
+    mutating func promote(_ id: UUID, to trait: TalentTrait) -> String? {
+        guard let i = employees.firstIndex(where: { $0.id == id }) else { return "Not found." }
+        let e = employees[i]
+        if !canPromote(e) { return "\(e.name) needs a year here and skill 65+ to be promoted (once)." }
+        if !TalentTrait.promotions(e.role).contains(trait) { return "That isn't a path for a \(e.role.title.lowercased())." }
+        employees[i].trait = trait.rawValue
+        employees[i].promoted = true
+        employees[i].salary *= 1.2
+        employees[i].skill = min(100, e.skill + 3)
+        employees[i].morale = min(100, e.morale + 15)
+        Sim.news(&self, "\(e.name) promoted: \(trait.title)", "\(trait.detail) Salary +20%.", .company, good: true)
+        return nil
     }
 
     mutating func giveRaise(_ id: UUID) {

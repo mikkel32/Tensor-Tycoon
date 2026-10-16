@@ -58,5 +58,46 @@ extension BalanceHarness {
         if let e = t.acquireRival("xenon", stockShare: 0.8) { print("  acquire error: \(e)") }
         print("  bought Xenon: acquired=\(t.competitors.first { $0.id == "xenon" }?.acquired ?? false) models \(models0)→\(t.models.count) chips \(Economy.totalChips(t)) employees \(t.employees.count) cash \(Fmt.money(t.cash)) stake \(Fmt.pct(t.founderStake))")
         for n in t.news.prefix(2) { print("  news: \(n.title) — \(n.body)") }
+        securityAndPolicy()
+    }
+
+    static func securityAndPolicy() {
+        print("\n== Weight security: 3 years as a frontier lab (2026) ==")
+        for level in SecurityLevel.allCases {
+            var (s, _) = frontierLab(year: 2026, chips: 20_000, seed: UInt64(30 + level.rawValue))
+            s.securityRaw = level.rawValue
+            let threats = SecurityOps.threats(s).map { "T\($0.tier) \(Int($0.monthlyChance * 100))%" }.joined(separator: " ")
+            let upkeep = SecurityOps.upkeep(level, s)
+            for day in 0..<(365 * 3) {
+                Sim.advanceDay(&s)
+                s.decisions.removeAll()
+                s.gameOver = nil
+                // Keep the flagship at the frontier, like a lab that keeps training.
+                if day % 30 == 0, let i = s.models.indices.first { s.models[i].c = Macro.frontier(s.year) }
+            }
+            print(String(format: "  %@: upkeep %@/mo, research −%.0f%% · threats/mo %@ · thefts %d, foiled %d · rivals holding stolen weights: %@",
+                         level.title as NSString, Fmt.money(upkeep) as NSString, level.friction * 100, threats as NSString, s.thefts, s.attacksFoiled,
+                         (s.stolenC.keys.sorted().joined(separator: ", ").isEmpty ? "none" : s.stolenC.keys.sorted().joined(separator: ", ")) as NSString))
+        }
+        var (u, _) = frontierLab(year: 2026, chips: 1)
+        print("  upgrade costs at this size: " + SecurityLevel.allCases.dropFirst().map { "\($0.title) \(Fmt.money(SecurityOps.upgradeCost($0, u))) / \($0.upgradeMonths) mo" }.joined(separator: " · "))
+        if let e = u.upgradeSecurity() { print("  upgrade error: \(e)") }
+        for _ in 0..<70 { Sim.advanceDay(&u); u.decisions.removeAll() }
+        print("  after 70 days: \(u.security.title) (target SL\(u.securityTarget))")
+
+        print("\n== Policy: 4 years, backing every bill, by lobbying budget (2026) ==")
+        for budget in [0.0, 1e6, 2e7] {
+            var (s, _) = frontierLab(year: 2026, chips: 1_000, seed: 77)
+            s.setLobbyBudget(budget)
+            for _ in 0..<(365 * 4) {
+                Sim.advanceDay(&s)
+                for d in s.decisions {
+                    if d.kind == "policy_bill" { s.resolveDecision(d.id, option: 0) }
+                }
+                s.decisions.removeAll()
+                s.gameOver = nil
+            }
+            print("  \(Fmt.money(budget))/mo: capital \(Int(s.politicalCapital)), passed \(s.lawsPassed.sorted()), failed \(s.lawsFailed.sorted()), fine factor ×\(Fmt.trim(Policy.fineFactor(s), 2))")
+        }
     }
 }

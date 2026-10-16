@@ -133,7 +133,7 @@ enum StrategyEvents {
         case ("swarm_audit", _):
             s.brand = max(0, s.brand - 6)
             if s.rng.chance(0.4) {
-                let fine = max(1e7, Economy.runRate(s) * 0.02) * (1 - s.traits.fines)
+                let fine = max(1e7, Economy.runRate(s) * 0.02) * Policy.fineFactor(s)
                 s.cash -= fine
                 s.month.costOther += fine
                 Sim.news(&s, "Fined \(Fmt.money(fine)) for refusing a swarm audit", "Regulators made an example of you.", .policy, important: true, good: false)

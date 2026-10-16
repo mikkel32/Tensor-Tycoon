@@ -72,6 +72,7 @@ struct ScreenRouter: View {
         switch screen {
         case .dashboard: DashboardView()
         case .strategy: StrategyView()
+        case .security: SecurityView()
         case .lab: ModelLabView()
         case .training: TrainingView()
         case .models: ModelsView()
@@ -143,7 +144,8 @@ struct Sidebar: View {
         case .research: s.researchQueue.isEmpty ? 1 : 0
         case .rsi: s.rsiRuns.filter { $0.status == .running }.count
         case .swarms: s.swarms.filter { !$0.paused }.count
-        case .strategy: s.culturePoints + s.objectives.filter { !$0.done && !$0.failed && $0.progress >= 1 }.count
+        case .strategy: s.culturePoints
+        case .security: s.bills.filter { $0.stance == 0 }.count
         case .xeno: s.alienArchs.reduce(0) { $0 + $1.offers.count }
         case .silicon: s.chipProjects.filter { !$0.done }.count
         case .partners: s.partnerships.count

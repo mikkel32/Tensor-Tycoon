@@ -66,6 +66,8 @@ struct Employee: Codable, Identifiable, Hashable {
     var hired: Date
     var star: Bool = false
     var equity: Double = 0
+    @D var trait: String = ""
+    @D var promoted: Bool = false
 }
 
 struct Candidate: Codable, Identifiable, Hashable {
@@ -78,6 +80,7 @@ struct Candidate: Codable, Identifiable, Hashable {
     var star: Bool
     var expires: Date
     var bio: String
+    @D var trait: String = ""
 }
 
 // MARK: - Hardware
@@ -873,6 +876,21 @@ struct GameState: Codable {
     /// The game ended with you leaving the CEO job but keeping your shares.
     @D var keptStake: Bool = false
 
+    // v4.2: security, policy
+    /// Model-weight security level (1–5; 0 in old saves means SL1).
+    @D var securityRaw: Int = 0
+    @D var securityTarget: Int = 0
+    @D var securityDaysLeft: Double = 0
+    @D var thefts: Int = 0
+    @D var attacksFoiled: Int = 0
+    /// Rival lab ID → capability of the weights they stole from you.
+    @D var stolenC: [String: Double] = [:]
+    @D var lobbyBudget: Double = 0
+    @D var politicalCapital: Double = 0
+    @D var bills: [PolicyBill] = []
+    @D var lawsPassed: Set<String> = []
+    @D var lawsFailed: Set<String> = []
+
     var totalShares: Double {
         founderShares + employeePoolShares + publicShares + holdings.reduce(0) { $0 + $1.shares }
     }
@@ -883,6 +901,8 @@ struct GameState: Codable {
     var background: FounderBackground { FounderBackground(rawValue: backgroundID) ?? .none }
     /// Doctrine + founder background + culture perks.
     var traits: TraitBonuses { CultureCatalog.bonuses(doctrine: doctrine, background: background, perks: perks) }
+    var security: SecurityLevel { SecurityLevel(rawValue: max(1, securityRaw)) ?? .sl1 }
+
     /// You control the board while you hold a majority of the shares.
     var founderControls: Bool { founderStake >= 0.5 }
 

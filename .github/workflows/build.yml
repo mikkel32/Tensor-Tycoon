@@ -19,5 +19,7 @@ jobs:
         run: swift build -c release
       - name: Ventures check (swarms, alien tech, chip sales, money)
         run: .build/release/TensorTycoon --ventures 2026
+      - name: Strategy check (traits, board, acquisitions, security, policy)
+        run: .build/release/TensorTycoon --strategy 2022
       - name: Balance playthrough
         run: .build/release/TensorTycoon --simulate 2022 | tail -60

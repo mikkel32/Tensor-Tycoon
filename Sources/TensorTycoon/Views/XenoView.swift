@@ -47,7 +47,7 @@ private struct AlienArchCard: View {
                         Pill(text: a.policy.rawValue, color: a.policy == .exclusive ? .indigo : (a.policy == .sellChips ? .green : .orange), symbol: a.policy.symbol)
                         if a.licensedOnce { Pill(text: "Blueprint is out", color: .orange, symbol: "lock.open.fill") }
                     }
-                    Text("Discovered \(a.discovered.gameShort) · humans follow about \(Int(a.legibility * 100))% of it").font(.callout).foregroundStyle(.secondary)
+                    Text("Discovered \(a.discovered.gameShort) · humans follow about \(Int(Xeno.legibility(a, s) * 100))% of it").font(.callout).foregroundStyle(.secondary)
                 }
                 Spacer()
             }
@@ -56,9 +56,9 @@ private struct AlienArchCard: View {
                 XenoStat(label: "Chip throughput", value: "\(Fmt.trim(a.chipPerf, 1))× best GPU", symbol: "bolt.fill", tint: .orange)
                 XenoStat(label: "Production cost", value: "\(Int((a.costFactor * 100).rounded()))% of a GPU", symbol: "dollarsign.circle", tint: .green)
                 XenoStat(label: "Power", value: "\(Int((a.powerFactor * 100).rounded()))% of a GPU", symbol: "powerplug.fill", tint: .yellow)
-                XenoStat(label: "Legibility", value: "\(Int(a.legibility * 100))%", symbol: "eye.trianglebadge.exclamationmark", tint: a.legibility >= 0.5 ? .green : .red)
+                XenoStat(label: "Legibility", value: "\(Int(Xeno.legibility(a, s) * 100))%", symbol: "eye.trianglebadge.exclamationmark", tint: Xeno.legibility(a, s) >= 0.5 ? .green : .red)
             }
-            Text("Models on the alien architecture: pick **Alien (xeno)** as the architecture in the Model Lab. They train as if they had ×\(Fmt.trim(a.multiplier, 1)) the compute, serve cheaper, and lose up to \(Int(25 * (1 - a.legibility))) safety points because nobody can fully audit them.")
+            Text("Models on the alien architecture: pick **Alien (xeno)** as the architecture in the Model Lab. They train as if they had ×\(Fmt.trim(a.multiplier, 1)) the compute, serve cheaper, and lose up to \(Int(25 * (1 - Xeno.legibility(a, s)))) safety points because nobody can fully audit them.")
                 .font(.caption).foregroundStyle(.secondary)
 
             Divider()

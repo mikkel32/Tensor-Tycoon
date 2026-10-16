@@ -174,7 +174,7 @@ enum Training {
         if d.mixer == .diffusion { arch *= 1.2 }
         if d.mixer == .alien { arch *= 1.25 }
         arch *= (1 - 0.35 * s.swarmOps) * max(0.3, 1 - s.traits.spikes)
-        let engineers = s.employees.filter { $0.role == .mlEngineer }.reduce(0.0) { $0 + $1.skill / 50 }
+        let engineers = s.employees.filter { $0.role == .mlEngineer }.reduce(0.0) { $0 + $1.weight }
         let skill = min(0.5, engineers * 0.05)
         let scale = pow(Double(d.chips) / 256 + 1, 0.3) * pow(max(d.activeParamsB, 0.1) / 10, 0.12)
         return 0.0035 * scale * precision * arch * run.schedule.spikeMult * (1 - skill) * max(0.1, 1 - b.stability)
@@ -267,7 +267,7 @@ enum Training {
         emergence(&s, i, profile: p, set: s.benchmarks.filter { $0.isActive(s.date, saturated: s.benchSaturated) })
         // A silent bug can be caught once its signature shows up in evals.
         if run.bugPenalty > 0 && !run.bugFound && f > run.bugOnset + 0.04 && !s.runs[i].decided.contains("train_bug") {
-            let engineers = s.employees.filter { $0.role == .mlEngineer }.reduce(0.0) { $0 + $1.skill / 50 }
+            let engineers = s.employees.filter { $0.role == .mlEngineer }.reduce(0.0) { $0 + $1.weight }
             let p = clamp(0.3 * (1 + engineers / 4) * (1 + s.swarmOps) / max(0.3, s.bonuses.bugKeep), 0.15, 0.95)
             if s.rng.chance(p) { trainingBug(&s, i) }
         }
