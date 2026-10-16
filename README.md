@@ -37,8 +37,11 @@ when you quit. You can skip a version or turn off automatic checks and downloads
 ## Releasing a new version
 
 ```bash
-Scripts/release.sh 3.2 notes.md     # or leave out notes.md to generate notes from commits
+Scripts/release.sh 3.2 ReleaseNotes/3.2.md     # or leave out the notes file to generate notes from commits
 ```
+
+Release notes live in `ReleaseNotes/<version>.md`. The game shows them as "What's new" after updating, so write them
+for players.
 
 The script builds a universal app, signs the zip with the key stored in your login Keychain as
 "Tensor Tycoon update signing key", checks the signature against the key the app trusts
