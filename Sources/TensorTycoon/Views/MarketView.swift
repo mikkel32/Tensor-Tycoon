@@ -1,0 +1,278 @@
+import Charts
+import SwiftUI
+
+struct MarketView: View {
+    @Environment(GameStore.self) private var store
+
+    var body: some View {
+        let s = store.game
+        let snap = store.derived.snapshot
+        Page(title: "Market & Products", subtitle: "Four ways to make money: a consumer chat app, an API priced per token, coding/computer-use agents sold per seat, and enterprise contracts.") {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 200), spacing: 12)], spacing: 12) {
+                StatTile(title: "AI model market", value: "\(Fmt.money(snap.marketSize))/yr", detail: "All providers, all segments", symbol: "globe", tint: .blue)
+                StatTile(title: "API demand", value: "\(Fmt.count(snap.apiTokenPool))/day", detail: "Tokens across the industry", symbol: "bolt.horizontal.fill", tint: .teal)
+                StatTile(title: "Chat users worldwide", value: Fmt.count(snap.consumerUsersPool), detail: s.chatMoment == nil ? "The consumer boom hasn't started" : "Weekly actives", symbol: "person.3.fill", tint: .pink)
+                StatTile(title: "Hype index", value: Fmt.trim(s.market.hype, 2), detail: "Investor & customer sentiment", symbol: "flame.fill", tint: .orange)
+                StatTile(title: "Frontier API price", value: "\(Fmt.price(Macro.frontierPrice(s.year) * s.market.apiPricePressure))/M", detail: "Blended input/output", symbol: "tag.fill", tint: .purple)
+            }
+
+            HStack(alignment: .top, spacing: 16) {
+                ChatProductCard(state: s)
+                Card {
+                    CardHeader("Marketing", symbol: "megaphone.fill", subtitle: "Brand drives every segment")
+                    HStack {
+                        Text("Monthly budget")
+                        Spacer()
+                        Text(Fmt.money(s.marketingBudget)).font(.headline.monospacedDigit())
+                    }
+                    Slider(value: Binding(get: { log10(max(s.marketingBudget, 1)) }, set: { v in store.mutate { $0.marketingBudget = v < 3.05 ? 0 : pow(10, v) } }),
+                           in: 3...9)
+                    Text("Brand \(Int(s.brand))/100. Brand grows with users, revenue, leaderboard wins and marketing, and decays slowly.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Divider()
+                    SpecRow(label: "Reliability (served/demanded)", value: Fmt.pct(s.reliability, decimals: 0))
+                    SpecRow(label: "Safety score", value: "\(Int(s.safetyScore))/100")
+                }
+                .frame(width: 380)
+            }
+
+            HStack(alignment: .top, spacing: 16) {
+                AgentProductCard(state: s, seatPool: snap.agentSeatsPool)
+                ShareChart(title: "Agent seat share", products: snap.agents, state: s)
+                    .frame(width: 420)
+            }
+
+            HStack(alignment: .top, spacing: 16) {
+                ShareChart(title: "API token share", products: snap.api, state: s)
+                ShareChart(title: "Chat app share", products: snap.consumer, state: s)
+            }
+
+            DealsCard(state: s)
+
+            Card {
+                CardHeader("API price list", symbol: "list.number", subtitle: "What the market sees today")
+                Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 6) {
+                    GridRow {
+                        Text("Product").font(.caption.weight(.semibold))
+                        Text("Lab").font(.caption.weight(.semibold))
+                        Text("Quality gap").font(.caption.weight(.semibold))
+                        Text("$/1M").font(.caption.weight(.semibold))
+                        Text("Tok/s").font(.caption.weight(.semibold))
+                        Text("Share").font(.caption.weight(.semibold))
+                    }
+                    ForEach(snap.api.sorted { $0.share > $1.share }.prefix(16)) { p in
+                        GridRow {
+                            Text(p.name).fontWeight(p.isPlayer ? .bold : .regular)
+                            Text(p.labName).foregroundStyle(.secondary)
+                            Text(Fmt.trim(p.c - Macro.frontier(s.year), 2)).monospacedDigit()
+                            Text(Fmt.price(p.price)).monospacedDigit()
+                            Text("\(Int(p.tps))").monospacedDigit()
+                            Text(Fmt.pct(p.share)).monospacedDigit()
+                        }
+                        .font(.callout)
+                    }
+                }
+            }
+        }
+    }
+}
+
+private struct ChatProductCard: View {
+    @Environment(GameStore.self) private var store
+    let state: GameState
+
+    var body: some View {
+        let s = state
+        let chatModels = s.releasedModels.filter { $0.design.instruct }
+        let conv = Market.paidConversion(price: s.chatPrice, freeTier: s.freeTier)
+        Card {
+            CardHeader("\(s.companyName) Chat", symbol: "bubble.left.and.bubble.right.fill", subtitle: "Consumer subscription app")
+            if chatModels.isEmpty {
+                Text("Release an instruction-tuned model to launch a chat app.").font(.callout).foregroundStyle(.secondary)
+            } else {
+                Picker("Powered by", selection: Binding(get: { s.chatModelID }, set: { id in store.mutate { $0.chatModelID = id } })) {
+                    Text("Not launched").tag(UUID?.none)
+                    ForEach(chatModels) { m in Text("\(m.name) (index \(Fmt.score(store.derived.entry(m.id)?.index ?? m.index)))").tag(UUID?.some(m.id)) }
+                }
+                HStack {
+                    Text("Subscription")
+                    Slider(value: Binding(get: { s.chatPrice }, set: { v in store.mutate { $0.chatPrice = (v).rounded() } }), in: 5...200, step: 1)
+                    Text("$\(Int(s.chatPrice))/mo").font(.headline.monospacedDigit()).frame(width: 80, alignment: .trailing)
+                }
+                Toggle("Free tier (more users, much more compute)", isOn: Binding(get: { s.freeTier }, set: { v in store.mutate { $0.freeTier = v } }))
+                    .toggleStyle(.switch)
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], alignment: .leading, spacing: 10) {
+                    MiniStat(label: "Weekly users", value: Fmt.count(s.consumerUsers))
+                    MiniStat(label: "Paying", value: "\(Fmt.count(s.paidUsers)) (\(Fmt.pct(conv)))")
+                    MiniStat(label: "Revenue / mo", value: Fmt.money(s.paidUsers * s.chatPrice))
+                    MiniStat(label: "Market share", value: Fmt.pct(s.consumerShare))
+                    MiniStat(label: "Tokens / user / day", value: Fmt.count(Macro.tokensPerUserDay(s.year)))
+                    MiniStat(label: "Requests served", value: Fmt.pct(s.consumerServedFraction, decimals: 0))
+                }
+                if s.chatMoment == nil {
+                    Label("Consumer AI hasn't taken off yet. A chat model at GPT-3.5 level with RLHF could start the boom early.", systemImage: "sparkles")
+                        .font(.caption).foregroundStyle(.orange)
+                }
+            }
+        }
+    }
+}
+
+private struct AgentProductCard: View {
+    @Environment(GameStore.self) private var store
+    let state: GameState
+    let seatPool: Double
+
+    var body: some View {
+        let s = state
+        let b = store.derived.bonuses
+        let eligible = s.releasedModels.filter { $0.design.toolUse && !$0.retired }
+        let monthly = s.agentSeats * s.agentPrice
+        Card {
+            CardHeader("\(s.companyName) Agent", symbol: "terminal.fill", subtitle: "Coding & computer-use agents, sold per seat (think Claude Code, Codex, Cursor)")
+            if !b.has(.toolUse) {
+                Label("Research Tool Use to build agent products. The agent market opens around 2025.", systemImage: "lock.fill")
+                    .font(.callout).foregroundStyle(.secondary)
+            } else if eligible.isEmpty {
+                Text("Release a model trained with tool use enabled (Model Lab → Capabilities) to launch an agent.").font(.callout).foregroundStyle(.secondary)
+            } else {
+                Picker("Powered by", selection: Binding(get: { s.agentModelID }, set: { id in store.mutate { $0.agentModelID = id } })) {
+                    Text("Not launched").tag(UUID?.none)
+                    ForEach(eligible) { m in
+                        Text("\(m.name) (horizon \(BenchmarkCatalog.formatHorizon(BenchmarkCatalog.taskHorizonMinutes(Leaderboard.profile(m)))))").tag(UUID?.some(m.id))
+                    }
+                }
+                HStack {
+                    Text("Seat price")
+                    Slider(value: Binding(get: { log10(max(s.agentPrice, 10)) }, set: { v in store.mutate { $0.agentPrice = (pow(10, v) / 5).rounded() * 5 } }), in: 1.3...3.3)
+                    Text("$\(Int(s.agentPrice))/mo").font(.headline.monospacedDigit()).frame(width: 90, alignment: .trailing)
+                }
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], alignment: .leading, spacing: 10) {
+                    MiniStat(label: "Seats", value: Fmt.count(s.agentSeats))
+                    MiniStat(label: "Seat share", value: Fmt.pct(s.agentShare))
+                    MiniStat(label: "Revenue / mo", value: Fmt.money(monthly))
+                    MiniStat(label: "Seats worldwide", value: Fmt.count(seatPool))
+                    MiniStat(label: "Tokens / seat / day", value: Fmt.count(Macro.tokensPerSeatDay(s.year)))
+                    MiniStat(label: "Tokens / day", value: Fmt.count(s.agentSeats * Macro.tokensPerSeatDay(s.year)))
+                }
+                Text("Agents are judged on agentic skill — SWE-bench, Terminal-Bench, OSWorld and long task horizons — not chat quality. They burn a lot of tokens, so deploy enough inference chips or seats will churn.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
+private struct MiniStat: View {
+    let label: String
+    let value: String
+    var body: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(value).font(.callout.weight(.semibold).monospacedDigit())
+            Text(label).font(.caption2).foregroundStyle(.secondary)
+        }
+    }
+}
+
+private struct ShareChart: View {
+    let title: String
+    let products: [MarketProduct]
+    let state: GameState
+
+    var body: some View {
+        var byLab: [String: (String, Double, Bool)] = [:]
+        for p in products {
+            let cur = byLab[p.lab] ?? (p.labName, 0, p.isPlayer)
+            byLab[p.lab] = (cur.0, cur.1 + p.share, cur.2)
+        }
+        let other = max(0, 1 - byLab.values.reduce(0) { $0 + $1.1 })
+        var rows = byLab.map { (lab: $0.value.0, share: $0.value.1, player: $0.value.2) }.sorted { $0.share > $1.share }
+        if other > 0.001 { rows.append((lab: "Others", share: other, player: false)) }
+        return Card {
+            CardHeader(title, symbol: "chart.pie.fill")
+            if products.isEmpty {
+                Text("No products in this market yet.").font(.callout).foregroundStyle(.secondary).frame(height: 200)
+            } else {
+                HStack(spacing: 16) {
+                    Chart(rows, id: \.lab) { r in
+                        SectorMark(angle: .value("Share", r.share), innerRadius: .ratio(0.6), angularInset: 1.5)
+                            .foregroundStyle(color(r.lab, r.player))
+                            .opacity(r.player ? 1 : 0.85)
+                    }
+                    .frame(width: 180, height: 180)
+                    VStack(alignment: .leading, spacing: 5) {
+                        ForEach(rows.prefix(9), id: \.lab) { r in
+                            HStack {
+                                Circle().fill(color(r.lab, r.player)).frame(width: 8, height: 8)
+                                Text(r.lab).fontWeight(r.player ? .bold : .regular).lineLimit(1)
+                                Spacer()
+                                Text(Fmt.pct(r.share)).monospacedDigit()
+                            }
+                            .font(.caption)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+extension ShareChart {
+    func color(_ lab: String, _ player: Bool) -> Color {
+        if player { return Theme.logoColor(state.logoColor) }
+        if let def = CompetitorCatalog.all.first(where: { $0.name == lab }) { return Theme.competitorColor(def.color) }
+        return .gray.opacity(0.5)
+    }
+}
+
+private struct DealsCard: View {
+    @Environment(GameStore.self) private var store
+    let state: GameState
+    @State private var chosen: [UUID: UUID] = [:]
+
+    var body: some View {
+        let s = state
+        let offers = s.deals.filter { !$0.active }
+        let active = s.deals.filter(\.active)
+        let models = s.releasedModels
+        Card {
+            CardHeader("Enterprise", symbol: "briefcase.fill", subtitle: "Sales staff and brand bring in leads. Contracts reserve capacity on a model — breach the SLA and they walk.")
+            if offers.isEmpty && active.isEmpty {
+                Text("No enterprise leads yet. Release a model and hire Sales & Partnerships staff.").font(.callout).foregroundStyle(.secondary)
+            }
+            ForEach(offers) { d in
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("\(d.client) — \(d.title)").font(.callout.weight(.semibold))
+                        Text("\(Fmt.money(d.monthly))/mo × \(d.months) months · \(Fmt.count(d.tokensPerDay)) tokens/day · needs index ≥ \(Fmt.score(d.minIndex)), safety ≥ \(Int(d.minSafety)) · expires \(d.expires.gameShort)")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Picker("Model", selection: Binding(get: { chosen[d.id] ?? models.max { $0.index < $1.index }?.id ?? UUID() }, set: { chosen[d.id] = $0 })) {
+                        ForEach(models) { m in Text(m.name).tag(m.id) }
+                    }
+                    .labelsHidden()
+                    .frame(width: 150)
+                    Button("Sign") {
+                        guard let mid = chosen[d.id] ?? models.max(by: { $0.index < $1.index })?.id else { return }
+                        store.act("Contract signed") { $0.acceptDeal(d.id, modelID: mid) }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    Button("Decline") { store.mutate { $0.declineDeal(d.id) } }
+                }
+                Divider()
+            }
+            if !active.isEmpty {
+                Text("Active contracts · \(Fmt.money(active.reduce(0) { $0 + $1.monthly }))/mo").font(.caption.weight(.semibold))
+                ForEach(active) { d in
+                    HStack {
+                        Image(systemName: "checkmark.seal.fill").foregroundStyle(.green)
+                        Text("\(d.client) — \(d.title)").font(.callout)
+                        Spacer()
+                        Text("\(Fmt.money(d.monthly))/mo · \(d.monthsLeft) months left\(d.breaches > 0 ? " · ⚠️ \(d.breaches) SLA misses" : "")")
+                            .font(.caption.monospacedDigit()).foregroundStyle(d.breaches > 0 ? .orange : .secondary)
+                    }
+                }
+            }
+        }
+    }
+}

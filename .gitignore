@@ -1,0 +1,11 @@
+# SwiftPM / Xcode build output
+.build/
+build/
+.swiftpm/
+DerivedData/
+xcuserdata/
+
+# Release archives (attached to GitHub Releases instead)
+*.zip
+
+.DS_Store

@@ -1,0 +1,967 @@
+import Charts
+import SwiftUI
+
+struct LogSlider: View {
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+
+    var body: some View {
+        Slider(value: Binding(get: { log10(clamp(value, range.lowerBound, range.upperBound)) },
+                              set: { value = pow(10, $0) }),
+               in: log10(range.lowerBound)...log10(range.upperBound))
+    }
+}
+
+enum Recipe: String, CaseIterable, Identifiable {
+    case quick = "Quick experiment"
+    case optimal = "Compute-optimal"
+    case overtrained = "Inference-optimised"
+    case moe = "Frontier MoE"
+    case reasoning = "Reasoning model"
+    case finetune = "Fine-tune open model"
+
+    var id: String { rawValue }
+
+    var symbol: String {
+        switch self {
+        case .quick: "bolt.fill"
+        case .optimal: "scalemass.fill"
+        case .overtrained: "speedometer"
+        case .moe: "square.stack.3d.up.fill"
+        case .reasoning: "lightbulb.max.fill"
+        case .finetune: "wand.and.stars"
+        }
+    }
+
+    var tint: Color {
+        switch self {
+        case .quick: .yellow
+        case .optimal: .blue
+        case .overtrained: .teal
+        case .moe: .purple
+        case .reasoning: .pink
+        case .finetune: .green
+        }
+    }
+
+    var blurb: String {
+        switch self {
+        case .quick: "A week on 10% of your cluster. See where you stand before betting big."
+        case .optimal: "30 days, sized by your scaling science (Kaplan before Chinchilla, ~20 tokens/param after)."
+        case .overtrained: "Smaller model on far more data (Llama-style). Weaker per FLOP, cheap and fast to serve."
+        case .moe: "Sparse experts + your best optimizer and attention. DeepSeek-V3-style efficiency."
+        case .reasoning: "Chat + preference tuning + heavy reasoning RL + tools. Math and coding beast."
+        case .finetune: "The best open-weights model that fits your chips, made yours in ~10 days."
+        }
+    }
+}
+
+struct ModelLabView: View {
+    @Environment(GameStore.self) private var store
+    @State private var design = ModelDesign()
+    @State private var prepared = false
+    @State private var lr: LRSchedule = .standard
+    @State private var interval = 0.1
+    @State private var autoRollback = false
+    @State private var targetIndex = 50.0
+
+    var body: some View {
+        let s = store.game
+        let d = store.derived
+        let b = d.bonuses
+        Page(title: "Model Lab", subtitle: "Design a training run. Every choice moves the forecast — and the forecast is honest about how sure it is.") {
+            if d.pools.isEmpty {
+                EmptyStateView(symbol: "cpu", title: "No compute", message: "You need accelerators to train. Buy some or rent cloud capacity.",
+                               actionTitle: "Hardware Store") { store.open(.hardware) }
+            } else {
+                recipeStrip(s, b)
+                HStack(alignment: .top, spacing: 18) {
+                    designForm(s, d, b)
+                        .frame(minWidth: 440, maxWidth: 540)
+                    VStack(spacing: 14) {
+                        ForecastPanel(design: design, lr: lr, interval: interval, state: s, derived: d,
+                                      start: {
+                                          if store.act("Training started", { $0.startTraining(design, lr: lr, checkpointEvery: interval, autoRollback: autoRollback) }) {
+                                              design.name = nextName(design.name)
+                                              store.open(.training)
+                                          }
+                                      },
+                                      ladder: {
+                                          if store.act("Scaling ladder started", { $0.startLadder(design) }) { store.open(.training) }
+                                      })
+                        TargetPlanner(design: $design, target: $targetIndex, state: s, derived: d)
+                    }
+                }
+            }
+        }
+        .onAppear { if !prepared { prepare(s, d); prepared = true } }
+    }
+
+    // MARK: Recipes
+
+    private func recipeStrip(_ s: GameState, _ b: ResearchBonuses) -> some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: 10) {
+                ForEach(Recipe.allCases) { r in
+                    let locked = (r == .moe && !b.has(.moe)) || (r == .reasoning && !b.has(.reasoning)) || (r == .finetune && Physics.openModels(s).isEmpty)
+                    Button { apply(r, s) } label: {
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack {
+                                Image(systemName: r.symbol).font(.title3).foregroundStyle(r.tint)
+                                Spacer()
+                                if locked { Image(systemName: "lock.fill").foregroundStyle(.secondary) }
+                            }
+                            Text(r.rawValue).font(.callout.weight(.semibold))
+                            Text(r.blurb).font(.caption2).foregroundStyle(.secondary).lineLimit(3, reservesSpace: true)
+                        }
+                        .padding(12)
+                        .frame(width: 190, alignment: .leading)
+                        .background(LinearGradient(colors: [r.tint.opacity(0.18), r.tint.opacity(0.04)], startPoint: .topLeading, endPoint: .bottomTrailing),
+                                    in: .rect(cornerRadius: 14))
+                        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(r.tint.opacity(0.3)))
+                        .contentShape(.rect(cornerRadius: 14))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(locked)
+                    .opacity(locked ? 0.5 : 1)
+                    .help(locked ? "Research needed" : r.blurb)
+                }
+            }
+            .padding(.bottom, 4)
+        }
+        .scrollIndicators(.never)
+    }
+
+    private func bestRecipe(_ b: ResearchBonuses) {
+        design.optimizer = b.has(.muon) ? .muon : (b.has(.shampoo) ? .shampoo : .adamw)
+        design.attention = b.has(.mla) ? .mla : (b.has(.gqa) ? .gqa : .mha)
+        design.mtp = b.has(.mtp)
+        design.anneal = b.has(.curriculum)
+        design.schedule = b.has(.wsd) ? .wsd : .cosine
+        design.mixer = .transformer
+    }
+
+    private func apply(_ r: Recipe, _ s: GameState) {
+        let b = store.derived.bonuses
+        design.mode = .scratch
+        design.baseModelRef = nil
+        design.activeFraction = 1
+        design.reasoning = false
+        design.toolUse = false
+        design.agentRL = false
+        design.instruct = b.has(.chat)
+        design.rlhf = b.has(.rlhf)
+        design.syntheticShare = 0
+        design.dataMix = .balanced
+        switch r {
+        case .quick:
+            design.chips = max(1, store.derived.free(design.accelID) / 10)
+            autoSize(s, days: 7, overtrain: 1)
+            lr = .aggressive
+            interval = 0.25
+        case .optimal:
+            design.chips = max(1, store.derived.free(design.accelID))
+            bestRecipe(b)
+            design.mtp = false
+            autoSize(s, days: 30, overtrain: 1)
+            lr = .standard
+            interval = 0.1
+        case .overtrained:
+            design.chips = max(1, store.derived.free(design.accelID))
+            bestRecipe(b)
+            autoSize(s, days: 30, overtrain: 8)
+            lr = .standard
+            interval = 0.1
+        case .moe:
+            design.chips = max(1, store.derived.free(design.accelID))
+            bestRecipe(b)
+            design.activeFraction = b.has(.fineMoE) ? 1.0 / 32 : 1.0 / 16
+            autoSize(s, days: 30, overtrain: 2)
+            lr = .standard
+            interval = 0.05
+        case .reasoning:
+            design.chips = max(1, store.derived.free(design.accelID))
+            bestRecipe(b)
+            design.reasoning = b.has(.reasoning)
+            design.rlLevel = b.has(.extremeRL) ? .heavy : .standard
+            design.toolUse = b.has(.toolUse)
+            design.agentRL = b.has(.agents)
+            design.instruct = true
+            design.rlhf = b.has(.rlhf)
+            if b.has(.moe) { design.activeFraction = 1.0 / 8 }
+            design.dataMix = .stem
+            autoSize(s, days: 35, overtrain: 2)
+            lr = .standard
+            interval = 0.05
+        case .finetune:
+            design.chips = max(1, store.derived.free(design.accelID))
+            guard pickFinetuneBase(s) else {
+                store.show("No open model fits your cluster's memory. Rent bigger chips or research model parallelism.", error: true)
+                return
+            }
+            lr = .conservative
+            interval = 0.25
+        }
+        if design.precision == .bf16 { fixPrecision(s) }
+        store.show("Recipe applied: \(r.rawValue)")
+    }
+
+    // MARK: Form
+
+    @ViewBuilder
+    private func designForm(_ s: GameState, _ d: Derived, _ b: ResearchBonuses) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Card {
+                CardHeader("Basics", symbol: "textformat")
+                TextField("Model name", text: $design.name).textFieldStyle(.roundedBorder).font(.title3)
+                Picker("Approach", selection: $design.mode) {
+                    ForEach(TrainMode.allCases) { m in Text(m.rawValue).tag(m) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                switch design.mode {
+                case .scratch:
+                    Text("Full pre-training. Most expensive, but the model is truly yours.").font(.caption).foregroundStyle(.secondary)
+                case .finetune:
+                    let open = Physics.openModels(s)
+                    if open.isEmpty {
+                        Label("No open-weights models exist yet.", systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange)
+                    } else {
+                        Picker("Base model", selection: Binding(get: { design.baseModelRef ?? "" }, set: { setBase($0, s) })) {
+                            Text("Choose…").tag("")
+                            ForEach(open, id: \.model.id) { item in
+                                let sized = item.model.name.hasSuffix(Fmt.params(item.model.paramsB))
+                                Text("\(item.model.name) — \(item.lab)\(sized ? "" : " · \(Fmt.params(item.model.paramsB))")").tag(item.model.id.uuidString)
+                            }
+                        }
+                        Text("Download open weights and fine-tune on your data. Cheap and fast, but less differentiated.").font(.caption).foregroundStyle(.secondary)
+                    }
+                case .distill:
+                    if !b.has(.distillation) {
+                        Label("Research Knowledge Distillation to unlock.", systemImage: "lock.fill").font(.caption).foregroundStyle(.orange)
+                    }
+                    Picker("Teacher", selection: Binding(get: { design.baseModelRef ?? "" }, set: { design.baseModelRef = $0.isEmpty ? nil : $0 })) {
+                        Text("Choose…").tag("")
+                        ForEach(s.models) { m in Text(m.name).tag(m.id.uuidString) }
+                    }
+                    Text("Train a smaller student on a big model's outputs. It can get close to the teacher.").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+
+            if design.mode != .finetune {
+                Card {
+                    CardHeader("Architecture", symbol: "square.stack.3d.up")
+                    Toggle("Mixture-of-Experts", isOn: Binding(get: { design.isMoE }, set: { design.activeFraction = $0 ? 1.0 / 8 : 1 }))
+                        .disabled(!b.has(.moe))
+                    if design.isMoE {
+                        Picker("Active experts", selection: $design.activeFraction) {
+                            Text("1/4").tag(0.25)
+                            Text("1/8").tag(0.125)
+                            Text("1/16").tag(0.0625)
+                            Text("1/32").tag(0.03125).disabled(!b.has(.fineMoE))
+                            Text("1/64").tag(0.015625).disabled(!b.has(.fineMoE))
+                        }
+                        .pickerStyle(.segmented)
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text("Total parameters")
+                            Spacer()
+                            Text(Fmt.params(design.paramsB)).font(.body.monospacedDigit().weight(.semibold))
+                        }
+                        LogSlider(value: $design.paramsB, range: 0.05...20_000)
+                        if design.isMoE {
+                            Text("\(Fmt.params(design.activeParamsB)) active per token").font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    LabeledPicker(title: "Attention", selection: $design.attention, options: AttentionKind.allCases,
+                                  enabled: { $0 == .mha || ($0 == .gqa && b.has(.gqa)) || ($0 == .mla && b.has(.mla)) })
+                    LabeledPicker(title: "Architecture", selection: $design.mixer, options: MixerKind.allCases,
+                                  enabled: { $0 == .transformer || ($0 == .hybrid && b.has(.ssmHybrid)) || ($0 == .diffusion && b.has(.diffusionLM)) })
+                    if design.mixer != .transformer {
+                        Text(design.mixer == .hybrid ? "Mamba layers between attention: faster decoding, longer context, slightly weaker reasoning."
+                                                     : "Generates by denoising: 5–10× faster output, lower quality.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    FeatureToggle(title: "Multi-token prediction", detail: "Better training signal + built-in speculative decoding.", isOn: $design.mtp, enabled: b.has(.mtp))
+                    Picker("Context window", selection: $design.contextK) {
+                        Text("2K").tag(2)
+                        Text("8K").tag(8)
+                        Text("32K").tag(32).disabled(!b.has(.context32k))
+                        Text("128K").tag(128).disabled(!b.has(.context128k))
+                        Text("1M").tag(1000).disabled(!b.has(.context1m))
+                    }
+                    .pickerStyle(.segmented)
+                }
+
+                Card {
+                    CardHeader("Data", symbol: "externaldrive")
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text(design.mode == .scratch ? "Training tokens" : "Student tokens")
+                            Spacer()
+                            Text(Fmt.tokens(design.tokensT)).font(.body.monospacedDigit().weight(.semibold))
+                        }
+                        LogSlider(value: $design.tokensT, range: 0.0005...150)
+                        HStack {
+                            let ratio = design.tokensT * 1000 / max(design.activeParamsB, 0.001)
+                            Text(verbatim: "\(Int(ratio)) tokens per parameter").font(.caption).foregroundStyle(.secondary)
+                            Spacer()
+                            if design.mode == .scratch && b.has(.scalingLaws) {
+                                Button(b.researchedChinchilla ? "Compute-optimal" : "Kaplan rule") {
+                                    LabMath.reshape(&design, overtrain: 1, bonuses: b, accel: HardwareCatalog.get(design.accelID))
+                                }
+                                .buttonStyle(.link).font(.caption)
+                                .help(b.researchedChinchilla ? "Re-split the same compute between parameters and tokens optimally" : "Kaplan-style sizing: big and under-trained. Research Chinchilla to do better.")
+                            }
+                        }
+                    }
+                    let avail = Physics.availableTokensT(Array(s.dataSources), y: s.year, bonuses: b) * (design.syntheticShare > 0 && b.has(.syntheticData) ? 1 + design.syntheticShare * 3 : 1)
+                    Text("Unique data available: \(Fmt.tokens(avail)) — more on the Training Data page").font(.caption)
+                        .foregroundStyle(design.tokensT > avail * 4 && design.mode == .scratch ? .orange : .secondary)
+                    LabeledPicker(title: "Mixture", selection: $design.dataMix, options: DataMix.allCases, enabled: { _ in true })
+                    Text(design.dataMix.detail).font(.caption).foregroundStyle(.secondary)
+                    if b.has(.syntheticData) {
+                        HStack {
+                            Text("Synthetic share")
+                            Slider(value: $design.syntheticShare, in: 0...0.5, step: 0.05)
+                            Text("\(Int(design.syntheticShare * 100))%").monospacedDigit().frame(width: 40, alignment: .trailing)
+                                .foregroundStyle(design.syntheticShare > 0.3 ? .orange : .primary)
+                        }
+                    }
+                }
+
+                Card {
+                    CardHeader("Optimization", symbol: "dial.medium")
+                    LabeledPicker(title: "Optimizer", selection: $design.optimizer, options: OptimizerKind.allCases,
+                                  enabled: { $0 == .adamw || ($0 == .muon && b.has(.muon)) || ($0 == .shampoo && b.has(.shampoo)) })
+                    Picker("Precision", selection: $design.precision) {
+                        Text("BF16").tag(Precision.bf16)
+                        Text("FP8").tag(Precision.fp8).disabled(!b.has(.fp8Training))
+                        Text("FP4").tag(Precision.fp4).disabled(!b.has(.fp4Training))
+                    }
+                    .pickerStyle(.segmented)
+                    LabeledPicker(title: "LR schedule", selection: $design.schedule, options: ScheduleKind.allCases, enabled: { $0 == .cosine || b.has(.wsd) })
+                    Picker("Peak learning rate", selection: $lr) {
+                        ForEach(LRSchedule.allCases) { l in Text(l.label).tag(l) }
+                    }
+                    .pickerStyle(.segmented)
+                    Text(lr.detail).font(.caption).foregroundStyle(.secondary)
+                    FeatureToggle(title: "Annealing on the best data", detail: "Finish pre-training by decaying the LR on curated data.", isOn: $design.anneal, enabled: b.has(.curriculum))
+                    Picker("Eval checkpoints", selection: $interval) {
+                        Text("2%").tag(0.02)
+                        Text("5%").tag(0.05)
+                        Text("10%").tag(0.1)
+                        Text("25%").tag(0.25)
+                    }
+                    .pickerStyle(.segmented)
+                    Text("Each checkpoint runs evals and updates the projection. Frequent checkpoints cost a little throughput.").font(.caption).foregroundStyle(.secondary)
+                    Toggle("Auto-rollback on loss spikes", isOn: $autoRollback).toggleStyle(.switch)
+                }
+            }
+
+            Card {
+                CardHeader("Post-training", symbol: "slider.horizontal.3")
+                FeatureToggle(title: "Instruction tuning (SFT)", detail: "Turns a text predictor into an assistant.", isOn: $design.instruct, enabled: b.has(.chat))
+                FeatureToggle(title: "Preference tuning (RLHF)", detail: "Big boost to chat quality and Arena Elo.", isOn: $design.rlhf, enabled: b.has(.rlhf) && design.instruct)
+                if design.rlhf && b.has(.dpo) {
+                    Toggle("Use DPO instead of PPO", isOn: $design.useDPO).toggleStyle(.switch).font(.callout)
+                }
+                FeatureToggle(title: "Reasoning RL", detail: "RL on verifiable problems — gains grow log-linearly with RL compute.",
+                              isOn: $design.reasoning, enabled: b.has(.reasoning) && design.instruct)
+                if design.reasoning && b.has(.reasoning) {
+                    Picker("RL compute", selection: $design.rlLevel) {
+                        ForEach(RLLevel.allCases.filter { $0 != .off }) { l in Text(l.label).tag(l).disabled(l == .extreme && !b.has(.extremeRL)) }
+                    }
+                    .pickerStyle(.segmented)
+                    Text(design.rlLevel.detail).font(.caption).foregroundStyle(.secondary)
+                }
+                FeatureToggle(title: "Tool use", detail: "Function calling — needed for agents.", isOn: $design.toolUse, enabled: b.has(.toolUse))
+                FeatureToggle(title: "Agentic RL", detail: "Train in sandboxes on long tasks. Agents and horizon.", isOn: $design.agentRL, enabled: b.has(.agents) && design.toolUse)
+                FeatureToggle(title: "Vision", detail: "Image understanding.", isOn: $design.vision, enabled: b.has(.vision))
+                FeatureToggle(title: "Voice", detail: "Speech-to-speech.", isOn: $design.audio, enabled: b.has(.audio))
+                FeatureToggle(title: "Video generation", detail: "Expensive, consumer magnet.", isOn: $design.video, enabled: b.has(.video))
+                FeatureToggle(title: "Safety training", detail: "Fewer scandals, better enterprise trust.", isOn: $design.safetyTraining, enabled: true)
+                FeatureToggle(title: "Benchmark tuning", detail: "+scores now… and a risk of a contamination scandal later.",
+                              isOn: $design.benchmarkTuning, enabled: true, warning: true)
+            }
+
+            Card {
+                CardHeader(title: "Cluster", symbol: "cpu") {
+                    Button("Get more compute") { store.open(.hardware) }.buttonStyle(.link)
+                }
+                Picker("Accelerator", selection: $design.accelID) {
+                    ForEach(d.pools) { p in
+                        Text("\(p.accel.name) — \(p.free) free of \(p.total)").tag(p.accel.id)
+                    }
+                }
+                .onChange(of: design.accelID) { _, new in
+                    design.chips = max(1, store.derived.free(new))
+                    fixPrecision(s)
+                }
+                let free = d.free(design.accelID)
+                HStack {
+                    Text("Chips")
+                    Spacer()
+                    QuantityPicker(value: $design.chips, range: 1...max(1, free))
+                }
+                if let a = HardwareCatalog.get(design.accelID) {
+                    Text("\(Fmt.tflops(a.trainTFLOPS(design.precision))) \(design.precision.short) per chip · \(Fmt.memory(a.memoryGB)) \(a.memoryType) · scale-up domain \(a.scaleUp)")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding(.bottom, 20)
+    }
+
+    // MARK: Helpers
+
+    private func prepare(_ s: GameState, _ d: Derived) {
+        let b = d.bonuses
+        if let best = d.pools.max(by: { Double($0.free) * $0.accel.bf16 < Double($1.free) * $1.accel.bf16 }) {
+            design.accelID = best.accel.id
+            design.chips = max(1, best.free)
+        }
+        design.name = nextName("\(s.companyName.split(separator: " ").first.map(String.init) ?? "Model")-\(s.models.count)")
+        design.instruct = b.has(.chat)
+        design.rlhf = b.has(.rlhf)
+        design.contextK = b.has(.context128k) ? 128 : (b.has(.context32k) ? 32 : 8)
+        design.attention = b.has(.gqa) ? .gqa : .mha
+        design.anneal = b.has(.curriculum)
+        fixPrecision(s)
+        autoSize(s, days: 30, overtrain: 1)
+        let top = d.board.filter(\.released).map(\.index).max() ?? 50
+        targetIndex = clamp((top * 0.7).rounded(), 5, 95)
+    }
+
+    private func fixPrecision(_ s: GameState) {
+        let b = store.derived.bonuses
+        guard let a = HardwareCatalog.get(design.accelID) else { return }
+        if b.has(.fp8Training) && a.fp8 > 0 { design.precision = .fp8 } else { design.precision = .bf16 }
+    }
+
+    /// Size the run so it finishes in `days`, allocating compute the way your scaling science knows how.
+    private func autoSize(_ s: GameState, days: Double, overtrain: Double) {
+        guard let a = HardwareCatalog.get(design.accelID) else { return }
+        let b = store.derived.bonuses
+        let mfu = Physics.mfu(accel: a, chips: design.chips, state: s, bonuses: b)
+        let g = Physics.goodput(chips: design.chips, state: s, bonuses: b)
+        let perDay = Double(design.chips) * a.trainTFLOPS(design.precision) * 1e12 * mfu * g * 86_400
+        LabMath.size(&design, flops: perDay * days, overtrain: overtrain, accel: a, bonuses: b)
+    }
+
+    private func pickFinetuneBase(_ s: GameState) -> Bool {
+        guard let a = HardwareCatalog.get(design.accelID) else { return false }
+        let b = store.derived.bonuses
+        let perDay = Double(design.chips) * a.trainTFLOPS(design.precision) * 1e12
+            * Physics.mfu(accel: a, chips: design.chips, state: s, bonuses: b) * 86_400
+        for item in Physics.openModels(s) {
+            var trial = design
+            trial.mode = .finetune
+            trial.paramsB = item.model.paramsB
+            trial.activeFraction = item.model.paramsB > 200 ? 0.06 : 1
+            guard Physics.trainingMemory(trial, accel: a, bonuses: b).ok else { continue }
+            let tokensT = perDay * 10 / (6 * trial.activeParamsB * 1e9) / 1e12
+            guard tokensT >= 0.0005 else { continue }
+            design.mode = .finetune
+            setBase(item.model.id.uuidString, s)
+            design.tokensT = min(0.02, tokensT)
+            return true
+        }
+        return false
+    }
+
+    private func setBase(_ ref: String, _ s: GameState) {
+        design.baseModelRef = ref.isEmpty ? nil : ref
+        if let m = Physics.openModels(s, latestPerLab: nil).first(where: { $0.model.id.uuidString == ref }) {
+            design.paramsB = m.model.paramsB
+            design.activeFraction = m.model.paramsB > 200 ? 0.06 : 1
+            design.tokensT = 0.02
+        }
+    }
+
+    private func nextName(_ name: String) -> String {
+        let parts = name.split(separator: "-")
+        if let last = parts.last, let n = Int(last) {
+            return parts.dropLast().joined(separator: "-") + "-\(n + 1)"
+        }
+        return name + "-2"
+    }
+}
+
+extension ResearchBonuses {
+    var researchedChinchilla: Bool { researched.contains("chinchilla") }
+}
+
+enum LabMath {
+    /// Splits a FLOP budget between parameters and tokens. Before Chinchilla research labs sized like GPT-3
+    /// (big, ~2 tokens/param); after it, compute-optimally (Epoch's corrected fit). `overtrain` multiplies tokens/param.
+    static func size(_ design: inout ModelDesign, flops: Double, overtrain: Double, accel a: Accelerator, bonuses b: ResearchBonuses) {
+        var active: Double
+        if b.researchedChinchilla {
+            active = ForecastEngine.optimalParamsB(flops: flops) / sqrt(overtrain)
+        } else {
+            active = sqrt(flops / (6 * 2 * overtrain)) / 1e9
+        }
+        let memCap = a.weightStreaming ? 1e9 : (b.has(.sharding) ? Double(design.chips) * a.memoryGB / 17.6
+            : (b.has(.modelParallel) ? Double(min(design.chips, a.scaleUp)) * a.memoryGB / 17.6 : a.memoryGB / 17.6))
+        let total = clamp(min(active / design.activeFraction, memCap * 0.9), 0.05, 20_000)
+        design.paramsB = total
+        active = total * design.activeFraction
+        design.tokensT = clamp(flops / (6 * max(active, 0.001) * 1e9) / 1e12, 0.0005, 150)
+    }
+
+    /// Keep the compute, re-split it.
+    static func reshape(_ design: inout ModelDesign, overtrain: Double, bonuses b: ResearchBonuses, accel: Accelerator?) {
+        guard let a = accel else { return }
+        size(&design, flops: Physics.pretrainFLOPs(design), overtrain: overtrain, accel: a, bonuses: b)
+    }
+
+    /// Capability needed to hit a target index (binary search).
+    static func capabilityFor(index target: Double, base: ModelProfile, set: [Benchmark]) -> Double? {
+        var lo = -4.0, hi = 16.0
+        var p = base
+        p.c = hi
+        if ForecastEngine.index(p, set: set) < target { return nil }
+        for _ in 0..<40 {
+            let mid = (lo + hi) / 2
+            p.c = mid
+            if ForecastEngine.index(p, set: set) < target { lo = mid } else { hi = mid }
+        }
+        return hi
+    }
+}
+
+private struct LabeledPicker<T: Hashable & Identifiable & RawRepresentable>: View where T.RawValue == String {
+    let title: String
+    @Binding var selection: T
+    let options: [T]
+    let enabled: (T) -> Bool
+
+    var body: some View {
+        Picker(title, selection: $selection) {
+            ForEach(options) { o in
+                Text(o.rawValue + (enabled(o) ? "" : " 🔒")).tag(o).disabled(!enabled(o))
+            }
+        }
+    }
+}
+
+// MARK: - Forecast
+
+struct ForecastPanel: View {
+    let design: ModelDesign
+    let lr: LRSchedule
+    let interval: Double
+    let state: GameState
+    let derived: Derived
+    let start: () -> Void
+    let ladder: () -> Void
+
+    var body: some View {
+        let s = state
+        let b = derived.bonuses
+        if let est = Physics.estimate(design, state: s) {
+            let f = est.forecast
+            let known = b.has(.scalingLaws)
+            let set = derived.indexSet
+            let band = ForecastEngine.indexBand(adjusted(f), design: design, set: set)
+            let top = derived.board.filter { $0.released && !$0.isPlayer }.map(\.index).max() ?? 0
+            let mine = derived.board.filter(\.isPlayer).map(\.index).max()
+            let tier = ForecastEngine.tier(index: band.mean, top: top)
+            let comparable = RealModels.closest(index: band.mean, set: set)
+            let days = est.days / lr.speed / Sim.checkpointOverhead(interval)
+            VStack(alignment: .leading, spacing: 14) {
+                Card {
+                    CardHeader(title: "Forecast", symbol: "sparkles", subtitle: known ? "Scaling-law prediction · 80% interval" : "Research Neural Scaling Laws for real forecasts") {
+                        if known { Pill(text: tier, color: tierColor(tier), symbol: tier.hasPrefix("Genius") ? "crown.fill" : nil) }
+                    }
+                    if known {
+                        HStack(alignment: .firstTextBaseline, spacing: 10) {
+                            Text(Fmt.score(band.mean)).font(.system(size: 46, weight: .bold).monospacedDigit())
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Intelligence Index · \(Fmt.score(band.low))–\(Fmt.score(band.high))").foregroundStyle(.secondary)
+                                if let comparable {
+                                    Text("Comparable to \(comparable.name) (\(comparable.lab), \(comparable.date.label))").font(.caption.weight(.semibold))
+                                }
+                                Text("Final loss ≈ \(String(format: "%.3f", f.finalLoss)) · task horizon ≈ \(BenchmarkCatalog.formatHorizon(BenchmarkCatalog.taskHorizonMinutes(ForecastEngine.profile(adjusted(f), design: design, key: "h"))))")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                        BandStrip(low: band.low, mean: band.mean, high: band.high, top: top, mine: mine)
+                            .frame(height: 34)
+                        DriverList(drivers: f.drivers, c: f.c)
+                        ForEach(f.notes, id: \.self) { n in
+                            Label(n, systemImage: n.hasPrefix("Scaling ladder validated") ? "checkmark.seal.fill" : "scope").font(.caption)
+                                .foregroundStyle(n.hasPrefix("Scaling ladder validated") ? .green : .secondary)
+                        }
+                        HStack(spacing: 14) {
+                            Label("±\(Fmt.trim(f.sigma, 2)) uncertainty (×\(Fmt.trim(pow(10, f.sigma), 2)) effective compute)", systemImage: "plusminus.circle")
+                            Label("\(Int(f.bugRisk * 100))% chance of a silent bug", systemImage: "ladybug").foregroundStyle(f.bugRisk > 0.2 ? .orange : .secondary)
+                        }
+                        .font(.caption)
+                        if b.has(.proxyLadder) && design.mode == .scratch && !f.ladderCovered {
+                            let ladderDays = days * 0.02 / 0.33
+                            Button(action: ladder) {
+                                Label("Run a scaling ladder first (~\(Fmt.days(max(0.2, ladderDays))), \(Fmt.money(est.dailyCost * max(0.2, ladderDays))))", systemImage: "chart.line.uptrend.xyaxis")
+                            }
+                            .help("Five proxy runs at up to 2% of this compute. Halves the uncertainty, tunes hyperparameters and catches most bugs — like OpenAI did before GPT-4.")
+                        }
+                        DisclosureGroup("Benchmark predictions") {
+                            let p = ForecastEngine.profile(adjusted(f), design: design, key: "pred")
+                            VStack(spacing: 4) {
+                                ForEach(set) { bm in
+                                    HStack {
+                                        Image(systemName: bm.kind.symbol).font(.caption2).foregroundStyle(bm.kind.color).frame(width: 14)
+                                        Text(bm.name).font(.caption).frame(width: 160, alignment: .leading).lineLimit(1)
+                                        Meter(value: bm.score(p, noise: false) / 100, tint: bm.kind.color, height: 7)
+                                        Text(bm.format(bm.score(p, noise: false))).font(.caption.monospacedDigit()).frame(width: 52, alignment: .trailing)
+                                    }
+                                }
+                                HStack {
+                                    Text("LMArena Elo").font(.caption).frame(width: 174, alignment: .leading)
+                                    Text(verbatim: "≈ \(Int(BenchmarkCatalog.arenaElo(c: f.c + lr.qualityBonus, bonus: f.arena)))").font(.caption.monospacedDigit().weight(.semibold))
+                                    Spacer()
+                                }
+                            }
+                        }
+                        .font(.callout)
+                    } else {
+                        Label("Without scaling laws you're flying blind — the model could land anywhere.", systemImage: "questionmark.diamond")
+                            .foregroundStyle(.secondary)
+                        Text("Rough guess: \(ForecastEngine.tier(index: band.mean, top: top).lowercased()) (±\(Fmt.trim(f.sigma, 2)))").font(.caption).foregroundStyle(.secondary)
+                    }
+                    ForEach(f.penalties, id: \.self) { pen in
+                        Label(pen, systemImage: "exclamationmark.triangle.fill").font(.caption).foregroundStyle(.orange)
+                    }
+                }
+
+                Card {
+                    CardHeader("Compute budget", symbol: "bolt.fill")
+                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], alignment: .leading, spacing: 14) {
+                        BigNumber(label: "Training compute", value: Fmt.flops(est.flops + est.postFlops), unit: "FLOPs")
+                        BigNumber(label: "Wall-clock time", value: Fmt.days(days), unit: "")
+                        BigNumber(label: "Estimated cost", value: Fmt.money(est.dailyCost * days), unit: "", tint: est.dailyCost * days > s.cash ? .red : .primary)
+                        BigNumber(label: "Cluster throughput", value: Fmt.tflops(clusterTF(est)), unit: "effective")
+                        BigNumber(label: "MFU · goodput", value: "\(Fmt.pct(est.mfu, decimals: 0)) · \(Fmt.pct(est.goodput, decimals: 0))", unit: "")
+                        BigNumber(label: "Hardware failures", value: Fmt.trim(Double(design.chips) * Training.failuresPerChipDay * days, 0), unit: "expected (Llama 3 rates)")
+                    }
+                    HStack(spacing: 8) {
+                        Image(systemName: est.memory.ok ? "checkmark.seal.fill" : "xmark.octagon.fill")
+                            .foregroundStyle(est.memory.ok ? .green : .red)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(est.memory.ok ? "Fits in memory" : "Doesn't fit in memory").font(.callout.weight(.semibold))
+                            Text("Needs \(Fmt.memory(est.memory.needGB)). \(est.memory.note)").font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    if let c = Regulation.note(flops: est.flops, state: s) {
+                        Label(c, systemImage: "building.columns").font(.caption).foregroundStyle(.purple)
+                    }
+                }
+
+                StagePlan(design: design, est: est, days: days, bonuses: b)
+
+                if design.mode == .scratch && known {
+                    Card {
+                        CardHeader("Forecast loss curve", symbol: "chart.line.downtrend.xyaxis", subtitle: "Epoch AI's Chinchilla fit, shifted by your algorithmic gains")
+                        LossForecastChart(design: design, gain: f.algo + f.data, sigma: f.sigma)
+                            .frame(height: 140)
+                    }
+                }
+
+                Button(action: start) {
+                    Label("Start training \(design.name)", systemImage: "play.fill")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 6)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .disabled(!est.memory.ok)
+            }
+            .frame(maxWidth: .infinity)
+        }
+    }
+
+    private func adjusted(_ f: Forecast) -> Forecast {
+        var g = f
+        g.c += lr.qualityBonus
+        return g
+    }
+
+    private func clusterTF(_ est: Physics.Estimate) -> Double {
+        guard let a = HardwareCatalog.get(design.accelID) else { return 0 }
+        return Double(design.chips) * a.trainTFLOPS(design.precision) * est.mfu
+    }
+}
+
+func tierColor(_ tier: String) -> Color {
+    if tier.hasPrefix("Genius") { return .yellow }
+    if tier.hasPrefix("Frontier") { return .orange }
+    if tier.hasPrefix("Strong") { return .green }
+    if tier.hasPrefix("Solid") { return .blue }
+    if tier.hasPrefix("Okay") { return .secondary }
+    return .red
+}
+
+/// The forecast interval on a 0–100 strip, with the world's best and your best marked.
+struct BandStrip: View {
+    let low: Double
+    let mean: Double
+    let high: Double
+    let top: Double
+    let mine: Double?
+
+    var body: some View {
+        GeometryReader { g in
+            let w = g.size.width
+            let x: (Double) -> CGFloat = { v in w * CGFloat(clamp(v, 0, 100) / 100) }
+            ZStack(alignment: .topLeading) {
+                Capsule().fill(.quaternary).frame(height: 8).offset(y: 12)
+                Capsule().fill(LinearGradient(colors: [.indigo.opacity(0.35), .indigo, .indigo.opacity(0.35)], startPoint: .leading, endPoint: .trailing))
+                    .frame(width: max(6, x(high) - x(low)), height: 8)
+                    .offset(x: x(low), y: 12)
+                Circle().fill(.indigo).frame(width: 14, height: 14).overlay(Circle().strokeBorder(.white, lineWidth: 2))
+                    .position(x: x(mean), y: 16)
+                marker(x: x(top), label: "World #1 \(Fmt.score(top))", color: .orange)
+                if let mine { marker(x: x(mine), label: "Your best \(Fmt.score(mine))", color: .green, below: true) }
+            }
+        }
+    }
+
+    private func marker(x: CGFloat, label: String, color: Color, below: Bool = false) -> some View {
+        VStack(spacing: 1) {
+            if !below { Text(label).font(.system(size: 9, weight: .semibold)).foregroundStyle(color).fixedSize() }
+            Rectangle().fill(color).frame(width: 2, height: 14)
+            if below { Text(label).font(.system(size: 9, weight: .semibold)).foregroundStyle(color).fixedSize() }
+        }
+        .position(x: x, y: below ? 24 : 6)
+    }
+}
+
+/// What the forecast is made of, as effective-compute multipliers.
+struct DriverList: View {
+    let drivers: [ForecastDriver]
+    let c: Double
+
+    var body: some View {
+        let shown = drivers.filter { $0.kind != .base }
+        VStack(alignment: .leading, spacing: 4) {
+            if let base = drivers.first(where: { $0.kind == .base }) {
+                HStack {
+                    Text(base.name).font(.caption.weight(.semibold))
+                    Spacer()
+                    Text(base.detail).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+            ForEach(shown) { d in
+                HStack(spacing: 8) {
+                    Text(d.name).font(.caption).frame(width: 190, alignment: .leading).lineLimit(1)
+                        .help(d.detail)
+                    GeometryReader { g in
+                        let mid = g.size.width / 2
+                        let len = min(mid, CGFloat(abs(d.value)) / 0.6 * mid)
+                        Rectangle().fill(d.value >= 0 ? Color.green.gradient : Color.orange.gradient)
+                            .frame(width: max(2, len), height: 7)
+                            .offset(x: d.value >= 0 ? mid : mid - len, y: 3)
+                        Rectangle().fill(.quaternary).frame(width: 1, height: 13).offset(x: mid)
+                    }
+                    .frame(height: 13)
+                    Text(d.kind == .skill ? "+\(Fmt.trim(d.value, 2))" : "×\(Fmt.trim(d.multiplier, d.multiplier < 10 ? 2 : 0))")
+                        .font(.caption.monospacedDigit().weight(.semibold))
+                        .foregroundStyle(d.value >= 0 ? .green : .orange)
+                        .frame(width: 52, alignment: .trailing)
+                }
+            }
+        }
+        .padding(10)
+        .background(.quaternary.opacity(0.35), in: .rect(cornerRadius: 10))
+    }
+}
+
+struct LossForecastChart: View {
+    let design: ModelDesign
+    let gain: Double
+    let sigma: Double
+
+    var body: some View {
+        let points: [(Double, Double, Double, Double)] = (0..<40).map { i in
+            let t = design.tokensT * pow(10, -2 + 2 * Double(i) / 39)
+            let raw = ForecastEngine.loss(paramsB: design.activeParamsB, tokensT: t)
+            func shifted(_ g: Double) -> Double { ForecastEngine.E + (raw - ForecastEngine.E) * pow(10, -ForecastEngine.gamma * g) }
+            return (t, shifted(gain), shifted(gain - 1.28 * sigma), shifted(gain + 1.28 * sigma))
+        }
+        Chart {
+            ForEach(Array(points.enumerated()), id: \.offset) { _, p in
+                AreaMark(x: .value("Tokens (T)", p.0), yStart: .value("Low", p.3), yEnd: .value("High", p.2))
+                    .foregroundStyle(.indigo.opacity(0.15))
+                LineMark(x: .value("Tokens (T)", p.0), y: .value("Loss", p.1))
+                    .interpolationMethod(.catmullRom)
+                    .foregroundStyle(Theme.accentGradient)
+            }
+        }
+        .chartXScale(type: .log)
+        .chartYAxisLabel("Loss")
+        .chartXAxisLabel("Tokens seen (T)")
+    }
+}
+
+private struct TargetPlanner: View {
+    @Environment(GameStore.self) private var store
+    @Binding var design: ModelDesign
+    @Binding var target: Double
+    let state: GameState
+    let derived: Derived
+
+    var body: some View {
+        let s = state
+        let b = derived.bonuses
+        Card {
+            CardHeader(title: "Target planner", symbol: "scope", subtitle: "Pick the Intelligence Index you want — we'll size the compute") {
+                Pill(text: "World #1: \(Fmt.score(derived.board.filter(\.released).map(\.index).max() ?? 0))", color: .orange)
+            }
+            if !b.has(.scalingLaws) {
+                Label("Research Neural Scaling Laws to plan by target.", systemImage: "lock.fill").foregroundStyle(.secondary)
+            } else if design.mode == .scratch, let a = HardwareCatalog.get(design.accelID), let est = Physics.estimate(design, state: s) {
+                HStack {
+                    Text("Target index")
+                    Slider(value: $target, in: 5...99, step: 1)
+                    Text(Fmt.score(target)).font(.title3.weight(.bold).monospacedDigit()).frame(width: 50)
+                }
+                let base = ForecastEngine.profile(est.forecast, design: design, key: "plan")
+                if let need = LabMath.capabilityFor(index: target, base: base, set: derived.indexSet) {
+                    let factor = pow(10, need - base.c)
+                    let flops = (est.flops + est.postFlops) * factor
+                    let perDay = Double(design.chips) * a.trainTFLOPS(design.precision) * 1e12 * est.mfu * est.goodput * 86_400
+                    let days = flops / max(perDay, 1)
+                    let cost = est.dailyCost * days
+                    HStack(spacing: 18) {
+                        PlannerStat(label: "Compute needed", value: Fmt.flops(flops))
+                        PlannerStat(label: "On this cluster", value: Fmt.days(days), tint: days > 180 ? .orange : .primary)
+                        PlannerStat(label: "Cost", value: Fmt.money(cost), tint: cost > s.cash ? .red : .primary)
+                        PlannerStat(label: "vs. current design", value: factor >= 1 ? "\(Fmt.trim(factor, 1))× more" : "\(Fmt.trim(1 / factor, 1))× less")
+                    }
+                    HStack {
+                        Button("Size the run for this target") {
+                            LabMath.size(&design, flops: est.flops * factor, overtrain: 1, accel: a, bonuses: b)
+                            store.show("Sized for index \(Fmt.score(target)) — check memory and time")
+                        }
+                        .buttonStyle(.bordered)
+                        if days > 120 {
+                            Text("Tip: more chips or better techniques bring this under 3 months.")
+                                .font(.caption).foregroundStyle(.orange)
+                        }
+                    }
+                } else {
+                    Text("Out of reach with today's research — the hardest benchmarks need breakthroughs first.").font(.callout).foregroundStyle(.orange)
+                }
+            } else {
+                Text("The planner sizes from-scratch pre-training runs.").font(.callout).foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
+private struct PlannerStat: View {
+    let label: String
+    let value: String
+    var tint: Color = .primary
+    var body: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(value).font(.headline.monospacedDigit()).foregroundStyle(tint)
+            Text(label).font(.caption2).foregroundStyle(.secondary)
+        }
+    }
+}
+
+struct FeatureToggle: View {
+    let title: String
+    let detail: String
+    @Binding var isOn: Bool
+    let enabled: Bool
+    var warning = false
+
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(spacing: 4) {
+                    Text(title)
+                    if !enabled { Image(systemName: "lock.fill").font(.caption2).foregroundStyle(.secondary) }
+                }
+                Text(enabled ? detail : "Locked — research required").font(.caption).foregroundStyle(warning ? .orange : .secondary)
+            }
+            Spacer()
+            Toggle(title, isOn: $isOn)
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .disabled(!enabled)
+        }
+        .onChange(of: enabled) { _, on in if !on { isOn = false } }
+    }
+}
+
+/// The run broken into its real phases, with estimated days for each.
+struct StagePlan: View {
+    let design: ModelDesign
+    let est: Physics.Estimate
+    let days: Double
+    let bonuses: ResearchBonuses
+
+    var body: some View {
+        let stages = Training.stages(design, pretrain: est.flops, bonuses: bonuses)
+        let total = max(stages.reduce(0) { $0 + $1.flops }, 1)
+        Card {
+            CardHeader("Training plan", symbol: "list.number")
+            HStack(spacing: 4) {
+                ForEach(stages) { st in
+                    let share = st.flops / total
+                    VStack(alignment: .leading, spacing: 3) {
+                        RoundedRectangle(cornerRadius: 4).fill(StageColors.color(st.name).gradient).frame(height: 10)
+                        Text(st.name).font(.caption2.weight(.semibold)).lineLimit(1)
+                        Text(Fmt.days(max(share * days, 0.1))).font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .layoutPriority(max(0.05, share))
+                }
+            }
+        }
+    }
+}
+
+enum StageColors {
+    static func color(_ name: String) -> Color {
+        switch name {
+        case "Pre-training", "Fine-tuning", "Distillation", "Proxy runs": .blue
+        case "Annealing", "Decay & anneal": .cyan
+        case "SFT", "Base-model evals": .teal
+        case "RLHF", "DPO": .green
+        case "Multimodal", "Video": .orange
+        case "Tool use", "Agentic RL": .indigo
+        case "Reasoning RL": .pink
+        default: .purple
+        }
+    }
+}
+
+enum Regulation {
+    static func note(flops: Double, state s: GameState) -> String? {
+        if flops >= 1e26 && s.year >= 2023.83 && s.year < 2025.06 { return "Above 10²⁶ FLOPs: must be reported to the US government (EO 14110)." }
+        if flops >= 1e25 && s.market.euAIAct { return "Above 10²⁵ FLOPs: an EU AI Act systemic-risk model — needs safety evals before release." }
+        return nil
+    }
+}
+
+private struct BigNumber: View {
+    let label: String
+    let value: String
+    let unit: String
+    var tint: Color = .primary
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label).font(.caption).foregroundStyle(.secondary)
+            Text(value).font(.title3.weight(.semibold).monospacedDigit()).foregroundStyle(tint).lineLimit(1).minimumScaleFactor(0.7)
+            if !unit.isEmpty { Text(unit).font(.caption2).foregroundStyle(.tertiary) }
+        }
+    }
+}

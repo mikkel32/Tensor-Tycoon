@@ -1,0 +1,271 @@
+import Foundation
+
+enum Finance {
+    static func daily(_ s: inout GameState) {
+        // Fundraising: investors trickle in with term sheets.
+        s.raiseOffers.removeAll { $0.expires < s.date }
+        if s.raising {
+            let started = s.lastRaise ?? s.date
+            if s.raiseOffers.count < 3 && s.rng.chance(0.07) {
+                makeOffer(&s)
+            }
+            if GameCalendar.daysBetween(started, s.date) > 60 && s.raiseOffers.isEmpty {
+                s.raising = false
+                Sim.news(&s, "Fundraise stalled", "After two months of pitches no investor bit. Improve your model or traction and try again.",
+                         .finance, important: true, good: false)
+            }
+        }
+
+        // Public markets: daily share price random walk toward fundamentals.
+        if s.isPublic {
+            let fundamental = privateValue(s) / max(1, s.totalShares)
+            let gap = log(max(fundamental, 0.01) / max(s.sharePrice, 0.01))
+            let vol = 0.022 * s.market.hype
+            let r = gap * 0.02 + s.rng.gaussian() * vol
+            s.sharePrice = max(0.5, s.sharePrice * exp(r))
+            s.valuation = s.sharePrice * s.totalShares
+            if GameCalendar.components(s.date).day % 2 == 0 {
+                s.stock.append(StockPoint(date: s.date, price: s.sharePrice))
+                if s.stock.count > 1500 { s.stock.removeFirst(s.stock.count - 1500) }
+            }
+        }
+    }
+
+    /// Valuation ignoring the current share price (used as the fundamental anchor once public).
+    static func privateValue(_ s: GameState) -> Double {
+        var t = s
+        t.isPublic = false
+        return Economy.valuation(t)
+    }
+
+    static func makeOffer(_ s: inout GameState) {
+        let v = privateValue(s)
+        let strategic = s.rng.chance(s.year > 2019 ? 0.3 : 0.1)
+        var pre = v * s.rng.range(0.85, 1.2) * (strategic ? 1.15 : 1)
+        pre = max(pre, 2_000_000)
+        if let last = s.rounds.last, GameCalendar.daysBetween(last.date, s.date) < 400 {
+            pre = min(pre, (last.preMoney + last.amount) * 3.5)
+        }
+        let f = s.raiseFraction
+        let cap = maxRaise(s.year) * s.rng.range(0.5, 1.0)
+        let amount = min(pre * f / (1 - f), cap)
+        let investor = strategic ? "Nimbus Cloud (strategic)" : s.rng.pick(NameBank.investors.filter { !$0.contains("strategic") })
+        let credits = strategic ? amount * 0.4 : 0
+        let offer = RaiseOffer(investor: investor, amount: amount, preMoney: pre, expires: GameCalendar.addDays(s.date, 14),
+                               roundName: Economy.roundName(amount: amount, index: s.rounds.count), cloudCredits: credits)
+        s.raiseOffers.append(offer)
+        Sim.news(&s, "Term sheet: \(investor)",
+                 "\(Fmt.money(amount)) at \(Fmt.money(pre)) pre-money (\(Fmt.pct(amount / (pre + amount), decimals: 1)) dilution)\(strategic ? ", 40% paid as cloud credits" : ""). Expires in 14 days.",
+                 .finance, image: "sf_skyline", important: true, good: true)
+    }
+
+    /// Largest private round the market can absorb in a given year (OpenAI's $40B in 2025 was a record).
+    static func maxRaise(_ y: Double) -> Double {
+        interpolateLog([(2016, 1.5e8), (2020, 1e9), (2023, 1e10), (2025, 4e10), (2027, 6e10), (2030, 1e11)], at: y, extrapolate: true)
+    }
+
+    static func updateCreditScore(_ s: inout GameState) {
+        let rr = Economy.runRate(s)
+        let debt = Economy.debt(s)
+        let burn = max(0, -(s.history.last?.profit ?? 0))
+        let runway = burn > 0 ? s.cash / burn : 48
+        var score = 620.0
+        score += min(120, log10(max(1, rr)) * 12)
+        score += min(60, runway * 2)
+        if let p = s.history.last?.profit, p > 0 { score += 40 }
+        let leverage = rr > 0 ? debt / rr : (debt > 0 ? 5 : 0)
+        score -= min(200, leverage * 40)
+        if s.cash < 0 { score -= 150 }
+        if s.isPublic { score += 30 }
+        s.creditScore = clamp(s.creditScore * 0.7 + score * 0.3, 300, 850)
+    }
+
+    static func payLoans(_ s: inout GameState) {
+        for i in s.loans.indices {
+            let interest = s.loans[i].balance * s.loans[i].rate / 100 / 12
+            var principal = min(s.loans[i].balance, s.loans[i].payment - interest)
+            if s.loans[i].monthsLeft <= 1 { principal = s.loans[i].balance }
+            principal = max(0, principal)
+            s.cash -= interest + principal
+            s.month.costInterest += interest
+            s.loans[i].balance -= principal
+            s.loans[i].monthsLeft -= 1
+            if s.cash < 0 {
+                s.creditScore -= 25
+                if s.loans[i].kind == .gpuBacked && s.daysNegativeCash > 20 {
+                    seizeCollateral(&s, value: s.loans[i].balance)
+                    s.loans[i].balance = 0
+                }
+            }
+        }
+        let paidOff = s.loans.filter { $0.balance <= 1 }
+        s.loans.removeAll { $0.balance <= 1 }
+        for l in paidOff {
+            Sim.news(&s, "Loan repaid: \(l.kind.rawValue)", "You've paid off \(Fmt.money(l.principal)). Your credit score thanks you.", .finance, good: true)
+        }
+    }
+
+    static func seizeCollateral(_ s: inout GameState, value: Double) {
+        var remaining = value
+        var seized = 0
+        for i in s.owned.indices where remaining > 0 {
+            guard let a = HardwareCatalog.get(s.owned[i].accelID) else { continue }
+            let unit = Economy.resaleValue(a, s, unitCost: s.owned[i].unitCost, purchased: s.owned[i].purchased)
+            let n = min(s.owned[i].count, Int(ceil(remaining / max(unit, 1))))
+            s.owned[i].count -= n
+            seized += n
+            remaining -= Double(n) * unit
+        }
+        s.owned.removeAll { $0.count <= 0 }
+        Sim.news(&s, "Lender seizes \(Fmt.int(seized)) accelerators", "You defaulted on a GPU-backed loan. The collateral has been repossessed.",
+                 .finance, image: "gpu_cluster", important: true, good: false)
+    }
+
+    static func settleSupplyDeals(_ s: inout GameState) {
+        for i in s.supplyDeals.indices where s.supplyDeals[i].nextSettlement <= s.date {
+            let d = s.supplyDeals[i]
+            let shortfall = max(0, d.annualCommit - d.spentThisYear)
+            if shortfall > 0 {
+                let penalty = shortfall * 0.5
+                s.cash -= penalty
+                s.month.costOther += penalty
+                Sim.news(&s, "\(d.vendor) take-or-pay penalty: \(Fmt.money(penalty))", "You spent \(Fmt.money(d.spentThisYear)) of your \(Fmt.money(d.annualCommit)) commitment this year.",
+                         .finance, important: true, good: false)
+            }
+            s.supplyDeals[i].spentThisYear = 0
+            s.supplyDeals[i].yearsLeft -= 1
+            s.supplyDeals[i].nextSettlement = GameCalendar.addMonths(d.nextSettlement, 12)
+        }
+        let ended = s.supplyDeals.filter { $0.yearsLeft <= 0 }
+        s.supplyDeals.removeAll { $0.yearsLeft <= 0 }
+        for d in ended {
+            Sim.news(&s, "\(d.vendor) supply agreement ended", "Renew it in the Hardware Store to keep priority allocation.", .hardware)
+        }
+    }
+
+    static func monthlyRate(_ s: inout GameState) {
+        if Macro.historicalRate(s.year) == nil {
+            // After the real data ends, rates random-walk with mean reversion toward 3%.
+            var r = s.market.interestRate <= 1.0 ? 3.4 : s.market.interestRate
+            r += (3.0 - r) * 0.04 + s.rng.gaussian() * 0.12
+            s.market.interestRate = clamp(r, 0.1, 9)
+        } else {
+            s.market.interestRate = Macro.historicalRate(s.year) ?? 3
+        }
+    }
+}
+
+enum Monthly {
+    static func close(_ s: inout GameState) {
+        let b = s.bonuses
+        Partners.monthly(&s)
+        if s.publication == .secret { s.brand = max(0, s.brand - 0.25) }
+        // Enterprise contracts tick
+        for i in s.deals.indices where s.deals[i].active {
+            s.deals[i].monthsLeft -= 1
+            if s.deals[i].breaches > 6 {
+                s.deals[i].active = false
+                s.brand = max(0, s.brand - 4)
+                Sim.news(&s, "\(s.deals[i].client) cancels its contract", "Repeated SLA breaches: your capacity couldn't keep up with their traffic.",
+                         .company, important: true, good: false)
+            }
+            s.deals[i].breaches = 0
+        }
+        let finished = s.deals.filter { $0.active && $0.monthsLeft <= 0 }
+        s.deals.removeAll { ($0.active && $0.monthsLeft <= 0) || (!$0.active && $0.expires < s.date) }
+        for d in finished {
+            Sim.news(&s, "Contract completed: \(d.client)", "The \(d.title) contract ran its full term.", .company, good: true)
+        }
+        Business.generateDeals(&s, b)
+
+        Finance.payLoans(&s)
+        Finance.monthlyRate(&s)
+        Finance.settleSupplyDeals(&s)
+
+        // Taxes on positive monthly profit
+        let pre = s.month.revenue - s.month.opex - s.month.costInterest
+        if pre > 0 {
+            let tax = pre * 0.21
+            s.month.taxes = tax
+            s.cash -= tax
+        }
+
+        // Market modifiers drift back to normal
+        let target = EventCatalog.hypeBase(s.year)
+        s.market.hype += (target - s.market.hype) * 0.08
+        s.market.hardwarePrice += (1 - s.market.hardwarePrice) * 0.06
+        s.market.consumerGPUPrice += (1 - s.market.consumerGPUPrice) * 0.08
+        s.market.rentPrice += (1 - s.market.rentPrice) * 0.07
+        s.market.leadTimeDays += (21 - s.market.leadTimeDays) * 0.1
+        s.market.apiPricePressure += (1 - s.market.apiPricePressure) * 0.08
+        s.market.buildDelay += (1 - s.market.buildDelay) * 0.03
+
+        // Brand: decays, marketing and leadership grow it
+        let marketingBoost = s.marketingBudget > 0 ? 3.0 * log10(1 + s.marketingBudget / 50_000) : 0
+        let sales = s.employees.filter { $0.role == .sales }.reduce(0.0) { $0 + $1.skill / 50 }
+        var leader = 0.0
+        if let top = Leaderboard.entries(s, includeUnreleased: false).first, top.isPlayer { leader = 4 }
+        // Brand drifts toward what your reach and quality "deserve"
+        let bestReleased = s.releasedModels.map(\.c).max() ?? -10
+        let quality = 30 * exp(1.5 * min(0, bestReleased - Macro.frontier(s.year)))
+        let reach = 9 * log10(1 + s.consumerUsers / 1e5) + 6 * log10(1 + (s.history.last?.revAPI ?? 0) / 1e5)
+        let deserved = clamp(8 + quality + reach, 0, 92)
+        s.brand += (deserved - s.brand) * 0.08
+        s.brand = clamp(s.brand + marketingBoost * 0.5 + min(2, sales * 0.2) + leader + (s.reliability - 0.9) * 5, 0, 100)
+
+        // Safety score: team + research + released models
+        let safetyTeam = s.employees.filter { $0.role == .safety }.reduce(0.0) { $0 + $1.skill / 50 }
+        let released = s.releasedModels
+        let modelSafety = released.isEmpty ? 40 : released.map(\.safety).reduce(0, +) / Double(released.count)
+        s.safetyScore = clamp(modelSafety * 0.6 + b.safety * 0.4 + min(25, safetyTeam * 4), 0, 100)
+
+        People.monthly(&s)
+        Competitors.monthly(&s)
+        Events.monthly(&s)
+
+        // Valuation and records
+        s.valuation = Economy.valuation(s)
+        Finance.updateCreditScore(&s)
+        s.month.cashEnd = s.cash
+        s.month.valuation = s.valuation
+        s.month.bestIndex = s.models.map(\.index).max() ?? 0
+        s.month.chips = Double(Economy.totalChips(s))
+        s.history.append(s.month)
+        if s.history.count > 480 { s.history.removeFirst() }
+        s.month = MonthRecord(month: GameCalendar.date(s.date.ym.year, s.date.ym.month, 1))
+        if (s.history.last?.profit ?? 0) > 0 { s.achievements.insert("profitable") }
+    }
+}
+
+enum Business {
+    static func generateDeals(_ s: inout GameState, _ b: ResearchBonuses) {
+        s.deals.removeAll { !$0.active && $0.expires < s.date }
+        guard let best = s.releasedModels.max(by: { $0.index < $1.index }) else { return }
+        let sales = s.employees.filter { $0.role == .sales }.reduce(0.0) { $0 + $1.skill / 50 }
+        let pending = s.deals.filter { !$0.active }.count
+        guard pending < 4 else { return }
+        let frontier = Macro.frontier(s.year)
+        let quality = exp(1.2 * (best.c - frontier))
+        let p = clamp(0.15 + sales * 0.12 + s.brand / 300, 0, 0.9) * (1 + b.enterpriseDemand)
+        let n = s.rng.chance(p) ? (s.rng.chance(p * 0.5) ? 2 : 1) : 0
+        for _ in 0..<n {
+            let size = Macro.marketSize(s.year) * Macro.segmentSplit(s.year, chatMoment: s.chatMoment != nil).enterprise
+            // A typical deal is a tiny slice of the enterprise market.
+            var monthly = size / 12 * s.rng.range(0.00002, 0.0004) * quality * (1 + sales * 0.05)
+            monthly = max(monthly, 8_000)
+            let months = [6, 12, 12, 24, 36][s.rng.int(0, 4)]
+            let price = max(best.apiPrice, 0.05)
+            let tokens = monthly / 30.4 / price * 1e6 * s.rng.range(0.4, 0.9)
+            let titles = s.year < 2022 ? ["custom NLP model", "document classification", "translation pipeline", "search ranking", "chatbot pilot"]
+                                       : ["customer-support agents", "coding assistant rollout", "document intelligence", "internal copilot",
+                                          "research assistant", "claims automation", "contract review", "voice agents"]
+            let deal = EnterpriseDeal(client: s.rng.pick(NameBank.clients), title: s.rng.pick(titles), monthly: monthly,
+                                      tokensPerDay: tokens, months: months, monthsLeft: months,
+                                      minIndex: max(0, best.index - s.rng.range(0, 12)),
+                                      minSafety: s.rng.range(20, 70), expires: GameCalendar.addDays(s.date, 30))
+            s.deals.append(deal)
+            Sim.news(&s, "Enterprise lead: \(deal.client)", "\(Fmt.money(monthly))/month for \(deal.title), \(months) months. Review it in Market.",
+                     .market, important: false, good: true)
+        }
+    }
+}
