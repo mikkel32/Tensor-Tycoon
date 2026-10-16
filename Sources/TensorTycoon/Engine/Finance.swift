@@ -159,6 +159,7 @@ enum Monthly {
     static func close(_ s: inout GameState) {
         let b = s.bonuses
         Partners.monthly(&s)
+        Xeno.monthly(&s)
         if s.publication == .secret { s.brand = max(0, s.brand - 0.25) }
         // Enterprise contracts tick
         for i in s.deals.indices where s.deals[i].active {
@@ -183,7 +184,7 @@ enum Monthly {
         Finance.settleSupplyDeals(&s)
 
         // Taxes on positive monthly profit
-        let pre = s.month.revenue - s.month.opex - s.month.costInterest
+        let pre = s.month.revenue + s.month.interestIncome + s.month.oneOffIncome - s.month.opex - s.month.costInterest
         if pre > 0 {
             let tax = pre * 0.21
             s.month.taxes = tax
@@ -217,7 +218,7 @@ enum Monthly {
         let safetyTeam = s.employees.filter { $0.role == .safety }.reduce(0.0) { $0 + $1.skill / 50 }
         let released = s.releasedModels
         let modelSafety = released.isEmpty ? 40 : released.map(\.safety).reduce(0, +) / Double(released.count)
-        s.safetyScore = clamp(modelSafety * 0.6 + b.safety * 0.4 + min(25, safetyTeam * 4), 0, 100)
+        s.safetyScore = clamp(modelSafety * 0.6 + b.safety * 0.4 + min(25, safetyTeam * 4) + 10 * s.swarmSafety, 0, 100)
 
         People.monthly(&s)
         Competitors.monthly(&s)

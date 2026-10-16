@@ -148,6 +148,14 @@ enum AchievementCatalog {
         Achievement(id: "bench_breaker", title: "Benchmark Breaker", detail: "Be the first to saturate a benchmark.", symbol: "chart.bar.xaxis.ascending"),
         Achievement(id: "agents", title: "Agentic", detail: "Reach 1M paid agent seats.", symbol: "figure.walk.motion"),
         Achievement(id: "checkpoint_fork", title: "Early Access", detail: "Fork a mid-training checkpoint into a preview model.", symbol: "arrow.triangle.branch"),
+        Achievement(id: "swarm_1k", title: "Hive Mind", detail: "Run 1,000 AI agents at once.", symbol: "person.3.sequence.fill"),
+        Achievement(id: "swarm_1m", title: "A Million Minds", detail: "Run 1,000,000 AI agents at once.", symbol: "circle.hexagongrid.fill"),
+        Achievement(id: "first_contact", title: "First Contact", detail: "Discover an alien architecture.", symbol: "atom"),
+        Achievement(id: "xeno_chip", title: "Not Made by Humans", detail: "Put a chip designed by your agents into production.", symbol: "memorychip.fill"),
+        Achievement(id: "merchant", title: "Arms Dealer", detail: "Sell $1B of your chips to other companies.", symbol: "shippingbox.fill"),
+        Achievement(id: "licensor", title: "Blueprint Baron", detail: "License an alien architecture to a big player.", symbol: "doc.text.fill"),
+        Achievement(id: "landlord", title: "Neocloud", detail: "Lease 10,000 accelerators to other companies.", symbol: "cloud.fill"),
+        Achievement(id: "liquid_billionaire", title: "Liquid Billionaire", detail: "Cash out $1B of your own shares.", symbol: "dollarsign.circle.fill"),
     ]
 
     static let byID: [String: Achievement] = Dictionary(uniqueKeysWithValues: all.map { ($0.id, $0) })

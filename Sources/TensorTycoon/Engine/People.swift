@@ -294,6 +294,8 @@ enum Events {
             break
         case ("rsi_resource", _), ("rsi_exfil", _):
             RSI.resolve(&s, kind: d.kind, option: option, ref: d.ref)
+        case ("swarm_collusion", _), ("swarm_escape", _):
+            Swarms.resolve(&s, kind: d.kind, option: option, ref: d.ref)
         case ("acquisition", 0):
             s.exitValue = d.amount
             s.gameOver = "Acquired for \(Fmt.money(d.amount)) on \(s.date.gameShort). Your stake: \(Fmt.money(d.amount * s.founderStake))."

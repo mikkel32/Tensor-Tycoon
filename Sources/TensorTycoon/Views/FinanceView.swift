@@ -17,6 +17,9 @@ struct FinanceView: View {
                 StatTile(title: "Fed funds rate", value: "\(Fmt.trim(Economy.fedRate(s), 2))%", detail: "Base for loan pricing", symbol: "percent", tint: .purple)
                 StatTile(title: "Hardware value", value: Fmt.money(Economy.hardwareValue(s)), detail: "Resale, usable as collateral", symbol: "cpu", tint: .green)
                 StatTile(title: "Lifetime revenue", value: Fmt.money(s.lifetimeRevenue), detail: "\(Fmt.flops(s.lifetimeFLOPs)) FLOPs trained", symbol: "sum", tint: .teal)
+                StatTile(title: "Interest on cash", value: "\(Fmt.trim(Treasury.yieldRate(s), 2))%", detail: "Idle cash sits in T-bills · \(Fmt.money(s.cash * Treasury.yieldRate(s) / 100 / 12))/mo", symbol: "building.columns", tint: .mint)
+                StatTile(title: "Runway", value: Treasury.runwayMonths(s).map { $0 > 48 ? "4+ years" : "\(Fmt.trim($0, 1)) months" } ?? "Profitable",
+                         detail: "At last month's burn", symbol: "hourglass", tint: (Treasury.runwayMonths(s) ?? 99) < 6 ? .red : .green)
             }
 
             HStack(alignment: .top, spacing: 16) {
@@ -61,8 +64,12 @@ struct FinanceView: View {
                     GridRow { Text("  Consumer").foregroundStyle(.secondary); Text(Fmt.money(m.revConsumer)).monospacedDigit(); Text("  Power").foregroundStyle(.secondary); Text(Fmt.money(m.costPower)).monospacedDigit() }
                     GridRow { Text("  Enterprise").foregroundStyle(.secondary); Text(Fmt.money(m.revEnterprise)).monospacedDigit(); Text("  Payroll").foregroundStyle(.secondary); Text(Fmt.money(m.costPayroll)).monospacedDigit() }
                     GridRow { Text("  Agents").foregroundStyle(.secondary); Text(Fmt.money(m.revAgents)).monospacedDigit(); Text("  Sites & offices").foregroundStyle(.secondary); Text(Fmt.money(m.costSites)).monospacedDigit() }
-                    GridRow { Text(""); Text(""); Text("  Data & marketing").foregroundStyle(.secondary); Text(Fmt.money(m.costData + m.costMarketing)).monospacedDigit() }
-                    GridRow { Text("Capex (hardware, construction)").foregroundStyle(.secondary); Text(Fmt.money(m.capex)).monospacedDigit(); Text("  Other / fines").foregroundStyle(.secondary); Text(Fmt.money(m.costOther)).monospacedDigit() }
+                    GridRow { Text("  Compute leasing").foregroundStyle(.secondary); Text(Fmt.money(m.revCloud)).monospacedDigit(); Text("  Data & marketing").foregroundStyle(.secondary); Text(Fmt.money(m.costData + m.costMarketing)).monospacedDigit() }
+                    GridRow { Text("  Chip sales").foregroundStyle(.secondary); Text(Fmt.money(m.revChips)).monospacedDigit(); Text("  Chips made for sale").foregroundStyle(.secondary); Text(Fmt.money(m.costChips)).monospacedDigit() }
+                    GridRow { Text("  Agent labor").foregroundStyle(.secondary); Text(Fmt.money(m.revLabor)).monospacedDigit(); Text("  Other / fines").foregroundStyle(.secondary); Text(Fmt.money(m.costOther)).monospacedDigit() }
+                    GridRow { Text("  License royalties").foregroundStyle(.secondary); Text(Fmt.money(m.revLicensing)).monospacedDigit(); Text("  Interest on debt").foregroundStyle(.secondary); Text(Fmt.money(m.costInterest)).monospacedDigit() }
+                    GridRow { Text("Interest on cash").foregroundStyle(.secondary); Text(Fmt.money(m.interestIncome)).monospacedDigit().foregroundStyle(.green); Text("One-off income (license fees)").foregroundStyle(.secondary); Text(Fmt.money(m.oneOffIncome)).monospacedDigit().foregroundStyle(.green) }
+                    GridRow { Text("Capex (hardware, construction)").foregroundStyle(.secondary); Text(Fmt.money(m.capex)).monospacedDigit(); Text(""); Text("") }
                 }
                 .font(.callout)
             }
@@ -73,7 +80,7 @@ struct FinanceView: View {
                     TableColumn("Revenue") { m in Text(Fmt.money(m.revenue)).monospacedDigit().foregroundStyle(.green) }
                     TableColumn("Compute") { m in Text(Fmt.money(m.costRent + m.costPower)).monospacedDigit() }
                     TableColumn("People") { m in Text(Fmt.money(m.costPayroll)).monospacedDigit() }
-                    TableColumn("Other opex") { m in Text(Fmt.money(m.costSites + m.costData + m.costMarketing + m.costOther)).monospacedDigit() }
+                    TableColumn("Other opex") { m in Text(Fmt.money(m.costSites + m.costData + m.costMarketing + m.costOther + m.costChips)).monospacedDigit() }
                     TableColumn("Interest + tax") { m in Text(Fmt.money(m.costInterest + m.taxes)).monospacedDigit() }
                     TableColumn("Capex") { m in Text(Fmt.money(m.capex)).monospacedDigit().foregroundStyle(.secondary) }
                     TableColumn("Profit") { m in Text(signedMoney(m.profit)).monospacedDigit().foregroundStyle(m.profit >= 0 ? .green : .red) }

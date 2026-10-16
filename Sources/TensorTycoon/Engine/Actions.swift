@@ -186,6 +186,7 @@ extension GameState {
         if d.attention == .mla && !b.has(.mla) { return "Research multi-head latent attention first." }
         if d.mixer == .hybrid && !b.has(.ssmHybrid) { return "Research hybrid SSM architectures first." }
         if d.mixer == .diffusion && !b.has(.diffusionLM) { return "Diffusion LMs need your lab's unique breakthrough." }
+        if d.mixer == .alien && alienArchs.isEmpty { return "Your agents haven't found an alien architecture yet (Agent Swarms → alien architecture search)." }
         if d.mtp && !b.has(.mtp) { return "Research multi-token prediction first." }
         if d.schedule == .wsd && !b.has(.wsd) { return "Research WSD schedules first." }
         if d.isMoE && d.activeFraction < 0.05 && !b.has(.fineMoE) { return "Research fine-grained experts for sparsity beyond 1/16." }
@@ -306,6 +307,7 @@ extension GameState {
     mutating func setAPIPrice(_ id: UUID, _ price: Double) {
         guard let i = models.firstIndex(where: { $0.id == id }) else { return }
         models[i].apiPrice = max(0.001, price)
+        models[i].autoPrice = false
     }
 
     mutating func retire(_ id: UUID) {
@@ -579,6 +581,7 @@ extension GameState {
         m.visSkill = fc.vis
         m.safety = fc.safety
         m.preview = true
+        m.autoPrice = true
         m.apiPrice = max(0.01, (Macro.referencePrice(c: cp.c, y: year) * market.apiPricePressure * 0.85 * 1000).rounded() / 1000)
         m.servingPrecision = b.has(.int8Serving) ? .fp8 : .bf16
         m.index = BenchmarkCatalog.index(Leaderboard.profile(m), set: Leaderboard.indexSet(self))

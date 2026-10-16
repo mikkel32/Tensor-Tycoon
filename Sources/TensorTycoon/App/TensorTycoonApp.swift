@@ -28,6 +28,10 @@ struct TensorTycoonApp: App {
             BalanceHarness.forecastCheck()
             exit(0)
         }
+        if let i = args.firstIndex(of: "--ventures") {
+            BalanceHarness.ventures(era: i + 1 < args.count ? args[i + 1] : "2026")
+            exit(0)
+        }
         if let i = args.firstIndex(of: "--simulate") {
             BalanceHarness.run(era: i + 1 < args.count ? args[i + 1] : "2022")
             exit(0)

@@ -77,6 +77,9 @@ struct ScreenRouter: View {
         case .leaderboard: LeaderboardView()
         case .benchmarks: BenchmarksView()
         case .rsi: RSIView()
+        case .swarms: SwarmView()
+        case .xeno: XenoView()
+        case .chipSales: ChipSalesView()
         case .silicon: SiliconView()
         case .partners: PartnersView()
         case .hardware: HardwareStoreView()
@@ -138,6 +141,8 @@ struct Sidebar: View {
         case .funding: s.raiseOffers.count
         case .research: s.researchQueue.isEmpty ? 1 : 0
         case .rsi: s.rsiRuns.filter { $0.status == .running }.count
+        case .swarms: s.swarms.filter { !$0.paused }.count
+        case .xeno: s.alienArchs.reduce(0) { $0 + $1.offers.count }
         case .silicon: s.chipProjects.filter { !$0.done }.count
         case .partners: s.partnerships.count
         default: 0
@@ -296,6 +301,13 @@ struct GameOverSheet: View {
                     GridRow { Text("Achievements").foregroundStyle(.secondary); Text("\(s.achievements.count) / \(AchievementCatalog.all.count)") }
                     if let v = s.exitValue {
                         GridRow { Text("Your payout").foregroundStyle(.secondary); Text(Fmt.money(v * s.founderStake)).bold() }
+                    }
+                    if s.founderCash > 0 {
+                        GridRow { Text("Cashed out before").foregroundStyle(.secondary); Text(Fmt.money(s.founderCash)) }
+                    }
+                    GridRow {
+                        Text("Founder net worth").foregroundStyle(.secondary)
+                        Text(Fmt.money((s.exitValue.map { $0 * s.founderStake } ?? 0) + s.founderCash + (s.exitValue == nil && s.gameOver == nil ? s.founderStake * s.valuation : 0))).bold()
                     }
                 }
                 HStack {

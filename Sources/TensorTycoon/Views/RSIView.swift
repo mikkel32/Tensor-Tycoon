@@ -173,6 +173,9 @@ private struct NewRSIRun: View {
             SpecRow(label: "Generation time", value: Fmt.days(f.daysPerGeneration))
             if target == .research {
                 SpecRow(label: "Research output", value: "\(Fmt.count(f.rpPerDay)) RP/day")
+            } else if target == .architecture {
+                SpecRow(label: "Alien insight", value: "\(Fmt.trim(f.insightPerDay, 1))/day")
+                SpecRow(label: "Next discovery needs", value: "\(Fmt.count(max(0, Xeno.insightNeeded(s) - s.xenoInsight))) more")
             } else {
                 SpecRow(label: "First-generation gain", value: "+\(Fmt.trim(f.firstGain, 3)) capability")
                 SpecRow(label: "Gain ceiling (this compute)", value: "+\(Fmt.trim(f.maxGain, 2))")
@@ -246,9 +249,10 @@ private struct RSIRunCard: View {
             }
 
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 5), spacing: 10) {
-                RSIStat(label: run.target == .research ? "Research generated" : "Capability gain (measured)",
-                        value: run.target == .research ? "\(Fmt.count(run.rpGenerated)) RP" : "+\(Fmt.trim(run.cMeasured - run.cStart, 2))",
-                        symbol: "arrow.up.right", tint: .blue)
+                RSIStat(label: run.target == .research ? "Research generated" : (run.target == .architecture ? "Alien insight found" : "Capability gain (measured)"),
+                        value: run.target == .research ? "\(Fmt.count(run.rpGenerated)) RP"
+                            : (run.target == .architecture ? Fmt.count(run.rpGenerated) : "+\(Fmt.trim(run.cMeasured - run.cStart, 2))"),
+                        symbol: run.target == .architecture ? "atom" : "arrow.up.right", tint: .blue)
                 RSIStat(label: "Index (est.)", value: "\(Fmt.score(idx0)) → \(Fmt.score(idxNow))", symbol: "checklist", tint: .purple)
                 RSIStat(label: "Alignment (last eval)", value: "\(Int(align))/100", symbol: "shield.lefthalf.filled", tint: alignColor)
                 RSIStat(label: "Serving efficiency", value: "×\(Fmt.trim(run.efficiency, 2))", symbol: "gauge.with.dots.needle.100percent", tint: .teal)

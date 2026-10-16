@@ -685,14 +685,16 @@ enum HardwareCatalog {
         var map: [String: Accelerator] = [:]
         for c in chips {
             let ym = c.available.ym
-            map[c.id] = acc(c.id, c.name, .custom, .custom, arch: "Custom \(c.focus.rawValue.lowercased()) ASIC (gen \(c.generation))",
+            map[c.id] = acc(c.id, c.name, .custom, .custom,
+                            arch: c.alien ? "Alien architecture (agent-designed, gen \(c.generation))" : "Custom \(c.focus.rawValue.lowercased()) ASIC (gen \(c.generation))",
                             announced: ym, available: ym, process: c.process,
                             mem: c.memoryGB, memType: c.memoryType, bw: c.bandwidthTBs,
                             bf16: c.bf16, fp8: c.fp8, fp4: c.fp4, int8: c.fp8,
                             tdp: c.tdpW, ic: "Custom scale-up fabric", icGBs: 1_800, scaleUp: c.scaleUp,
                             price: c.unitCost, rent: nil, liquid: c.tdpW > 900,
-                            image: c.focus == .training ? "wafer" : "wafer_closeup", rep: true,
-                            fact: "Your own silicon: built only for you, at cost.", decodeEff: c.decodeEff)
+                            image: c.alien ? "wafer_closeup" : (c.focus == .training ? "wafer" : "wafer_closeup"), rep: true,
+                            fact: c.alien ? "Designed by your agent swarm. Nobody fully understands how it works — it just does, at a fraction of the cost."
+                                          : "Your own silicon: built only for you, at cost.", decodeEff: c.decodeEff)
         }
         custom = map
     }

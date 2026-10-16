@@ -141,6 +141,8 @@ enum Competitors {
         let race = 0.5 * max(0, playerBest - Macro.frontier(y))
         let boost = boost(s, def.id, at: y)
         var c = Macro.frontier(y) + def.offset(y) + s.difficulty.competitorBoost + race + boost.c + s.rng.gaussian() * 0.05
+        // Whatever you sold or licensed them.
+        c += Xeno.rivalC(s, def.id, at: date)
         if y < 2017.4 { c -= 1.0 }
         let reasoning = y >= reasoningStart(def.id)
         let name = modelName(def, count: s.competitors[i].releaseCount)

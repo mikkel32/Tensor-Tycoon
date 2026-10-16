@@ -76,6 +76,12 @@ private struct CompetitorCard: View {
                 Label("Signature: \(trait.signature)", systemImage: "seal.fill")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(color)
+                let armed = Xeno.rivalC(s, comp.id, at: s.date)
+                if armed > 0.005 {
+                    Label("Running on your tech: +\(Fmt.trim(armed, 2)) capability from chips and licenses you sold them", systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.orange)
+                }
                 let techs = (s.rivalTech[comp.id] ?? []).compactMap { ResearchCatalog.byID[$0] }.filter { $0.year <= s.year + 1 }
                 if !techs.isEmpty {
                     HStack(spacing: 6) {

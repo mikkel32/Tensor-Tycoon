@@ -43,6 +43,8 @@ enum Physics {
         let engineers = s.employees.filter { $0.role == .mlEngineer }.reduce(0.0) { $0 + $1.skill / 50 }
         let needed = 0.5 + Double(chips) / 1_500
         base += 0.04 * min(1, engineers / needed)
+        // Agent swarms on training operations tune kernels and route around bad nodes.
+        base += 0.04 * s.swarmOps
         if engineers < 0.5 && chips > 64 { base -= 0.05 }
         var mult = 1.0
         if chips > accel.scaleUp {
@@ -58,7 +60,7 @@ enum Physics {
         let infra = s.employees.filter { $0.role == .infra }.reduce(0.0) { $0 + $1.skill / 50 }
         let chips = max(1, s.runs.filter { $0.status == .running || $0.status == .postTraining }.map(\.design.chips).max() ?? 1)
         let staffing = min(1, infra / max(0.5, Double(chips) / 600))
-        return 1.5 * b.failureKeep * (1.3 - 0.3 * staffing)
+        return 1.5 * b.failureKeep * (1.3 - 0.3 * staffing) * (1 - 0.4 * s.swarmOps)
     }
 
     /// Small synchronisation losses from stragglers and slow nodes at scale.

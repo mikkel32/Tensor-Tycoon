@@ -15,12 +15,18 @@ enum Sim {
         rentalExpiry(&s)
         siteConstruction(&s)
         rebalance(&s, Economy.pools(s))
+        s.xenoInsightToday = 0
         Training.daily(&s, b)
         RSI.daily(&s, b)
+        Swarms.daily(&s, b)
         Silicon.daily(&s)
+        Xeno.daily(&s, b)
         research(&s, b)
+        Treasury.autoPrice(&s)
         dailyMarket(&s, b)
+        ChipBusiness.daily(&s)
         dailyCosts(&s, Economy.pools(s))
+        Treasury.daily(&s)
         Competitors.daily(&s)
         Finance.daily(&s)
         Events.daily(&s)
@@ -146,15 +152,34 @@ enum Sim {
         }
     }
 
-    /// If allocations exceed what we have (rental ended, chips died), shrink research, then inference, then pause training.
+    /// If allocations exceed what we have (rental ended, chips died), recall leases, shrink research and swarms,
+    /// then inference, then pause self-improvement and training.
     static func rebalance(_ s: inout GameState, _ pools: [ComputePool]) {
-        for pool in pools where pool.allocated > pool.total {
+        for pool in pools where pool.allocated > pool.total || pool.leased > pool.owned {
             var excess = pool.allocated - pool.total
             let id = pool.accel.id
+            if let l = s.leases[id], l > 0 {
+                // Leases come out of owned chips only.
+                let cut = min(l, max(excess, l - pool.owned))
+                s.leases[id] = l - cut
+                if s.leases[id] == 0 { s.leases[id] = nil }
+                excess -= cut
+            }
+            guard excess > 0 else { continue }
             if let r = s.researchChips[id], r > 0 {
                 let cut = min(r, excess)
                 s.researchChips[id] = r - cut
                 excess -= cut
+            }
+            for si in s.swarms.indices where s.swarms[si].accelID == id && !s.swarms[si].paused && excess > 0 {
+                let cut = min(s.swarms[si].chips, excess)
+                s.swarms[si].chips -= cut
+                excess -= cut
+                if s.swarms[si].chips <= 0 {
+                    s.swarms[si].chips = 0
+                    s.swarms[si].paused = true
+                }
+                Swarms.log(&s, si, "Lost \(Fmt.int(cut)) \(pool.accel.name) chips — fewer agents can run.")
             }
             if excess > 0 {
                 for mi in s.models.indices {
@@ -221,7 +246,7 @@ enum Sim {
     }
 
     static func research(_ s: inout GameState, _ b: ResearchBonuses) {
-        let rate = researchRate(s, b) + s.rsiRPToday
+        let rate = researchRate(s, b) + s.rsiRPToday + s.swarmRPToday
         s.rpToday = rate
         guard let current = s.researchQueue.first, let item = ResearchCatalog.byID[current] else { return }
         if s.researched.contains(current) || (item.isExotic && !s.exoticOwned.contains(current)) { s.researchQueue.removeFirst(); return }

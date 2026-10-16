@@ -2,7 +2,8 @@
 
 A macOS (SwiftUI, macOS 26+) business simulator: found an AI lab, buy GPUs or rent TPUs, train models,
 win benchmarks, sell tokens, subscriptions and agent seats, raise money and race eight rival labs, all the
-way to recursive self-improvement.
+way to recursive self-improvement — then run million-agent swarms, discover alien architectures and decide
+whether to keep them, sell the chips or license the blueprint.
 
 ## Download
 
@@ -55,7 +56,9 @@ open "build/Tensor Tycoon.app"
 
 Or open `Package.swift` in Xcode and press Run. `swift run TensorTycoon --simulate 2022` prints a
 headless balance report: benchmark calibration, a scripted playthrough, the benchmark lifecycle, an RSI
-test and a custom-silicon test. `swift run TensorTycoon --forecast-check` replays real training runs (GPT-3,
+test and a custom-silicon test (including a year of selling the chip). `swift run TensorTycoon --ventures 2026` checks
+agent swarms, alien architectures, chip sales, licensing, compute leasing and the money systems from a frontier lab
+in that year. `swift run TensorTycoon --forecast-check` replays real training runs (GPT-3,
 Chinchilla, LLaMA, GPT-4, Llama 3, DeepSeek-V3, Kimi K2, Grok 4…) through the forecast engine and prints the error.
 
 Saves live in `~/Library/Application Support/TensorTycoon/Saves` (autosave every month, ⌘S to save).
@@ -107,6 +110,25 @@ Speed: ⌘⇧P play/pause, ⌘1–⌘5 speeds (1.5 to 90 days per second), ⌘�
   generation (capabilities, automated research or inference efficiency). Autonomy and oversight trade speed for
   safety; alignment drifts, reward hacking inflates evals, and incidents can end the game. Checkpoints can be
   promoted to models, rolled back or deep-audited.
+- **Agent swarms**: spin up 10 to 50 million copies of one of your models on your own inference chips and give them a
+  mission — automated research, alien-architecture search, training operations (higher MFU, fewer loss spikes, faster
+  recovery from failures, more silent bugs caught), chip design (faster tape-outs, better silicon), alignment research
+  (safety score, slower drift everywhere) or a digital workforce rented to companies per worker-day. Each agent burns
+  tens of millions of tokens a day, so chips set the size of the swarm; output is pooled per mission and grows
+  sub-linearly with agents. Agent quality follows the model's agentic skill: about a tenth of a human researcher for an
+  early-2026 frontier agent, several by 2030. Big, autonomous, under-watched swarms drift out of alignment: collusion,
+  sandbagging, data mishaps with clients, and escapes onto public clouds.
+- **Alien architectures**: enough insight from swarms (or a self-improvement run on Architecture search) yields a
+  design no human would find — a model architecture worth roughly ×2–×5 training compute and a chip with several times
+  the throughput of the best GPU at a few percent of its production cost, which humans only partly understand (models
+  built on it lose safety). Tape out the chip, then choose: **keep it exclusive** (build it for yourself at cost; investors
+  price in the moat), **sell the chips** (huge margins, but every chip a rival lab buys — directly or through a cloud —
+  makes its models stronger, and running thousands of them teaches them the architecture) or **license the blueprint**
+  (billions upfront plus royalties from hyperscalers, sovereign funds and rival labs, who integrate it within six months).
+- **Selling compute**: lease idle owned accelerators to the market like a neocloud (market rental rates, occupancy that
+  falls as you flood the market, a platform fee), or run merchant chip lines for your custom and alien silicon: set the
+  price against the best NVIDIA/AMD part, reserve foundry capacity, build a vendor reputation (the CUDA moat works against
+  newcomers), and choose whether rival labs may buy.
 - **Serving**: tokens/sec per user from memory bandwidth, capacity from FLOPS, chips per replica, quantised
   serving, utilisation, serving cost per 1M tokens, reliability.
 - **Business**: consumer chat app, API market shares vs. rival products, per-seat coding/computer-use agents,
@@ -124,7 +146,10 @@ Speed: ⌘⇧P play/pause, ⌘1–⌘5 speeds (1.5 to 90 days per second), ⌘�
   trade-offs and wider outcome swings. Rivals' secret tech shows up in their models once deployed; headhunt their
   researchers to learn it. A publication policy decides whether your own breakthroughs leak to everyone.
 - **Finance**: equity rounds, strategic investors with cloud credits, IPO and a live stock, bank/GPU-backed/venture
-  loans priced off the real Fed funds rate, credit score, taxes, bankruptcy and acquisition offers.
+  loans priced off the real Fed funds rate, credit score, taxes, bankruptcy and acquisition offers. Idle cash earns
+  T-bill interest, API prices can track the market automatically, hardware revenue is valued at hardware multiples,
+  one-off license fees don't inflate the run-rate, and founders can sell part of their stake (secondaries or into the
+  public market) to build a personal net worth.
 - **World**: four start eras (2017, 2020, 2022, 2026), real dated industry events, eight fictional rival labs, each
   with a signature strength.
 

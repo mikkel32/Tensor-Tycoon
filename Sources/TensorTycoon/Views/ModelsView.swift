@@ -195,6 +195,10 @@ private struct ModelCard: View {
                     if load > 1 { Text("Over capacity: requests are failing and users are churning. Add chips!").font(.caption).foregroundStyle(.red) }
                 }
                 if m.api {
+                    Toggle(isOn: Binding(get: { m.autoPrice }, set: { v in store.mutate { $0.setAutoPrice(m.id, v) } })) {
+                        Text("Auto-price: track the market for this quality (\(Fmt.price(Treasury.targetPrice(m, s))) today)")
+                    }
+                    .help("Re-prices a little every day so an older model stays competitive as the frontier moves. Setting a price by hand turns it off.")
                     HStack {
                         Text("API price $/1M tokens")
                         TextField("Price", text: $priceText)

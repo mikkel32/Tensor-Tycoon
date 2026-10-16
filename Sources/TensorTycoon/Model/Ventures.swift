@@ -1,0 +1,193 @@
+import Foundation
+
+// MARK: - Agent swarms
+
+/// What an agent swarm spends its days on.
+enum SwarmMission: String, Codable, CaseIterable, Identifiable {
+    case research = "Automated research"
+    case xeno = "Alien architecture search"
+    case trainingOps = "Training operations"
+    case silicon = "Chip design"
+    case alignment = "Alignment research"
+    case workforce = "Digital workforce"
+
+    var id: String { rawValue }
+
+    var symbol: String {
+        switch self {
+        case .research: "lightbulb.max.fill"
+        case .xeno: "atom"
+        case .trainingOps: "wrench.and.screwdriver.fill"
+        case .silicon: "memorychip.fill"
+        case .alignment: "checkmark.shield.fill"
+        case .workforce: "briefcase.fill"
+        }
+    }
+
+    var blurb: String {
+        switch self {
+        case .research: "Agents read papers, write code and run ablations around the clock. Adds research points every day."
+        case .xeno: "Agents search design spaces no human would try. Enough insight yields an alien architecture: a chip and a model design nobody else has."
+        case .trainingOps: "Agents babysit your clusters: tune kernels, catch bad nodes and silent bugs. Higher MFU, fewer loss spikes, less time lost to failures."
+        case .silicon: "Agents write RTL and run verification. Chip programs and alien tape-outs finish faster, with better silicon."
+        case .alignment: "Agents red-team and audit other models. Raises your safety score and slows alignment drift in self-improvement runs and swarms."
+        case .workforce: "Rent your agents to companies as a digital workforce: support, coding, back office. Paid per worker-day."
+        }
+    }
+}
+
+struct AgentSwarm: Codable, Identifiable, Hashable {
+    var id = UUID()
+    var name: String
+    var modelID: UUID
+    /// Agents you asked for. How many actually run depends on the chips behind the swarm.
+    var agents: Int
+    var mission: SwarmMission
+    var accelID: String
+    var chips: Int
+    var autonomy: Int
+    /// Share of agents that watch the others instead of working.
+    var oversight: Double
+    var started: Date
+    var paused = false
+    var alignment: Double = 90
+    var alignmentMeasured: Double = 90
+    /// Live stats, refreshed daily.
+    var active: Double = 0
+    var workforce: Double = 0
+    var output: Double = 0
+    var totalOutput: Double = 0
+    var revenue: Double = 0
+    var incidents = 0
+    var log: [String] = []
+    var lastDecision: Date? = nil
+
+    static let autonomyNames = ["Supervised", "Semi-autonomous", "Fully autonomous"]
+}
+
+// MARK: - Alien architectures
+
+enum XenoPolicy: String, Codable, CaseIterable, Identifiable {
+    case exclusive = "Keep exclusive"
+    case sellChips = "Sell chips"
+    case license = "License blueprint"
+    var id: String { rawValue }
+
+    var symbol: String {
+        switch self {
+        case .exclusive: "lock.fill"
+        case .sellChips: "shippingbox.fill"
+        case .license: "doc.text.fill"
+        }
+    }
+
+    var blurb: String {
+        switch self {
+        case .exclusive: "Only you build it — at production cost. Rivals get nothing and investors price in the moat."
+        case .sellChips: "Make the chips and sell them to big players at a markup. Huge revenue, but whoever buys them gets stronger."
+        case .license: "Sell the blueprint: big upfront fees and royalties. Licensees integrate it within ~6 months and the secret is out for good."
+        }
+    }
+}
+
+struct ArchLicense: Codable, Identifiable, Hashable {
+    var id = UUID()
+    var buyerID: String
+    var buyerName: String
+    var signed: Date
+    var upfront: Double
+    var royaltyMonthly: Double
+    var monthsLeft: Int
+    /// When the licensee's own models start using it.
+    var effective: Date
+    /// For offers not yet signed.
+    var expires: Date? = nil
+}
+
+/// A design found by an agent swarm or a self-improving model: a model architecture plus a matching chip.
+struct AlienArch: Codable, Identifiable, Hashable {
+    var id = UUID()
+    var name: String
+    var generation: Int
+    var discovered: Date
+    /// Extra log10 effective training compute for models built on it.
+    var computeGain: Double
+    /// Throughput of its chip vs the best NVIDIA/AMD part at discovery.
+    var chipPerf: Double
+    /// Production cost of its chip as a share of that part's price.
+    var costFactor: Double
+    var powerFactor: Double
+    /// How much of it humans can follow (0–1). Low legibility costs safety.
+    var legibility: Double
+    var policy: XenoPolicy = .exclusive
+    var chipID: String? = nil
+    var fabbing = false
+    var fabDaysLeft: Double = 0
+    var fabRespins = 0
+    var licenses: [ArchLicense] = []
+    var offers: [ArchLicense] = []
+    /// Once licensed, the blueprint is out for good.
+    var licensedOnce = false
+    var lastOffer: Date? = nil
+
+    var multiplier: Double { pow(10, computeGain) }
+}
+
+// MARK: - Selling compute
+
+/// A custom or alien chip you manufacture for other companies.
+struct ChipLine: Codable, Identifiable, Hashable {
+    var id: String { chipID }
+    var chipID: String
+    var price: Double
+    var active = true
+    var sellToRivals = true
+    /// Chips per month the foundry makes for sale.
+    var capacityMonth: Double = 0
+    var pendingCapacity: Double = 0
+    var pendingReady: Date? = nil
+    var shipped: Double = 0
+    var revenue: Double = 0
+    var profit: Double = 0
+    var unitsToday: Double = 0
+    var demandToday: Double = 0
+    var buyerUnits: [String: Double] = [:]
+}
+
+/// Customers for chips, compute and licenses: hyperscalers, sovereign funds and the rival labs themselves.
+struct BigPlayer: Identifiable, Sendable {
+    let id: String
+    let name: String
+    let kind: String
+    let symbol: String
+    /// Share of the neutral (non-rival) market.
+    let weight: Double
+}
+
+enum BigPlayerCatalog {
+    static let neutral: [BigPlayer] = [
+        BigPlayer(id: "nimbus", name: "Nimbus Cloud", kind: "Hyperscaler", symbol: "cloud.fill", weight: 0.30),
+        BigPlayer(id: "stratus", name: "Stratus Compute", kind: "Hyperscaler", symbol: "server.rack", weight: 0.22),
+        BigPlayer(id: "atlas", name: "Atlas Neocloud", kind: "GPU cloud", symbol: "square.stack.3d.up.fill", weight: 0.14),
+        BigPlayer(id: "meridian", name: "Meridian Sovereign AI", kind: "Sovereign fund", symbol: "building.columns.fill", weight: 0.14),
+        BigPlayer(id: "helios", name: "Helios Robotics", kind: "Robotics", symbol: "gearshape.2.fill", weight: 0.10),
+        BigPlayer(id: "northwind", name: "Northwind Telecom", kind: "Telco cloud", symbol: "antenna.radiowaves.left.and.right", weight: 0.10),
+    ]
+
+    static func name(_ id: String) -> String {
+        neutral.first { $0.id == id }?.name ?? CompetitorCatalog.byID[id]?.name ?? id
+    }
+
+    static func isRival(_ id: String) -> Bool { CompetitorCatalog.byID[id] != nil }
+
+    /// Everyone who could buy today, with their share of chip demand. Rivals split half the market by compute share.
+    static func buyers(_ s: GameState, includeRivals: Bool) -> [(id: String, weight: Double)] {
+        var out = neutral.map { ($0.id, $0.weight * (includeRivals ? 0.5 : 1)) }
+        if includeRivals {
+            let rivals = s.competitors.filter { !$0.acquired && s.year >= $0.def.founded.decimal }
+            let total = rivals.reduce(0) { $0 + $1.def.computeShare }
+            for r in rivals where total > 0 { out.append((r.id, 0.5 * r.def.computeShare / total)) }
+        }
+        return out
+    }
+}

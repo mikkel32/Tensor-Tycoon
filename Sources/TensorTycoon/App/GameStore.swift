@@ -3,10 +3,10 @@ import Foundation
 import Observation
 
 enum Screen: String, CaseIterable, Identifiable, Hashable {
-    case dashboard, lab, training, models, leaderboard, benchmarks, rsi
+    case dashboard, lab, training, models, leaderboard, benchmarks, rsi, swarms, xeno
     case hardware, partners, compute, datacenters, silicon
     case research, team, data
-    case market, competitors, finance, funding
+    case market, chipSales, competitors, finance, funding
     case news, achievements, credits
 
     var id: String { rawValue }
@@ -20,6 +20,8 @@ enum Screen: String, CaseIterable, Identifiable, Hashable {
         case .leaderboard: "Leaderboard"
         case .benchmarks: "Benchmarks"
         case .rsi: "Self-Improvement Lab"
+        case .swarms: "Agent Swarms"
+        case .xeno: "Alien Tech"
         case .hardware: "Hardware Store"
         case .compute: "Compute Fleet"
         case .datacenters: "Datacenters & Power"
@@ -29,6 +31,7 @@ enum Screen: String, CaseIterable, Identifiable, Hashable {
         case .team: "Team"
         case .data: "Training Data"
         case .market: "Market & Products"
+        case .chipSales: "Chip & Cloud Sales"
         case .competitors: "Competitors"
         case .finance: "Finance"
         case .funding: "Funding & Equity"
@@ -47,6 +50,8 @@ enum Screen: String, CaseIterable, Identifiable, Hashable {
         case .leaderboard: "trophy.fill"
         case .benchmarks: "checklist.checked"
         case .rsi: "arrow.triangle.2.circlepath.circle.fill"
+        case .swarms: "person.3.sequence.fill"
+        case .xeno: "atom"
         case .hardware: "cart.fill"
         case .compute: "cpu.fill"
         case .datacenters: "building.columns.fill"
@@ -56,6 +61,7 @@ enum Screen: String, CaseIterable, Identifiable, Hashable {
         case .team: "person.3.fill"
         case .data: "externaldrive.fill"
         case .market: "chart.pie.fill"
+        case .chipSales: "shippingbox.fill"
         case .competitors: "flag.2.crossed.fill"
         case .finance: "dollarsign.circle.fill"
         case .funding: "banknote.fill"
@@ -67,11 +73,11 @@ enum Screen: String, CaseIterable, Identifiable, Hashable {
 
     static let sections: [(String, [Screen])] = [
         ("Company", [.dashboard, .news]),
-        ("Build AI", [.lab, .training, .models, .rsi]),
+        ("Build AI", [.lab, .training, .models, .rsi, .swarms, .xeno]),
         ("Evaluate", [.leaderboard, .benchmarks]),
         ("Infrastructure", [.hardware, .partners, .compute, .datacenters, .silicon]),
         ("R&D", [.research, .team, .data]),
-        ("Business", [.market, .competitors, .finance, .funding]),
+        ("Business", [.market, .chipSales, .competitors, .finance, .funding]),
         ("More", [.achievements, .credits]),
     ]
 }

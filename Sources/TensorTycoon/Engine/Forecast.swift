@@ -186,6 +186,13 @@ enum ForecastEngine {
                 algo += pen
                 drivers.append(ForecastDriver(name: "Diffusion decoding", value: pen, kind: .penalty, detail: "5–10× faster generation"))
                 f.keyTech.append("Diffusion LM")
+            case .alien:
+                if let arch = Xeno.best(s) {
+                    algo += arch.computeGain
+                    drivers.append(ForecastDriver(name: "Alien architecture (\(arch.name))", value: arch.computeGain, kind: .gain,
+                                                  detail: "Found by your agents. Humans follow about \(Int(arch.legibility * 100))% of it"))
+                    f.keyTech.append("Alien: \(arch.name)")
+                }
             default: break
             }
             if d.mtp && b.has(.mtp) {
@@ -313,6 +320,12 @@ enum ForecastEngine {
         var safety = 25 + b.safety + (d.safetyTraining ? 15 : 0) + (d.rlhf ? 5 : 0)
         let safetyTeam = s.employees.filter { $0.role == .safety }.reduce(0.0) { $0 + $1.skill / 50 }
         safety += 20 * min(1, safetyTeam / 4)
+        if d.mixer == .alien {
+            // You can't audit what you can't read.
+            safety -= 25 * (1 - Xeno.bestLegibility(s))
+            reasoning += 0.05
+            agent += 0.05
+        }
         f.reasoning = reasoning
         f.code = code
         f.agent = agent
@@ -358,6 +371,7 @@ enum ForecastEngine {
         switch d.mixer {
         case .hybrid: out.append(("hybrid", "Hybrid SSM", 0.08))
         case .diffusion: out.append(("diffusion", "Diffusion LM", 0.15))
+        case .alien: out.append(("alien", "Alien architecture", 0.18))
         case .transformer: break
         }
         if d.mtp { out.append(("mtp", "Multi-token prediction", 0.02)) }
