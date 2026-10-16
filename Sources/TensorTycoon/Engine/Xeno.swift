@@ -157,10 +157,24 @@ enum Xeno {
                 c = max(c, a.computeGain * 0.35)
             }
         }
+        if let found = s.rivalXeno[lab], found <= date { c = max(c, 0.3) }
         if let comp = s.competitors.first(where: { $0.id == lab }), comp.armedH100e > 0 {
             c += log10(1 + comp.armedH100e / max(1, comp.computeH100e))
         }
         return c
+    }
+
+    /// From 2028 the best-funded rivals can find alien architectures on their own — the race is real.
+    static func rivalDiscovery(_ s: inout GameState) {
+        guard s.year >= 2028 else { return }
+        for c in s.competitors where !c.acquired && s.rivalXeno[c.id] == nil && s.year >= c.def.founded.decimal {
+            let p = 0.004 * (1 + max(0, c.def.offset(s.year)) * 4) * (s.year >= 2030 ? 2 : 1)
+            guard s.rng.chance(p) else { continue }
+            s.rivalXeno[c.id] = s.date
+            Sim.news(&s, "\(c.def.name) unveils an alien architecture",
+                     "Their agents found a design no human wrote. Expect their next models to jump. \(s.alienArchs.isEmpty ? "You don't have one yet." : "You're no longer the only one.")",
+                     .competitor, image: "wafer_closeup", important: true, good: false)
+        }
     }
 
     /// Labs whose models already benefit from your alien tech.

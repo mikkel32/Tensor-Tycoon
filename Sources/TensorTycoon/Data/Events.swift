@@ -161,6 +161,7 @@ enum AchievementCatalog {
         Achievement(id: "culture", title: "Culture Eats Strategy", detail: "Adopt a tier-4 culture perk.", symbol: "theatermasks.fill"),
         Achievement(id: "fort_knox", title: "Fort Knox", detail: "Reach security level SL4.", symbol: "lock.shield.fill"),
         Achievement(id: "kingmaker", title: "Kingmaker", detail: "Back the winning side on three AI bills.", symbol: "building.columns.fill"),
+        Achievement(id: "victory", title: "Victory", detail: "Achieve one of the five victory paths.", symbol: "flag.checkered.2.crossed"),
     ]
 
     static let byID: [String: Achievement] = Dictionary(uniqueKeysWithValues: all.map { ($0.id, $0) })

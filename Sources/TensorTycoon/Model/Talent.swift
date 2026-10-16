@@ -96,3 +96,27 @@ extension Employee {
 extension Candidate {
     var talent: TalentTrait? { TalentTrait(rawValue: trait) }
 }
+
+/// How you put a model into the world.
+enum LaunchStyle: String, CaseIterable, Identifiable, Sendable {
+    case standard, keynote, blitz, staged
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .standard: "Blog post"
+        case .keynote: "Keynote launch"
+        case .blitz: "Benchmark blitz"
+        case .staged: "Staged rollout"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .standard: "A post, a model card, an API page."
+        case .keynote: "Livestreamed event and ad campaign: more brand and hype, costs money."
+        case .blitz: "Lead with benchmark charts: big brand win if you're #1, backlash if you're not top 3."
+        case .staged: "Trusted testers first: +4 model safety, quieter launch."
+        }
+    }
+}

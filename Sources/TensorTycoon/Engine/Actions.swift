@@ -278,12 +278,32 @@ extension GameState {
 
     // MARK: Models & products
 
-    mutating func release(_ id: UUID, api: Bool, openWeights: Bool) -> String? {
+    static func keynoteCost(_ s: GameState) -> Double { clamp(s.valuation * 0.0005, 200_000, 50_000_000) }
+
+    mutating func release(_ id: UUID, api: Bool, openWeights: Bool, launch: LaunchStyle = .standard) -> String? {
         guard let i = models.firstIndex(where: { $0.id == id }) else { return "Not found." }
         if !models[i].released {
+            if launch == .keynote && GameState.keynoteCost(self) > cash { return "A keynote costs \(Fmt.money(GameState.keynoteCost(self)))." }
             models[i].released = true
             models[i].releaseDate = date
-            brand = min(100, brand + max(1, 6 + 4 * (models[i].c - Macro.frontier(year))))
+            var gain = max(1, 6 + 4 * (models[i].c - Macro.frontier(year)))
+            switch launch {
+            case .standard: break
+            case .keynote:
+                let cost = GameState.keynoteCost(self)
+                cash -= cost
+                month.costMarketing += cost
+                gain *= 1.6
+                market.hype += 0.02
+            case .blitz:
+                let rank = Leaderboard.rank(of: id, in: self)
+                gain += rank == 1 ? 8 : (rank <= 3 ? 2 : -7)
+            case .staged:
+                gain *= 0.5
+                models[i].safety = min(100, models[i].safety + 4)
+                safetyScore = min(100, safetyScore + 2)
+            }
+            brand = clamp(brand + gain, 0, 100)
             let rank = Leaderboard.rank(of: id, in: self)
             Sim.news(&self, "\(companyName) releases \(models[i].name)", "Intelligence Index \(Fmt.score(models[i].index)) — #\(rank) on the leaderboard.",
                      .company, image: "sf_skyline", important: true, good: true)

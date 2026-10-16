@@ -229,6 +229,8 @@ enum Monthly {
         Events.monthly(&s)
         Board.monthly(&s)
         StrategyEvents.monthly(&s)
+        Victory.monthly(&s)
+        Xeno.rivalDiscovery(&s)
 
         // Valuation and records
         s.valuation = Economy.valuation(s)

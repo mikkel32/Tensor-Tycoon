@@ -136,6 +136,11 @@ Speed: ⌘⇧P play/pause, ⌘1–⌘5 speeds (1.5 to 90 days per second), ⌘�
 - **Talent traits**: star hires arrive with a trait (Visionary, Kernel Wizard, Firefighter, Data Curator, Rainmaker, Red
   Teamer, Tape-out Veteran, Mentor, Loyal, Workhorse or a Brilliant Diva who upsets the team); after a year, promote a
   skilled veteran into the trait you choose.
+- **Victory paths**: five ways to win — Aligned Superintelligence, Trillion-Dollar Empire, Market Dominance, Guardian
+  of the Transition and Alien Tech Mastery. Reach one to retire as a legend or keep playing; every game ends with a
+  legacy score. From 2028 rival labs can find alien architectures of their own, so the race is real.
+- **Launch styles**: release a model with a blog post, a keynote (more brand and hype, costs money), a benchmark blitz
+  (great if you're #1, embarrassing if you're not top 3) or a staged rollout to trusted testers (safer, quieter).
 - **Chief of Staff**: a prioritised to-do list on the dashboard — runway, idle chips, stale prices, over-capacity
   models, drifting swarms, expiring offers, board deadlines.
 - **Agent swarms**: spin up 10 to 50 million copies of one of your models on your own inference chips and give them a

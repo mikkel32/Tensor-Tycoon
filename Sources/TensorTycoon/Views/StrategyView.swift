@@ -35,6 +35,7 @@ struct StrategyView: View {
                 BoardCard(state: s)
             }
 
+            VictoryCard(state: s)
             ObjectivesCard(state: s)
             CultureTree(state: s)
             TraitEffectsCard(traits: s.traits)
@@ -51,6 +52,36 @@ private struct TraitLines: View {
             ForEach(pros, id: \.self) { p in Label(p, systemImage: "plus.circle.fill").font(.caption).foregroundStyle(.green) }
             ForEach(cons, id: \.self) { c in Label(c, systemImage: "minus.circle.fill").font(.caption).foregroundStyle(.orange) }
             if pros.isEmpty && cons.isEmpty { Text("No special effects.").font(.caption).foregroundStyle(.secondary) }
+        }
+    }
+}
+
+private struct VictoryCard: View {
+    let state: GameState
+
+    var body: some View {
+        let s = state
+        Card {
+            CardHeader("Victory paths", symbol: "flag.checkered.2.crossed", subtitle: "Five ways to win. Reach one to retire as a legend — or keep going. Legacy score \(Victory.legacyScore(s))")
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 230), spacing: 12)], spacing: 12) {
+                ForEach(VictoryPath.allCases) { v in
+                    let done = s.victories.contains(v.rawValue)
+                    let p = done ? 1 : Victory.progress(v, s)
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Image(systemName: v.symbol).foregroundStyle(done ? .yellow : Color.accentColor)
+                            Text(v.title).font(.callout.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.8)
+                            Spacer()
+                            if done { Image(systemName: "checkmark.seal.fill").foregroundStyle(.yellow) }
+                        }
+                        Text(v.goal).font(.caption2).foregroundStyle(.secondary).lineLimit(3, reservesSpace: true)
+                        Meter(value: p, tint: done ? .yellow : .accentColor, height: 6)
+                        Text("\(Int(p * 100))%").font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+                    }
+                    .padding(10)
+                    .background(Color.secondary.opacity(0.06), in: .rect(cornerRadius: 10))
+                }
+            }
         }
     }
 }

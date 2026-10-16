@@ -309,6 +309,10 @@ struct GameOverSheet: View {
                     if s.founderCash > 0 {
                         GridRow { Text("Cashed out before").foregroundStyle(.secondary); Text(Fmt.money(s.founderCash)) }
                     }
+                    GridRow { Text("Legacy score").foregroundStyle(.secondary); Text("\(Victory.legacyScore(s))").bold() }
+                    if !s.victories.isEmpty {
+                        GridRow { Text("Victories").foregroundStyle(.secondary); Text(s.victories.compactMap { VictoryPath(rawValue: $0)?.title }.sorted().joined(separator: ", ")) }
+                    }
                     GridRow {
                         Text("Founder net worth").foregroundStyle(.secondary)
                         Text(Fmt.money(s.founderCash + s.founderStake * (s.exitValue ?? ((s.keptStake || s.gameOver == nil) ? s.valuation : 0)))).bold()

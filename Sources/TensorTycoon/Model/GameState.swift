@@ -890,6 +890,13 @@ struct GameState: Codable {
     @D var bills: [PolicyBill] = []
     @D var lawsPassed: Set<String> = []
     @D var lawsFailed: Set<String> = []
+    // v4.2: victories, rival alien tech
+    @D var victories: Set<String> = []
+    @D var monthsAtTop: Int = 0
+    @D var monthsGuardian: Int = 0
+    @D var apiShareNow: Double = 0
+    /// Rival lab ID → when it found its own alien architecture.
+    @D var rivalXeno: [String: Date] = [:]
 
     var totalShares: Double {
         founderShares + employeePoolShares + publicShares + holdings.reduce(0) { $0 + $1.shares }
