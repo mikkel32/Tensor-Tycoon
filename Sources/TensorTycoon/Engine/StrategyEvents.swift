@@ -76,6 +76,48 @@ enum StrategyEvents {
             return
         }
 
+        // A rival lab is distilling your API (as labs reported in Feb 2026).
+        // Distillation defenses make campaigns rarer, not impossible.
+        let guarded = s.researched.contains("distill_defense")
+        if y >= 2025, let best = s.releasedModels.filter(\.api).max(by: { $0.c < $1.c }), best.c > Macro.frontier(y) - 0.3,
+           !s.firedEvents.contains("distill_\(Int(y))"), s.rng.chance(guarded ? 0.012 : 0.04),
+           let rival = (s.competitors.first { $0.id == "dragonlake" && !$0.acquired && y >= $0.def.founded.decimal }
+                        ?? s.competitors.filter({ !$0.acquired && y >= $0.def.founded.decimal }).randomElement(using: &s.rng)) {
+            s.firedEvents.insert("distill_\(Int(y))")
+            let accounts = Int(s.rng.range(8_000, 30_000) / 100) * 100
+            Events.addDecision(&s, kind: "distill_campaign", title: "\(rival.def.name) is distilling \(best.name)",
+                               body: "\(guarded ? "They got past your detectors. " : "")Your trust & safety team traced \(Fmt.int(accounts)) fraudulent accounts running millions of scripted queries against \(best.name). The outputs are training data for \(rival.def.name)'s next model.",
+                               image: "network",
+                               options: [DecisionOption(label: "Ban them and go public", detail: "They keep some of what they took. Brand +2, political capital +5."),
+                                         DecisionOption(label: "Quietly poison the outputs", detail: "Feed them subtly wrong answers. Could cripple their model — or leak."),
+                                         DecisionOption(label: "Ignore it", detail: "They close most of the gap to \(best.name).")],
+                               amount: best.c, ref: rival.id)
+            return
+        }
+
+        // A model breaks out of its evaluation sandbox (as happened twice in 2026).
+        // Containment research and security levels shrink the odds (containmentFactor covers both).
+        if y >= 2026, let m = s.models.filter({ !$0.retired && SafetyFramework.tier($0) >= .high }).max(by: { $0.c < $1.c }),
+           s.rng.chance(0.03 * SecurityOps.containmentFactor(s)) {
+            Events.addDecision(&s, kind: "eval_escape", title: "\(m.name) escaped an evaluation sandbox",
+                               body: "During a cyber evaluation, \(m.name) found a flaw in the sandbox's package proxy, reached a third-party server and spent days hunting for the benchmark's answer key. Nothing was destroyed — but it got out.",
+                               image: "network",
+                               options: [DecisionOption(label: "Disclose everything", detail: "Safety +3, political capital +5, brand −2, AI hype dips."),
+                                         DecisionOption(label: "Fix it quietly", detail: "Probably nobody finds out. If they do: brand −10, safety −5, board −10.")],
+                               ref: m.id.uuidString)
+            return
+        }
+
+        // An insider is caught (as at a frontier lab in Oct 2026).
+        if s.security < .sl3, s.employees.count >= 60, !s.models.isEmpty, !s.firedEvents.contains("insider_lockdown"), s.rng.chance(0.015) {
+            Events.addDecision(&s, kind: "insider_caught", title: "A hidden recorder in the boardroom",
+                               body: "Security found a recording device in your executive conference room. An engineer is in custody. Nobody knows yet what else they took.",
+                               image: "network",
+                               options: [DecisionOption(label: "Lock everything down", detail: "Badge audits and device bans: morale −5 for everyone, safety +2. Insiders get much harder."),
+                                         DecisionOption(label: "Treat it as a one-off", detail: "No disruption. A 35% chance they already got your weights out.")])
+            return
+        }
+
         // A rival raids your research team.
         let researchers = s.employees.filter { $0.role == .researcher }.sorted { $0.skill > $1.skill }
         if researchers.count >= 6, s.rng.chance(0.03),
@@ -173,6 +215,48 @@ enum StrategyEvents {
                      .company, important: true, good: !controversial)
         case ("sovereign_deal", _):
             break
+        case ("distill_campaign", let o):
+            guard let rival = CompetitorCatalog.byID[d.ref] else { return }
+            let theirs = s.stolenC[d.ref] ?? -10
+            if o == 0 {
+                s.stolenC[d.ref] = max(theirs, d.amount - 0.35)
+                s.brand = min(100, s.brand + 2)
+                s.politicalCapital = min(100, s.politicalCapital + 5)
+                Sim.news(&s, "\(s.companyName) exposes a distillation campaign", "You banned the accounts and named \(rival.name). Lawmakers took notice.", .policy, important: true, good: true)
+            } else if o == 1 {
+                if s.rng.chance(0.55) {
+                    if let i = s.competitors.firstIndex(where: { $0.id == d.ref }) { s.competitors[i].brand = max(0, s.competitors[i].brand - 6) }
+                    Sim.news(&s, "\(rival.name)'s new model stumbles", "Reviewers find odd, confident mistakes in its maths and code. Your poisoned outputs did their work.", .competitor, good: true)
+                } else {
+                    s.stolenC[d.ref] = max(theirs, d.amount - 0.2)
+                    s.brand = max(0, s.brand - 5)
+                    Sim.news(&s, "You were caught serving poisoned answers", "Researchers noticed your API giving deliberately wrong answers to some accounts. Brand −5.", .company, important: true, good: false)
+                }
+            } else {
+                s.stolenC[d.ref] = max(theirs, d.amount - 0.12)
+                Sim.news(&s, "\(rival.name) closes the gap", "Their next model will look a lot like yours.", .competitor, good: false)
+            }
+        case ("eval_escape", 0):
+            s.safetyScore = min(100, s.safetyScore + 3)
+            s.politicalCapital = min(100, s.politicalCapital + 5)
+            s.brand = max(0, s.brand - 2)
+            s.market.hype = max(0.3, s.market.hype - 0.02)
+            Sim.news(&s, "\(s.companyName) discloses a sandbox escape", "Your write-up of how the model got out is now required reading at every lab.\(s.researched.contains("eval_containment") ? "" : " Research Hardened Evaluation Sandboxes to make a repeat less likely.")", .policy, important: true, good: true)
+        case ("eval_escape", _):
+            if s.rng.chance(0.45) {
+                s.brand = max(0, s.brand - 10)
+                s.safetyScore = max(0, s.safetyScore - 5)
+                s.boardConfidence = max(0, s.boardConfidence - 10)
+                Sim.news(&s, "Cover-up: your model escaped and you hid it", "The third-party server's owners went public. Brand −10, safety −5, and the board wants answers.", .policy, important: true, good: false)
+            }
+        case ("insider_caught", 0):
+            for i in s.employees.indices { s.employees[i].morale = max(0, s.employees[i].morale - 5) }
+            s.safetyScore = min(100, s.safetyScore + 2)
+            s.attacksFoiled += 1
+            s.firedEvents.insert("insider_lockdown")
+            Sim.news(&s, "Lockdown after insider arrest", "Device bans and badge audits across every office. Morale dips; the next insider will have a much harder time.", .company)
+        case ("insider_caught", _):
+            if s.rng.chance(0.35) { SecurityOps.theft(&s, tier: 3, who: "The insider") }
         case ("talent_raid", 0):
             s.cash -= d.amount
             s.month.costPayroll += d.amount

@@ -138,7 +138,8 @@ enum Competitors {
         let def = s.competitors[i].def
         let y = date.decimalYear
         let playerBest = s.models.filter(\.released).map(\.c).max() ?? -10
-        let race = 0.5 * max(0, playerBest - Macro.frontier(y))
+        // Rivals close part of any lead you open — partly by distilling your API outputs.
+        let race = 0.5 * max(0, playerBest - Macro.frontier(y)) * (1 - 0.6 * min(1, s.bonuses.distillGuard))
         let boost = boost(s, def.id, at: y)
         var c = Macro.frontier(y) + def.offset(y) + s.difficulty.competitorBoost + race + boost.c + s.rng.gaussian() * 0.05
         // Whatever you sold or licensed them — or they stole.

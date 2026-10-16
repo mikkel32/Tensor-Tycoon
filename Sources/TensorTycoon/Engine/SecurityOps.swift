@@ -34,7 +34,8 @@ enum SecurityOps {
     static func threats(_ s: GameState) -> [Threat] {
         let a = attractiveness(s)
         let y = s.year
-        let insiders = s.employees.count > 50 ? 1.5 : 1
+        // A post-incident lockdown takes the extra insider risk of a big company off the table.
+        let insiders = s.employees.count > 50 && !s.firedEvents.contains("insider_lockdown") ? 1.5 : 1
         return [
             Threat(tier: 2, who: "Opportunistic hackers", monthlyChance: 0.06 * a),
             Threat(tier: 3, who: "Cybercrime groups & insiders", monthlyChance: 0.045 * a * insiders),
@@ -45,7 +46,8 @@ enum SecurityOps {
 
     /// Chance an escaping model or swarm gets out, scaled by your containment.
     static func containmentFactor(_ s: GameState) -> Double {
-        [1.0, 1.0, 0.85, 0.6, 0.35][s.security.rawValue - 1]
+        [1.0, 1.0, 0.85, 0.6, 0.35][s.security.rawValue - 1] * (s.researched.contains("eval_containment") ? 0.7 : 1)
+            * (s.lawsPassed.contains("kill_switch") ? 0.75 : 1)
     }
 
     // MARK: Daily / monthly
@@ -70,7 +72,9 @@ enum SecurityOps {
         }
         guard s.models.contains(where: { !$0.retired }) else { return }
         for t in threats(s) where t.monthlyChance > 0 && s.rng.chance(t.monthlyChance) {
-            if s.security.rawValue >= t.tier && s.rng.chance(0.95) {
+            // A level well above the attacker's class almost never fails.
+            let margin = s.security.rawValue - t.tier
+            if margin >= 0 && s.rng.chance(min(0.995, 0.95 + 0.015 * Double(margin))) {
                 s.attacksFoiled += 1
                 if t.tier >= 3 {
                     s.safetyScore = min(100, s.safetyScore + 1)
@@ -117,6 +121,9 @@ extension GameState {
         if securityTarget > security.rawValue { return "An upgrade to SL\(securityTarget) is already under way." }
         guard let next = SecurityLevel(rawValue: security.rawValue + 1) else { return "You're already at SL5." }
         if next == .sl5 && year < 2026 { return "Nobody can build SL5 yet — the techniques don't exist before 2026." }
+        if next == .sl5 && year < 2028 && politicalCapital < 40 {
+            return "RAND judges SL5 \"currently not possible\" without help from the national-security community. Build political capital to 40 for a government partnership, or wait until 2028."
+        }
         let cost = SecurityOps.upgradeCost(next, self)
         if cost > cash { return "Reaching \(next.title) costs \(Fmt.money(cost))." }
         cash -= cost

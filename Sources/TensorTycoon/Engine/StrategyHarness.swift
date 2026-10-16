@@ -99,5 +99,38 @@ extension BalanceHarness {
             }
             print("  \(Fmt.money(budget))/mo: capital \(Int(s.politicalCapital)), passed \(s.lawsPassed.sorted()), failed \(s.lawsFailed.sorted()), fine factor ×\(Fmt.trim(Policy.fineFactor(s), 2))")
         }
+        incidents()
+    }
+
+    /// The 2026-style incidents: distillation campaigns, sandbox escapes and insiders, resolved with every option.
+    static func incidents() {
+        print("\n== Incidents: 3 years as a frontier lab at SL2 (2026), cycling through every option ==")
+        let kinds = ["distill_campaign", "eval_escape", "insider_caught"]
+        var fired: [String: Int] = [:]
+        var samples: [String] = []
+        var pick = 0
+        for seed in 0..<6 {
+            var (s, _) = frontierLab(year: 2026, chips: 20_000, seed: UInt64(90 + seed))
+            s.securityRaw = 2
+            // A real frontier lab has hundreds of staff: enough for insider risk.
+            if let e = s.employees.first {
+                for _ in 0..<60 { var c = e; c.id = UUID(); s.employees.append(c) }
+            }
+            for day in 0..<(365 * 3) {
+                Sim.advanceDay(&s)
+                for d in s.decisions where kinds.contains(d.kind) {
+                    fired[d.kind, default: 0] += 1
+                    let before = s.news.count
+                    s.resolveDecision(d.id, option: pick % d.options.count)
+                    if s.news.count > before, let n = s.news.first, samples.count < 6 { samples.append("\(d.kind) → option \(pick % d.options.count): \(n.title)") }
+                    pick += 1
+                }
+                s.decisions.removeAll()
+                s.gameOver = nil
+                if day % 30 == 0, let i = s.models.indices.first { s.models[i].c = Macro.frontier(s.year) }
+            }
+        }
+        print("  fired over 18 lab-years: " + kinds.map { "\($0) \(fired[$0] ?? 0)" }.joined(separator: " · "))
+        for line in samples { print("  \(line)") }
     }
 }

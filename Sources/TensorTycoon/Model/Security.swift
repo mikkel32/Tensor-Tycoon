@@ -20,13 +20,25 @@ enum SecurityLevel: Int, Codable, CaseIterable, Identifiable, Comparable, Sendab
         }
     }
 
+    /// RAND's attacker profile ("operational capacity") for the level this one stops.
+    var attacker: String {
+        switch self {
+        case .sl1: "1 person, a few days, up to $1K"
+        case .sl2: "1 skilled person, several weeks, up to $10K"
+        case .sl3: "~10 professionals for months and up to $1M — or one insider"
+        case .sl4: "~100 people, a year, up to $10M and state resources"
+        case .sl5: "~1,000 people, several years, up to $1B"
+        }
+    }
+
+    /// Example measures from RAND's report (each level includes everything below it).
     var measures: String {
         switch self {
-        case .sl1: "Passwords, basic access control, an engineer who cares."
-        case .sl2: "MFA everywhere, patched systems, logging, security team on call."
-        case .sl3: "Least-privilege weight access, insider-risk programme, red teams, hardened training clusters."
-        case .sl4: "Confidential computing, weights encrypted in use, two-person rule, vetted staff, isolated networks."
-        case .sl5: "Air-gapped facilities, hardware supply-chain assurance, government-grade counter-intelligence."
+        case .sl1: "MFA, single sign-on, least privilege, access logs, best-effort weight encryption."
+        case .sl2: "Weights only on servers, keys in a key-management system, FIDO hardware keys, guarded datacenters, every copy tracked."
+        case .sl3: "Centralised weight storage, narrow access interfaces, multi-party authorisation, insider-threat programme, elite red team, honeypots."
+        case .sl4: "Isolated weight storage, confidential computing, hardware-enforced output-rate limits, hardware source audits, device bans."
+        case .sl5: "Fully isolated network, side-channel defences, formally verified hardware, TS/SCI-grade protection, eight independent security layers."
         }
     }
 
@@ -101,15 +113,15 @@ enum PolicyCatalog {
 
     static let all: [Bill] = [
         Bill(id: "transparency", title: "Frontier AI Transparency Act",
-             summary: "Labs training above 10^26 FLOP must publish safety frameworks and report critical incidents, modelled on California's SB 53.",
+             summary: "Labs training above 10^26 FLOP must publish safety frameworks and report critical incidents within 15 days, modelled on California's SB 53 (in force Jan 2026) and New York's RAISE Act.",
              basePass: 0.6, ifPasses: "Safety score +5 for everyone who complies; $2M of paperwork per 10^26 run.", ifFails: "Nothing changes.",
              popularity: 0.6, safetyBill: true, earliest: 2024.5),
         Bill(id: "preemption", title: "Federal AI Preemption Act",
-             summary: "One national AI rulebook that overrides state laws.",
-             basePass: 0.4, ifPasses: "Compliance gets cheaper: fines −30%, AI hype +0.05.", ifFails: "A patchwork of state rules: fines +15%.",
+             summary: "One national AI rulebook that overrides state laws on model development. The Senate struck a state-law moratorium 99–1 in 2025; the White House's 2026 framework proposes three years of preemption.",
+             basePass: 0.35, ifPasses: "Compliance gets cheaper: fines −30%, AI hype +0.05.", ifFails: "A patchwork of state rules: fines +15%.",
              popularity: -0.2, safetyBill: false, earliest: 2025.4),
         Bill(id: "chip_security", title: "Chip Security Act",
-             summary: "Location verification for exported AI chips and tighter export licences.",
+             summary: "Location verification for exported AI chips and tighter export licences, after H200 exports to China moved to case-by-case licensing in Jan 2026.",
              basePass: 0.5, ifPasses: "Export controls tighten: Dragon Lake loses compute, hardware prices +3%.", ifFails: "Smuggling continues; Dragon Lake keeps pace.",
              popularity: 0.3, safetyBill: true, earliest: 2025.3),
         Bill(id: "copyright", title: "AI Training Copyright Act",
@@ -136,6 +148,18 @@ enum PolicyCatalog {
              summary: "Fleets of more than 100,000 AI agents must be registered and audited.",
              basePass: 0.4, ifPasses: "Swarms over 100k agents pay a registration fee; audits catch drift earlier.", ifFails: "Swarms stay unregulated.",
              popularity: 0.5, safetyBill: true, earliest: 2026.3),
+        Bill(id: "dc_moratorium", title: "Hyperscale Datacenter Moratorium",
+             summary: "A one-year freeze on permits for new datacenters of 50 MW or more over power and water, like New York's July 2026 order.",
+             basePass: 0.35, ifPasses: "New datacenters take ~35% longer to build.", ifFails: "Permits keep flowing.",
+             popularity: 0.3, safetyBill: false, earliest: 2026.5),
+        Bill(id: "independent_auditors", title: "Independent AI Verification Act",
+             summary: "Accredited third-party auditors work inside frontier labs, after California's SB 813 and AB 1405 (Sep 2026).",
+             basePass: 0.45, ifPasses: "Frontier labs pay ~$1M a month for on-site auditors; safety +3 and audits catch swarm drift earlier.", ifFails: "Labs keep auditing themselves.",
+             popularity: 0.5, safetyBill: true, earliest: 2026.6),
+        Bill(id: "kill_switch", title: "Loss-of-Control Act",
+             summary: "Labs must be able to halt any deployed model within an hour and report loss-of-control incidents within 24 hours, following California's Sep 2026 kill-switch order.",
+             basePass: 0.4, ifPasses: "A one-time $50M kill-switch build for frontier labs; escaped models and swarms are contained 25% more often.", ifFails: "Shutdown stays voluntary.",
+             popularity: 0.6, safetyBill: true, earliest: 2026.7),
     ]
 
     static let byID: [String: Bill] = Dictionary(uniqueKeysWithValues: all.map { ($0.id, $0) })

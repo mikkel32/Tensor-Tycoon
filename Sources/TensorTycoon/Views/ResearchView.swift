@@ -328,7 +328,7 @@ private extension ResearchEffect {
              .bugGuard(let v), .contaminationGuard(let v), .mfu(let v), .throughput(let v), .tps(let v), .kvMemory(let v), .scaleOut(let v),
              .postTrainCost(let v), .rp(let v), .dataTokens(let v), .safety(let v), .consumerDemand(let v), .apiDemand(let v),
              .enterpriseDemand(let v), .agentQuality(let v), .coordination(let v), .agentSafety(let v), .insight(let v),
-             .legibility(let v), .securityCost(let v):
+             .legibility(let v), .securityCost(let v), .chipDesign(let v), .distillGuard(let v):
             return v < 0
         case .skill(_, let v):
             return v < 0

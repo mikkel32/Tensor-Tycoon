@@ -318,7 +318,8 @@ enum Events {
             Policy.resolve(&s, d, option: option)
         case ("victory", _):
             Victory.resolve(&s, d, option: option)
-        case ("board_ouster", _), ("exclusive_supply", _), ("swarm_audit", _), ("merger_offer", _), ("spinoff", _), ("sovereign_deal", _), ("talent_raid", _):
+        case ("board_ouster", _), ("exclusive_supply", _), ("swarm_audit", _), ("merger_offer", _), ("spinoff", _), ("sovereign_deal", _), ("talent_raid", _),
+             ("distill_campaign", _), ("eval_escape", _), ("insider_caught", _):
             StrategyEvents.resolve(&s, d, option: option)
         case ("acquisition", 0):
             s.exitValue = d.amount

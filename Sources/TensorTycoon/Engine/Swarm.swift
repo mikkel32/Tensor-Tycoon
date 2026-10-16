@@ -83,6 +83,7 @@ enum Swarms {
         var d = 0.3 + sw.oversight * 1.2 + RSI.safetyFactor(s, b) * 0.35
         if b.has(.aiControl) { d += 0.1 }
         if s.lawsPassed.contains("agent_registry") { d += 0.1 }
+        if s.lawsPassed.contains("independent_auditors") { d += 0.05 }
         return clamp(d, 0.1, 0.97)
     }
 

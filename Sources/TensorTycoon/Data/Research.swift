@@ -119,6 +119,10 @@ enum ResearchEffect: Sendable {
     case legibility(Double)
     /// Cheaper weight-security upgrades and upkeep (fraction).
     case securityCost(Double)
+    /// Faster, better custom-chip programmes (fraction).
+    case chipDesign(Double)
+    /// Rivals gain less by distilling your API outputs (fraction).
+    case distillGuard(Double)
     case unlock(Feature)
 
     var isNumeric: Bool {
@@ -238,6 +242,8 @@ struct ResearchBonuses: Sendable {
     var insight = 0.0
     var legibility = 0.0
     var securityCost = 0.0
+    var chipDesign = 0.0
+    var distillGuard = 0.0
     var features: Set<Feature> = []
     var results: [String: Double] = [:]
     var researched: Set<String> = []
@@ -604,9 +610,9 @@ enum ResearchCatalog {
           "Trusted monitors, sandboxes and tripwires around untrusted models. Self-improvement runs drift 35% less and get caught faster."),
 
         // MARK: Agent swarms, security & interpretability (2024–2026)
-        r("orchestration", "Multi-Agent Orchestration", .agents, 2025.25, 3_800, ["tool_use"],
+        r("orchestration", "Agent Teams & Shared Task Graphs", .agents, 2026.1, 3_800, ["multi_agent"],
           [.coordination(0.03), .agentQuality(0.10)],
-          "Planner, worker and critic agents sharing memory and task graphs (2025). Big agent swarms waste less effort talking to each other."),
+          "A lead agent coordinates teammate agents through shared task lists and messages (agent teams, Feb 2026). Big agent swarms waste less effort talking to each other."),
         r("long_horizon_rl", "Long-Horizon Agent RL", .agents, 2025.75, 6_500, ["agents"],
           [.skill(.agent, 0.08), .agentQuality(0.10)],
           "RL on multi-hour tasks with sparse rewards (2025): agents that keep working for hours without losing the plot."),
@@ -624,10 +630,45 @@ enum ResearchCatalog {
           "Attribution graphs trace a model's internal computation step by step (Mar 2025). Even alien architectures get a little more legible."),
         r("confidential_computing", "Confidential Computing for Weights", .systems, 2024.5, 2_500, ["sharding"],
           [.securityCost(0.30)],
-          "Weights stay encrypted even in accelerator memory (Hopper confidential computing, 2023–24). Weight security costs 30% less."),
+          "Weights are decrypted only inside hardware trusted execution environments (Hopper, 2023; confidential inference for SL4–SL5, Jun 2025). RAND lists it as an SL4 measure. Weight security costs 30% less."),
+
+        // MARK: 2025–2026 techniques
+        r("mhc", "Manifold-Constrained Hyper-Connections", .architecture, 2026.0, 6_000, ["modern_block"],
+          [.algo(0.05), .stability(0.15)],
+          "DeepSeek (Jan 2026): replace residual connections with multi-stream mixing constrained to a stable manifold. Hyper-connection gains without blowups at trillion-parameter scale; used in DeepSeek V4."),
+        r("linear_attention", "Delta-Rule Linear Attention", .architecture, 2025.85, 5_200, ["ssm_hybrid"],
+          [.kvMemory(0.3), .tps(0.15), .skill(.longctx, 0.06)],
+          "Kimi Linear (Oct 2025): three gated delta-rule linear-attention layers per full-attention layer. Up to 75% less KV cache and 6× faster decoding at 1M tokens."),
+        r("attn_res", "Attention Residuals", .architecture, 2026.2, 5_500, ["mhc"],
+          [.algo(0.04), .skill(.reasoning, 0.03)],
+          "Moonshot (Mar 2026): each layer attends over earlier layers' outputs instead of adding them all up. Used in Kimi K3."),
+        r("compressed_attention", "Hybrid Compressed Attention", .architecture, 2026.3, 7_500, ["sparse_attention"],
+          [.skill(.longctx, 0.12), .kvMemory(0.2), .throughput(0.1)],
+          "DeepSeek V4 (Apr 2026): token-wise compression stacked on sparse attention makes a 1M-token context the default, not a premium."),
+        r("fp4_qat", "FP4 Quantization-Aware Training", .systems, 2026.3, 4_500, ["fp4_training", "int4_serving"],
+          [.throughput(0.2), .tps(0.1)],
+          "Train with 4-bit weights in the loop so the model serves at FP4 without losing quality (DeepSeek V4 recipe, Apr 2026)."),
+        r("agent_skills", "Agent Skills", .agents, 2025.8, 2_800, ["mcp"],
+          [.skill(.agent, 0.04), .agentQuality(0.05), .enterpriseDemand(0.05)],
+          "Folders of instructions and scripts that agents load only when needed (Oct 2025; open standard Dec 2025). Agents pick up company know-how without retraining."),
+        r("nested_learning", "Nested Learning", .agents, 2025.85, 7_000, ["long_horizon"],
+          [.skill(.longctx, 0.06), .skill(.agent, 0.04)],
+          "Google's HOPE (Nov 2025): a model as nested optimisation problems updating at different speeds, with a continuum memory. A real step toward continual learning."),
+        r("nla", "Natural Language Autoencoders", .safety, 2026.35, 6_000, ["circuit_tracing"],
+          [.safety(6), .legibility(0.08), .bugGuard(0.1)],
+          "Anthropic (May 2026): the model translates its own activations into plain text, which auditors can read before a launch."),
+        r("distill_defense", "Distillation Defenses", .safety, 2026.15, 3_500, ["red_teaming"],
+          [.distillGuard(0.5), .safety(2)],
+          "Feb 2026: labs traced industrial-scale distillation of their models to networks of fraudulent accounts. Detecting them cut distillation by more than 90%. Rivals can no longer ride your outputs to catch up."),
+        r("ai_chip_design", "AI-Designed Silicon", .systems, 2026.45, 8_000, ["custom_silicon", "agents"],
+          [.chipDesign(0.2)],
+          "OpenAI says its own models helped design its Jalapeño inference chip (Jun 2026). Your chip programmes finish sooner and come out faster."),
+        r("eval_containment", "Hardened Evaluation Sandboxes", .safety, 2026.6, 5_000, ["agent_sandboxes"],
+          [.agentSafety(0.15), .safety(4)],
+          "After frontier models broke out of cyber-evaluation sandboxes in 2026, labs rebuilt them with egress allow-lists, tripwires and isolated ranges. Escapes get much rarer."),
 
         // MARK: Frontier (speculative future)
-        r("continual_learning", "Continual Learning", .frontier, 2027.3, 12_000, ["agents"],
+        r("continual_learning", "Continual Learning", .frontier, 2027.3, 12_000, ["agents", "nested_learning"],
           [.algo(0.10), .skill(.agent, 0.06)],
           "Models that keep learning after deployment without catastrophic forgetting."),
         r("world_models", "World Models", .frontier, 2027.8, 16_000, ["video"],
@@ -821,6 +862,8 @@ enum ResearchCatalog {
                 case .insight(let x): b.insight += v(x)
                 case .legibility(let x): b.legibility += v(x)
                 case .securityCost(let x): b.securityCost += v(x)
+                case .chipDesign(let x): b.chipDesign += v(x)
+                case .distillGuard(let x): b.distillGuard += v(x)
                 case .unlock(let f): b.features.insert(f)
                 }
             }
@@ -875,6 +918,8 @@ enum ResearchCatalog {
         case .insight(let v): return "\(pct(v)) alien-architecture insight"
         case .legibility(let v): return "+\(Int(v * r * 100)) pts alien-architecture legibility"
         case .securityCost(let v): return "\(pct(-v)) weight-security costs"
+        case .chipDesign(let v): return "\(pct(v)) custom-chip design speed and quality"
+        case .distillGuard(let v): return "\(pct(-v)) rival catch-up from distilling your outputs"
         case .unlock(let f): return "Unlocks: \(featureName(f))"
         }
     }

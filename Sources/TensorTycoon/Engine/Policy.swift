@@ -17,7 +17,13 @@ enum Policy {
     }
 
     static func buildFactor(_ s: GameState) -> Double {
-        s.lawsPassed.contains("permitting") ? 0.75 : (s.lawsFailed.contains("permitting") ? 1.1 : 1)
+        let permits = s.lawsPassed.contains("permitting") ? 0.75 : (s.lawsFailed.contains("permitting") ? 1.1 : 1)
+        return permits * (s.lawsPassed.contains("dc_moratorium") ? 1.35 : 1)
+    }
+
+    /// Whether you count as a frontier developer (a model trained above 10^26 FLOP).
+    static func isFrontierDeveloper(_ s: GameState) -> Bool {
+        s.models.contains { $0.c >= 5 }
     }
 
     static func monthly(_ s: inout GameState) {
@@ -41,6 +47,12 @@ enum Policy {
                 s.cash -= fee
                 s.month.costOther += fee
             }
+        }
+
+        // On-site auditors
+        if s.lawsPassed.contains("independent_auditors") && isFrontierDeveloper(s) {
+            s.cash -= 1e6
+            s.month.costOther += 1e6
         }
 
         // New bills
@@ -96,6 +108,10 @@ enum Policy {
         case ("copyright", false): s.market.copyrightHeat = max(0.3, s.market.copyrightHeat - 0.3)
         case ("nairr", true): s.market.hype += 0.05
         case ("preemption", true): s.market.hype += 0.05
+        case ("independent_auditors", true): s.safetyScore = min(100, s.safetyScore + 3)
+        case ("kill_switch", true) where isFrontierDeveloper(s):
+            s.cash -= 5e7
+            s.month.costOther += 5e7
         default: break
         }
         let side = b.stance == 0 ? "" : (won ? " You backed the winning side." : " You were on the losing side.")

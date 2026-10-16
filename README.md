@@ -67,11 +67,13 @@ Speed: ⌘⇧P play/pause, ⌘1–⌘5 speeds (1.5 to 90 days per second), ⌘�
 
 ## What's simulated
 
-- **Hardware (60+ real chips)**: K80, P40/P100/V100, T4, A10, A100, L4, L40S, H100/H200, GH200, B200, GB200,
+- **Hardware (70+ real chips)**: K80, P40/P100/V100, T4, A10, A100, L4, L40S, H100/H200, GH200, B200, GB200,
   GB300, Rubin, Rubin CPX, Rubin Ultra, Feynman, TPU v2→v6e, TPU7x Ironwood, TPU 8t "Sunfish" / 8i "Zebrafish"
-  (sold in 64-chip racks), AMD MI250X→MI455X, Intel Gaudi 2/3 and Crescent Island, Trainium 1/2/3, Inferentia2,
-  Maia 200, Qualcomm Cloud AI 100 Ultra / AI200 / AI250, Tenstorrent Blackhole, Cerebras CS-3, Groq LPU,
-  Tesla Dojo, Huawei Ascend, RTX 3090/4090/5090, RTX PRO 6000, DGX Spark and Mac Studio. Dense TFLOPS per precision,
+  (sold in 64-chip racks), AMD MI250X→MI455X, MI350P and the MI500 roadmap, Intel Gaudi 2/3 and Crescent Island,
+  Trainium 1/2/3/4, Inferentia2, Maia 200/300, Qualcomm Cloud AI 100 Ultra / AI200 / AI250, Tenstorrent Blackhole,
+  Cerebras CS-3/CS-4, Groq LPU and Groq 3 LPX, Tesla Dojo, Huawei Ascend 910→950PR plus the 960/970 roadmap,
+  RTX 3090/4090/5090, RTX PRO 6000, RTX Spark, DGX Spark and Mac Studio. 2026 parts use figures announced through
+  October 2026. Dense TFLOPS per precision,
   memory, bandwidth, TDP, interconnect, scale-up domain, launch price and rental price. Prices decay with age;
   shortages and memory crunches move them. Values marked *est.* are game estimates where no official figure exists.
 - **Supply agreements**: take-or-pay contracts with vendors for discounts, 4× allocation and shorter lead times.
@@ -96,11 +98,12 @@ Speed: ⌘⇧P play/pause, ⌘1–⌘5 speeds (1.5 to 90 days per second), ⌘�
   grows with untested techniques and with extrapolation beyond your largest run; a scaling ladder of cheap proxy
   runs shrinks it. The loss curve reveals the truth as training goes, and the end-of-run report explains forecast vs
   reality: run luck, bugs, instabilities, LR schedule and post-training surprises.
-- **Benchmarks (132 real, plus successors generated during play)**: from SQuAD, SWAG, CoQA and GLUE through MMLU,
+- **Benchmarks (136 real, plus successors generated during play)**: from SQuAD, SWAG, CoQA and GLUE through MMLU,
   the bar exam, GPQA, MATH, Omni-MATH, SWE-bench (Verified, Pro, Multimodal), BIRD, AIME, HLE, FrontierMath,
   ARC-AGI-1/2/3, OSWorld, WebVoyager, Online-Mind2Web, AppWorld, GAIA, τ²-bench, Terminal-Bench, GDPval, the Remote
   Labor Index, VideoMMMU, MATH-Vision, ScreenSpot-Pro, MMAU, LegalBench, HealthBench, MedXpertQA, SuperGPQA, FACTS,
-  XSTest and dangerous-capability evals (WMDP, Cybench, InterCode-CTF, VCT). Each curve is fitted to real dated results.
+  XSTest, 2026's SWE-Marathon, SWE-Bench Pro Verified and Continual Learning Bench, and dangerous-capability evals
+  (WMDP, Cybench, InterCode-CTF, VCT, ExploitBench). Each curve is fitted to real dated results.
   When the best model passes a benchmark's saturation line it retires, and a harder successor (ARC-AGI-4,
   Humanity's Last Exam II, SWE-bench Ultra…) is released. The Intelligence Index averages 10 live benchmarks spread
   from hardest to nearly saturated, like Artificial Analysis. METR-style task horizons and LMArena Elo.
@@ -124,15 +127,20 @@ Speed: ⌘⇧P play/pause, ⌘1–⌘5 speeds (1.5 to 90 days per second), ⌘�
   inherit its secret techniques, top researchers, a datacenter of chips, its users and its flagship model. Rivals may
   also come to you asking to be bought.
 - **Strategic events**: exclusive-supply offers for your chips, regulators auditing your swarms, star researchers who
-  want to found their own lab, sovereign AI contracts and talent raids.
-- **Weight security & policy**: protect your weights with RAND's security levels SL1–SL5. Each level stops a more
-  capable attacker (opportunistic hackers, cybercrime groups and insiders, state-backed units, top-priority nation-state
-  operations) and costs more to build, run and work behind. Attackers come for your weights in proportion to how close
+  want to found their own lab, sovereign AI contracts and talent raids. Three are drawn from things that happened in
+  2026: a rival distilling your API through thousands of fraudulent accounts (expose them, poison their data or let
+  it go), a model escaping its evaluation sandbox (disclose it or cover it up) and an insider caught spying on your
+  executives. Distillation defenses and hardened sandboxes make these rarer.
+- **Weight security & policy**: protect your weights with RAND's security levels SL1–SL5 ("Securing AI Model
+  Weights", 2024). Each level stops a more capable attacker, from one amateur with $1K to a thousand-person
+  nation-state operation with $1B, using RAND's own example measures, and costs more to build, run and work behind.
+  As RAND says, SL5 isn't possible on your own yet: before 2028 you need a government partnership (40 political capital). Attackers come for your weights in proportion to how close
   you are to the frontier: leaks put free copies on the internet, state theft hands a rival your model. Better
   containment also makes escaping models and swarms less likely to get out. Lobbying builds political capital; AI
-  bills (frontier transparency, federal preemption, chip security, training copyright, datacenter permitting, compute
-  licensing, liability, a national research resource, agent registries) arrive as decisions, you pick a side, and the
-  laws that pass change the game.
+  bills arrive as decisions, you pick a side, and the laws that pass change the game. There are 12, written after
+  real 2025–2026 bills and orders: frontier transparency (California SB 53, New York RAISE), federal preemption, chip
+  security, training copyright, datacenter permitting, a hyperscale datacenter moratorium, compute licensing, liability,
+  a national research resource, agent registries, independent on-site auditors and a loss-of-control kill switch.
 - **Talent traits**: star hires arrive with a trait (Visionary, Kernel Wizard, Firefighter, Data Curator, Rainmaker, Red
   Teamer, Tape-out Veteran, Mentor, Loyal, Workhorse or a Brilliant Diva who upsets the team); after a year, promote a
   skilled veteran into the trait you choose.
@@ -168,14 +176,18 @@ Speed: ⌘⇧P play/pause, ⌘1–⌘5 speeds (1.5 to 90 days per second), ⌘�
   enterprise contracts with SLAs, brand, marketing, safety, scandals, lawsuits, price wars, US EO 14110 and the EU AI Act.
 - **Infrastructure**: garage → office → colocation cages → owned datacenters in 8 real regions with power
   prices, PUE, cooling (air/liquid/immersion) and power deals (solar, wind, gas, nuclear).
-- **Research**: 110 real techniques with historical dates across architecture, optimisation and scaling science,
+- **Research**: 130 real techniques with historical dates across architecture, optimisation and scaling science,
   systems, data, post-training, reasoning RL, agents, multimodal, inference and safety (Transformer, FlashAttention,
   GQA, MLA, fine-grained MoE, Muon, WSD, μP, FP8, RLHF, DPO, PRMs, RL with verifiable rewards…), plus a speculative
   frontier chain. Results are experiments: each lands between 0.55× and 1.5× of the paper depending on your team and
   experiment compute, and that changes how much it helps. Many unlock new design options instead of adding stats.
-  Published techniques cost half. Newer items cover the agent era: multi-agent orchestration, long-horizon agent RL,
-  automated experiment pipelines, agent sandboxes, swarm governance, circuit tracing, confidential computing for weights,
-  and — once you hold an alien architecture — xeno-interpretability and xeno-compilers.
+  Published techniques cost half. Newer items cover the agent era: multi-agent orchestration, agent teams, Agent Skills,
+  long-horizon agent RL, automated experiment pipelines, agent sandboxes, swarm governance, circuit tracing, confidential
+  computing for weights, and — once you hold an alien architecture — xeno-interpretability and xeno-compilers. The
+  2025–2026 papers are in too: manifold-constrained hyper-connections, delta-rule linear attention (Kimi Linear),
+  attention residuals, DeepSeek V4's hybrid compressed attention, FP4 quantization-aware training, Nested Learning,
+  natural language autoencoders, distillation defenses (rivals stop catching up by copying your outputs), AI-designed
+  silicon (faster, better chip programmes) and hardened evaluation sandboxes.
 - **Unique breakthroughs**: 24 rare techniques (diffusion LMs, latent reasoning, recurrent depth, test-time training,
   ternary networks…) are dealt out at the start of each game: a few for you and two for every rival lab, each with real
   trade-offs and wider outcome swings. Rivals' secret tech shows up in their models once deployed; headhunt their
@@ -185,8 +197,9 @@ Speed: ⌘⇧P play/pause, ⌘1–⌘5 speeds (1.5 to 90 days per second), ⌘�
   T-bill interest, API prices can track the market automatically, hardware revenue is valued at hardware multiples,
   one-off license fees don't inflate the run-rate, and founders can sell part of their stake (secondaries or into the
   public market) to build a personal net worth.
-- **World**: four start eras (2017, 2020, 2022, 2026), real dated industry events, eight fictional rival labs, each
-  with a signature strength.
+- **World**: four start eras (2017, 2020, 2022, 2026), 60+ real dated industry events through October 2026 (funding
+  rounds, model launches, export-control swings, chip launches, datacenter moratoria, sandbox escapes), eight fictional
+  rival labs, each with a signature strength.
 
 ## Credits
 

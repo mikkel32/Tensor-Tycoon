@@ -47,6 +47,7 @@ private struct SecurityCard: View {
                         .frame(width: 20)
                     VStack(alignment: .leading, spacing: 1) {
                         Text("\(level.title) — stops \(level.stops.lowercased())").font(.callout.weight(level == s.security ? .bold : .regular))
+                        Text("Attacker: \(level.attacker)").font(.caption2).foregroundStyle(.tertiary)
                         Text(level.measures).font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
@@ -77,6 +78,8 @@ private struct SecurityCard: View {
             } else {
                 Text("You run the most secure AI lab on Earth.").font(.callout).foregroundStyle(.secondary)
             }
+            Text("Levels and attacker profiles from RAND's \"Securing AI Model Weights\" (2024). RAND puts no price on defence; the costs here are estimates.")
+                .font(.caption2).foregroundStyle(.tertiary)
             if s.security > .sl1 && !upgrading {
                 Button("Relax to SL\(s.security.rawValue - 1)") { store.act("Security relaxed") { $0.downgradeSecurity() } }
                     .buttonStyle(.link).font(.caption)
@@ -144,6 +147,8 @@ private struct LobbyCard: View {
                     Text("Political capital \(Int(s.politicalCapital))/100").font(.caption.weight(.semibold))
                     Meter(value: s.politicalCapital / 100, tint: .purple, height: 8)
                     Text("Decays 5% a month; spending more has diminishing returns.").font(.caption2).foregroundStyle(.tertiary)
+                    Text("For scale: in 2025 Meta spent $26M on federal lobbying, NVIDIA $4.9M, Anthropic $3.1M and OpenAI $3.0M. AI super PACs had put $43M into congressional races by June 2026.")
+                        .font(.caption2).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
                 }
                 VStack(alignment: .leading, spacing: 2) {
                     SpecRow(label: "Fines & settlements", value: "×\(Fmt.trim(Policy.fineFactor(s), 2))")
