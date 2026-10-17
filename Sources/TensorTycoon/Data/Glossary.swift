@@ -4,7 +4,7 @@ import Foundation
 /// Numbers quoted here are the ones the simulation uses; change them together with the engine.
 enum GlossaryTerm: String, CaseIterable, Identifiable, Sendable {
     // The race
-    case intelligenceIndex, capability, effectiveCompute, saturation, rank, taskHorizon, arenaElo
+    case intelligenceIndex, capability, effectiveCompute, saturation, rank, taskHorizon, arenaElo, domains, milestones
     // Training
     case forecast, scalingLadder, mfu, goodput, opsCoverage, checkpoint, lossSpike, postTraining, moe, distillation, precision
     // Compute and serving
@@ -12,7 +12,7 @@ enum GlossaryTerm: String, CaseIterable, Identifiable, Sendable {
     // Money
     case runRate, burn, runway, valuation, termSheet, dilution, netWorth
     // Products and customers
-    case sla, brand, openWeights, priceWar
+    case sla, brand, openWeights, priceWar, productLines
     // Running the company
     case chiefOfStaff, inbox, standingAnswers, delegates, cloudBudget, alerts, briefing, rewind, board, researchPoints, signatureSecret
     // Rivals
@@ -350,6 +350,21 @@ extension GlossaryTerm {
                           definition: "How well your model weights are protected, after RAND's framework: each level stops a more capable attacker, from a lone amateur to a nation-state operation.",
                           detail: "The closer you are to the frontier, the more attackers come for your weights. Higher levels take months to build, cost more to run and slow research a little.",
                           screen: .security, aliases: ["SL3", "weights security", "theft", "RAND"])
+        case .domains:
+            GlossaryEntry(title: "Capability domains", category: .race,
+                          definition: "A model's ability in eleven areas — knowledge, reasoning, mathematics, science, coding, agents, long memory, vision, voice, social and robotics — each on the Capability yardstick (100 is the frontier of early 2023; +10 is ten times the effective compute).",
+                          detail: "Your scores come from the model's training and skills, its design (vision, audio, video) and research that targets a domain. Rivals get their lab's specialities and most of what the field has published. Domains decide milestones and which product lines open.",
+                          screen: .models, aliases: ["domains", "skills", "radar", "areas"])
+        case .milestones:
+            GlossaryEntry(title: "AI milestones", category: .race,
+                          definition: "45 firsts, from beating people at reading comprehension to household robots and Nobel-calibre discoveries. The first released model of any lab to clear one gets the credit, the headlines and a little brand.",
+                          detail: "Each needs scores in one or more domains. Up to 2026 they're set to land on their real dates; later ones are forecasts that a fast race can beat. Milestones reached before your game began are credited to the labs that got there.",
+                          screen: .milestones, aliases: ["firsts", "milestone race"])
+        case .productLines:
+            GlossaryEntry(title: "Product lines", category: .business,
+                          definition: "Products beyond chat, API, agents and contracts — voice assistant, computer-use operator, video studio, discovery service, healthcare, tutoring, robotics brains, government and defence — each opened by domain scores on your best released model plus one research project.",
+                          detail: "Launching costs about four months of upkeep. Your share of each market follows your product's quality against rivals' products, your brand, how many customers you already reach and whether you serve the demand you have.",
+                          screen: .products, aliases: ["products", "voice", "video", "robotics", "healthcare", "tutor"])
         case .stakeholders:
             GlossaryEntry(title: "Your standing", category: .world,
                           definition: "How five groups see you, 0–100: the public, researchers, developers, investors (the board's confidence) and governments in seven regions. Each drifts toward where your record puts it.",
