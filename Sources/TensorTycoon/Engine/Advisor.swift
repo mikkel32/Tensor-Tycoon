@@ -94,6 +94,13 @@ enum Advisor {
                 "Only \(Fmt.pct(r.opsCoverage, decimals: 0)) of its \(Fmt.int(r.design.chips)) chips are watched by ops agents. Assign agents on its run card.", .training)
         }
 
+        // Nothing training: the frontier moves without you.
+        if !s.runs.contains(where: { $0.kind == .full && ($0.status == .running || $0.status == .postTraining || $0.status == .paused) }),
+           let newest = s.models.filter({ !$0.preview }).map(\.created).max(), GameCalendar.daysBetween(newest, s.date) > 60,
+           pools.reduce(0, { $0 + $1.free }) >= 8 {
+            add("next-run", .info, "flask.fill", "No frontier run in progress", "Your newest model is \(GameCalendar.daysBetween(newest, s.date)) days old and chips are free. Rivals ship every few months.", .lab)
+        }
+
         // Research
         if s.signatureLevel == 0 {
             add("signature", .warning, "crown.fill", "Choose your lab's signature secret", "A research programme only you have, live from day one.", .research)

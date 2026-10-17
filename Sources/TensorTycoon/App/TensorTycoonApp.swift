@@ -101,6 +101,9 @@ struct TensorTycoonApp: App {
                     .disabled(store.state == nil)
             }
             CommandMenu("Game") {
+                Button("Go to…") { store.showPalette = true }
+                    .keyboardShortcut("k")
+                    .disabled(store.state == nil)
                 Button("Save Game") { store.save(force: true); store.show("Game saved") }
                     .keyboardShortcut("s")
                     .disabled(store.state == nil)

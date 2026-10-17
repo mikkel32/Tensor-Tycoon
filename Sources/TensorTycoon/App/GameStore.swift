@@ -76,6 +76,8 @@ final class GameStore {
     var pauseReason: String?
     /// The era introduction, shown once when a new game starts.
     var showEraIntro = false
+    /// The ⌘K "Go to…" palette.
+    var showPalette = false
     var showRunReports = UserDefaults.standard.object(forKey: "showRunReports") as? Bool ?? true {
         didSet { UserDefaults.standard.set(showRunReports, forKey: "showRunReports") }
     }
