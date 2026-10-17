@@ -119,6 +119,7 @@ struct GameShell: View {
 }
 
 struct ScreenRouter: View {
+    @Environment(GameStore.self) private var store
     let screen: Screen
 
     var body: some View {
@@ -131,7 +132,7 @@ struct ScreenRouter: View {
         case .training: TrainingView()
         case .models: ModelsView()
         case .leaderboard: LeaderboardView()
-        case .rivals: RivalsHubView(tab: .overview)
+        case .rivals: RivalsHubView(tab: store.rivalsTab ?? .overview, lab: store.rivalsLab)
         case .rivalWatch: RivalsHubView(tab: .watch)
         case .benchmarks: BenchmarksView()
         case .rsi: RSIView()

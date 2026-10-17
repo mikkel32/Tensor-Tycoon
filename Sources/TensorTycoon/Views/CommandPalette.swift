@@ -101,6 +101,16 @@ struct CommandPalette: View {
                                 keywords: "\(screen.rawValue) \(section.0)") { $0.open(screen) })
             }
         }
+        // The Rivals hub's tabs, under the names they used to have.
+        for screen in [Screen.rivalWatch, .industry, .competitors] {
+            out.append(Item(id: "screen-\(screen.rawValue)", title: screen.title, detail: "Rivals", symbol: screen.symbol,
+                            keywords: "\(screen.rawValue) rivals competitors labs") { $0.open(screen) })
+        }
+        // Every rival lab's profile.
+        for c in (s?.competitors ?? []) where c.alive {
+            out.append(Item(id: "lab-\(c.id)", title: c.def.name, detail: "Lab profile", symbol: "building.2",
+                            keywords: "lab rival profile \(c.id)") { $0.openLab(c.id) })
+        }
         return out
     }
 

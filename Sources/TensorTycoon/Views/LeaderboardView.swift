@@ -367,6 +367,7 @@ private struct LabHeader: View {
 }
 
 private struct LabRowView: View {
+    @Environment(GameStore.self) private var store
     let line: LabLine
     let leader: Leaderboard.LabRow?
     let now: Date
@@ -419,11 +420,19 @@ private struct LabRowView: View {
             if isExpanded {
                 ModelHistory(models: r.models, now: now)
                     .padding(.leading, 80)
+                if !r.isPlayer {
+                    Button("\(r.lab): strategy, money and compute →") { store.openLab(r.labID) }
+                        .buttonStyle(.link)
+                        .padding(.leading, 80)
+                }
             }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
         .background(r.isPlayer ? Color.accentColor.opacity(0.07) : Color.clear)
+        .contextMenu {
+            if !r.isPlayer { Button("Open the lab profile") { store.openLab(r.labID) } }
+        }
     }
 
     private func gap(_ e: Leaderboard.Entry) -> String {

@@ -206,7 +206,7 @@ enum StrategyEvents {
             } else {
                 s.employees.remove(at: i)
                 s.brand = min(100, s.brand + 1)
-                Sim.news(&s, "\(name) leaves to found a startup", "Alumni of \(s.companyName) are becoming a thing. Brand +1.", .company)
+                Sim.news(&s, "\(name)\(RivalLifecycle.alumniSuffix)", "Alumni of \(s.companyName) are becoming a thing. Brand +1.", .company)
             }
         case ("sovereign_deal", 0):
             s.deals.append(EnterpriseDeal(client: "Sovereign AI programme", title: "national model", monthly: d.amount, tokensPerDay: 0,

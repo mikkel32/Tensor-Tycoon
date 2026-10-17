@@ -23,6 +23,7 @@ enum RivalsTab: String, CaseIterable, Identifiable {
 }
 
 struct RivalsHubView: View {
+    @Environment(GameStore.self) private var store
     @State private var tab: RivalsTab
     @State private var lab: String?
 
@@ -36,6 +37,22 @@ struct RivalsHubView: View {
             RivalsTabBar(tab: $tab, lab: $lab)
             content
         }
+        .onAppear { takeLink() }
+        .onChange(of: store.rivalsTab) { takeLink() }
+        .onChange(of: store.rivalsLab) { takeLink() }
+    }
+
+    /// A link from elsewhere (an alert, the briefing, the leaderboard) picks the tab or lab.
+    private func takeLink() {
+        if let id = store.rivalsLab {
+            lab = id
+            tab = .labs
+        } else if let t = store.rivalsTab {
+            tab = t
+            lab = nil
+        }
+        if store.rivalsLab != nil { store.rivalsLab = nil }
+        if store.rivalsTab != nil { store.rivalsTab = nil }
     }
 
     @ViewBuilder

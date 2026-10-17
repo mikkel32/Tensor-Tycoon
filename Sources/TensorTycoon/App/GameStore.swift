@@ -258,7 +258,25 @@ final class GameStore {
         }
     }
 
-    func open(_ s: Screen) { screen = s }
+    /// Where the Rivals hub lands next: links to Rival Watch, the AI industry and rival labs open its tabs.
+    var rivalsTab: RivalsTab?
+    var rivalsLab: String?
+
+    func open(_ s: Screen) {
+        switch s {
+        case .rivalWatch: rivalsTab = .watch; screen = .rivals
+        case .industry: rivalsTab = .industry; screen = .rivals
+        case .competitors: rivalsTab = .labs; screen = .rivals
+        default: screen = s
+        }
+    }
+
+    /// A rival lab's profile in the Rivals hub.
+    func openLab(_ id: String) {
+        rivalsLab = id
+        rivalsTab = .labs
+        screen = .rivals
+    }
 
     func openBriefing(_ id: UUID) {
         briefingID = id

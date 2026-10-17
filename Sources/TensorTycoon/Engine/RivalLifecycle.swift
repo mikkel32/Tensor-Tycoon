@@ -179,10 +179,13 @@ enum RivalLifecycle {
         return out
     }
 
+    /// The headline StrategyEvents writes when a star leaves to found a startup (shared, so the two can't drift apart).
+    static let alumniSuffix = " leaves to found a startup"
+
     /// Your star who left to found a startup ("Wish them well") may really do it.
     static func alumni(_ s: inout GameState) -> Bool {
         let cutoff = GameCalendar.addDays(s.date, -45)
-        let suffix = " leaves to found a startup"
+        let suffix = alumniSuffix
         for n in s.news.prefix(150) where n.date >= cutoff && n.category == .company && n.title.hasSuffix(suffix) {
             let origin = n.id.uuidString
             guard !s.customLabs.contains(where: { $0.origin == origin }), roll(s, "alumni|\(origin)") < 0.6 else { continue }
