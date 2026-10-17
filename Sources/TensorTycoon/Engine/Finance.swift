@@ -41,12 +41,11 @@ enum Finance {
     static func makeOffer(_ s: inout GameState) {
         let v = privateValue(s)
         let strategic = s.rng.chance(s.year > 2019 ? 0.3 : 0.1)
-        // Lab identity and how much the board believes in you move the price.
-        var pre = v * s.rng.range(0.85, 1.2) * (strategic ? 1.15 : 1) * max(0.6, 1 + s.traits.valuation) * Board.valuationFactor(s)
+        // Investors price off where the company is marked (which moves slowly) and where its fundamentals say
+        // it's heading. Lab identity and how much the board believes in you move the price.
+        let anchor = s.valuation > 0 && !s.isPublic ? (s.valuation * v).squareRoot() : v
+        var pre = anchor * s.rng.range(0.85, 1.2) * (strategic ? 1.15 : 1) * max(0.6, 1 + s.traits.valuation) * Board.valuationFactor(s)
         pre = max(pre, 2_000_000)
-        if let last = s.rounds.last, GameCalendar.daysBetween(last.date, s.date) < 400 {
-            pre = min(pre, (last.preMoney + last.amount) * 3.5)
-        }
         let f = s.raiseFraction
         let cap = maxRaise(s.year) * s.rng.range(0.5, 1.0)
         let amount = min(pre * f / (1 - f), cap)
@@ -237,8 +236,14 @@ enum Monthly {
         Victory.monthly(&s)
         Xeno.rivalDiscovery(&s)
 
-        // Valuation and records
-        s.valuation = Economy.valuation(s)
+        // Valuation and records. A private company's mark moves halfway (in log terms) toward its new level each
+        // month, so one launch or one bad month doesn't swing it 40× or wipe out two thirds of it overnight.
+        let mark = Economy.valuation(s)
+        if !s.isPublic && s.valuation > 0 && mark > 0 {
+            s.valuation = max((s.valuation * mark).squareRoot(), Economy.roundFloor(s))
+        } else {
+            s.valuation = mark
+        }
         Finance.updateCreditScore(&s)
         s.month.cashEnd = s.cash
         s.month.valuation = s.valuation

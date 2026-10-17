@@ -163,6 +163,29 @@ enum Alerts {
     /// How long an inbox decision waits for an answer.
     static func inboxDays(_ kind: String) -> Int { kind == "policy_bill" ? 30 : 21 }
 
+    // MARK: Standing answers
+
+    /// Decisions that repeat with the same choices, so "always answer this way" makes sense — and their names.
+    static let rememberable: [String: String] = [
+        "talent_raid": "Talent raids", "rival_round": "Invitations to rival funding rounds", "partner_offer": "Partner offers",
+        "sovereign_deal": "Sovereign AI deals", "poach": "Rival researchers asking to join", "spinoff": "Spin-off requests",
+        "distill_campaign": "Distillation campaigns against your API", "jailbreak": "Viral jailbreaks", "policy_bill": "New bills",
+        "loss_spike": "Loss spikes in training", "contamination": "Benchmark contamination", "fault_storm": "Hardware fault storms",
+        "train_bug": "Bugs found mid-run", "sycophancy": "Sycophancy after RLHF", "reward_hack": "Reward hacking in RL",
+    ]
+
+    /// Answer decisions the player has a standing answer for (end of day, before the clock checks for urgent ones).
+    static func applyStandingAnswers(_ s: inout GameState) {
+        guard !s.standingAnswers.isEmpty else { return }
+        let due = s.decisions.filter { s.standingAnswers[$0.kind] != nil }
+        for d in due {
+            guard let option = s.standingAnswers[d.kind], d.options.indices.contains(option) else { continue }
+            let label = d.options[option].label
+            s.resolveDecision(d.id, option: option)
+            Sim.news(&s, "Standing answer: \(d.title)", "You'd said to always answer these \"\(label)\". Change it on the Operations page.", .company)
+        }
+    }
+
     /// Expired inbox items resolve with their default answer.
     static func expireInbox(_ s: inout GameState) {
         let today = s.date
@@ -189,6 +212,14 @@ extension GameState {
 
     mutating func dismissAlert(_ id: UUID) {
         if let i = alerts.firstIndex(where: { $0.id == id }) { alerts[i].seen = true }
+    }
+
+    mutating func setBillStance(_ id: String, _ stance: Int) -> String? { Policy.setStance(&self, id, stance) }
+
+    /// Always answer this kind of decision with `option` (nil forgets it).
+    mutating func setStandingAnswer(_ kind: String, _ option: Int?, label: String = "") {
+        standingAnswers[kind] = option
+        standingLabels[kind] = option == nil ? nil : label
     }
 
     /// Hide a Chief of Staff item for a while.

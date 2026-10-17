@@ -294,7 +294,7 @@ enum Advisor {
         case .renewRental(let id):
             guard let i = s.rentals.firstIndex(where: { $0.id == id }), let end = s.rentals[i].end, let months = s.rentals[i].term.months else { return "Nothing to renew." }
             s.rentals[i].end = GameCalendar.addMonths(end, months)
-            if let rate = Economy.rent(HardwareCatalog.get(s.rentals[i].accelID) ?? HardwareCatalog.h100, s) {
+            if let rate = Economy.rentQuote(HardwareCatalog.get(s.rentals[i].accelID) ?? HardwareCatalog.h100, s) {
                 s.rentals[i].hourly = rate * s.rentals[i].term.discount
             }
             return nil

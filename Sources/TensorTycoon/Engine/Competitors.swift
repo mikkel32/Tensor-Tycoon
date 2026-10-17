@@ -122,6 +122,25 @@ enum Competitors {
             refreshFinancials(&s, i)
             if s.year < 2022.9 { s.competitors[i].brand = def.brand * 0.5 }
         }
+        addIncumbents(&s)
+    }
+
+    /// Put the pre-LLM incumbents that existed by now on the board (deterministic: no random draws).
+    static func addIncumbents(_ s: inout GameState) {
+        for inc in CompetitorCatalog.incumbents where inc.date.date <= s.date {
+            guard let i = s.competitors.firstIndex(where: { $0.id == inc.lab }),
+                  !s.competitors[i].models.contains(where: { $0.name == inc.name }) else { continue }
+            let def = s.competitors[i].def
+            let when = GameCalendar.addDays(inc.date.date, 14)
+            let y = when.decimalYear
+            let c = Macro.frontier(y) + inc.delta
+            let price = Macro.referencePrice(c: c, y: y) * def.priceMult
+            let m = CompetitorModel(name: inc.name, date: when, c: c, reasoning: false, scores: [:], index: 0,
+                                    price: (price * 1000).rounded() / 1000, open: inc.open, tps: def.tps * 0.6,
+                                    paramsB: max(0.05, displayParams(c: c)))
+            s.competitors[i].models.append(m)
+            s.competitors[i].models.sort { $0.date < $1.date }
+        }
     }
 
     static func nextReleaseDate(_ def: CompetitorDef, count: Int, after: Date, jitter: Double) -> Date {
@@ -144,9 +163,16 @@ enum Competitors {
         let comp = s.competitors[i]
         let def = comp.def
         let y = date.decimalYear
-        let playerBest = s.models.filter(\.released).map(\.c).max() ?? -10
-        // Rivals close part of any lead you open — partly by distilling your API outputs.
-        let race = 0.5 * max(0, playerBest - Macro.frontier(y)) * (1 - 0.6 * min(1, s.bonuses.distillGuard))
+        // Rivals answer your lead. They size their next runs against the lead you've held for a training cycle
+        // (about six months before this release), copy part of what they can see today by distilling your API,
+        // and build on anything you publish as open weights at once. Well-funded labs answer harder.
+        let released = s.models.filter(\.released)
+        let leadNow = max(0, (released.map(\.c).max() ?? -10) - Macro.frontier(y))
+        let openLead = min(leadNow, max(0, (released.filter(\.openWeights).map(\.c).max() ?? -10) - Macro.frontier(y)))
+        let held = min(leadNow + 0.2, leadAgo(s, before: date) ?? leadNow)
+        let k = s.difficulty.rivalResponse * (0.75 + 0.25 * min(1.2, comp.funding))
+        let copied = 0.3 * max(0, leadNow - held) * (1 - 0.6 * min(1, s.bonuses.distillGuard))
+        let race = max(k * held + copied, 0.7 * openLead)
         var c = Macro.frontier(y) + def.offset(y) + s.difficulty.competitorBoost + race + boost(s, def.id, at: y).c
         // Money buys compute: well-funded labs train bigger, starved ones fall behind.
         c += 0.2 * log10(max(0.3, comp.funding))
@@ -160,6 +186,14 @@ enum Competitors {
         // Rushed after a code red, or held back to train harder.
         if let p = comp.project, p.count == comp.releaseCount { c += p.cAdjust }
         return c
+    }
+
+    /// Your best released model's lead over the world frontier about six months before `date`, from the monthly
+    /// records (nil when that's still in the future or wasn't recorded).
+    static func leadAgo(_ s: GameState, before date: Date) -> Double? {
+        let then = GameCalendar.addDays(date, -182)
+        guard then < s.date, let r = s.history.last(where: { $0.month <= then }), r.bestC != 0 else { return nil }
+        return max(0, r.bestC - Macro.frontier(r.month.decimalYear))
     }
 
     static func makeModel(_ s: inout GameState, compIndex i: Int, date: Date) -> CompetitorModel {
@@ -251,9 +285,11 @@ enum Competitors {
             }
             refreshFinancials(&s, i)
         }
+        addIncumbents(&s)
     }
 
     static func monthly(_ s: inout GameState) {
+        addIncumbents(&s)
         for i in s.competitors.indices { refreshFinancials(&s, i) }
         RivalEconomy.monthly(&s)
         RivalStrategy.monthly(&s)

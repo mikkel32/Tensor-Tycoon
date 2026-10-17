@@ -49,6 +49,7 @@ enum Briefing {
         r.served = demand > 0 ? live.reduce(0) { $0 + min($1.servedTokensDay, $1.demandTokensDay) } / demand : 1
         r.contracts = s.deals.filter(\.active).count
         r.headcount = s.employees.count
+        r.bestC = live.map(\.c).max() ?? 0
     }
 
     /// Build the briefing for the month that just closed (`cur`), against the one before it.
@@ -247,7 +248,12 @@ enum Briefing {
                                     actions: Array(actions))
         s.briefings.insert(brief, at: 0)
         if s.briefings.count > 12 { s.briefings.removeLast(s.briefings.count - 12) }
-        Alerts.raise(&s, .briefing, title: "\(cur.month.gameMonth) briefing", body: headline, screen: .dashboard, cooldown: 0)
+        // Only a month worth reading gets a banner; the briefing is always on the dashboard.
+        let notable = abs(change) >= 0.08 || rivalReleases.contains { $0.index > cur.myIndex && cur.myIndex > 0 }
+            || (runway ?? 99) < 6 || cur.served < 0.85 || cur.rank != prev.rank || !launches.isEmpty
+        if notable {
+            Alerts.raise(&s, .briefing, title: "\(cur.month.gameMonth) briefing", body: headline, screen: .dashboard, cooldown: 0)
+        }
     }
 }
 

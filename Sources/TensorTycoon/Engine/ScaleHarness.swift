@@ -81,11 +81,14 @@ extension BalanceHarness {
         }
         print("  10 GW gas campus fully built in \(Fmt.trim(Double(GameCalendar.daysBetween(start, s.date)) / 30.4, 0)) months")
         // Limits, selling and moving.
-        print("  allocation per order at $1T valuation: " + ["b200", "h100"].compactMap { id -> String? in
-            guard let a = HardwareCatalog.get(id) else { return nil }
-            var t = s
-            t.valuation = 1e12
-            return "\(a.name) \(Fmt.int(Economy.allocationLimit(a, t)))"
+        // Vendors allocate a share of each quarter's production; the newest chips are the scarcest.
+        let made = HardwareCatalog.all.filter { Economy.canBuy($0, s) && Economy.quarterlyProduction($0, s) > 0 }
+            .sorted { $0.bf16 > $1.bf16 }.prefix(3)
+        print("  this quarter's production and your allocation: " + made.map {
+            "\($0.name) \(Fmt.count(Economy.quarterlyProduction($0, s))) made, \(Fmt.int(Economy.allocationLimit($0, s))) for you"
+        }.joined(separator: " · "))
+        print("  cloud supply and your rental cap: " + made.map {
+            "\($0.name) \(Fmt.count(Economy.cloudSupply($0, s))) in clouds, \(Fmt.int(Economy.rentalLimit($0, s))) for you"
         }.joined(separator: " · "))
         if let site = s.sites.first(where: { $0.name == "Gigacampus" }) {
             let ref = Silicon.reference(s)

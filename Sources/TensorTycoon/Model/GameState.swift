@@ -576,6 +576,13 @@ struct FundingRound: Codable, Identifiable, Hashable {
     var percent: Double
 }
 
+/// A delivered hardware order: what, how many and when it was ordered.
+struct OrderStamp: Codable, Hashable {
+    var accelID: String
+    var count: Int
+    var ordered: Date
+}
+
 struct RaiseOffer: Codable, Identifiable, Hashable {
     var id = UUID()
     var investor: String
@@ -780,6 +787,8 @@ struct MonthRecord: Codable, Identifiable, Hashable {
     @D var served: Double = 0
     @D var contracts: Int = 0
     @D var headcount: Int = 0
+    /// Capability of your best released model (0 = none recorded).
+    @D var bestC: Double = 0
 
     var revenue: Double { revAPI + revConsumer + revEnterprise + revOther + revAgents + revCloud + revChips + revLicensing + revLabor }
     /// Selling hardware and leasing compute: valued like a hardware business, not a software one.
@@ -1049,6 +1058,11 @@ struct GameState: Codable {
     @D var opsLog: [String] = []
     /// What changed each month and why, newest first.
     @D var briefings: [MonthlyBriefing] = []
+    /// Delivered hardware orders of the last few months, for vendor allocation.
+    @D var orderLog: [OrderStamp] = []
+    /// Decision kind → the option to pick automatically, and its label when it was chosen.
+    @D var standingAnswers: [String: Int] = [:]
+    @D var standingLabels: [String: String] = [:]
 
     var totalShares: Double {
         founderShares + employeePoolShares + publicShares + holdings.reduce(0) { $0 + $1.shares }

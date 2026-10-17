@@ -74,6 +74,8 @@ final class GameStore {
     var briefingID: UUID?
     /// Why the clock last stopped on its own.
     var pauseReason: String?
+    /// The era introduction, shown once when a new game starts.
+    var showEraIntro = false
     var showRunReports = UserDefaults.standard.object(forKey: "showRunReports") as? Bool ?? true {
         didSet { UserDefaults.standard.set(showRunReports, forKey: "showRunReports") }
     }
@@ -113,6 +115,7 @@ final class GameStore {
         state = NewGame.create(settings)
         refreshDerived()
         screen = .dashboard
+        showEraIntro = true
         setSpeed(0)
         save(force: true)
     }

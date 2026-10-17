@@ -103,6 +103,30 @@ enum Policy {
         }
     }
 
+    /// Take a side on a pending bill from the policy page (or change it). Taking a side costs 5 political capital and
+    /// moves brand and safety like the decision does; stepping back costs 2; switching sides also costs 3 brand.
+    static func setStance(_ s: inout GameState, _ id: String, _ stance: Int) -> String? {
+        guard let bill = PolicyCatalog.byID[id], let i = s.bills.firstIndex(where: { $0.id == id }) else { return "That bill isn't pending." }
+        let old = s.bills[i].stance
+        let new = max(-1, min(1, stance))
+        guard new != old else { return nil }
+        if old != 0 {
+            // Undo the old side's effect on brand and safety.
+            s.brand = clamp(s.brand - Double(old) * bill.popularity * 3, 0, 100)
+            if bill.safetyBill { s.safetyScore = clamp(s.safetyScore - Double(old) * 2, 0, 100) }
+        }
+        if new != 0 {
+            s.brand = clamp(s.brand + Double(new) * bill.popularity * 3, 0, 100)
+            if bill.safetyBill { s.safetyScore = clamp(s.safetyScore + Double(new) * 2, 0, 100) }
+        }
+        s.politicalCapital = max(0, s.politicalCapital - (new == 0 ? 2 : 5))
+        if old != 0 && new != 0 { s.brand = max(0, s.brand - 3) }
+        s.bills[i].stance = new
+        // The bill's decision, if it's still waiting, is answered.
+        s.decisions.removeAll { $0.kind == "policy_bill" && $0.ref == id }
+        return nil
+    }
+
     static func vote(_ s: inout GameState, _ b: PolicyBill) {
         guard let bill = PolicyCatalog.byID[b.id] else { return }
         let passed = s.rng.chance(clamp(passChance(bill, stance: b.stance, s) + b.boost, 0.05, 0.95))

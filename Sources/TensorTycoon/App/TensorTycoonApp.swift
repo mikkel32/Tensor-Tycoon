@@ -51,6 +51,10 @@ struct TensorTycoonApp: App {
             BalanceHarness.research(era: i + 1 < args.count ? args[i + 1] : "2022")
             exit(0)
         }
+        if let i = args.firstIndex(of: "--playtest") {
+            PlaytestHarness.main(Array(args.dropFirst(i + 1)))
+            exit(0)
+        }
         if let i = args.firstIndex(of: "--experience") {
             BalanceHarness.experience(era: i + 1 < args.count ? args[i + 1] : "2024")
             exit(0)

@@ -38,12 +38,14 @@ struct RootView: View {
 /// a finished run's report, a briefing.
 enum ShellSheet: Identifiable {
     case decision(Decision)
+    case era
     case report(UUID)
     case briefing(UUID)
 
     var id: String {
         switch self {
         case .decision(let d): "decision-\(d.id)"
+        case .era: "era"
         case .report(let id): "report-\(id)"
         case .briefing(let id): "briefing-\(id)"
         }
@@ -74,6 +76,8 @@ struct GameShell: View {
             case .decision(let d):
                 DecisionSheet(decision: d)
                     .interactiveDismissDisabled(Alerts.isUrgent(d))
+            case .era:
+                EraIntroSheet()
             case .report(let id):
                 RunReportSheet(runID: id)
             case .briefing(let id):
@@ -90,6 +94,7 @@ struct GameShell: View {
         guard let s = store.state, s.gameOver == nil else { return nil }
         if let d = s.decisions.first(where: Alerts.isUrgent) { return .decision(d) }
         if let id = store.openDecisionID, let d = s.decisions.first(where: { $0.id == id }) { return .decision(d) }
+        if store.showEraIntro { return .era }
         if let r = store.reportRunID { return .report(r) }
         if let b = store.briefingID { return .briefing(b) }
         return nil
@@ -99,6 +104,7 @@ struct GameShell: View {
     private func dismissed() {
         switch sheet {
         case .decision(let d): if !Alerts.isUrgent(d) { store.openDecisionID = nil }
+        case .era: store.showEraIntro = false
         case .report: store.reportRunID = nil
         case .briefing: store.briefingID = nil
         case nil: break
@@ -298,6 +304,7 @@ struct ToolbarStat: View {
 struct DecisionSheet: View {
     @Environment(GameStore.self) private var store
     let decision: Decision
+    @State private var remember = false
 
     var body: some View {
         let inbox = !Alerts.isUrgent(decision)
@@ -341,9 +348,15 @@ struct DecisionSheet: View {
                         .tint(i == 0 ? .accentColor : .secondary)
                     }
                 }
-                if inbox {
-                    HStack {
-                        Spacer()
+                HStack {
+                    if let name = Alerts.rememberable[decision.kind] {
+                        Toggle("Always answer \(name.lowercased()) this way", isOn: $remember)
+                            .toggleStyle(.checkbox)
+                            .font(.caption)
+                            .help("The game picks the same option for you next time. Change it on the Operations page.")
+                    }
+                    Spacer()
+                    if inbox {
                         Button("Decide later") { store.openDecisionID = nil }
                             .keyboardShortcut(.cancelAction)
                     }
@@ -356,6 +369,10 @@ struct DecisionSheet: View {
 
     /// Answer, then say what happened.
     private func resolve(_ option: Int) {
+        if remember, decision.options.indices.contains(option) {
+            let label = decision.options[option].label
+            store.mutate { $0.setStandingAnswer(decision.kind, option, label: label) }
+        }
         let before = store.game.news.first?.id
         store.mutate { $0.resolveDecision(decision.id, option: option) }
         if store.openDecisionID == decision.id { store.openDecisionID = nil }

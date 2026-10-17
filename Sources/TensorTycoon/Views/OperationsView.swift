@@ -26,6 +26,7 @@ struct OperationsView: View {
                     .frame(maxWidth: .infinity)
                 VStack(spacing: 16) {
                     pauseSettings(s)
+                    standing(s)
                     rewind(s)
                 }
                 .frame(maxWidth: .infinity)
@@ -148,6 +149,28 @@ struct OperationsView: View {
             .controlSize(.small)
             Text("Decisions that can't wait (incidents, lawsuits, a stalled board) always stop the clock. Offers go to your inbox on the Dashboard and answer themselves if they expire.")
                 .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    // MARK: Standing answers
+
+    private func standing(_ s: GameState) -> some View {
+        Card {
+            CardHeader("Standing answers", symbol: "arrow.triangle.branch", subtitle: "Decisions the game answers for you. Tick \"Always answer this way\" on a decision to add one.")
+            if s.standingAnswers.isEmpty {
+                Text("None yet.").font(.callout).foregroundStyle(.secondary)
+            } else {
+                ForEach(s.standingAnswers.keys.sorted(), id: \.self) { kind in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(Alerts.rememberable[kind] ?? kind).font(.callout.weight(.semibold))
+                            Text("Always: \(s.standingLabels[kind] ?? "option \((s.standingAnswers[kind] ?? 0) + 1)")").font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button("Forget") { store.mutate { $0.setStandingAnswer(kind, nil) } }.controlSize(.small)
+                    }
+                }
+            }
         }
     }
 

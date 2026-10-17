@@ -376,9 +376,10 @@ enum RivalEconomy {
     /// When a rival raises, a big enough player may get a slice of the round.
     static func offerStake(_ s: inout GameState, _ i: Int, amount: Double, post: Double) {
         let c = s.competitors[i]
-        guard amount > 0, post > 0, s.valuation >= 1e9, s.decisions.count < 3, s.gameOver == nil else { return }
+        guard amount > 0, post > 0, s.valuation >= 1e9, s.decisions.count < 3, s.gameOver == nil,
+              !s.decisions.contains(where: { $0.kind == "rival_round" }) else { return }
         let small = amount * 0.05
-        guard s.cash >= small * 1.5, s.rng.chance(0.7) else { return }
+        guard s.cash >= small * 1.5, s.rng.chance(0.35) else { return }
         let big = amount * 0.15
         let deal = sellsCompute(s)
         Events.addDecision(&s, kind: "rival_round", title: "Join \(c.def.name)'s round?",

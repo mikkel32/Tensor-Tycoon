@@ -45,6 +45,8 @@ enum Economy {
     static func canRent(_ a: Accelerator, _ s: GameState) -> Bool {
         guard a.rentable, availableFor(a, s) <= s.date.ym else { return false }
         if let d = a.discontinued, s.year > d.decimal + 3 { return false }
+        // Clouds retire chips that have no end date eight years after launch.
+        if a.discontinued == nil, a.cls != .consumer && a.cls != .workstation, s.year > a.available.decimal + 8 { return false }
         if a.vendor == .huawei && !s.market.exportControls && s.year < 2023 { return false }
         return true
     }
@@ -96,26 +98,100 @@ enum Economy {
         return Int(d * max(0.3, 1 - s.traits.leadTime))
     }
 
-    /// Max chips per order for hot new hardware — vendors allocate to big customers first.
-    static func allocationLimit(_ a: Accelerator, _ s: GameState) -> Int {
-        let age = ageYears(a, s)
-        if a.cls == .consumer || a.cls == .workstation { return 2_000 }
-        if a.vendor == .custom { return 20_000_000 }
-        let divisor = age < 0.5 ? 700_000.0 : (age < 1.5 ? 400_000 : 100_000)
-        let deal = (hasDeal(a, s) ? 4.0 : 1.0) * Partners.allocationMult(a, s) * (1 + s.traits.allocation)
-        return Int(clamp(s.valuation / divisor * deal * scaleBoost(s), Double(max(64, a.minOrder * 2)), 20_000_000))
+    // MARK: World chip supply
+
+    /// The world's AI compute in H100-equivalents: the frontier labs' fleets plus the clouds that rent to everyone else.
+    static func worldFleet(_ y: Double) -> Double { CompetitorCatalog.industryCompute(y) * 1.5 }
+
+    /// Weight of a chip in the world's fleets (in compute, not units): NVIDIA dominates, TPUs come through one cloud,
+    /// the rest are niche, and flagship training chips carry more of the world's compute than small inference cards.
+    static func fleetWeight(_ a: Accelerator) -> Double {
+        let family: Double
+        switch a.cls {
+        case .consumer, .workstation: return 0
+        case .tpu: family = 0.6
+        case .custom: family = 0.15
+        case .wafer: family = 0.05
+        case .datacenter: family = a.vendor == .nvidia ? 1 : (a.vendor == .amd ? 0.3 : 0.15)
+        }
+        return family * pow(max(a.bf16, 1) / HardwareCatalog.h100.bf16, 0.6)
     }
 
-    /// Vendors treat the biggest buyers differently: past a $10B valuation, allocations grow faster than
-    /// valuation (√ of the excess), so a trillion-dollar lab can order millions of chips at once.
-    static func scaleBoost(_ s: GameState) -> Double { max(1, (s.valuation / 1e10).squareRoot()) }
+    /// How much of the installed base this chip is: it ramps up in its first year, runs at volume for two more,
+    /// then clouds retire it (by 3 years after it's discontinued, or 8 years after launch).
+    static func fleetLife(_ a: Accelerator, _ y: Double) -> Double {
+        let age = y - a.available.decimal
+        let end = a.discontinued.map { max(4, $0.decimal - a.available.decimal + 3) } ?? 8
+        if age < 0 { return 0 }
+        if age < 1 { return 0.25 + 0.75 * age }
+        if age < 3 { return 1 }
+        return max(0, 1 - (age - 3) / max(1, end - 3))
+    }
 
-    static func rentalLimit(_ a: Accelerator, _ s: GameState) -> Int {
-        let age = ageYears(a, s)
+    /// Where the chip's production line is: ramping for its first nine months, then winding down until it's discontinued.
+    static func productionLife(_ a: Accelerator, _ y: Double) -> Double {
+        let age = y - a.available.decimal
+        let stop = a.discontinued.map { $0.decimal - a.available.decimal } ?? 4
+        if age < -0.25 || age >= stop { return 0 }
+        if age < 0.75 { return 0.4 + 0.8 * max(0, age) }
+        return max(0.2, 1 - 0.8 * (age - 0.75) / max(1, stop - 0.75))
+    }
+
+    /// Chips of this type in the world's rentable cloud fleet today.
+    static func cloudSupply(_ a: Accelerator, _ s: GameState) -> Double {
+        let y = s.year
+        let mine = fleetWeight(a) * fleetLife(a, y)
+        guard mine > 0 else { return 0 }
+        let total = HardwareCatalog.all.reduce(0.0) { $0 + ($1.rentable ? fleetWeight($1) * fleetLife($1, y) : 0) }
+        return worldFleet(y) * mine / max(total, 1e-9) * HardwareCatalog.h100.bf16 / max(a.bf16, 1)
+    }
+
+    /// Chips of this type the world's fabs ship per quarter (the fleet roughly doubles every year).
+    static func quarterlyProduction(_ a: Accelerator, _ s: GameState) -> Double {
+        let y = s.year
+        let mine = fleetWeight(a) * productionLife(a, y)
+        guard mine > 0 else { return 0 }
+        let total = HardwareCatalog.all.reduce(0.0) { $0 + ($1.purchasable ? fleetWeight($1) * productionLife($1, y) : 0) }
+        return worldFleet(y) * 0.3 * mine / max(total, 1e-9) * HardwareCatalog.h100.bf16 / max(a.bf16, 1)
+    }
+
+    /// Share of a chip's quarterly production one buyer can get; partners, supply deals and traits raise it.
+    static func allocationShare(_ a: Accelerator, _ s: GameState) -> Double {
+        let deal = (hasDeal(a, s) ? 1.6 : 1.0) * Partners.allocationMult(a, s) * (1 + s.traits.allocation)
+        return min(0.6, 0.2 * deal)
+    }
+
+    /// Max chips you can order now: your share of the vendor's quarterly output, less what you ordered in the last 90 days.
+    static func allocationLimit(_ a: Accelerator, _ s: GameState) -> Int {
         if a.cls == .consumer || a.cls == .workstation { return 2_000 }
-        let divisor = age < 0.5 ? 600_000.0 : (age < 1.5 ? 350_000 : 100_000)
-        let deal = (hasDeal(a, s) ? 4.0 : 1.0) * Partners.allocationMult(a, s) * (1 + s.traits.allocation)
-        return Int(clamp(s.valuation / divisor * deal * scaleBoost(s), 32, 20_000_000))
+        if a.vendor == .custom { return 20_000_000 }
+        let cutoff = GameCalendar.addDays(s.date, -90)
+        let recent = s.orders.filter { $0.accelID == a.id && $0.ordered > cutoff }.reduce(0) { $0 + $1.count }
+            + s.orderLog.filter { $0.accelID == a.id && $0.ordered > cutoff }.reduce(0) { $0 + $1.count }
+        let cap = quarterlyProduction(a, s) * allocationShare(a, s)
+        return max(max(64, a.minOrder * 2), Int(cap) - recent)
+    }
+
+    /// Max chips of this type you can rent in total: a quarter of the world's cloud supply (more with partners
+    /// and supply deals), and no more than two months of rent your cash and revenue can cover.
+    static func rentalLimit(_ a: Accelerator, _ s: GameState) -> Int {
+        if a.cls == .consumer || a.cls == .workstation { return 2_000 }
+        let deal = (hasDeal(a, s) ? 1.4 : 1.0) * Partners.allocationMult(a, s) * (1 + s.traits.allocation)
+        let supply = cloudSupply(a, s) * min(0.5, 0.25 * deal)
+        let monthlyPerChip = (rent(a, s) ?? 1) * 24 * 30.4
+        let credit = (max(0, s.cash) + s.cloudCredits + 2 * (s.history.last?.revenue ?? 0)) / max(1, 2 * monthlyPerChip)
+        return Int(max(32, min(supply, credit, 20_000_000)))
+    }
+
+    /// Your share of the world's rentable supply of this chip.
+    static func rentedShare(_ a: Accelerator, _ s: GameState) -> Double {
+        let mine = Double(s.rentals.filter { $0.accelID == a.id }.reduce(0) { $0 + $1.count })
+        return mine / max(1, cloudSupply(a, s))
+    }
+
+    /// What a new rental costs: the market rate, plus 2% for every 1% of the world's supply you already hold.
+    static func rentQuote(_ a: Accelerator, _ s: GameState) -> Double? {
+        rent(a, s).map { $0 * (1 + 2 * rentedShare(a, s)) }
     }
 
     /// Server overhead included (CPU, NICs, fans).
@@ -258,12 +334,14 @@ enum Economy {
         let talent = s.employees.reduce(0.0) { $0 + ($1.role == .researcher ? $1.skill * 40_000 : $1.skill * 10_000) } * (y > 2023 ? 3 : 1)
         let seed = Macro.seedValuation(y) * min(1.5, 0.6 + Double(s.employees.count) * 0.1)
         let assets = max(0, hardwareValue(s) + siteValue(s) - debt(s))
-        var floor = 0.0
-        if let r = s.rounds.last {
-            let years = Double(GameCalendar.daysBetween(r.date, s.date)) / 365
-            floor = (r.preMoney + r.amount) * max(0.4, 1 - 0.3 * years)
-        }
-        return max(max(revVal, hypeVal, seed, talent) + assets * 0.6 + Xeno.moatValue(s) + RivalEconomy.stakesValue(s) * 0.9, floor)
+        return max(max(revVal, hypeVal, seed, talent) + assets * 0.6 + Xeno.moatValue(s) + RivalEconomy.stakesValue(s) * 0.9, roundFloor(s))
+    }
+
+    /// The last round's post-money, written down 30% a year (to at most 40% off): a private mark rarely falls faster.
+    static func roundFloor(_ s: GameState) -> Double {
+        guard let r = s.rounds.last else { return 0 }
+        let years = Double(GameCalendar.daysBetween(r.date, s.date)) / 365
+        return (r.preMoney + r.amount) * max(0.4, 1 - 0.3 * years)
     }
 
     /// Annualised revenue from selling chips and leasing compute.

@@ -40,6 +40,7 @@ enum Sim {
         Achievements.check(&s)
         checkSolvency(&s)
         Alerts.daily(&s)
+        Alerts.applyStandingAnswers(&s)
         Alerts.expireInbox(&s)
     }
 
@@ -106,6 +107,10 @@ enum Sim {
         let arrived = s.orders.filter { $0.arrives <= s.date }
         guard !arrived.isEmpty else { return }
         s.orders.removeAll { $0.arrives <= s.date }
+        // Remember what was ordered when: vendors allocate per quarter.
+        let cutoff = GameCalendar.addDays(s.date, -120)
+        s.orderLog.removeAll { $0.ordered < cutoff }
+        s.orderLog += arrived.map { OrderStamp(accelID: $0.accelID, count: $0.count, ordered: $0.ordered) }
         for o in arrived {
             s.owned.append(OwnedBatch(accelID: o.accelID, count: o.count, siteID: o.siteID, purchased: s.date, unitCost: o.unitCost))
             let name = HardwareCatalog.get(o.accelID)?.name ?? o.accelID

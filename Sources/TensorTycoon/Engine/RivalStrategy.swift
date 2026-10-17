@@ -303,7 +303,7 @@ enum RivalStrategy {
         case .consumer:
             s.competitors[i].brand = min(100, c.brand + 1.5)
         case .talentRaid:
-            if s.decisions.count < 3, (c.raidCooldown ?? .distantPast) < s.date,
+            if s.decisions.count < 3, (c.raidCooldown ?? .distantPast) < s.date, !raidedRecently(s),
                RivalIntel.unit("\(c.id)|raid|\(s.date.ym.year * 12 + s.date.ym.month)") < 0.35 {
                 raid(&s, i)
             }
@@ -362,12 +362,19 @@ enum RivalStrategy {
                  .finance, image: "stock_exchange", important: true)
     }
 
+    /// Whether any lab went after your team in the last nine months (raids are rare enough to matter).
+    static func raidedRecently(_ s: GameState) -> Bool {
+        let cutoff = GameCalendar.addMonths(s.date, 3)
+        return s.competitors.contains { ($0.raidCooldown ?? .distantPast) > cutoff }
+    }
+
     /// The lab goes after your three best researchers.
     static func raid(_ s: inout GameState, _ i: Int) {
         let rival = s.competitors[i]
         let researchers = s.employees.filter { $0.role == .researcher }.sorted { $0.skill > $1.skill }
         guard researchers.count >= 4 else { return }
-        s.competitors[i].raidCooldown = GameCalendar.addMonths(s.date, 6)
+        // A lab tries again a year later at the earliest; nobody raids within nine months of the last raid.
+        s.competitors[i].raidCooldown = GameCalendar.addMonths(s.date, 12)
         let top = researchers.prefix(3)
         let bonus = top.reduce(0) { $0 + $1.salary } * 0.6
         Events.addDecision(&s, kind: "talent_raid", title: "\(rival.def.name) is raiding your research team",

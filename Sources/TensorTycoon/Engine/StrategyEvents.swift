@@ -120,8 +120,10 @@ enum StrategyEvents {
 
         // A rival raids your research team.
         let researchers = s.employees.filter { $0.role == .researcher }.sorted { $0.skill > $1.skill }
-        if researchers.count >= 6, s.rng.chance(0.03),
-           let rival = s.competitors.filter({ !$0.acquired && s.year >= $0.def.founded.decimal }).randomElement(using: &s.rng) {
+        if researchers.count >= 6, s.year < RivalStrategy.start, !RivalStrategy.raidedRecently(s), s.rng.chance(0.03),
+           let rival = s.competitors.filter({ !$0.acquired && s.year >= $0.def.founded.decimal }).randomElement(using: &s.rng),
+           let ri = s.competitors.firstIndex(where: { $0.id == rival.id }) {
+            s.competitors[ri].raidCooldown = GameCalendar.addMonths(s.date, 12)
             let top = researchers.prefix(3)
             let bonus = top.reduce(0) { $0 + $1.salary } * 0.6
             Events.addDecision(&s, kind: "talent_raid", title: "\(rival.def.name) is raiding your research team",

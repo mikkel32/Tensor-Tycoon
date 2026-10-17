@@ -38,6 +38,7 @@ private struct ModelCard: View {
     @State private var priceText = ""
     @State private var launch: LaunchStyle = .standard
     @State private var addAccel = ""
+    @State private var confirmRetire = false
 
     var body: some View {
         let s = state
@@ -127,9 +128,15 @@ private struct ModelCard: View {
                     Button("Open-source the weights") { store.act("Weights released") { $0.release(m.id, api: m.api, openWeights: true) } }
                 }
             }
-            Button("Retire model", role: .destructive) { store.mutate { $0.retire(m.id) } }
+            Button("Retire model…", role: .destructive) { confirmRetire = true }
                 .buttonStyle(.link)
                 .font(.caption)
+                .confirmationDialog("Retire \(m.name)?", isPresented: $confirmRetire, titleVisibility: .visible) {
+                    Button("Retire", role: .destructive) { store.mutate { $0.retire(m.id) } }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text("It stops serving, its chips are freed and it can't be brought back. Products and contracts on it move to your next best model.")
+                }
         }
     }
 

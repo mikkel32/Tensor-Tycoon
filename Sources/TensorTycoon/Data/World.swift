@@ -303,6 +303,17 @@ struct CompetitorDef: Identifiable, Sendable {
 }
 
 enum CompetitorCatalog {
+    /// Models that existed before the labs' first frontier language models — translation and research models
+    /// from 2016–18 — so an early game opens on a real leaderboard. They aren't releases: no lab's schedule moves.
+    /// `delta` is capability relative to the world frontier on that date.
+    static let incumbents: [(lab: String, date: YM, name: String, delta: Double, open: Bool)] = [
+        ("deepgrove", YM(2016, 9), "Grove NMT", -0.5, false),
+        ("prometheus", YM(2017, 4), "PRM Sentiment", -0.7, true),
+        ("openweights", YM(2017, 5), "OW ConvS2S", -0.45, true),
+        ("deepgrove", YM(2017, 6), "Grove Transformer", -0.15, true),
+        ("openweights", YM(2018, 2), "OW ELMo", -0.35, true),
+    ]
+
     static let all: [CompetitorDef] = [
         CompetitorDef(id: "prometheus", name: "Prometheus Labs", color: 0x10A37F, symbol: "flame.fill",
                       archetype: "Consumer giant", founded: YM(2015, 12), firstModel: YM(2018, 6), hq: "San Francisco",

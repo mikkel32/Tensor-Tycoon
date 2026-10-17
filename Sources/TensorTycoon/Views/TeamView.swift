@@ -3,6 +3,7 @@ import SwiftUI
 struct TeamView: View {
     @Environment(GameStore.self) private var store
     @State private var roleFilter: Role? = nil
+    @State private var firing: Employee?
 
     var body: some View {
         let s = store.game
@@ -112,7 +113,7 @@ struct TeamView: View {
                         TableColumn("") { e in
                             HStack {
                                 Button("Raise +15%") { store.mutate { $0.giveRaise(e.id) } }.buttonStyle(.borderless)
-                                Button("Let go") { store.mutate { $0.fire(e.id) } }.buttonStyle(.borderless).foregroundStyle(.red)
+                                Button("Let go…") { firing = e }.buttonStyle(.borderless).foregroundStyle(.red)
                             }
                             .font(.caption)
                         }
@@ -121,6 +122,16 @@ struct TeamView: View {
                     .frame(minHeight: CGFloat(min(14, s.employees.count + 1)) * 26 + 30)
                 }
             }
+        }
+        .confirmationDialog("Let \(firing?.name ?? "them") go?", isPresented: Binding(get: { firing != nil }, set: { if !$0 { firing = nil } }),
+                            titleVisibility: .visible) {
+            Button("Let go", role: .destructive) {
+                if let e = firing { store.mutate { $0.fire(e.id) } }
+                firing = nil
+            }
+            Button("Cancel", role: .cancel) { firing = nil }
+        } message: {
+            Text("Three months of salary in severance, and everyone else's morale dips a little.")
         }
     }
 }

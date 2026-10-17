@@ -78,7 +78,7 @@ struct HardwareStoreView: View {
                     Button { selected = a } label: {
                         AcceleratorCard(accel: a,
                                         buy: Economy.canBuy(a, s) ? Economy.price(a, s) : nil,
-                                        rent: Economy.canRent(a, s) ? Economy.rent(a, s) : nil,
+                                        rent: Economy.canRent(a, s) ? Economy.rentQuote(a, s) : nil,
                                         owned: d.poolByID[a.id]?.total ?? 0,
                                         comingLabel: Economy.availableFor(a, s) > s.date.ym ? Economy.availableFor(a, s).label : nil,
                                         deal: Economy.hasDeal(a, s),
@@ -249,7 +249,7 @@ struct AcceleratorDetail: View {
     private func content(_ s: GameState) -> some View {
         let a = accel
         let buy = Economy.canBuy(a, s) ? Economy.price(a, s) : nil
-        let rent = Economy.canRent(a, s) ? Economy.rent(a, s) : nil
+        let rent = Economy.canRent(a, s) ? Economy.rentQuote(a, s) : nil
         VStack(spacing: 0) {
             ZStack(alignment: .bottomLeading) {
                 Photo(key: a.image)
@@ -390,7 +390,7 @@ struct AcceleratorDetail: View {
                     HStack {
                         VStack(alignment: .leading, spacing: 1) {
                             Text("\(Fmt.money(total)) total").font(.headline.monospacedDigit())
-                            Text("\(Fmt.watts(Economy.chipKW(a) * Double(qty) * 1000)) incl. servers · ships in ~\(Economy.leadTimeDays(a, s)) days · max \(Fmt.int(Economy.allocationLimit(a, s))) per order")
+                            Text("\(Fmt.watts(Economy.chipKW(a) * Double(qty) * 1000)) incl. servers · ships in ~\(Economy.leadTimeDays(a, s)) days · \(Fmt.int(Economy.allocationLimit(a, s))) available to you this quarter of \(Fmt.count(Economy.quarterlyProduction(a, s))) made")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()
@@ -414,7 +414,7 @@ struct AcceleratorDetail: View {
                     HStack {
                         VStack(alignment: .leading, spacing: 1) {
                             Text("\(Fmt.money(monthly))/month").font(.headline.monospacedDigit())
-                            Text("On \(a.cloudProvider). Instant, no power or cooling needed. Limit \(Fmt.int(Economy.rentalLimit(a, s))) for your size.")
+                            Text("On \(a.cloudProvider). Instant, no power or cooling needed. You can rent up to \(Fmt.int(Economy.rentalLimit(a, s))) of the world's \(Fmt.count(Economy.cloudSupply(a, s))); prices rise as you take more of them.")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()

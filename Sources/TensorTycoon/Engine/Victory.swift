@@ -62,7 +62,10 @@ enum Victory {
         case .superintelligence:
             return s.releasedModels.contains { $0.c >= Macro.frontier(s.year) + 1.5 && $0.safety >= 80 }
         case .empire:
-            return s.valuation >= 1e13 || s.founderNetWorth >= 1e12
+            // Held for three month-ends, not a one-month spike.
+            let recent = s.history.suffix(3).map(\.valuation)
+            guard recent.count == 3, let low = recent.min() else { return false }
+            return min(low, s.valuation) >= 1e13 || s.founderStake * min(low, s.valuation) + s.founderCash >= 1e12
         case .dominance:
             return s.monthsAtTop >= 24 && s.apiShareNow >= 0.4
         case .guardian:

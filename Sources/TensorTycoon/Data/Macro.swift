@@ -153,6 +153,15 @@ enum Difficulty: String, Codable, CaseIterable, Identifiable, Sendable {
         }
     }
 
+    /// How much of a lead you've held for a training cycle rival labs answer with their next runs.
+    var rivalResponse: Double {
+        switch self {
+        case .easy: 0.6
+        case .normal: 0.85
+        case .hard: 1.0
+        }
+    }
+
     var blurb: String {
         switch self {
         case .easy: "Double the starting cash, generous customers, slower rivals."

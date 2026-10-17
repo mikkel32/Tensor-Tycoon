@@ -380,31 +380,24 @@ struct GettingStarted: View {
     let chips: Int
 
     var body: some View {
-        let s = state
-        let steps: [(String, String, Bool, Screen)] = [
-            ("Queue research", "Pick breakthroughs to unlock better models.", !s.researchQueue.isEmpty || s.researched.count > 15, .research),
-            ("Train your first model", "Design it in the Model Lab.", !s.runs.isEmpty, .lab),
-            ("Release & deploy it", "Give it chips and set an API price.", s.models.contains { $0.released && !$0.deployments.isEmpty }, .models),
-            ("Launch a chat app", "Pick the model that powers your consumer product.", s.chatModelID != nil, .market),
-            ("Hire your team", "Researchers speed up R&D; infra keeps clusters alive.", s.employees.count >= 5, .team),
-            ("Scale compute", "Rent cloud GPUs/TPUs or buy hardware for a datacenter.", chips > 64, .hardware),
-            ("Raise money", "Sell equity or borrow to fund bigger runs.", s.rounds.count > 1 || !s.loans.isEmpty, .funding),
-        ]
-        let remaining = steps.filter { !$0.2 }
+        let steps = EraGuide.steps(state)
+        let remaining = steps.filter { !$0.done }
         if !remaining.isEmpty {
             Card {
-                CardHeader("Next steps", symbol: "checklist", subtitle: "\(steps.count - remaining.count) of \(steps.count) done")
-                ForEach(steps, id: \.0) { step in
+                CardHeader(title: "Next steps", symbol: "checklist", subtitle: "\(steps.count - remaining.count) of \(steps.count) done") {
+                    Button("Era briefing") { store.showEraIntro = true }.buttonStyle(.link)
+                }
+                ForEach(steps) { step in
                     Button {
-                        store.open(step.3)
+                        store.open(step.screen)
                     } label: {
                         HStack(spacing: 10) {
-                            Image(systemName: step.2 ? "checkmark.circle.fill" : "circle")
-                                .foregroundStyle(step.2 ? .green : .secondary)
+                            Image(systemName: step.done ? "checkmark.circle.fill" : "circle")
+                                .foregroundStyle(step.done ? .green : .secondary)
                                 .font(.title3)
                             VStack(alignment: .leading, spacing: 1) {
-                                Text(step.0).font(.callout.weight(.semibold)).strikethrough(step.2)
-                                Text(step.1).font(.caption).foregroundStyle(.secondary)
+                                Text(step.title).font(.callout.weight(.semibold)).strikethrough(step.done)
+                                Text(step.detail).font(.caption).foregroundStyle(.secondary)
                             }
                             Spacer()
                             Image(systemName: "chevron.right").foregroundStyle(.tertiary)

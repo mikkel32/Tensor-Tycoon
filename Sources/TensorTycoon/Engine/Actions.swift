@@ -46,11 +46,16 @@ extension GameState {
 
     mutating func rentHardware(_ accelID: String, count: Int, term: RentalTerm) -> String? {
         guard let a = HardwareCatalog.get(accelID), count > 0 else { return "Unknown hardware." }
-        guard Economy.canRent(a, self), let rate = Economy.rent(a, self) else { return "\(a.name) isn't rentable right now." }
+        guard Economy.canRent(a, self), let rate = Economy.rentQuote(a, self) else { return "\(a.name) isn't rentable right now." }
         if let why = Partners.blocker(a, self) { return why }
         let limit = Economy.rentalLimit(a, self)
         let existing = rentals.filter { $0.accelID == accelID }.reduce(0) { $0 + $1.count }
-        if existing + count > limit { return "\(a.cloudProvider) caps you at \(Fmt.int(limit)) \(a.name) for now. Grow your valuation to unlock more." }
+        if existing + count > limit {
+            let supply = Economy.cloudSupply(a, self)
+            return existing + count > Int(supply * 0.25)
+                ? "\(a.cloudProvider) won't rent one customer more than \(Fmt.int(limit)) \(a.name): about a quarter of the \(Fmt.count(supply)) in the world's clouds. Try newer chips, sign a supply deal or build your own."
+                : "\(a.cloudProvider) caps you at \(Fmt.int(limit)) \(a.name): two months of rent must be covered by your cash and revenue."
+        }
         let hourly = rate * term.discount
         let firstDay = hourly * 24 * Double(count)
         if firstDay > cash + cloudCredits { return "You can't afford even a day of this (\(Fmt.money(firstDay)))." }
@@ -371,8 +376,13 @@ extension GameState {
         guard let i = models.firstIndex(where: { $0.id == id }) else { return }
         models[i].retired = true
         models[i].deployments = []
-        if chatModelID == id { chatModelID = nil }
-        for d in deals.indices where deals[d].modelID == id { deals[d].modelID = nil }
+        // Products and contracts move to your best remaining model that can carry them (or stop if there's none).
+        let others = models.filter { $0.released && !$0.retired }
+        if chatModelID == id { chatModelID = others.filter(\.design.instruct).max { $0.index < $1.index }?.id }
+        if agentModelID == id { agentModelID = others.filter(\.design.toolUse).max { $0.index < $1.index }?.id }
+        for d in deals.indices where deals[d].modelID == id {
+            deals[d].modelID = others.filter { $0.index + 0.01 >= deals[d].minIndex }.max { $0.index < $1.index }?.id
+        }
     }
 
     // MARK: Enterprise
