@@ -257,6 +257,123 @@ struct AdviceRow: View {
     }
 }
 
+struct SwarmStatusCard: View {
+    @Environment(GameStore.self) private var store
+    let state: GameState
+
+    var body: some View {
+        let s = state
+        Card {
+            CardHeader(title: "Agent swarms", symbol: "person.3.sequence.fill") {
+                Button("Swarms") { store.open(.swarms) }.buttonStyle(.link)
+            }
+            ForEach(s.swarms) { sw in
+                HStack {
+                    Image(systemName: sw.mission.symbol).foregroundStyle(.secondary).frame(width: 18)
+                    Text(sw.name).font(.callout.weight(.semibold)).lineLimit(1)
+                    Text("\(Fmt.count(sw.active)) agents").font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    let a = sw.alignmentMeasured
+                    Label("\(Int(a))", systemImage: "shield.lefthalf.filled").font(.caption)
+                        .foregroundStyle(a >= 70 ? .green : (a >= 45 ? .yellow : .red))
+                }
+            }
+            if s.xenoInsightToday > 0 || s.xenoInsight > 0 {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Alien architecture #\(s.alienArchs.count + 1): \(Fmt.pct(s.xenoInsight / Xeno.insightNeeded(s), decimals: 0))").font(.caption.weight(.semibold))
+                    Meter(value: s.xenoInsight / Xeno.insightNeeded(s), tint: .purple, height: 6)
+                }
+            }
+        }
+    }
+}
+
+struct RevenueChart: View {
+    let history: [MonthRecord]
+
+    struct Bar: Identifiable {
+        let id = UUID()
+        let month: Date
+        let kind: String
+        let value: Double
+    }
+
+    var body: some View {
+        let bars = history.flatMap { m -> [Bar] in
+            [Bar(month: m.month, kind: "API", value: m.revAPI),
+             Bar(month: m.month, kind: "Consumer", value: m.revConsumer),
+             Bar(month: m.month, kind: "Enterprise", value: m.revEnterprise + m.revOther),
+             Bar(month: m.month, kind: "Agents", value: m.revAgents),
+             Bar(month: m.month, kind: "Compute & chips", value: m.revCloud + m.revChips),
+             Bar(month: m.month, kind: "Labor & licensing", value: m.revLabor + m.revLicensing)]
+        }
+        if history.allSatisfy({ $0.revenue == 0 && $0.opex == 0 }) {
+            EmptyStateView(symbol: "chart.bar", title: "No numbers yet", message: "Revenue and costs appear here as months close.")
+        } else {
+            Chart {
+                ForEach(bars) { b in
+                    BarMark(x: .value("Month", b.month, unit: .month), y: .value("Revenue", b.value))
+                        .foregroundStyle(by: .value("Segment", b.kind))
+                }
+                ForEach(history) { m in
+                    LineMark(x: .value("Month", m.month, unit: .month), y: .value("Costs", m.opex + m.costInterest))
+                        .foregroundStyle(.red)
+                        .lineStyle(StrokeStyle(lineWidth: 2, dash: [4, 3]))
+                        .interpolationMethod(.monotone)
+                }
+            }
+            .chartForegroundStyleScale(["API": Color.teal, "Consumer": Color.pink, "Enterprise": Color.indigo, "Agents": Color.orange,
+                                        "Compute & chips": Color.green, "Labor & licensing": Color.purple])
+            .chartYAxis { AxisMarks { v in AxisGridLine(); AxisValueLabel { if let d = v.as(Double.self) { Text(Fmt.money(d, decimals: 0)) } } } }
+            .chartLegend(position: .bottom, alignment: .leading)
+        }
+    }
+}
+
+struct FrontierChart: View, Equatable {
+    struct Point: Identifiable, Equatable {
+        let id: Int
+        let date: Date
+        let lab: String
+        let index: Double
+    }
+    let points: [Point]
+
+    var body: some View {
+        Chart(points) { p in
+            LineMark(x: .value("Date", p.date), y: .value("Index", p.index))
+                .foregroundStyle(by: .value("Lab", p.lab))
+                .interpolationMethod(.stepEnd)
+        }
+        .chartYScale(domain: 0...100)
+        .chartLegend(position: .bottom, alignment: .leading)
+    }
+
+    static func points(_ s: GameState) -> [Point] {
+        let from = GameCalendar.addMonths(s.startDate, -18)
+        var pts: [Point] = []
+        func add(_ d: Date, _ lab: String, _ v: Double) { pts.append(Point(id: pts.count, date: d, lab: lab, index: v)) }
+        let labs = s.competitors.filter { !$0.models.isEmpty }
+            .sorted { ($0.models.map(\.index).max() ?? 0) > ($1.models.map(\.index).max() ?? 0) }.prefix(3)
+        for comp in labs {
+            var best = 0.0
+            for m in comp.models.sorted(by: { $0.date < $1.date }) {
+                best = max(best, m.index)
+                if m.date >= from { add(m.date, comp.def.name, best) }
+            }
+            add(s.date, comp.def.name, best)
+        }
+        var best = 0.0
+        add(s.startDate, s.companyName, 0)
+        for m in s.models.sorted(by: { $0.created < $1.created }) where m.released || !m.preview {
+            best = max(best, m.index)
+            add(m.created, s.companyName, best)
+        }
+        add(s.date, s.companyName, best)
+        return pts
+    }
+}
+
 struct GettingStarted: View {
     @Environment(GameStore.self) private var store
     let state: GameState
