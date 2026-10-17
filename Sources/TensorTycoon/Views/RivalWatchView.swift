@@ -608,3 +608,38 @@ private struct TrackRecordCard: View {
         }
     }
 }
+
+// MARK: - Dashboard card
+
+/// The next few rival launches, for the dashboard.
+struct RivalWatchMiniCard: View {
+    @Environment(GameStore.self) private var store
+    let state: GameState
+
+    var body: some View {
+        let rows = Array(RivalIntel.rows(state, set: store.derived.indexSet).prefix(4))
+        Card {
+            CardHeader(title: "Rival Watch", symbol: "binoculars.fill", subtitle: "Next launches, as the rumour mill sees them") {
+                Button("Open") { store.open(.rivalWatch) }.buttonStyle(.link)
+            }
+            if rows.isEmpty {
+                Text("No rival runs to watch yet.").font(.callout).foregroundStyle(.secondary)
+            }
+            ForEach(rows) { r in
+                HStack(spacing: 8) {
+                    Circle().fill(Theme.competitorColor(r.color)).frame(width: 8, height: 8)
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(r.project.name).font(.callout.weight(.semibold)).lineLimit(1)
+                        Text("\(r.lab) · \(r.outlook.phase.rawValue)").font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                    Spacer()
+                    VStack(alignment: .trailing, spacing: 0) {
+                        Text(RivalIntel.windowText(r.outlook)).font(.caption.monospacedDigit())
+                        Text("~\(Fmt.score(r.outlook.index))").font(.caption.weight(.bold).monospacedDigit())
+                            .foregroundStyle(RivalWatchView.threatColor(r.threat))
+                    }
+                }
+            }
+        }
+    }
+}

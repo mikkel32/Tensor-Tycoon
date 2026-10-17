@@ -83,6 +83,7 @@ struct DashboardView: View {
                 }
                 .frame(maxWidth: .infinity)
                 VStack(spacing: 16) {
+                    RivalWatchMiniCard(state: s)
                     TopModelsCard(board: Array(released.sorted { $0.index > $1.index }.prefix(6)))
                     BenchmarkRaceCard(set: d.indexSet, released: released, mine: mine)
                     LatestNewsCard(news: Array(s.news.prefix(6)))

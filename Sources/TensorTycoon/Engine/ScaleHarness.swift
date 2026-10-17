@@ -7,6 +7,48 @@ extension BalanceHarness {
         campusCheck()
         hugeRunCheck()
         swarmIntelligenceCheck()
+        roundTripCheck()
+    }
+
+    /// The new 3.3 state survives a save and load: rival projects, rumours, phased campuses, pinned ops swarms.
+    static func roundTripCheck() {
+        print("\n== Save round trip ==")
+        var (s, modelID) = frontierLab(year: 2027.5, chips: 50_000, seed: 84)
+        for _ in 0..<60 { Sim.advanceDay(&s); s.decisions.removeAll(); s.gameOver = nil }
+        s.cash = 1e12
+        _ = s.buildSite(kind: .datacenter, locationID: "texas", capacityKW: 5_000_000, cooling: .liquid, power: .gas, name: "Phased")
+        var d = ModelDesign()
+        d.name = "RoundTrip"
+        d.paramsB = 100
+        d.tokensT = 10
+        d.accelID = Silicon.reference(s).id
+        d.chips = 20_000
+        _ = s.startTraining(d)
+        let runID = s.runs.last?.id
+        _ = s.startSwarm(name: "Ops", modelID: modelID, agents: 100, mission: .trainingOps, accelID: d.accelID, chips: 100, autonomy: 1, oversight: 0, targetRunID: runID)
+        s.intelBudget = 5e6
+        for _ in 0..<5 { Sim.advanceDay(&s); s.decisions.removeAll() }
+        let enc = JSONEncoder()
+        enc.dateEncodingStrategy = .secondsSince1970
+        let dec = JSONDecoder()
+        dec.dateDecodingStrategy = .secondsSince1970
+        do {
+            let t = try dec.decode(GameState.self, from: try enc.encode(s))
+            let checks: [(String, Bool)] = [
+                ("rival projects", t.competitors.compactMap(\.project) == s.competitors.compactMap(\.project)),
+                ("rumours", t.rumors.count == s.rumors.count),
+                ("intel budget", t.intelBudget == s.intelBudget),
+                ("phased campus", t.sites.map(\.plannedKW) == s.sites.map(\.plannedKW)),
+                ("pinned ops swarm", t.swarms.map(\.targetRunID) == s.swarms.map(\.targetRunID)),
+                ("run ops stats", t.runs.map(\.opsCoverage) == s.runs.map(\.opsCoverage)),
+            ]
+            let bad = checks.filter { !$0.1 }.map(\.0)
+            print(bad.isEmpty ? "  OK: \(checks.map(\.0).joined(separator: ", "))" : "  MISMATCH: \(bad.joined(separator: ", "))")
+            if !bad.isEmpty { exit(1) }
+        } catch {
+            print("  FAILED: \(error)")
+            exit(1)
+        }
     }
 
     static func campusCheck() {

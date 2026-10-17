@@ -81,6 +81,8 @@ Speed: ⌘⇧P play/pause, ⌘1–⌘5 speeds (1.5 to 90 days per second), ⌘�
   memory, bandwidth, TDP, interconnect, scale-up domain, launch price and rental price. Prices decay with age;
   shortages and memory crunches move them. Values marked *est.* are game estimates where no official figure exists.
 - **Supply agreements**: take-or-pay contracts with vendors for discounts, 4× allocation and shorter lead times.
+  Vendors allocate hot new chips to big customers first; past a $10B valuation allocations grow faster than
+  valuation, up to 20 million chips per order.
 - **Compute partners**: strategic deals with NVIDIA, Google Cloud, AWS, Microsoft Azure, AMD and Oracle, modelled on the
   real 2025 deals (NVIDIA–OpenAI, Anthropic–Google TPUs, Amazon–Anthropic/Rainier, Microsoft–NVIDIA–Anthropic, AMD–OpenAI
   warrants). Exclusive deals pay more equity investment, bigger discounts and months-early access to new chips, but lock
@@ -95,7 +97,10 @@ Speed: ⌘⇧P play/pause, ⌘1–⌘5 speeds (1.5 to 90 days per second), ⌘�
   Meta measured on Llama 3 (419 interruptions in 54 days on 16K GPUs), and every failure costs cluster-hours.
   Post-training runs as real stages (SFT → RLHF/DPO → multimodal → tool/agentic RL → reasoning RL → safety), each
   with its own surprises: loss spikes, silent data bugs, contamination, reward hacking, sycophancy and fault storms you
-  have to decide on. Capabilities can jump between checkpoints (emergent abilities).
+  have to decide on. Capabilities can jump between checkpoints (emergent abilities). Past ~100K chips a fault hits
+  every few minutes and silent data corruption quietly costs capability: point training-ops agents at a run and they
+  drain failing nodes before they crash, restart from in-memory snapshots in seconds, rewind loss spikes and quarantine
+  corrupt nodes (one engineer-equivalent per 600 chips; smarter models cover more per agent).
 - **Honest forecasts**: before you train, the Model Lab predicts the result from Epoch AI's refit of the Chinchilla
   scaling law, data-repetition penalties and the techniques you have actually researched, then shows an 80% band,
   a tier from "Weak" to "Genius", the closest real model (GPT-2 … Claude Opus 4.5) and every driver. Uncertainty
@@ -155,14 +160,17 @@ Speed: ⌘⇧P play/pause, ⌘1–⌘5 speeds (1.5 to 90 days per second), ⌘�
   (great if you're #1, embarrassing if you're not top 3) or a staged rollout to trusted testers (safer, quieter).
 - **Chief of Staff**: a prioritised to-do list on the dashboard — runway, idle chips, stale prices, over-capacity
   models, drifting swarms, expiring offers, board deadlines.
-- **Agent swarms**: spin up 10 to 50 million copies of one of your models on your own inference chips and give them a
-  mission — automated research, alien-architecture search, training operations (higher MFU, fewer loss spikes, faster
-  recovery from failures, more silent bugs caught), chip design (faster tape-outs, better silicon), alignment research
-  (safety score, slower drift everywhere) or a digital workforce rented to companies per worker-day. Each agent burns
-  tens of millions of tokens a day, so chips set the size of the swarm; output is pooled per mission and grows
-  sub-linearly with agents. Agent quality follows the model's agentic skill: about a tenth of a human researcher for an
-  early-2026 frontier agent, several by 2030. Big, autonomous, under-watched swarms drift out of alignment: collusion,
-  sandbagging, data mishaps with clients, and escapes onto public clouds.
+- **Agent swarms**: spin up 10 to a billion copies of any of your models on your own inference chips and give them a
+  mission — automated research, alien-architecture search, training operations (pin a swarm to one run to cover its
+  GPUs), chip design (faster tape-outs, better silicon), alignment research (safety score, slower drift everywhere),
+  security operations (fewer successful attacks on your weights), competitive intelligence (sharper Rival Watch
+  forecasts) or a digital workforce rented to companies per worker-day. Each agent burns tens of millions of tokens a
+  day, so chips set the size of the swarm; output is pooled per mission and grows sub-linearly with agents. What an
+  agent is worth follows the model's intelligence: each model gets a tier (Intern → Superhuman researcher) and a
+  METR-style task horizon, its strengths decide which missions it suits, and swarms get up to 25% better with
+  experience on a mission. Models without tool-use training still work through a prompt-only scaffold at 60%. Big,
+  autonomous, under-watched swarms drift out of alignment: collusion, sandbagging, data mishaps with clients, and
+  escapes onto public clouds.
 - **Alien architectures**: enough insight from swarms (or a self-improvement run on Architecture search) yields a
   design no human would find — a model architecture worth roughly ×2–×5 training compute and a chip with several times
   the throughput of the best GPU at a few percent of its production cost, which humans only partly understand (models
@@ -170,6 +178,9 @@ Speed: ⌘⇧P play/pause, ⌘1–⌘5 speeds (1.5 to 90 days per second), ⌘�
   price in the moat), **sell the chips** (huge margins, but every chip a rival lab buys — directly or through a cloud —
   makes its models stronger, and running thousands of them teaches them the architecture) or **license the blueprint**
   (billions upfront plus royalties from hyperscalers, sovereign funds and rival labs, who integrate it within six months).
+  Later discoveries come in seven kinds (architectures, optimizers, codecs, materials, mathematics, biology, cognition):
+  study them to make them legible, quarantine anomalies, license them or build ventures on them, and take on five
+  mega-projects from a xeno foundry to first contact.
 - **Selling compute**: lease idle owned accelerators to the market like a neocloud (market rental rates, occupancy that
   falls as you flood the market, a platform fee), or run merchant chip lines for your custom and alien silicon: set the
   price against the best NVIDIA/AMD part, reserve foundry capacity, build a vendor reputation (the CUDA moat works against
@@ -179,9 +190,12 @@ Speed: ⌘⇧P play/pause, ⌘1–⌘5 speeds (1.5 to 90 days per second), ⌘�
 - **Business**: consumer chat app, API market shares vs. rival products, per-seat coding/computer-use agents,
   enterprise contracts with SLAs, brand, marketing, safety, scandals, lawsuits, price wars, US EO 14110 and the EU AI Act.
 - **Infrastructure**: garage → office → colocation cages → owned datacenters in 8 real regions with power
-  prices, PUE, cooling (air/liquid/immersion) and power deals (solar, wind, gas, nuclear).
-- **Research**: 130 real techniques with historical dates across architecture, optimisation and scaling science,
-  systems, data, post-training, reasoning RL, agents, multimodal, inference and safety (Transformer, FlashAttention,
+  prices, PUE, cooling (air/liquid/immersion) and power deals (grid, solar, wind, on-site gas, nuclear, small modular
+  reactors from 2030, fusion from 2034). How big one campus can get depends on its power: local grids grow each year,
+  gas reaches 10 GW, SMRs 25 GW and fusion 100 GW. Big campuses come online in phases, each paid for as it starts.
+  Sell campuses, end leases, cancel unstarted phases and move chips between sites.
+- **Research**: 194 real techniques with historical dates across architecture, optimisation and scaling science,
+  systems, data, post-training, reasoning RL, agents, multimodal, inference, safety and AI for science (Transformer, FlashAttention,
   GQA, MLA, fine-grained MoE, Muon, WSD, μP, FP8, RLHF, DPO, PRMs, RL with verifiable rewards…), plus a speculative
   frontier chain. Results are experiments: each lands between 0.55× and 1.5× of the paper depending on your team and
   experiment compute, and that changes how much it helps. Many unlock new design options instead of adding stats.
@@ -192,15 +206,32 @@ Speed: ⌘⇧P play/pause, ⌘1–⌘5 speeds (1.5 to 90 days per second), ⌘�
   attention residuals, DeepSeek V4's hybrid compressed attention, FP4 quantization-aware training, Nested Learning,
   natural language autoencoders, distillation defenses (rivals stop catching up by copying your outputs), AI-designed
   silicon (faster, better chip programmes) and hardened evaluation sandboxes.
-- **Unique breakthroughs**: 24 rare techniques (diffusion LMs, latent reasoning, recurrent depth, test-time training,
-  ternary networks…) are dealt out at the start of each game: a few for you and two for every rival lab, each with real
-  trade-offs and wider outcome swings. Rivals' secret tech shows up in their models once deployed; headhunt their
-  researchers to learn it. A publication policy decides whether your own breakthroughs leak to everyone.
+- **Signature secrets**: from day one, even in 2017, your lab has a founding secret of its own (one of nine, from a
+  neural architecture nobody else has to a scaffold that turns any model into a reliable agent) that grows through five
+  levels with its own share of research, with big capstones at levels 3 and 5.
+- **Research director**: fills your queue automatically by a focus you choose; research rivals published years ago
+  costs less, and eureka moments finish projects early.
+- **Unique breakthroughs**: 38 rare techniques in Rare, Epic and Legendary tiers (diffusion LMs, latent reasoning,
+  recurrent depth, test-time training, learned optimizers, mixture-of-depths, AlphaEvolve-style coding agents…) are dealt
+  out at the start of each game: a few for you and two for every rival lab, each with real trade-offs and wider outcome
+  swings. Refine yours to mastery III, own both halves of one of 18 fusions, or license them to rivals for royalties.
+  Rivals' secret tech shows up in their models once deployed; headhunt their researchers to learn it. A publication
+  policy decides whether your own breakthroughs leak to everyone.
 - **Finance**: equity rounds, strategic investors with cloud credits, IPO and a live stock, bank/GPU-backed/venture
   loans priced off the real Fed funds rate, credit score, taxes, bankruptcy and acquisition offers. Idle cash earns
   T-bill interest, API prices can track the market automatically, hardware revenue is valued at hardware multiples,
   one-off license fees don't inflate the run-rate, and founders can sell part of their stake (secondaries or into the
   public market) to build a personal net worth.
+- **The AI industry**: rival labs run real businesses (revenue from their own models' prices and users, compute
+  bills, cash, headcount and runway). Until October 2026 they raise the real-world rounds of the labs they're modelled
+  on; after that money follows the best models, labs IPO, the market can overheat and correct, and labs that run out
+  of cash are sold, rescued or go bankrupt. Join their rounds, buy distressed labs at fire-sale prices and sign compute
+  deals with the labs you back.
+- **Rival Watch**: every lab's next frontier model has a training run behind it (cluster, compute, site, codename).
+  You see it through the rumour mill: a release radar, launch windows that narrow as the date nears, capability
+  forecasts against your own models, leaks and false rumours, an intel budget and a track record of past calls.
+  Leapfrog a lab mid-post-training and it may declare a code red; ship a better model just before a rival's launch to
+  steal its news cycle.
 - **World**: four start eras (2017, 2020, 2022, 2026), 60+ real dated industry events through October 2026 (funding
   rounds, model launches, export-control swings, chip launches, datacenter moratoria, sandbox escapes), eight fictional
   rival labs, each with a signature strength.
