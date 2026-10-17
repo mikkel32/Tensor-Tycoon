@@ -28,7 +28,7 @@ enum VictoryPath: String, CaseIterable, Identifiable, Sendable {
     var goal: String {
         switch self {
         case .superintelligence: "Release a model 1.5 capability beyond the frontier with safety 80+."
-        case .empire: "Reach a $10T valuation, or $1T of personal net worth."
+        case .empire: "Reach a $10T valuation, or $1T of personal net worth (after 2030 the bar rises with what frontier labs are worth)."
         case .dominance: "Hold the #1 model for 24 months in a row while taking 40% of the API market."
         case .guardian: "Keep a safety score of 95+ with a top-3 model for 12 months in a row."
         case .xeno: "Discover three alien architectures and ship a million alien chips."
@@ -37,6 +37,10 @@ enum VictoryPath: String, CaseIterable, Identifiable, Sendable {
 }
 
 enum Victory {
+    /// 3.4: after 2030 the empire bar grows with frontier-lab valuations, so it stays an achievement rather than
+    /// something any surviving lab reaches. 1 until 2030.
+    static func empireScale(_ y: Double) -> Double { max(1, Macro.frontierValuation(y) / Macro.frontierValuation(2030)) }
+
     static func progress(_ v: VictoryPath, _ s: GameState) -> Double {
         switch v {
         case .superintelligence:
@@ -44,7 +48,8 @@ enum Victory {
             let lead = clamp((m.c - Macro.frontier(s.year) + 0.5) / 2.0, 0, 1)
             return lead * (m.safety >= 80 ? 1 : 0.7)
         case .empire:
-            return clamp(max(s.valuation / 1e13, s.founderNetWorth / 1e12), 0, 1)
+            let k = empireScale(s.year)
+            return clamp(max(s.valuation / (1e13 * k), s.founderNetWorth / (1e12 * k)), 0, 1)
         case .dominance:
             return clamp(Double(s.monthsAtTop) / 24, 0, 1) * (s.month.revAPI > 0 ? 1 : 0.5)
         case .guardian:
@@ -65,7 +70,8 @@ enum Victory {
             // Held for three month-ends, not a one-month spike.
             let recent = s.history.suffix(3).map(\.valuation)
             guard recent.count == 3, let low = recent.min() else { return false }
-            return min(low, s.valuation) >= 1e13 || s.founderStake * min(low, s.valuation) + s.founderCash >= 1e12
+            let k = empireScale(s.year)
+            return min(low, s.valuation) >= 1e13 * k || s.founderStake * min(low, s.valuation) + s.founderCash >= 1e12 * k
         case .dominance:
             return s.monthsAtTop >= 24 && s.apiShareNow >= 0.4
         case .guardian:
@@ -83,6 +89,9 @@ enum Victory {
         score += Double(s.victories.count) * 1_000
         score += (s.models.map(\.index).max() ?? 0) * 8
         score += Double(s.objectivesCompleted) * 25
+        // 3.4: late-game legacy — moonshots achieved and frontier research pushed further.
+        score += Double(Moonshots.succeeded(s)) * 150
+        score += Double(min(s.programLevelsTotal, 250)) * 4
         score += s.safetyScore * 3
         score -= Double(s.thefts) * 60
         if s.gameOver != nil && s.exitValue == nil && !s.keptStake { score *= 0.6 }

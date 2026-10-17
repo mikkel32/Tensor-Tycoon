@@ -164,6 +164,7 @@ enum Monthly {
         Xeno.monthly(&s)
         XenoScience.monthly(&s)
         ResearchLab.monthly(&s)
+        Moonshots.monthly(&s)   // 3.4: late game
         SecurityOps.monthly(&s)
         Policy.monthly(&s)
         RivalIntel.monthly(&s)

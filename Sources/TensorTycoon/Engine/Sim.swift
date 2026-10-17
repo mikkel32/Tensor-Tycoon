@@ -77,7 +77,7 @@ enum Sim {
     // MARK: - Scripted history
 
     static func historicalEvents(_ s: inout GameState) {
-        for e in EventCatalog.historical where e.date <= s.date && !s.firedEvents.contains(e.id) {
+        for e in EventCatalog.historical + EventCatalog.future where e.date <= s.date && !s.firedEvents.contains(e.id) && e.date >= max(s.startDate, GameCalendar.addDays(s.date, -60)) {
             s.firedEvents.insert(e.id)
             var important = false
             for eff in e.effects {

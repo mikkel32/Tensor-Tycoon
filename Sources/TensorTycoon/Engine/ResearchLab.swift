@@ -12,7 +12,9 @@ enum ResearchLab {
         // Signature programme and alien study take their shares first.
         var sigRP = s.signature != nil && s.signatureLevel < SignatureSecret.maxLevel ? rate * clamp(s.signatureShare, 0, 0.75) : 0
         let studyRP = XenoScience.hasUndeciphered(s) ? rate * clamp(s.xenoStudyShare, 0, 0.6) : 0
-        var pool = max(0, rate - sigRP - studyRP)
+        // 3.4: running moonshots take theirs (zero when none are running).
+        let moonRP = rate * Moonshots.researchShare(s)
+        var pool = max(0, rate - sigRP - studyRP - moonRP)
 
         if s.autoResearch { fillQueue(&s) }
 
@@ -40,6 +42,7 @@ enum ResearchLab {
         s.studyRPToday = studyRP
         if sigRP > 0 { advanceSignature(&s, sigRP) }
         if studyRP > 0 { XenoScience.study(&s, studyRP) }
+        if moonRP > 0 { Moonshots.invest(&s, moonRP) }
 
         eureka(&s, rate)
     }
@@ -47,6 +50,13 @@ enum ResearchLab {
     /// Research points still needed for a queue entry and the speed multiplier on its progress, or nil if the entry
     /// was dropped (done, invalid or locked). Missing prerequisites are queued ahead of it.
     private static func remaining(_ s: inout GameState, _ entry: String) -> (Double, Double)? {
+        if let p = FrontierProgram.get(entry: entry) {
+            guard p.isOpen(s) else {
+                s.researchQueue.removeFirst()
+                return nil
+            }
+            return (max(0, p.cost(level: s.programLevel(p.id) + 1) - (s.researchProgress[entry] ?? 0)), 1)
+        }
         if entry.hasPrefix(Breakthroughs.refinePrefix) {
             let id = String(entry.dropFirst(Breakthroughs.refinePrefix.count))
             guard let item = ResearchCatalog.byID[id], s.researched.contains(id),
@@ -78,6 +88,17 @@ enum ResearchLab {
     static func complete(_ s: inout GameState, _ entry: String, _ b: ResearchBonuses) {
         s.researchQueue.removeAll { $0 == entry }
         s.researchProgress[entry] = nil
+        if let p = FrontierProgram.get(entry: entry) {
+            let level = s.programLevel(p.id) + 1
+            s.programLevels[p.id] = level
+            let total = FrontierProgram.strength(level)
+            Sim.news(&s, "\(p.name) reaches level \(level)",
+                     "This level adds \(Int((FrontierProgram.marginal(level) * 100).rounded()))% of what level 1 did. The programme so far: "
+                        + p.effects.prefix(3).map { ResearchCatalog.describe($0, r: total) }.joined(separator: " · ") + ".",
+                     .research, image: "wafer_closeup", important: level % 5 == 0, good: true)
+            cascade(&s)
+            return
+        }
         if entry.hasPrefix(Breakthroughs.refinePrefix) {
             let id = String(entry.dropFirst(Breakthroughs.refinePrefix.count))
             guard let item = ResearchCatalog.byID[id] else { return }
@@ -133,6 +154,8 @@ enum ResearchLab {
             if let item = ResearchCatalog.byID[id] {
                 s.researchProgress[next] = Breakthroughs.refineCost(item, toLevel: (s.exoticMastery[id] ?? 1) + 1)
             }
+        } else if let p = FrontierProgram.get(entry: next) {
+            s.researchProgress[next] = p.cost(level: s.programLevel(p.id) + 1)
         } else if let item = ResearchCatalog.byID[next], item.prereqs.allSatisfy({ s.researched.contains($0) }) {
             s.researchProgress[next] = Sim.researchCost(item, year: s.year)
         }
@@ -201,6 +224,9 @@ enum ResearchLab {
             guard let item = ResearchCatalog.byID[id] else { return }
             cost = Breakthroughs.refineCost(item, toLevel: (s.exoticMastery[id] ?? 1) + 1)
             name = "refining \(item.name)"
+        } else if let p = FrontierProgram.get(entry: current) {
+            cost = p.cost(level: s.programLevel(p.id) + 1)
+            name = p.name
         } else {
             guard let item = ResearchCatalog.byID[current] else { return }
             cost = Sim.researchCost(item, year: s.year)
@@ -225,6 +251,11 @@ enum ResearchLab {
         }
     }
 
+    /// Year from which the director sees the projected late-game research and the frontier programmes.
+    static let lateDirectorYear = 2027.0
+    /// How the director values one more level of a frontier programme (a new technique is worth 1–3).
+    static let programValue = 0.6
+
     /// The director's next pick: the best value for money under your focus.
     static func pick(_ s: GameState) -> String? {
         let focus = s.focus
@@ -233,6 +264,8 @@ enum ResearchLab {
         for item in ResearchCatalog.all where !s.researched.contains(item.id) && !queued.contains(item.id) {
             if item.isExotic && !s.exoticOwned.contains(item.id) { continue }
             if !XenoScience.researchUnlocked(item.id, s) { continue }
+            // 3.4: the projected 2028+ techniques stay out of the director's sight before 2027, so early eras play as before.
+            if s.year < lateDirectorYear && ResearchCatalog.lateGameIDs.contains(item.id) { continue }
             guard item.prereqs.allSatisfy({ s.researched.contains($0) }) else { continue }
             // Don't sink years into ideas far ahead of their time unless you're chasing capability.
             let ahead = item.year - s.year
@@ -246,6 +279,23 @@ enum ResearchLab {
             if let partner = Breakthroughs.partner(of: item.id), s.researched.contains(partner) { value += 2 }
             let score: Double = focus == .cheapest ? 1 / cost : focus.weight(item.category) * value / pow(cost, 0.75)
             if best == nil || score > best!.1 { best = (item.id, score) }
+        }
+        // 3.4: from 2027 the repeatable frontier programmes compete for research points, and refining unique
+        // breakthroughs competes with them instead of waiting for the tree to run dry.
+        if s.year >= lateDirectorYear {
+            for p in FrontierProgram.all where p.isOpen(s) && !queued.contains(p.entry) {
+                let cost = p.cost(level: s.programLevel(p.id) + 1)
+                let score = focus == .cheapest ? 1 / cost : focus.weight(p.category) * programValue / pow(cost, 0.75)
+                if best == nil || score > best!.1 { best = (p.entry, score) }
+            }
+            for id in s.exoticOwned where s.researched.contains(id) && (s.exoticMastery[id] ?? 1) < Breakthroughs.maxMastery
+                && !queued.contains(Breakthroughs.refineID(id)) {
+                guard let item = ResearchCatalog.byID[id] else { continue }
+                let cost = max(50, Breakthroughs.refineCost(item, toLevel: (s.exoticMastery[id] ?? 1) + 1))
+                let value = 1.2 + (Breakthroughs.rarity(id) == .legendary ? 1 : 0)
+                let score = focus == .cheapest ? 1 / cost : focus.weight(.exotic) * value / pow(cost, 0.75)
+                if best == nil || score > best!.1 { best = (Breakthroughs.refineID(id), score) }
+            }
         }
         // Nothing left to learn: refine your best unique breakthrough.
         if best == nil {
@@ -267,6 +317,7 @@ enum ResearchLab {
     }
 
     static func entryCost(_ s: GameState, _ entry: String) -> Double {
+        if let p = FrontierProgram.get(entry: entry) { return p.cost(level: s.programLevel(p.id) + 1) }
         if entry.hasPrefix(Breakthroughs.refinePrefix) {
             let id = String(entry.dropFirst(Breakthroughs.refinePrefix.count))
             guard let item = ResearchCatalog.byID[id] else { return 0 }
@@ -277,6 +328,7 @@ enum ResearchLab {
     }
 
     static func entryName(_ entry: String) -> String {
+        if let p = FrontierProgram.get(entry: entry) { return "\(p.name) (frontier programme)" }
         if entry.hasPrefix(Breakthroughs.refinePrefix) {
             let id = String(entry.dropFirst(Breakthroughs.refinePrefix.count))
             return "Refine \(ResearchCatalog.byID[id]?.name ?? id)"
@@ -288,7 +340,7 @@ enum ResearchLab {
     static func queueRate(_ s: GameState, total: Double) -> Double {
         let sig = s.signature != nil && s.signatureLevel < SignatureSecret.maxLevel ? clamp(s.signatureShare, 0, 0.75) : 0
         let study = XenoScience.hasUndeciphered(s) ? clamp(s.xenoStudyShare, 0, 0.6) : 0
-        return total * max(0, 1 - sig - study)
+        return total * max(0, 1 - sig - study - Moonshots.researchShare(s))
     }
 
     // MARK: Monthly: new ideas, licence royalties
@@ -377,6 +429,16 @@ extension GameState {
             ids.insert(id)
             res[id] = scale
         }
+        // 3.4: frontier programme levels and finished moonshots (both empty before 2027).
+        for (id, level) in programLevels where level > 0 {
+            guard let p = FrontierProgram.byID[id] else { continue }
+            ids.insert(p.entry)
+            res[p.entry] = FrontierProgram.strength(level)
+        }
+        for (id, scale) in Moonshots.bonusSources(self) {
+            ids.insert(id)
+            res[id] = scale
+        }
         return ResearchCatalog.bonuses(ids, results: res, mastery: exoticMastery)
     }
 }
@@ -423,6 +485,16 @@ extension GameState {
         researchQueue.insert(entry, at: 0)
     }
 
+    /// 3.4: queue the next level of a frontier programme.
+    mutating func queueProgram(_ id: String) -> String? {
+        guard let p = FrontierProgram.byID[id] else { return "Unknown programme." }
+        if year < p.opens { return "\(p.name) opens in \(Int(p.opens))." }
+        if !researched.contains(p.prereq) { return "Research \(ResearchCatalog.byID[p.prereq]?.name ?? p.prereq) first." }
+        if researchQueue.contains(p.entry) { return nil }
+        researchQueue.append(p.entry)
+        return nil
+    }
+
     mutating func queueRefine(_ id: String) -> String? {
         guard let item = ResearchCatalog.byID[id], item.isExotic, researched.contains(id) else { return "Research it first." }
         let level = exoticMastery[id] ?? 1
@@ -435,7 +507,7 @@ extension GameState {
 
     /// Queue every published technique you can start right now, cheapest first.
     mutating func queueAllPublished() -> Int {
-        let picks = ResearchCatalog.core.filter { item in
+        let picks = (ResearchCatalog.core + ResearchCatalog.lateGame).filter { item in
             !researched.contains(item.id) && !researchQueue.contains(item.id) && item.year <= year
                 && item.category != .frontier && XenoScience.researchUnlocked(item.id, self)
         }.sorted { Sim.researchCost($0, year: year) < Sim.researchCost($1, year: year) }
