@@ -244,9 +244,12 @@ Speed: ⌘⇧P play/pause, ⌘1–⌘5 speeds (1.5 to 90 days per second), ⌘�
   public market) to build a personal net worth.
 - **The AI industry**: rival labs run real businesses (revenue from their own models' prices and users, compute
   bills, cash, headcount and runway). Until October 2026 they raise the real-world rounds of the labs they're modelled
-  on; after that money follows the best models, labs IPO, the market can overheat and correct, and labs that run out
-  of cash are sold, rescued or go bankrupt. Join their rounds, buy distressed labs at fire-sale prices and sign compute
-  deals with the labs you back.
+  on; after that money follows the best models, labs IPO, the market can overheat and correct, and a lab's compute
+  follows its budget and the world's chip supply, so a lab short of money ships weaker models. New labs are founded
+  during play (spin-outs after turmoil, startups by stars who leave you, national AI labs), weak ones are bought, merge
+  or wind down, and you get first refusal when a rival moves on a struggling lab. Join their rounds, buy distressed labs
+  at fire-sale prices and sign compute deals with the labs you back. Everything about the field lives on one Rivals
+  page: an overview, a profile per lab (models, strategy, books, products, your dealings), Rival Watch and the industry.
 - **Rival Watch**: every lab's next frontier model has a training run behind it (cluster, compute, site, codename).
   You see it through the rumour mill: a release radar, launch windows that narrow as the date nears, capability
   forecasts against your own models, leaks and false rumours, an intel budget and a track record of past calls.
@@ -254,7 +257,7 @@ Speed: ⌘⇧P play/pause, ⌘1–⌘5 speeds (1.5 to 90 days per second), ⌘�
   steal its news cycle.
 - **World**: four start eras (2017, 2020, 2022, 2026), 60+ real dated industry events through October 2026 (funding
   rounds, model launches, export-control swings, chip launches, datacenter moratoria, sandbox escapes), eight fictional
-  rival labs, each with a signature strength.
+  rival labs, each with a signature strength, joined by the labs founded during play.
 
 ## Credits
 
