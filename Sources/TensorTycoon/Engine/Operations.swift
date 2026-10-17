@@ -26,6 +26,10 @@ struct OpsPolicy: Codable, Hashable {
     @D var autoLeads: Bool = false
     /// Plan and start the next frontier run on idle chips when it would beat your best model.
     @D var autoTrain: Bool = false
+    /// Monthly cloud rent the capacity delegate may take on when your own chips can't carry demand (0 = never rents).
+    @D var rentBudget: Double = 0
+    /// The on-demand rentals the capacity delegate took out: it only ever gives back its own.
+    @D var delegateRentals: Set<UUID> = []
 
     var target: Double { targetUtil > 0 ? targetUtil : 0.8 }
     var reserveShare: Double { reserve > 0 ? reserve : 0.15 }
@@ -82,7 +86,10 @@ enum Operations {
         let day = Int(s.date.timeIntervalSince1970 / 86_400)
         guard day % comp.everyDays == 0 else { return }
         if s.ops.autoLaunch { autoLaunch(&s) }
-        if s.ops.autoscale { autoscale(&s, b, precision: comp.precision) }
+        if s.ops.autoscale {
+            autoscale(&s, b, precision: comp.precision)
+            releaseRentals(&s)
+        }
         // Training before leasing: your next model gets first call on idle chips.
         if s.ops.autoTrain { autoTrain(&s, precision: comp.precision) }
         if s.ops.autoRenew { autoRenew(&s) }
@@ -126,16 +133,22 @@ enum Operations {
             let keepFree = Int(Double(pool.total) * reserve)
             if wanted > current {
                 var room = max(0, pool.free - keepFree)
-                // Serving your own users beats renting chips to strangers: take leased chips back first.
+                // Serving your own users beats renting chips to strangers: take leased chips back first, but only
+                // what buys whole replicas (a recall it can't use would sit idle and get leased out again).
                 let leased = s.leases[accelID] ?? 0
                 if room < wanted - current && leased > 0 {
-                    let back = min(leased, wanted - current - room)
-                    if s.setLease(accelID, chips: leased - back) == nil {
+                    let usable = min(wanted - current, room + leased) / k * k
+                    let back = max(0, usable - room)
+                    if back > 0, s.setLease(accelID, chips: leased - back) == nil {
                         room += back
                         log(&s, "Recalled \(Fmt.int(back)) leased \(pool.accel.name) to serve \(m.name).")
                     }
                 }
-                let add = min(wanted - current, room) / k * k
+                var add = min(wanted - current, room) / k * k
+                // Still short: rent cloud chips within the budget, when serving pays for them.
+                if wanted - current - add >= k {
+                    add += rentForServing(&s, m, accelID: accelID, chips: wanted - current - add, perChip: per * aim, k: k)
+                }
                 guard add > 0 else { continue }
                 if s.deploy(m.id, accelID: accelID, chips: current + add) == nil {
                     log(&s, "Capacity: +\(Fmt.int(add)) \(pool.accel.name) to \(m.name) (demand \(Fmt.count(demand)) tokens/day).")
@@ -147,6 +160,52 @@ enum Operations {
                     log(&s, "Capacity: freed \(Fmt.int(current - keep)) \(pool.accel.name) from \(m.name) (demand fell).")
                 }
             }
+        }
+    }
+
+    /// Rent on-demand cloud chips for a model the fleet can't serve, within the monthly budget and only when what a chip
+    /// earns at the model's price beats its rent by 30%. Returns the chips added to the pool.
+    static func rentForServing(_ s: inout GameState, _ m: AIModel, accelID: String, chips: Int, perChip: Double, k: Int) -> Int {
+        guard s.ops.rentBudget > 0, let a = HardwareCatalog.get(accelID), Economy.canRent(a, s), Partners.blocker(a, s) == nil,
+              let rate = Economy.rentQuote(a, s) else { return 0 }
+        let monthly = rate * 24 * 30.4
+        let price = m.api && m.apiPrice > 0 ? m.apiPrice : Treasury.targetPrice(m, s)
+        guard perChip * price / 1e6 * 30.4 > monthly * 1.3 else { return 0 }
+        s.ops.delegateRentals.formIntersection(Set(s.rentals.map(\.id)))
+        let mine = s.rentals.filter { s.ops.delegateRentals.contains($0.id) }
+        let spent = mine.reduce(0) { $0 + $1.hourly * 24 * 30.4 * Double($1.count) }
+        let existing = s.rentals.filter { $0.accelID == accelID }.reduce(0) { $0 + $1.count }
+        let n = min(chips, Int(max(0, s.ops.rentBudget - spent) / monthly), max(0, Economy.rentalLimit(a, s) - existing)) / k * k
+        guard n > 0, rate * 24 * Double(n) <= s.cash + s.cloudCredits else { return 0 }
+        if let j = s.rentals.firstIndex(where: { $0.accelID == accelID && $0.term == .onDemand && s.ops.delegateRentals.contains($0.id) }) {
+            let old = s.rentals[j].count
+            s.rentals[j].hourly = (s.rentals[j].hourly * Double(old) + rate * Double(n)) / Double(old + n)
+            s.rentals[j].count = old + n
+        } else {
+            guard s.rentHardware(accelID, count: n, term: .onDemand) == nil, let r = s.rentals.last else { return 0 }
+            s.ops.delegateRentals.insert(r.id)
+        }
+        log(&s, "Rented \(Fmt.int(n)) \(a.name) on demand for \(m.name): \(Fmt.money(monthly * Double(n)))/month "
+            + "(\(Fmt.money(spent + monthly * Double(n))) of your \(Fmt.money(s.ops.rentBudget)) cloud budget).")
+        return n
+    }
+
+    /// Give the delegate's own cloud chips back first when they sit idle: they cost rent, owned chips don't.
+    static func releaseRentals(_ s: inout GameState) {
+        s.ops.delegateRentals.formIntersection(Set(s.rentals.map(\.id)))
+        for id in Array(s.ops.delegateRentals) {
+            guard let j = s.rentals.firstIndex(where: { $0.id == id }), let pool = Economy.pool(s, s.rentals[j].accelID) else { continue }
+            let spare = pool.free - Int(Double(pool.total) * s.ops.reserveShare)
+            guard spare > 0 else { continue }
+            let n = min(s.rentals[j].count, spare)
+            let name = HardwareCatalog.get(s.rentals[j].accelID)?.name ?? s.rentals[j].accelID
+            if n == s.rentals[j].count {
+                s.rentals.remove(at: j)
+                s.ops.delegateRentals.remove(id)
+            } else {
+                s.rentals[j].count -= n
+            }
+            log(&s, "Returned \(Fmt.int(n)) rented \(name) to the cloud: demand no longer needs them.")
         }
     }
 

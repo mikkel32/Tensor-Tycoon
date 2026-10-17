@@ -40,12 +40,13 @@ extension BalanceHarness {
             print("  \(Fmt.trim(y, 1)): \(c.tier) · every \(c.everyDays) day(s) · precision \(Fmt.trim(c.precision, 2))")
         }
         print("\n== Delegates: a year of a hands-off lab with chores waiting (\(Fmt.trim(year, 1))) ==")
-        for delegates in [false, true] {
+        for (delegates, budget) in [(false, 0.0), (true, 0.0), (true, 1e9)] {
             var (s, _) = choresLab(year: year, seed: 21)
             if delegates {
                 s.updateOps {
                     $0.autoscale = true; $0.autoLaunch = true; $0.autoRenew = true; $0.leaseIdle = true
                     $0.autoHire = true; $0.autoRaises = true; $0.autoLeads = true; $0.autoTrain = true
+                    $0.rentBudget = budget
                 }
             }
             let comp = Operations.competence(s)
@@ -62,10 +63,12 @@ extension BalanceHarness {
             let served = last.map(\.served).reduce(0, +) / Double(max(1, last.count))
             let live = s.models.filter { $0.released && !$0.retired }
             let trained = s.models.filter { !["Probe-1", "Probe-2"].contains($0.name) }.map { "\($0.name) c\(Fmt.trim($0.c, 2))" }
-            if delegates { print("  models the training delegate made: " + (trained.isEmpty ? "none" : trained.joined(separator: ", "))) }
-            print("  \(delegates ? "delegates on " : "delegates off"): revenue \(Fmt.money(rev))/mo · served \(Fmt.pct(served, decimals: 0)) · cash \(Fmt.money(s.cash - cash0)) · "
+            if delegates && budget == 0 { print("  models the training delegate made: " + (trained.isEmpty ? "none" : trained.joined(separator: ", "))) }
+            let rented = s.rentals.filter { s.ops.delegateRentals.contains($0.id) }
+            let cloud = budget > 0 ? " · cloud budget \(Fmt.money(budget))/mo: renting \(rented.reduce(0) { $0 + $1.count }) chips for \(Fmt.money(rented.reduce(0) { $0 + $1.hourly * 24 * 30.4 * Double($1.count) }))/mo" : ""
+            print("  \(delegates ? "delegates on " : "delegates off")\(cloud): revenue \(Fmt.money(rev))/mo · served \(Fmt.pct(served, decimals: 0)) · cash \(Fmt.money(s.cash - cash0)) · "
                   + "staff \(s.employees.count) · contracts \(s.deals.filter(\.active).count) · live models \(live.map(\.name).joined(separator: ", ")) · pauses \(pauses)")
-            if delegates {
+            if delegates && budget == 0 {
                 print("  COO: \(comp.tier), every \(comp.everyDays) day(s), precision \(Fmt.trim(comp.precision, 2)) — \(comp.summary)")
                 for line in s.opsLog.suffix(8).reversed() { print("    \(line)") }
                 print("    … \(s.opsLog.count) actions logged")

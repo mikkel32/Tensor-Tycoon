@@ -93,6 +93,10 @@ struct PTRow {
 }
 
 struct PTSummary {
+    /// Times the clock would stop on its own with default settings (urgent decisions, pausing alerts), by year and by cause.
+    var stopsByYear: [Int: Int] = [:]
+    var daysByYear: [Int: Int] = [:]
+    var stopCauses: [String: Int] = [:]
     var era = ""
     var seed: UInt64 = 0
     var months = 0
@@ -213,6 +217,17 @@ enum PTPlay {
             let newsBefore = s.unreadNews
             let actionsBefore = bot.actions
             Sim.advanceDay(&s)
+            var stopped: String? = nil
+            if s.pauseRequested {
+                s.pauseRequested = false
+                stopped = "alert:" + (s.alerts.first { $0.date == s.date && s.pauseKinds.contains($0.kind) }?.kind ?? "?")
+            }
+            if let u = s.decisions.first(where: { !seen.contains($0.id) && Alerts.isUrgent($0) }) { stopped = "decision:" + u.kind }
+            sum.daysByYear[s.date.ym.year, default: 0] += 1
+            if let why = stopped {
+                sum.stopsByYear[s.date.ym.year, default: 0] += 1
+                sum.stopCauses[why, default: 0] += 1
+            }
             if s.date.ym != month {
                 rows.append(row(s, &bot, label: month.label, kinds: kinds, worldNews: worldNews, important: important, idle: idle))
                 kinds = [:]; worldNews = 0; important = 0; idle = 0
@@ -948,6 +963,12 @@ enum PTPlay {
         print("  decisions: \(sum.decisionsTotal) (\(Fmt.trim(Double(sum.decisionsTotal) / Double(max(1, sum.months)), 2))/mo, max \(sum.decisionMax) in \(sum.decisionMaxLabel)) · \(top)")
         print("  world news/mo avg \(Fmt.trim(sum.newsAvg, 1)) max \(sum.newsMax) · important/mo \(Fmt.trim(sum.importantAvg, 1)) · quiet months \(sum.quietMonths) (longest streak \(sum.longestQuiet) from \(sum.longestQuietFrom))")
         print("  research/yr \(Fmt.trim(sum.researchPerYear, 1)) · idle share of rented chip-days \(Fmt.pct(sum.idleRentFrac)) · rental-cap hits \(sum.rentalCapHits) · days with no main run \(sum.waitDays) · paused-run days \(sum.stalledDays)")
+        if !sum.daysByYear.isEmpty {
+            print("  clock stops per month (default settings): " + sum.daysByYear.sorted { $0.key < $1.key }.map {
+                "\($0.key) \(Fmt.trim(Double(sum.stopsByYear[$0.key] ?? 0) / Double(max($0.value, 1)) * 30.44, 1))"
+            }.joined(separator: " · "))
+            print("  why: " + sum.stopCauses.sorted { $0.value > $1.value }.prefix(10).map { "\($0.key) \($0.value)" }.joined(separator: ", "))
+        }
         let e = sum.end
         print("  end: cash \(m(e.cash)) rev/mo \(m(e.revenue)) val \(m(e.valuation)) chips \(e.chips) gap \(Fmt.trim(e.gap, 2)) rank #\(e.rank) users \(Fmt.count(e.users)) staff \(e.employees) stake \(Fmt.pct(e.stake)) API share \(Fmt.pct(e.apiShare)) of-market \(Fmt.pct(e.marketShare))")
         if !sum.anomalies.isEmpty { print("  ANOMALIES: " + sum.anomalies.joined(separator: "; ")) }
@@ -967,5 +988,15 @@ enum PTPlay {
         for s in all { for (k, v) in s.kinds { kinds[k, default: 0] += v } }
         print("  decision kinds: " + kinds.sorted { $0.value > $1.value }.map { "\($0.key) \($0.value)" }.joined(separator: ", "))
         print("  end valuations \(all.map { m($0.end.valuation) }) · end rev/mo \(all.map { m($0.end.revenue) }) · end rank \(all.map(\.end.rank))")
+        var stops: [Int: Int] = [:], days: [Int: Int] = [:], causes: [String: Int] = [:]
+        for s in all {
+            for (y, n) in s.stopsByYear { stops[y, default: 0] += n }
+            for (y, n) in s.daysByYear { days[y, default: 0] += n }
+            for (k, n) in s.stopCauses { causes[k, default: 0] += n }
+        }
+        print("  clock stops/month (default settings): " + days.sorted { $0.key < $1.key }.map {
+            "\($0.key) \(Fmt.trim(Double(stops[$0.key] ?? 0) / Double(max($0.value, 1)) * 30.44, 1))"
+        }.joined(separator: " · "))
+        print("  stopped by: " + causes.sorted { $0.value > $1.value }.prefix(12).map { "\($0.key) \($0.value)" }.joined(separator: ", "))
     }
 }

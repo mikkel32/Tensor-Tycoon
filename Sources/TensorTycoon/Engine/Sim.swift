@@ -382,7 +382,11 @@ enum Sim {
             let cap = s.models[i].deployments.reduce(0) { $0 + Physics.capacity(s.models[i], deployment: $1, bonuses: b) }
             let dem = demand[id] ?? 0
             let served = min(cap, dem)
-            let frac = dem > 0 ? served / dem : 1
+            // Contract traffic is served first (provisioned throughput): a shortage hits API, chat and agent users
+            // before it breaks an SLA.
+            let ent = entTokens[id] ?? 0
+            let entFrac = ent > 0 ? min(1, cap / ent) : 1
+            let frac = dem > ent ? min(1, max(0, cap - ent) / (dem - ent)) : 1
             let load = cap > 0 ? dem / cap : 0
             s.models[i].capacityTokensDay = cap
             s.models[i].demandTokensDay = dem
@@ -394,7 +398,7 @@ enum Sim {
             revAPI += r
             if id == s.chatModelID { chatServed = frac }
             if id == agentModelID { agentServed = frac }
-            if (entTokens[id] ?? 0) > 0 && frac < 0.95 {
+            if ent > 0 && entFrac < 0.95 {
                 for di in s.deals.indices where s.deals[di].active && s.deals[di].modelID == id {
                     s.deals[di].breaches += 1
                 }

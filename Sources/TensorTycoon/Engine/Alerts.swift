@@ -17,8 +17,8 @@ enum AlertKind: String, Codable, CaseIterable, Identifiable, Sendable {
         case .termSheet: "A term sheet arrives"
         case .offerExpiring: "An offer is about to expire"
         case .runPaused: "A training run stalls"
-        case .rivalPassed: "A rival passes your best model"
-        case .rivalLaunch: "A threatening rival launch is imminent"
+        case .rivalPassed: "A rival takes #1 from you"
+        case .rivalLaunch: "A rival release beats your best model"
         case .boardGoalDue: "A board goal is due and behind"
         case .billVote: "A bill vote is coming and you haven't picked a side"
         case .slaBreach: "An enterprise contract is breaching its SLA"
@@ -54,7 +54,7 @@ enum AlertKind: String, Codable, CaseIterable, Identifiable, Sendable {
     /// Whether the game pauses for it unless the player changes it.
     var pausesByDefault: Bool {
         switch self {
-        case .cashNegative, .bankruptcySoon, .termSheet, .offerExpiring, .runPaused, .rivalPassed, .boardGoalDue, .slaBreach, .swarmAlignment:
+        case .cashNegative, .bankruptcySoon, .termSheet, .offerExpiring, .runPaused, .rivalPassed, .slaBreach, .swarmAlignment:
             true
         default:
             false
@@ -79,9 +79,10 @@ struct GameAlert: Codable, Identifiable, Hashable {
 }
 
 enum Alerts {
-    /// Raise an alert. The same kind + key is raised at most once per `cooldown` days.
+    /// Raise an alert. The same kind + key is raised at most once per `cooldown` days. A kind the player pauses on stops
+    /// the clock at most once per `pauseCooldown` days: a problem that keeps coming back shows as a banner, not a stop.
     static func raise(_ s: inout GameState, _ kind: AlertKind, key: String = "", title: String, body: String, screen: Screen,
-                      critical: Bool = false, celebrate: Bool = false, cooldown: Int = 30) {
+                      critical: Bool = false, celebrate: Bool = false, cooldown: Int = 30, pauseCooldown: Int = 0) {
         let k = "\(kind.rawValue)|\(key)"
         if let last = s.alertKeys[k], GameCalendar.daysBetween(last, s.date) < cooldown { return }
         s.alertKeys[k] = s.date
@@ -92,7 +93,13 @@ enum Alerts {
             let cutoff = GameCalendar.addDays(s.date, -365)
             s.alertKeys = s.alertKeys.filter { $0.value > cutoff }
         }
-        if s.pauseKinds.contains(kind.rawValue) { s.pauseRequested = true }
+        if s.pauseKinds.contains(kind.rawValue) {
+            let pk = "pause|\(kind.rawValue)"
+            if pauseCooldown <= 0 || (s.alertKeys[pk].map { GameCalendar.daysBetween($0, s.date) >= pauseCooldown } ?? true) {
+                s.pauseRequested = true
+                s.alertKeys[pk] = s.date
+            }
+        }
     }
 
     static let defaultPauseKinds: Set<String> = Set(AlertKind.allCases.filter(\.pausesByDefault).map(\.rawValue))
@@ -129,20 +136,35 @@ enum Alerts {
             raise(&s, .billVote, key: b.id, title: "Vote on the \(title) in two weeks", body: "You haven't picked a side. Back it, oppose it or stay out on the Security & Policy page.",
                   screen: .security, cooldown: 60)
         }
-        // Weekly: capacity, SLAs, swarms
+        // Enterprise SLAs: one alert for every contract in trouble (they usually share a model, so they breach together).
+        // It stops the clock at most every 60 days; in between it's a banner.
+        let breaching = s.deals.filter { $0.active && $0.breaches >= 2 }.sorted { $0.breaches > $1.breaches }
+        if let worst = breaching.first {
+            let more = breaching.count > 1 ? " \(breaching.count - 1) more contract\(breaching.count > 2 ? "s are" : " is") breaching too." : ""
+            let fix = s.ops.autoscale ? "The capacity delegate has run out of free chips: buy or rent hardware, or take chips from training."
+                                      : "Give its model more serving chips, or turn on the capacity delegate."
+            if worst.breaches >= 5 {
+                raise(&s, .slaBreach, key: "cancel", title: "\(worst.client) is about to cancel",
+                      body: "\(worst.breaches) SLA breaches this month; one more bad day or two and they walk.\(more) \(fix)",
+                      screen: .market, critical: true, cooldown: 25, pauseCooldown: 60)
+            } else {
+                raise(&s, .slaBreach, key: "breach",
+                      title: breaching.count > 1 ? "\(breaching.count) enterprise contracts are breaching their SLAs" : "\(worst.client) contract is breaching its SLA",
+                      body: "\(worst.client): \(worst.breaches) breaches this month (more than six and they cancel).\(more) \(fix)",
+                      screen: .market, cooldown: 21, pauseCooldown: 60)
+            }
+        }
+        // Weekly: capacity, swarms
         guard GameCalendar.components(today).day % 7 == 1 else { return }
         if let m = s.models.filter({ $0.released && !$0.retired && $0.capacityTokensDay > 0 && $0.demandTokensDay > $0.capacityTokensDay * 1.3 })
             .max(by: { $0.demandTokensDay < $1.demandTokensDay }) {
             let load = Int(m.demandTokensDay / m.capacityTokensDay * 100)
             raise(&s, .overCapacity, key: m.id.uuidString, title: "\(m.name) is turning users away",
                   body: s.ops.autoscale
-                      ? "Demand is \(load)% of capacity and the capacity delegate has no free chips left. Buy or rent hardware, or take chips from training."
+                      ? "Demand is \(load)% of capacity and the capacity delegate has no free chips left\(s.ops.rentBudget > 0 ? " or cloud budget" : "")."
+                        + " Buy or rent hardware, \(s.ops.rentBudget > 0 ? "raise" : "give it") a cloud budget, or take chips from training."
                       : "Demand is \(load)% of capacity. Users churn and reliability falls. Add inference chips or let the capacity delegate handle it.",
                   screen: .models, cooldown: 30)
-        }
-        for d in s.deals where d.active && d.breaches >= 2 {
-            raise(&s, .slaBreach, key: d.id.uuidString, title: "\(d.client) contract is breaching its SLA",
-                  body: "\(d.breaches) breaches this month. Six and they cancel. Its model needs more capacity.", screen: .market, critical: d.breaches >= 4, cooldown: 25)
         }
         if let sw = s.swarms.filter({ !$0.paused && $0.alignmentMeasured < 40 }).min(by: { $0.alignmentMeasured < $1.alignmentMeasured }) {
             raise(&s, .swarmAlignment, key: sw.id.uuidString, title: "\(sw.name) alignment at \(Int(sw.alignmentMeasured))",

@@ -51,7 +51,7 @@ struct OperationsView: View {
         Card {
             CardHeader("Delegates", symbol: "switch.2", subtitle: "Each one runs on its own schedule. Turn off any you'd rather handle yourself.")
             DelegateRow(title: "Serving capacity", symbol: "server.rack",
-                        detail: "Adds inference chips when a model is turning users away and frees them when demand falls. Takes leased chips back first.",
+                        detail: "Adds inference chips when a model is turning users away and frees them when demand falls. Takes leased chips back first; with a cloud budget it rents on-demand chips when serving pays for them.",
                         isOn: flag(\.autoscale))
             if s.ops.autoscale {
                 VStack(alignment: .leading, spacing: 6) {
@@ -65,8 +65,27 @@ struct OperationsView: View {
                         Slider(value: Binding(get: { store.game.ops.reserveShare }, set: { v in store.mutate { $0.ops.reserve = v } }), in: 0.05...0.5, step: 0.05)
                         Text(Fmt.pct(s.ops.reserveShare, decimals: 0)).font(.caption.monospacedDigit()).frame(width: 40)
                     }
-                    Text("Lower load means headroom for spikes; the free share stays available for training and research.")
-                        .font(.caption2).foregroundStyle(.secondary)
+                    HStack {
+                        Text("Cloud budget").font(.caption)
+                        Picker("Cloud budget", selection: Binding(get: { store.game.ops.rentBudget }, set: { v in store.mutate { $0.ops.rentBudget = v } })) {
+                            Text("None").tag(0.0)
+                            Text("$1M a month").tag(1e6)
+                            Text("$10M a month").tag(1e7)
+                            Text("$100M a month").tag(1e8)
+                            Text("$1B a month").tag(1e9)
+                            Text("$10B a month").tag(1e10)
+                        }
+                        .labelsHidden()
+                        .frame(width: 150)
+                        Spacer()
+                        let rented = s.rentals.filter { s.ops.delegateRentals.contains($0.id) }
+                        if !rented.isEmpty {
+                            Text("Renting \(Fmt.int(rented.reduce(0) { $0 + $1.count })) chips · \(Fmt.money(rented.reduce(0) { $0 + $1.hourly * 24 * 30.4 * Double($1.count) }))/mo")
+                                .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                        }
+                    }
+                    Text("Lower load means headroom for spikes; the free share stays available for training and research. The cloud budget is used only when a rented chip earns at least 30% more than its rent, and those chips go back first when demand falls.")
+                        .font(.caption2).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(.leading, 34)
             }

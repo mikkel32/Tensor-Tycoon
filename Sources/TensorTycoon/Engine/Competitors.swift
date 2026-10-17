@@ -266,9 +266,20 @@ enum Competitors {
             let labBefore = s.competitors[i].models.dropLast().map(\.index).max() ?? 0
             if let mine = s.models.filter({ $0.released && !$0.retired }).max(by: { $0.index < $1.index }),
                model.index > mine.index, labBefore <= mine.index {
-                Alerts.raise(&s, .rivalPassed, key: def.id, title: "\(def.name)'s \(model.name) beats \(mine.name)",
-                             body: "Index \(Fmt.score(model.index)) vs your \(Fmt.score(mine.index)). Users and API customers drift to it until you ship something better.",
-                             screen: .rivalWatch, cooldown: 30)
+                // Losing #1 stops the clock (by default); being passed while another lab is already ahead is a banner.
+                let gone = Leaderboard.goneLabs(s)
+                let othersAhead = s.competitors.contains { c in
+                    c.id != def.id && !gone.contains(c.id) && (c.models + c.openModels).contains { $0.index > mine.index }
+                }
+                if othersAhead {
+                    Alerts.raise(&s, .rivalLaunch, key: def.id, title: "\(def.name)'s \(model.name) beats \(mine.name)",
+                                 body: "Index \(Fmt.score(model.index)) vs your \(Fmt.score(mine.index)). Users and API customers drift to it until you ship something better.",
+                                 screen: .rivalWatch, cooldown: 30)
+                } else {
+                    Alerts.raise(&s, .rivalPassed, key: def.id, title: "\(def.name) takes #1 with \(model.name)",
+                                 body: "Index \(Fmt.score(model.index)) vs \(Fmt.score(mine.index)) for your \(mine.name). Users and API customers drift to it until you ship something better.",
+                                 screen: .rivalWatch, cooldown: 30)
+                }
             }
         }
     }
