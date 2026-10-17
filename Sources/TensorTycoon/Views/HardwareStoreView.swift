@@ -19,6 +19,7 @@ struct HardwareStoreView: View {
         let forSale = catalog.filter { Economy.canBuy($0, s) }.count
         let rentable = catalog.filter { Economy.canRent($0, s) }.count
         Page(title: "Hardware Store", subtitle: "Real accelerators with real specs. Dense TFLOPS shown (vendor headline numbers are often sparse). Buy for your sites or rent by the chip-hour.") {
+            ScreenHint(.hardware)
             HeroBanner(image: "gb200_rack", height: 150) {
                 HStack(alignment: .bottom) {
                     VStack(alignment: .leading, spacing: 4) {
@@ -268,6 +269,7 @@ struct AcceleratorDetail: View {
                 Button { dismiss() } label: { Image(systemName: "xmark.circle.fill").font(.title2).symbolRenderingMode(.hierarchical) }
                     .buttonStyle(.plain).foregroundStyle(.white).padding(14)
                     .keyboardShortcut(.cancelAction)
+                    .accessibilityLabel("Close")
             }
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
@@ -354,7 +356,7 @@ struct AcceleratorDetail: View {
     @ViewBuilder
     private func purchase(_ a: Accelerator, _ s: GameState, buy: Double?, rent: Double?) -> some View {
         Card {
-            CardHeader("Acquire", symbol: "cart")
+            CardHeader(title: "Acquire", symbol: "cart") { HelpButton(term: .reservedCloud) }
             HStack {
                 Text("Quantity")
                 Spacer()

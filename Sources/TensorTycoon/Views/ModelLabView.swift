@@ -70,6 +70,7 @@ struct ModelLabView: View {
         let d = store.derived
         let b = d.bonuses
         Page(title: "Model Lab", subtitle: "Design a training run. Every choice moves the forecast — and the forecast is honest about how sure it is.") {
+            ScreenHint(.lab)
             if d.pools.isEmpty {
                 EmptyStateView(symbol: "cpu", title: "No compute", message: "You need accelerators to train. Buy some or rent cloud capacity.",
                                actionTitle: "Hardware Store") { store.open(.hardware) }
@@ -561,6 +562,7 @@ struct ForecastPanel: View {
             VStack(alignment: .leading, spacing: 14) {
                 Card {
                     CardHeader(title: "Forecast", symbol: "sparkles", subtitle: known ? "Scaling-law prediction · 80% interval" : "Research Neural Scaling Laws for real forecasts") {
+                        HelpButton(term: .forecast)
                         if known { Pill(text: tier, color: tierColor(tier), symbol: tier.hasPrefix("Genius") ? "crown.fill" : nil) }
                     }
                     if known {

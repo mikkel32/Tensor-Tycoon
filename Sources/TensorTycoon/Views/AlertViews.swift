@@ -73,6 +73,7 @@ struct AlertBanner: View {
             }
             .buttonStyle(.borderless)
             .help("Dismiss")
+            .accessibilityLabel("Dismiss alert")
         }
         .padding(12)
         .frame(width: 350, alignment: .leading)

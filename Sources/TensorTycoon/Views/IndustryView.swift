@@ -87,13 +87,13 @@ private struct LabFinancesCard: View {
             CardHeader("The labs' books", symbol: "building.columns.fill", subtitle: "Annualised revenue, what investors pay for it, how long the cash lasts. Click a lab for its profile.")
             HStack(spacing: 8) {
                 Text("Lab").frame(maxWidth: .infinity, alignment: .leading)
-                Text("Revenue").frame(width: 90, alignment: .trailing)
-                Text("Growth").frame(width: 64, alignment: .trailing)
+                Text("Revenue").frame(width: 90, alignment: .trailing).help("Annualised revenue: this month × 12")
+                Text("Growth").frame(width: 64, alignment: .trailing).help("Revenue growth over the last 12 months")
                 Text("Valuation").frame(width: 90, alignment: .trailing)
-                Text("Multiple").frame(width: 64, alignment: .trailing)
+                Text("Multiple").frame(width: 64, alignment: .trailing).help("Valuation ÷ annualised revenue: what investors pay for each dollar of revenue")
                 Text("Cash").frame(width: 84, alignment: .trailing)
-                Text("Runway").frame(width: 70, alignment: .trailing)
-                Text("Compute").frame(width: 80, alignment: .trailing)
+                Text("Runway").frame(width: 70, alignment: .trailing).help("Months of cash at this month's burn; Parent or State when someone else pays the bills")
+                Text("Compute").frame(width: 80, alignment: .trailing).help("Compute in H100-equivalents")
                 Text("Staff").frame(width: 60, alignment: .trailing)
                 Text("Status").frame(width: 130, alignment: .trailing)
             }

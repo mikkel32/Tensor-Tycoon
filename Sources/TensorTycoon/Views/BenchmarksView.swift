@@ -160,7 +160,7 @@ private struct FrontierSafetyCard: View {
         let yours = mine.max { SafetyFramework.dangerX($0.profile) < SafetyFramework.dangerX($1.profile) }
         let yourModel = yours.flatMap { e in state.models.first { $0.id.uuidString == e.profile.key } }
         Card {
-            CardHeader("Frontier safety thresholds", symbol: "exclamationmark.shield.fill", subtitle: "Dangerous-capability evals (WMDP, Cybench, VCT…) decide what a release needs")
+            CardHeader(title: "Frontier safety thresholds", symbol: "exclamationmark.shield.fill", subtitle: "Dangerous-capability evals (WMDP, Cybench, VCT…) decide what a release needs") { HelpButton(term: .safetyThresholds) }
             DangerGauge(world: world.map { SafetyFramework.dangerX($0.profile) }, yours: yours.map { SafetyFramework.dangerX($0.profile) })
                 .frame(height: 64)
             if let world {

@@ -155,6 +155,7 @@ struct ScreenRouter: View {
         case .news: NewsView()
         case .achievements: AchievementsView()
         case .credits: CreditsView()
+        case .help: HelpView()
         }
     }
 }

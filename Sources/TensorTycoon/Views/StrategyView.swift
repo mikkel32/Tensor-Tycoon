@@ -123,7 +123,7 @@ private struct ObjectivesCard: View {
         let active = s.objectives.filter { !$0.done && !$0.failed }
         let closed = s.objectives.filter { $0.done || $0.failed }.suffix(5).reversed()
         Card {
-            CardHeader("Board goals", symbol: "flag.checkered", subtitle: "Hit them for a milestone tranche, culture points and board confidence. Checked at month end.")
+            CardHeader(title: "Board goals", symbol: "flag.checkered", subtitle: "Hit them for a milestone tranche, culture points and board confidence. Checked at month end.") { HelpButton(term: .board) }
             if active.isEmpty {
                 Text("The board will set new goals at the end of the month.").font(.callout).foregroundStyle(.secondary)
             }

@@ -11,6 +11,7 @@ struct ModelsView: View {
         let models = s.models.filter { showRetired || !$0.retired }
             .sorted { ($0.id == focus ? 1 : 0, $0.created) > ($1.id == focus ? 1 : 0, $1.created) }
         Page(title: "Models & Serving", subtitle: "Release models, give them accelerators, set prices. Tokens/sec comes from memory bandwidth; capacity from FLOPS.") {
+            ScreenHint(.models)
             HStack {
                 Toggle("Show retired", isOn: $showRetired).toggleStyle(.switch)
                 Spacer()

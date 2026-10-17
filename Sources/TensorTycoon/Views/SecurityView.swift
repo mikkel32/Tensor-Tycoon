@@ -39,7 +39,7 @@ private struct SecurityCard: View {
         let next = SecurityLevel(rawValue: s.security.rawValue + 1)
         let upgrading = s.securityTarget > s.security.rawValue
         Card {
-            CardHeader("Weight security", symbol: "lock.shield.fill", subtitle: "Each level stops a more capable attacker — and costs more to run and work behind")
+            CardHeader(title: "Weight security", symbol: "lock.shield.fill", subtitle: "Each level stops a more capable attacker — and costs more to run and work behind") { HelpButton(term: .securityLevels) }
             ForEach(SecurityLevel.allCases) { level in
                 HStack(alignment: .top, spacing: 10) {
                     Image(systemName: level <= s.security ? "checkmark.shield.fill" : (upgrading && level.rawValue == s.securityTarget ? "hammer.fill" : "shield"))
@@ -135,7 +135,7 @@ private struct LobbyCard: View {
         let s = state
         let budget = budgetLog <= 4.01 ? 0 : (pow(10, budgetLog) / 1000).rounded() * 1000
         Card {
-            CardHeader("Government relations", symbol: "building.columns.fill", subtitle: "Lobbying builds political capital: better odds on bills, smaller fines, easier antitrust reviews")
+            CardHeader(title: "Government relations", symbol: "building.columns.fill", subtitle: "Lobbying builds political capital: better odds on bills, smaller fines, easier antitrust reviews") { HelpButton(term: .politicalCapital) }
             HStack {
                 Text("Monthly lobbying")
                 Slider(value: $budgetLog, in: 4...8)
@@ -174,7 +174,7 @@ private struct BillsCard: View {
         Card {
             CardHeader("AI legislation", symbol: "doc.text.magnifyingglass", subtitle: "Pick a side on each bill here or when it arrives; the vote comes about four months later")
             if s.bills.isEmpty {
-                Text("No bills pending.").font(.callout).foregroundStyle(.secondary)
+                Text("No bills pending. New ones arrive in your inbox; their vote dates show under Coming up on the dashboard.").font(.callout).foregroundStyle(.secondary)
             }
             ForEach(s.bills) { b in
                 if let bill = PolicyCatalog.byID[b.id] {

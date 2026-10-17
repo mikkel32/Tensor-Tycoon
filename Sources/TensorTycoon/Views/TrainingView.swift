@@ -9,6 +9,7 @@ struct TrainingView: View {
         let active = s.runs.filter { $0.status != .done && $0.status != .cancelled }
         let past = Array(s.runs.filter { $0.status == .done || $0.status == .cancelled }.reversed())
         Page(title: "Training Runs", subtitle: "Mission control. Watch the loss against the forecast, catch bugs, call the spikes — and find out whether you trained a genius.") {
+            ScreenHint(.training)
             if active.isEmpty {
                 Card {
                     EmptyStateView(symbol: "chart.line.downtrend.xyaxis", title: "Nothing training",
@@ -302,6 +303,7 @@ private struct OpsPanel: View {
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
                     Label("Ops coverage", systemImage: "wrench.and.screwdriver.fill").font(.headline)
+                    HelpButton(term: .goodput)
                     Spacer()
                     Text(Fmt.pct(cov, decimals: 0)).font(.headline.monospacedDigit())
                 }

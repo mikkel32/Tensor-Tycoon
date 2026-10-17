@@ -122,7 +122,7 @@ struct AchievementsView: View {
 
     var body: some View {
         let s = store.game
-        Page(title: "Achievements", subtitle: "\(s.achievements.count) of \(AchievementCatalog.all.count) unlocked") {
+        Page(title: "Achievements", subtitle: "Milestones in your company's story; each one earns a culture point. \(s.achievements.count) of \(AchievementCatalog.all.count) unlocked.") {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 12)], spacing: 12) {
                 ForEach(AchievementCatalog.all) { a in
                     let done = s.achievements.contains(a.id)

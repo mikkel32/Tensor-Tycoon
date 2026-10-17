@@ -135,10 +135,9 @@ private struct NewSwarmCard: View {
         let b = d.bonuses
         let models = s.models.filter { !$0.retired }.sorted { Swarms.agenticX($0) > Swarms.agenticX($1) }
         Card {
-            CardHeader("Spin up a swarm", symbol: "plus.circle.fill", subtitle: "Agents run on your own inference chips — pick hardware with idle capacity")
+            CardHeader(title: "Spin up a swarm", symbol: "plus.circle.fill", subtitle: "Agents run on your own inference chips — pick hardware with idle capacity") { HelpButton(term: .swarms) }
             if models.isEmpty {
-                Text("Train a model first. Agents are copies of one of your models — the better its agentic skill, the more each agent is worth.")
-                    .foregroundStyle(.secondary)
+                NextStep("Train a model first. Agents are copies of one of your models — the better its agentic skill, the more each agent is worth.", action: "Open Model Lab", screen: .lab)
             } else if s.swarms.count >= Swarms.maxSwarms {
                 Text("You're running the maximum of \(Swarms.maxSwarms) swarms. Grow or retarget an existing one.").foregroundStyle(.secondary)
             } else {

@@ -25,6 +25,7 @@ struct LeaderboardView: View {
         let colors = labColors(labs, s)
 
         return Page(title: "Leaderboard", subtitle: "The AI race, lab by lab: each lab's flagship model, ranked by Intelligence Index, with a capability score that stays comparable across years.") {
+            ScreenHint(.leaderboard)
             StandingCard(standing: standing)
             HStack(alignment: .top, spacing: 16) {
                 Card {
@@ -359,7 +360,7 @@ private struct LabHeader: View {
                 .help("Capability gap to the #1 lab's flagship (+10 = ten times the effective compute).")
             Text("Price · speed").frame(width: 140, alignment: .trailing)
             Text("Last release").frame(width: 110, alignment: .trailing)
-            Spacer().frame(width: 14)
+            HelpButton(term: .intelligenceIndex).frame(width: 14)
         }
         .font(.caption.weight(.semibold))
         .foregroundStyle(.secondary)

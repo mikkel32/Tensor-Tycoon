@@ -13,6 +13,7 @@ struct ResearchView: View {
         let doneCount = core.filter { s.researched.contains($0.id) }.count
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
         Page(title: "Research", subtitle: "Researchers generate research points (RP); compute multiplies their output. Every technique is an experiment: in your lab it can land better or worse than the paper. Leftover points roll into the next project, and idle research feeds your signature programme, so nothing is wasted.") {
+            ScreenHint(.research)
             SignatureCard(state: s)
             HStack(alignment: .top, spacing: 16) {
                 QueueCard(state: s, rate: rate)
@@ -226,6 +227,7 @@ private struct QueueCard: View {
         if s.studyRPToday > 0 { flow += " · \(Fmt.trim(s.studyRPToday, 1)) to alien study" }
         return Card {
             CardHeader(title: "Research queue", symbol: "lightbulb.fill", subtitle: flow) {
+                HelpButton(term: .researchPoints)
                 Toggle("Research director", isOn: Binding(get: { s.autoResearch }, set: { v in store.mutate { $0.setAutoResearch(v) } }))
                     .toggleStyle(.switch)
                     .controlSize(.small)

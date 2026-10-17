@@ -120,6 +120,11 @@ struct TensorTycoonApp: App {
                     .keyboardShortcut(.rightArrow, modifiers: .command)
                     .disabled(store.state == nil)
             }
+            CommandGroup(replacing: .help) {
+                Button("Tensor Tycoon Help & Glossary") { store.open(.help) }
+                    .keyboardShortcut("?", modifiers: .command)
+                    .disabled(store.state == nil)
+            }
         }
     }
 }
