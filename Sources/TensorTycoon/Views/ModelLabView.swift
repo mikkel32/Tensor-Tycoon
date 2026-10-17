@@ -638,6 +638,8 @@ struct ForecastPanel: View {
                                   tint: est.finishes ? .primary : .red)
                         BigNumber(label: "Estimated cost", value: est.finishes ? Fmt.money(est.totalCost) : "—", unit: "", tint: est.totalCost > s.cash ? .red : .primary)
                         BigNumber(label: "Cluster throughput", value: Fmt.tflops(clusterTF(est)), unit: "effective")
+                        BigNumber(label: "Serving cost", value: Economy.servingCostPerM(design: design, s).map { Fmt.price($0) } ?? "—",
+                                  unit: "per 1M tokens at full load (going rate \(Fmt.price(Macro.frontierPrice(s.year))) at the frontier)")
                         BigNumber(label: "MFU · goodput", value: "\(Fmt.pct(est.mfu, decimals: 0)) · \(Fmt.pct(est.goodput, decimals: 0))", unit: "",
                                   tint: est.goodput < Training.goodputFloor ? .red : (est.goodput < Training.goodputTarget ? .orange : .primary))
                         BigNumber(label: "Hardware failures", value: est.finishes ? Fmt.trim(Double(design.chips) * Training.failuresPerChipDay * days, 0)

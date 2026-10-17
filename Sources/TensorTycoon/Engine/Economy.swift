@@ -284,6 +284,19 @@ enum Economy {
     /// What serving 1M tokens of this model costs you at full load (the "Serving cost / 1M" on the Models page):
     /// its chips' daily cost — rent, or power plus amortisation — over their daily token capacity.
     /// A model with no chips yet is costed on one replica of your most plentiful accelerator.
+    /// What a model of this design would cost to serve per 1M tokens on its training hardware at full load
+    /// (for the Model Lab: bigger models are smarter but cost more on every token you sell).
+    static func servingCostPerM(design d: ModelDesign, _ s: GameState) -> Double? {
+        guard let a = HardwareCatalog.get(d.accelID) else { return nil }
+        let b = s.bonuses
+        var m = AIModel(name: d.name, design: d, created: s.date, c: 0, reasoning: d.reasoning, reasoningBoost: 0, codeBoost: 0,
+                        arenaBonus: 0, scores: [:], index: 0)
+        m.servingPrecision = b.has(.int8Serving) ? .fp8 : .bf16
+        m.deployments = [Deployment(accelID: a.id, chips: Physics.chipsPerReplica(m, accel: a, precision: m.servingPrecision, bonuses: b))]
+        let cost = servingCostPerM(m, s, bonuses: b)
+        return cost > 0 ? cost : nil
+    }
+
     static func servingCostPerM(_ m: AIModel, _ s: GameState, bonuses: ResearchBonuses? = nil) -> Double {
         let b = bonuses ?? s.bonuses
         var cost = 0.0, cap = 0.0

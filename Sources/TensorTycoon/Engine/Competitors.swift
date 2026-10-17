@@ -185,7 +185,7 @@ enum Competitors {
         // A big lab that has watched you hold #1 for half a year bets a run on passing you — on the leaderboard, not just
         // in raw capability. The longer you lead, the more of their runs are that bet. Whether this one is, and by how
         // much, is fixed per release (hashed), so Rival Watch can see it coming.
-        if s.monthsAtTop >= 6, y >= 2019, def.computeShare >= 0.15, let mine = released.map(\.index).max(), mine > 0 {
+        if s.monthsAtTop >= 6, y >= 2018, def.computeShare >= 0.15, let mine = released.map(\.index).max(), mine > 0 {
             let shift = s.difficulty == .hard ? 0.1 : (s.difficulty == .easy ? -0.1 : 0)
             let tries = clamp(0.25 + 0.03 * Double(s.monthsAtTop - 6) + shift, 0.1, 0.6)
             if RivalIntel.unit("\(def.id)|leap|\(comp.releaseCount)") < tries {
