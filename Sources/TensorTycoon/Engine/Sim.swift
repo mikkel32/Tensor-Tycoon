@@ -31,6 +31,7 @@ enum Sim {
         dailyCosts(&s, Economy.pools(s))
         Treasury.daily(&s)
         Competitors.daily(&s)
+        Capabilities.daily(&s)   // 3.4: domain scores, milestones, product lines
         RivalIntel.daily(&s)
         Finance.daily(&s)
         Events.daily(&s)

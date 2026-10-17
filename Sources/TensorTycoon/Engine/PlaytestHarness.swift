@@ -441,6 +441,9 @@ enum PTPlay {
             data(&s, b)
             security(&s, &bot)
             researchCompute(&s, &bot)
+            // 3.4: launch product lines once they open, when the launch is small next to the cash pile.
+            for p in ProductLines.catalog where ProductLines.status(p, s).ok && !s.productLines.contains(where: { $0.id == p.id })
+                && s.cash > 10 * ProductLines.launchCost(p, s.year) { _ = s.launchProduct(p.id) }
         }
     }
 

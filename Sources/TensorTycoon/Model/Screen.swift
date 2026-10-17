@@ -6,6 +6,7 @@ enum Screen: String, CaseIterable, Identifiable, Hashable {
     case research, team, data
     case market, industry, chipSales, competitors, finance, funding
     case news, achievements, credits
+    case milestones, products   // 3.4: capabilities and milestones
 
     var id: String { rawValue }
 
@@ -42,6 +43,8 @@ enum Screen: String, CaseIterable, Identifiable, Hashable {
         case .news: "News"
         case .achievements: "Achievements"
         case .credits: "Credits & Sources"
+        case .milestones: "AI Milestones"
+        case .products: "Product Lines"
         }
     }
 
@@ -78,6 +81,8 @@ enum Screen: String, CaseIterable, Identifiable, Hashable {
         case .news: "newspaper.fill"
         case .achievements: "medal.fill"
         case .credits: "info.circle.fill"
+        case .milestones: "signpost.right.fill"
+        case .products: "square.grid.2x2.fill"
         }
     }
 
@@ -86,10 +91,10 @@ enum Screen: String, CaseIterable, Identifiable, Hashable {
     static let sections: [(String, [Screen])] = [
         ("Company", [.dashboard, .operations, .strategy, .security, .news]),
         ("Build AI", [.lab, .training, .models, .rsi, .swarms, .xeno]),
-        ("Evaluate", [.leaderboard, .rivals, .benchmarks]),
+        ("Evaluate", [.leaderboard, .milestones, .rivals, .benchmarks]),
         ("Infrastructure", [.hardware, .partners, .compute, .datacenters, .silicon]),
         ("R&D", [.research, .team, .data]),
-        ("Business", [.market, .chipSales, .finance, .funding]),
+        ("Business", [.market, .products, .chipSales, .finance, .funding]),
         ("More", [.achievements, .credits]),
     ]
 }

@@ -46,6 +46,8 @@ enum SaveMigration {
         // Catch up benchmarks added to the catalog after this save was made (idempotent for the rest).
         BenchLife.replayHistory(&s)
         BenchLife.refreshIndexes(&s)
+        // 3.4: score every model and credit the milestones already reached.
+        if !s.capsReady { Capabilities.bootstrap(&s) }
     }
 
     /// Decodes a save, migrates it and plays 90 days on a copy, resolving decisions with their first option.

@@ -1142,6 +1142,22 @@ struct GameState: Codable {
     @D var pendingDeals: [RivalDeal] = []
     /// Keys the lifecycle's hashed rolls to this game (set once, from the RNG's state, without drawing from it).
     @D var lifecycleSalt: String = ""
+    // 3.4: capabilities and milestones
+    /// Model ID → its score in each capability domain, worked out once when the model first appears (Capabilities).
+    @D var domainScores: [String: DomainScores] = [:]
+    /// Lab ID ("player" for you) → its best released score in each domain.
+    @D var labDomains: [String: DomainScores] = [:]
+    /// AI milestones reached so far, oldest first. Those reached before the game began are credited to the labs that got there.
+    @D var milestoneWins: [MilestoneWin] = []
+    /// Your product lines, and the rivals' competing ones (ProductLines).
+    @D var productLines: [ProductLine] = []
+    @D var rivalProducts: [RivalProduct] = []
+    /// Product lines you've already been told you can launch.
+    @D var productsAnnounced: Set<String> = []
+    /// Domain scores, milestone history and rival products have been seeded (new games and older saves).
+    @D var capsReady: Bool = false
+    /// Fingerprint of the models already scored, so the daily pass only works when a model appears or ships.
+    @D var capsSeen: Int = 0
 
     var totalShares: Double {
         founderShares + employeePoolShares + publicShares + holdings.reduce(0) { $0 + $1.shares }

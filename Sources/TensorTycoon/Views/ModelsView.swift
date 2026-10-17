@@ -85,6 +85,7 @@ private struct ModelCard: View {
                         .frame(width: 330)
                 }
             }
+            ModelDomainsSection(model: m, state: s)   // 3.4: capability domains
 
             if m.released && !m.retired {
                 Divider()

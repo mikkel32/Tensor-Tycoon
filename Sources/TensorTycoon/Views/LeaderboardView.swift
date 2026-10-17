@@ -37,6 +37,7 @@ struct LeaderboardView: View {
                 ReadingGuide(set: set, saturated: s.benchSaturated)
                     .frame(width: 430)
             }
+            DomainRaceCard()   // 3.4: you vs the best rival, per capability domain
             controls(filter)
             if showLabs {
                 LabTable(lines: lines(labs, filter), leader: leader, now: s.date, colors: colors, expanded: $expanded)
