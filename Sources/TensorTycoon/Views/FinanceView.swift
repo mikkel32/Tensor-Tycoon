@@ -28,16 +28,9 @@ struct FinanceView: View {
                     if s.history.count < 2 {
                         Text("Charts appear after a couple of months.").font(.callout).foregroundStyle(.secondary).frame(height: 200)
                     } else {
-                        Chart(s.history.suffix(48)) { m in
-                            AreaMark(x: .value("Month", m.month, unit: .month), y: .value("Cash", m.cashEnd))
-                                .foregroundStyle(LinearGradient(colors: [.green.opacity(0.4), .green.opacity(0.05)], startPoint: .top, endPoint: .bottom))
-                                .interpolationMethod(.monotone)
-                            LineMark(x: .value("Month", m.month, unit: .month), y: .value("Cash", m.cashEnd))
-                                .foregroundStyle(.green)
-                                .interpolationMethod(.monotone)
-                        }
-                        .chartYAxis { AxisMarks { v in AxisGridLine(); AxisValueLabel { if let d = v.as(Double.self) { Text(Fmt.money(d, decimals: 0)) } } } }
-                        .frame(height: 200)
+                        CashChart(history: Array(s.history.suffix(48)))
+                            .equatable()
+                            .frame(height: 200)
                     }
                 }
                 Card {
@@ -45,12 +38,9 @@ struct FinanceView: View {
                     if s.history.isEmpty {
                         Text("No closed months yet.").font(.callout).foregroundStyle(.secondary).frame(height: 200)
                     } else {
-                        Chart(s.history.suffix(36)) { m in
-                            BarMark(x: .value("Month", m.month, unit: .month), y: .value("Profit", m.profit))
-                                .foregroundStyle(m.profit >= 0 ? Color.green.gradient : Color.red.gradient)
-                        }
-                        .chartYAxis { AxisMarks { v in AxisGridLine(); AxisValueLabel { if let d = v.as(Double.self) { Text(Fmt.money(d, decimals: 0)) } } } }
-                        .frame(height: 200)
+                        ProfitChart(history: Array(s.history.suffix(36)))
+                            .equatable()
+                            .frame(height: 200)
                     }
                 }
             }
@@ -152,5 +142,35 @@ private struct LoansCard: View {
                 }
             }
         }
+    }
+}
+
+/// Month-end cash; redraws only when a month closes.
+struct CashChart: View, Equatable {
+    let history: [MonthRecord]
+
+    var body: some View {
+        Chart(history) { m in
+            AreaMark(x: .value("Month", m.month, unit: .month), y: .value("Cash", m.cashEnd))
+                .foregroundStyle(LinearGradient(colors: [.green.opacity(0.4), .green.opacity(0.05)], startPoint: .top, endPoint: .bottom))
+                .interpolationMethod(.monotone)
+            LineMark(x: .value("Month", m.month, unit: .month), y: .value("Cash", m.cashEnd))
+                .foregroundStyle(.green)
+                .interpolationMethod(.monotone)
+        }
+        .chartYAxis { AxisMarks { v in AxisGridLine(); AxisValueLabel { if let d = v.as(Double.self) { Text(Fmt.money(d, decimals: 0)) } } } }
+    }
+}
+
+/// Monthly profit; redraws only when a month closes.
+struct ProfitChart: View, Equatable {
+    let history: [MonthRecord]
+
+    var body: some View {
+        Chart(history) { m in
+            BarMark(x: .value("Month", m.month, unit: .month), y: .value("Profit", m.profit))
+                .foregroundStyle(m.profit >= 0 ? Color.green.gradient : Color.red.gradient)
+        }
+        .chartYAxis { AxisMarks { v in AxisGridLine(); AxisValueLabel { if let d = v.as(Double.self) { Text(Fmt.money(d, decimals: 0)) } } } }
     }
 }

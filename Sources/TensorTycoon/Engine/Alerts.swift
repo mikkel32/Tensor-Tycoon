@@ -155,7 +155,7 @@ enum Alerts {
     /// Decisions that wait in the inbox instead of pausing the game, with the option taken if they expire.
     static let inboxDefaults: [String: Int] = [
         "rival_round": 2, "partner_offer": 2, "policy_bill": 2, "sovereign_deal": 1, "exclusive_supply": 1,
-        "spinoff": 2, "poach": 1, "merger_offer": 1, "defense": 1,
+        "spinoff": 2, "poach": 1, "merger_offer": 1, "defense": 1, "moonshot": 2,
     ]
 
     static func isUrgent(_ d: Decision) -> Bool { inboxDefaults[d.kind] == nil }
@@ -172,6 +172,7 @@ enum Alerts {
         "distill_campaign": "Distillation campaigns against your API", "jailbreak": "Viral jailbreaks", "policy_bill": "New bills",
         "loss_spike": "Loss spikes in training", "contamination": "Benchmark contamination", "fault_storm": "Hardware fault storms",
         "train_bug": "Bugs found mid-run", "sycophancy": "Sycophancy after RLHF", "reward_hack": "Reward hacking in RL",
+        "trade_secret": "Trade-secret suits over researchers you hired",
     ]
 
     /// Answer decisions the player has a standing answer for (end of day, before the clock checks for urgent ones).

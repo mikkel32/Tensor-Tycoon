@@ -140,7 +140,8 @@ private struct ObjectivesCard: View {
                         Text("+\(o.rewardPoints) CP · +\(Int(o.rewardConfidence)) confidence").font(.caption2).foregroundStyle(.secondary)
                         Button("Ask for another") { store.act("New goal set") { $0.rerollObjective(o.id) } }
                             .buttonStyle(.link).font(.caption)
-                            .help("Costs 4 board confidence.")
+                            .disabled(s.rerollReadyOn != nil)
+                            .help(s.rerollReadyOn.map { "The board just rewrote a goal — ask again after \($0.gameShort)." } ?? "Costs 4 board confidence. Once every 60 days.")
                     }
                     .frame(width: 200, alignment: .trailing)
                 }

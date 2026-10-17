@@ -146,6 +146,7 @@ private struct RunCard: View {
                     HStack {
                         Text(run.design.name).font(.title2.weight(.bold))
                         Pill(text: run.status == .paused ? "Paused" : Training.currentStageName(run), color: run.status == .paused ? .orange : (inPost ? .purple : .blue))
+                        if run.stalledDays >= 7 { Pill(text: "Stalled \(run.stalledDays) days", color: .red) }
                         if run.design.isMoE { Pill(text: "MoE", color: .teal) }
                         if run.design.reasoning { Pill(text: "RL: \(run.design.effectiveRL.label)", color: .pink) }
                         if run.design.optimizer != .adamw { Pill(text: run.design.optimizer.rawValue, color: .indigo) }
@@ -194,7 +195,7 @@ private struct RunCard: View {
                 .frame(maxWidth: .infinity)
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Cluster (\(Fmt.int(run.design.chips)) chips)").font(.caption.weight(.semibold))
-                    ClusterHeatmap(chips: run.design.chips, active: run.status != .paused, failureRate: min(0.25, Double(run.design.chips) * Training.failuresPerChipDay * 30),
+                    ClusterHeatmap(chips: run.design.chips, active: run.status != .paused && store.speed > 0, failureRate: min(0.25, Double(run.design.chips) * Training.failuresPerChipDay * 30),
                                    phase: inPost ? .post : .pre)
                         .frame(height: 118)
                         .clipShape(.rect(cornerRadius: 8))
@@ -314,6 +315,13 @@ private struct OpsPanel: View {
                     Label("This run loses \(Fmt.pct(1 - now, decimals: 0)) of its time to failures. Full ops coverage would get it to \(Fmt.pct(full, decimals: 0)).",
                           systemImage: "exclamationmark.triangle.fill")
                         .font(.caption).foregroundStyle(.orange)
+                }
+                if let adv = Training.goodputAdvice(chips: chips, coverage: cov, running: true, state: s, bonuses: b), adv.blocked || run.stalledDays >= 7 {
+                    Text(run.stalledDays >= 7 ? "No progress in \(run.stalledDays) days. \(adv.headline)" : adv.headline)
+                        .font(.caption).foregroundStyle(.red)
+                    ForEach(adv.fixes, id: \.self) { fix in
+                        Label(fix, systemImage: "wrench.and.screwdriver").font(.caption).foregroundStyle(.secondary)
+                    }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -690,7 +698,8 @@ struct ClusterHeatmap: View {
     let phase: Phase
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 0.35)) { ctx in
+        // Paused (game or run) → one static frame instead of redrawing every 0.35 s.
+        TimelineView(.animation(minimumInterval: 0.35, paused: !active)) { ctx in
             Canvas { g, size in
                 let cells = min(max(chips, 1), 384)
                 let cols = max(1, Int(ceil(sqrt(Double(cells) * size.width / max(size.height, 1)))))
@@ -706,7 +715,7 @@ struct ClusterHeatmap: View {
                 for i in 0..<cells {
                     let r = i / cols, c = i % cols
                     let rect = CGRect(x: ox + CGFloat(c) * w + 1, y: oy + CGFloat(r) * h + 1, width: max(1, w - 2), height: max(1, h - 2))
-                    let seed = BenchmarkCatalog.hashUnit("\(i)-\(tick)")
+                    let seed = Self.noise(i, tick)
                     var color: Color
                     if !active {
                         color = .gray.opacity(0.25)
@@ -721,5 +730,14 @@ struct ClusterHeatmap: View {
             }
         }
         .accessibilityLabel("Cluster activity map")
+    }
+
+    /// Cheap per-cell flicker in 0..<1 (integer mix, no string hashing on every frame).
+    private static func noise(_ i: Int, _ tick: Int) -> Double {
+        var h = UInt64(truncatingIfNeeded: i) &* 0x9E37_79B9_7F4A_7C15 ^ UInt64(truncatingIfNeeded: tick) &* 0xC2B2_AE3D_27D4_EB4F
+        h ^= h >> 31
+        h = h &* 0xBF58_476D_1CE4_E5B9
+        h ^= h >> 29
+        return Double(h >> 11) / Double(1 << 53)
     }
 }

@@ -9,7 +9,7 @@ struct ResearchView: View {
     var body: some View {
         let s = store.game
         let rate = Sim.researchRate(s, store.derived.bonuses) + s.rsiRPToday + s.swarmRPToday
-        let core = ResearchCatalog.core
+        let core = ResearchCatalog.core + ResearchCatalog.lateGame
         let doneCount = core.filter { s.researched.contains($0.id) }.count
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
         Page(title: "Research", subtitle: "Researchers generate research points (RP); compute multiplies their output. Every technique is an experiment: in your lab it can land better or worse than the paper. Leftover points roll into the next project, and idle research feeds your signature programme, so nothing is wasted.") {
@@ -21,6 +21,9 @@ struct ResearchView: View {
             }
 
             UniqueTechSection(state: s)
+            if s.year >= ResearchLab.lateDirectorYear || s.programLevelsTotal > 0 || !s.moonshots.isEmpty {
+                FrontierProgramsSection(state: s)
+            }
             RivalIntelSection(state: s)
 
             HStack(spacing: 12) {
@@ -545,6 +548,106 @@ private struct FusionCard: View {
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .background(.background.secondary, in: .rect(cornerRadius: 12))
         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(active ? Color.purple.opacity(0.6) : Color.secondary.opacity(0.2), lineWidth: 1))
+    }
+}
+
+// MARK: - Frontier programmes & moonshots (3.4)
+
+private struct FrontierProgramsSection: View {
+    let state: GameState
+
+    var body: some View {
+        let s = state
+        let moonshots = s.moonshots.filter { $0.status != .offered && $0.status != .declined }
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline) {
+                Label("Frontier programmes", systemImage: "sparkles").font(.title2.weight(.bold))
+                Spacer()
+                Text("\(s.programLevelsTotal) levels completed").font(.callout.monospacedDigit()).foregroundStyle(.secondary)
+            }
+            Text("Open-ended research for when the tree runs dry. Every level costs more than the last and adds a little less, but never nothing. The research director queues them by itself once nothing better is left.")
+                .font(.callout).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 300), spacing: 12, alignment: .top)], spacing: 12) {
+                ForEach(FrontierProgram.all) { p in ProgramCard(program: p, state: s) }
+            }
+            if !moonshots.isEmpty {
+                Text("Moonshots").font(.headline).padding(.top, 4)
+                ForEach(moonshots) { m in MoonshotRow(moonshot: m, state: s) }
+            }
+        }
+        .padding(16)
+        .background(Color.pink.opacity(0.06), in: .rect(cornerRadius: 16))
+        .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Color.pink.opacity(0.3), lineWidth: 1))
+    }
+}
+
+private struct ProgramCard: View {
+    @Environment(GameStore.self) private var store
+    let program: FrontierProgram
+    let state: GameState
+
+    var body: some View {
+        let s = state
+        let p = program
+        let level = s.programLevel(p.id)
+        let queued = s.researchQueue.firstIndex(of: p.entry)
+        let cost = p.cost(level: level + 1)
+        let done = s.researchProgress[p.entry] ?? 0
+        let buttonLabel: String = queued.map { $0 == 0 ? "Researching" : "Queued #\($0 + 1)" } ?? "Queue level \(level + 1)"
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .top) {
+                Image(systemName: p.symbol).foregroundStyle(.pink)
+                Text(p.name).font(.headline).lineLimit(2)
+                Spacer()
+                Pill(text: "Level \(level)", color: level > 0 ? .pink : .secondary, symbol: "star.fill")
+            }
+            Text(p.blurb).font(.caption).foregroundStyle(.secondary).lineLimit(4).fixedSize(horizontal: false, vertical: true)
+            ForEach(p.effects.map { ResearchCatalog.describe($0, r: FrontierProgram.strength(max(1, level))) }, id: \.self) { line in
+                Label(line, systemImage: "arrow.up.right")
+                    .font(.caption2)
+                    .foregroundStyle(level > 0 ? Color.green : .secondary)
+            }
+            if p.isOpen(s) {
+                HStack {
+                    Text("Next: \(Fmt.count(cost)) RP for +\(Int((FrontierProgram.marginal(level + 1) * 100).rounded()))% of level 1")
+                        .font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+                    Spacer()
+                    Button(buttonLabel) {
+                        store.act("Queued: \(p.name) level \(level + 1)") { $0.queueProgram(p.id) }
+                    }
+                    .disabled(queued != nil)
+                    .controlSize(.small)
+                }
+                if done > 0 {
+                    Meter(value: done / max(1, cost), tint: .pink, height: 5)
+                }
+            } else {
+                Text(s.year < p.opens ? "Opens in \(Int(p.opens))." : "Needs \(ResearchCatalog.byID[p.prereq]?.name ?? p.prereq).")
+                    .font(.caption2).foregroundStyle(.orange)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .background(.background.secondary, in: .rect(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.pink.opacity(queued != nil ? 0.8 : 0.3), lineWidth: queued != nil ? 2 : 1))
+    }
+}
+
+private struct MoonshotRow: View {
+    let moonshot: Moonshot
+    let state: GameState
+
+    var body: some View {
+        let m = moonshot
+        HStack(spacing: 10) {
+            Image(systemName: m.def?.symbol ?? "sparkles").foregroundStyle(.teal).frame(width: 22)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(m.def?.name ?? m.id).font(.callout.weight(.semibold))
+                Text(Moonshots.statusLine(m, state)).font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+        }
     }
 }
 

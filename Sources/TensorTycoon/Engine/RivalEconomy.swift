@@ -213,6 +213,7 @@ enum RivalEconomy {
             } else if !r.quiet && r.kind == .tender {
                 Sim.news(&s, "\(name) staff sell shares at \(Fmt.money(r.post))", "A secondary sale values the lab at \(Fmt.money(r.post)).", .finance, image: "stock_exchange")
             }
+            if [.equity, .strategic, .rescue, .ipo].contains(r.kind) { dilute(&s, i, amount: r.amount, post: r.post) }
             if r.kind == .equity { offerStake(&s, i, amount: r.amount, post: r.post) }
         }
     }
@@ -426,6 +427,7 @@ enum RivalEconomy {
             guard runway < 9 || shortOfCompute else { return }
             if s.rng.chance(inCorrection(s) ? 0.5 : 0.9) {
                 let amount = clamp(max(burn * 24, c.valuation * 0.04, gap), 1e8, c.valuation * 0.15)
+                dilute(&s, i, amount: amount, post: c.valuation + amount)
                 s.competitors[i].rounds.append(RivalRound(date: s.date, label: "Share offering", amount: amount, postMoney: c.valuation, lead: "public markets", kind: .equity))
                 s.competitors[i].cash += amount
                 s.competitors[i].totalRaised += amount
@@ -453,6 +455,7 @@ enum RivalEconomy {
             let letters = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
             let equity = c.rounds.filter { $0.kind == .equity }.count
             let label = down ? "Down round" : (equity >= 7 ? "Growth round" : "Series \(letters[min(25, equity)])")
+            dilute(&s, i, amount: amount, post: post)
             s.competitors[i].rounds.append(RivalRound(date: s.date, label: label, amount: amount, postMoney: post, lead: lead, kind: .equity))
             s.competitors[i].cash += amount
             s.competitors[i].totalRaised += amount
@@ -521,6 +524,7 @@ enum RivalEconomy {
         } else {
             let post = c.valuation * 0.4
             let amount = max(c.costMonth * 12, 1e8)
+            dilute(&s, i, amount: amount, post: post)
             let lead = s.rng.pick(NameBank.investors)
             s.competitors[i].rounds.append(RivalRound(date: s.date, label: "Rescue round", amount: amount, postMoney: post, lead: lead, kind: .rescue))
             s.competitors[i].cash += amount
@@ -540,6 +544,7 @@ enum RivalEconomy {
         let pop = s.rng.range(1.0, 1.4)
         let value = c.valuation * pop
         let raised = c.valuation * 0.05
+        dilute(&s, i, amount: raised, post: value)
         s.competitors[i].isPublic = true
         s.competitors[i].valuation = value
         s.competitors[i].cash += raised
@@ -586,6 +591,27 @@ enum RivalEconomy {
     }
 
     static func stakesValue(_ s: GameState) -> Double { s.rivalStakes.keys.reduce(0) { $0 + stakeValue(s, $1) } }
+
+    /// New money in a lab (equity, strategic, rescue and IPO rounds — not tenders, debt or mergers) dilutes every
+    /// existing holder, you included: your stake shrinks by amount ÷ post-money. A round that leaves the
+    /// valuation unchanged (post 0) comes in at today's valuation. Call it before offering a slice of the round.
+    static func dilute(_ s: inout GameState, _ i: Int, amount: Double, post: Double) {
+        let id = s.competitors[i].id
+        guard amount > 0, let f = s.rivalStakes[id], f > 0 else { return }
+        let p = post > 0 ? post : s.competitors[i].valuation
+        guard p > 0 else { return }
+        let kept = f * max(0, 1 - amount / p)
+        if kept < 1e-7 {
+            // Wiped out (a rescue round bigger than the lab's new value).
+            s.month.oneOffIncome -= s.rivalStakeCost[id] ?? 0
+            s.rivalStakes[id] = nil
+            s.rivalStakeCost[id] = nil
+            Sim.news(&s, "Your stake in \(s.competitors[i].def.name) is wiped out", "The new money takes the whole company. Early investors get nothing.",
+                     .finance, image: "stock_exchange", good: false)
+        } else {
+            s.rivalStakes[id] = kept
+        }
+    }
 
     /// Whether you sell compute (chips or leased GPUs) a rival could commit to buy.
     static func sellsCompute(_ s: GameState) -> Bool { s.chipLines.contains { $0.active } || s.leases.values.contains { $0 > 0 } }

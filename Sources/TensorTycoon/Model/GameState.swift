@@ -245,6 +245,27 @@ enum DataMix: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+/// How the data mix shifts for the second half of pre-training (mid-training), chosen in the Model Lab.
+/// Needs Annealing & Data Curriculum research; `.keep` (the default, and what older saves decode to) changes nothing.
+enum MixShift: String, Codable, CaseIterable, Identifiable {
+    case keep = "Keep the mix"
+    case code = "More code"
+    case stem = "More math & science"
+    case multilingual = "More multilingual"
+    var id: String { rawValue }
+
+    var detail: String {
+        switch self {
+        case .keep: "The second half trains on the same mix as the first."
+        case .code: "Lean the second half into code: +coding, slightly flatter chat."
+        case .stem: "Lean the second half into math and science: +reasoning."
+        case .multilingual: "Lean the second half into other languages: +multilingual and global appeal."
+        }
+    }
+}
+
+extension MixShift: DefaultValue { static var defaultValue: MixShift { .keep } }
+
 /// RL compute as a share of pre-training compute.
 enum RLLevel: Int, Codable, CaseIterable, Identifiable {
     case off = 0, light, standard, heavy, extreme
@@ -289,6 +310,8 @@ struct ModelDesign: Codable, Hashable {
     var mtp = false
     var anneal = false
     var useDPO = false
+    /// 3.4: mid-training data-mix shift for the second half of pre-training (was a mid-run popup).
+    @D var mixShift: MixShift = .keep
 
     var activeParamsB: Double { paramsB * activeFraction }
     var isMoE: Bool { activeFraction < 0.999 }
@@ -414,6 +437,11 @@ struct TrainingRun: Codable, Identifiable, Hashable {
     /// Nodes caught (and missed) silently corrupting gradients.
     @D var sdcCaught: Double = 0
     @D var sdcMissed: Double = 0
+    // 3.4: honest goodput
+    /// An experiment too small for mid-run incidents (estimated under `Training.toyCost` at launch).
+    @D var toy: Bool = false
+    /// Consecutive days the run has made next to no progress (hardware failures eating the whole day).
+    @D var stalledDays: Int = 0
 
     var schedule: LRSchedule { LRSchedule(rawValue: lr) ?? .standard }
     var interval: Double { checkpointEvery > 0 ? checkpointEvery : 0.1 }
@@ -581,6 +609,20 @@ struct OrderStamp: Codable, Hashable {
     var accelID: String
     var count: Int
     var ordered: Date
+}
+
+/// New shares a public company sold in a secondary offering.
+struct ShareIssue: Codable, Hashable {
+    var date: Date
+    var shares: Double
+}
+
+/// A rival lab's trade-secret suit that will land on `due`.
+struct PendingSuit: Codable, Hashable {
+    var lab: String
+    var tech: String
+    var due: Date
+    var amount: Double
 }
 
 struct RaiseOffer: Codable, Identifiable, Hashable {
@@ -903,6 +945,8 @@ struct GameState: Codable {
     var sharePrice: Double = 0
     var publicShares: Double = 0
     var stock: [StockPoint] = []
+    /// Secondary offerings in the last few years (for the cooldown and the 20%-a-year cap).
+    @D var shareIssues: [ShareIssue] = []
     var valuation: Double = 0
     var creditScore: Double = 600
 
@@ -951,6 +995,8 @@ struct GameState: Codable {
     var partnerships: [Partnership] = []
     var partnerContacted: [String: Date] = [:]
     @D var lastHeadhunt: Date? = nil
+    /// Trade-secret suits from researchers you poached, waiting to be filed.
+    @D var pendingSuits: [PendingSuit] = []
     /// Your unique breakthroughs you published under an open-science policy (rivals adopt them ~6 months later).
     @D var publishedTech: [String: Date] = [:]
 
@@ -983,6 +1029,10 @@ struct GameState: Codable {
     @D var objectivesFailed: Int = 0
     @D var boardConfidence: Double = 0
     @D var lastBoardThreat: Date? = nil
+    /// When you last asked the board for a different goal (60-day cooldown).
+    @D var lastObjectiveReroll: Date? = nil
+    /// When a keynote last moved market hype (once per 90 days).
+    @D var lastKeynoteHype: Date? = nil
     @D var acquiredLabs: [String] = []
     @D var lastAntitrustBlock: Date? = nil
     @D var exclusiveSupplyUntil: Date? = nil
@@ -1078,6 +1128,11 @@ struct GameState: Codable {
     /// Decision kind → the option to pick automatically, and its label when it was chosen.
     @D var standingAnswers: [String: Int] = [:]
     @D var standingLabels: [String: String] = [:]
+    // 3.4: late game
+    /// Levels completed in each repeatable frontier research programme (FrontierProgram id → level).
+    @D var programLevels: [String: Int] = [:]
+    /// Moonshots: grand challenges offered to the lab, running, or finished.
+    @D var moonshots: [Moonshot] = []
     // 3.4: rival lifecycle
     /// Labs founded during the game (spin-outs, national labs, startups), registered with CompetitorCatalog on load.
     @D var customLabs: [CustomLabSpec] = []

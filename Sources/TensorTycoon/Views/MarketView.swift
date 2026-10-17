@@ -84,7 +84,8 @@ private struct ChatProductCard: View {
     var body: some View {
         let s = state
         let chatModels = s.releasedModels.filter { $0.design.instruct }
-        let conv = Market.paidConversion(price: s.chatPrice, freeTier: s.freeTier)
+        let wtp = Market.chatWTP(s)
+        let conv = Market.paidConversion(price: s.chatPrice, freeTier: s.freeTier, wtp: wtp)
         Card {
             CardHeader("\(s.companyName) Chat", symbol: "bubble.left.and.bubble.right.fill", subtitle: "Consumer subscription app")
             if chatModels.isEmpty {
@@ -98,6 +99,7 @@ private struct ChatProductCard: View {
                     Text("Subscription")
                     Slider(value: Binding(get: { s.chatPrice }, set: { v in store.mutate { $0.chatPrice = (v).rounded() } }), in: 5...200, step: 1)
                     Text("$\(Int(s.chatPrice))/mo").font(.headline.monospacedDigit()).frame(width: 80, alignment: .trailing)
+                        .help("Users would pay about $\(Int(wtp))/month for this app. Revenue peaks near that price; above it, paying users fall away fast.")
                 }
                 Toggle("Free tier (more users, much more compute)", isOn: Binding(get: { s.freeTier }, set: { v in store.mutate { $0.freeTier = v } }))
                     .toggleStyle(.switch)
@@ -127,7 +129,10 @@ private struct AgentProductCard: View {
         let s = state
         let b = store.derived.bonuses
         let eligible = s.releasedModels.filter { $0.design.toolUse && !$0.retired }
-        let monthly = s.agentSeats * s.agentPrice
+        // Seats beyond what today's price supports aren't billed: revenue is what this month actually collected, run-rated.
+        let days = max(1, GameCalendar.components(s.date).day)
+        let monthly = s.month.revAgents / Double(days) * 30.4
+        let worth = Market.agentWTP(s)
         Card {
             CardHeader("\(s.companyName) Agent", symbol: "terminal.fill", subtitle: "Coding & computer-use agents, sold per seat (think Claude Code, Codex, Cursor)")
             if !b.has(.toolUse) {
@@ -146,6 +151,7 @@ private struct AgentProductCard: View {
                     Text("Seat price")
                     Slider(value: Binding(get: { log10(max(s.agentPrice, 10)) }, set: { v in store.mutate { $0.agentPrice = (pow(10, v) / 5).rounded() * 5 } }), in: 1.3...3.3)
                     Text("$\(Int(s.agentPrice))/mo").font(.headline.monospacedDigit()).frame(width: 90, alignment: .trailing)
+                        .help(worth.map { "A seat of your agent is worth about $\(Int($0))/month to buyers: the wage of the work it does. Revenue plateaus around there." } ?? "Pick the model that powers your agent product.")
                 }
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], alignment: .leading, spacing: 10) {
                     MiniStat(label: "Seats", value: Fmt.count(s.agentSeats))
@@ -227,6 +233,8 @@ extension ShareChart {
 private struct DealsCard: View {
     @Environment(GameStore.self) private var store
     let state: GameState
+    /// Picker tag for "no model".
+    static let none = UUID(uuidString: "00000000-0000-0000-0000-000000000000")!
     @State private var chosen: [UUID: UUID] = [:]
 
     var body: some View {
@@ -265,9 +273,21 @@ private struct DealsCard: View {
                 Text("Active contracts · \(Fmt.money(active.reduce(0) { $0 + $1.monthly }))/mo").font(.caption.weight(.semibold))
                 ForEach(active) { d in
                     HStack {
-                        Image(systemName: "checkmark.seal.fill").foregroundStyle(.green)
+                        Image(systemName: d.modelID == nil ? "exclamationmark.triangle.fill" : "checkmark.seal.fill")
+                            .foregroundStyle(d.modelID == nil ? .orange : .green)
                         Text("\(d.client) — \(d.title)").font(.callout)
+                        if d.modelID == nil {
+                            Text("no model meets its bar — it breaches daily").font(.caption).foregroundStyle(.orange)
+                        }
                         Spacer()
+                        Picker("Served by", selection: Binding(get: { d.modelID ?? DealsCard.none }, set: { id in
+                            if id != DealsCard.none { store.act("Contract moved") { $0.reassignDeal(d.id, modelID: id) } }
+                        })) {
+                            if d.modelID == nil { Text("Pick a model…").tag(DealsCard.none) }
+                            ForEach(models.filter { $0.index + 0.01 >= d.minIndex }) { m in Text(m.name).tag(m.id) }
+                        }
+                        .labelsHidden()
+                        .frame(width: 140)
                         Text("\(Fmt.money(d.monthly))/mo · \(d.monthsLeft) months left\(d.breaches > 0 ? " · ⚠️ \(d.breaches) SLA misses" : "")")
                             .font(.caption.monospacedDigit()).foregroundStyle(d.breaches > 0 ? .orange : .secondary)
                     }

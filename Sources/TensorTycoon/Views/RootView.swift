@@ -38,6 +38,7 @@ struct RootView: View {
 /// a finished run's report, a briefing.
 enum ShellSheet: Identifiable {
     case decision(Decision)
+    case palette
     case era
     case report(UUID)
     case briefing(UUID)
@@ -45,6 +46,7 @@ enum ShellSheet: Identifiable {
     var id: String {
         switch self {
         case .decision(let d): "decision-\(d.id)"
+        case .palette: "palette"
         case .era: "era"
         case .report(let id): "report-\(id)"
         case .briefing(let id): "briefing-\(id)"
@@ -76,6 +78,8 @@ struct GameShell: View {
             case .decision(let d):
                 DecisionSheet(decision: d)
                     .interactiveDismissDisabled(Alerts.isUrgent(d))
+            case .palette:
+                CommandPalette()
             case .era:
                 EraIntroSheet()
             case .report(let id):
@@ -93,6 +97,7 @@ struct GameShell: View {
     private var sheet: ShellSheet? {
         guard let s = store.state, s.gameOver == nil else { return nil }
         if let d = s.decisions.first(where: Alerts.isUrgent) { return .decision(d) }
+        if store.showPalette { return .palette }
         if let id = store.openDecisionID, let d = s.decisions.first(where: { $0.id == id }) { return .decision(d) }
         if store.showEraIntro { return .era }
         if let r = store.reportRunID { return .report(r) }
@@ -104,6 +109,7 @@ struct GameShell: View {
     private func dismissed() {
         switch sheet {
         case .decision(let d): if !Alerts.isUrgent(d) { store.openDecisionID = nil }
+        case .palette: store.showPalette = false
         case .era: store.showEraIntro = false
         case .report: store.reportRunID = nil
         case .briefing: store.briefingID = nil
@@ -259,6 +265,10 @@ struct GameToolbar: ToolbarContent {
         }
         if updater.updateAvailable {
             ToolbarItem(placement: .primaryAction) { UpdateToolbarButton() }
+        }
+        ToolbarItem(placement: .primaryAction) {
+            Button { store.showPalette = true } label: { Label("Go to…", systemImage: "magnifyingglass").labelStyle(.iconOnly) }
+                .help("Go to a screen or do something (⌘K)")
         }
         ToolbarItem(placement: .primaryAction) { AlertsToolbarButton() }
         ToolbarItem(placement: .primaryAction) {

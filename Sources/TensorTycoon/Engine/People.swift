@@ -223,10 +223,24 @@ enum Events {
             addDecision(&s, kind: "poach", title: "A \(comp.name) researcher wants to join",
                         body: "A senior researcher behind \(comp.name)'s \(item.name) work is unhappy and open to an offer. Hiring them would let you research it yourself.",
                         image: "sf_skyline",
-                        options: [DecisionOption(label: "Hire them (\(Fmt.money(salary))/yr)", detail: "Unlocks \(item.name) in your research tree."),
-                                  DecisionOption(label: "Pass", detail: "Poaching invites lawsuits anyway.")],
+                        options: [DecisionOption(label: "Hire them (\(Fmt.money(salary))/yr)", detail: "Unlocks \(item.name) in your research tree. About a 30% chance \(comp.name) sues within six months."),
+                                  DecisionOption(label: "Pass", detail: "Poaching invites lawsuits.")],
                         amount: salary, ref: tech)
         }
+
+        // Trade-secret suits from researchers you poached.
+        for suit in s.pendingSuits where suit.due <= s.date {
+            let name = CompetitorCatalog.byID[suit.lab]?.name ?? "A rival lab"
+            let tech = ResearchCatalog.byID[suit.tech]?.name ?? "secret"
+            addDecision(&s, kind: "trade_secret", title: "\(name) sues over trade secrets",
+                        body: "\(name) says the researcher you hired walked out with its \(tech) work. Lawyers estimate \(Fmt.money(suit.amount)) to settle.",
+                        image: "stock_exchange",
+                        options: [DecisionOption(label: "Settle (\(Fmt.money(suit.amount)))", detail: "Pay, take a small brand hit (−2) and move on."),
+                                  DecisionOption(label: "Fight in court", detail: "50% chance to win and pay only legal fees; lose and pay double, brand −6.")],
+                        amount: suit.amount, ref: suit.lab)
+        }
+        let today = s.date
+        s.pendingSuits.removeAll { $0.due <= today }
 
         // Superstar researcher on the market
         if s.rng.chance(0.08) {
@@ -317,8 +331,29 @@ enum Events {
             s.employees.append(Employee(name: "\(s.rng.pick(NameBank.first)) \(s.rng.pick(NameBank.last))", role: .researcher, skill: 82,
                                         salary: d.amount, morale: 80, hired: s.date, equity: 0.2))
             Sim.news(&s, "New hire brings \(ResearchCatalog.byID[d.ref]?.name ?? "a secret technique")", "You can now research it on the Research page.", .research, good: true)
+            // Their old lab may come after you for it.
+            if s.rng.chance(0.3), let lab = s.rivalTech.first(where: { $0.value.contains(d.ref) })?.key {
+                let amount = clamp(max(d.amount * 4, s.valuation * 0.001), 2e6, 1e9)
+                s.pendingSuits.append(PendingSuit(lab: lab, tech: d.ref, due: GameCalendar.addDays(s.date, s.rng.int(30, 180)), amount: amount))
+            }
         case ("poach", _):
             break
+        case ("trade_secret", 0):
+            s.cash -= d.amount
+            s.month.costOther += d.amount
+            s.brand = max(0, s.brand - 2)
+            Sim.news(&s, "Trade-secret suit settled for \(Fmt.money(d.amount))", "Expensive, and the talent wars look uglier. Brand −2.", .policy, good: false)
+        case ("trade_secret", _):
+            if s.rng.chance(0.5) {
+                s.cash -= d.amount * 0.1
+                s.month.costOther += d.amount * 0.1
+                Sim.news(&s, "You won the trade-secret case", "The court found no misappropriation. Legal fees: \(Fmt.money(d.amount * 0.1)).", .policy, good: true)
+            } else {
+                s.cash -= d.amount * 2
+                s.month.costOther += d.amount * 2
+                s.brand = max(0, s.brand - 6)
+                Sim.news(&s, "You lost the trade-secret case", "Damages of \(Fmt.money(d.amount * 2)). Brand −6.", .policy, important: true, good: false)
+            }
         case ("rsi_resource", _), ("rsi_exfil", _):
             RSI.resolve(&s, kind: d.kind, option: option, ref: d.ref)
         case ("swarm_collusion", _), ("swarm_escape", _):
@@ -333,6 +368,7 @@ enum Events {
             RivalEconomy.resolveFireSale(&s, d, option: option)
         case ("victory", _):
             Victory.resolve(&s, d, option: option)
+        case ("moonshot", _): Moonshots.resolve(&s, d, option: option)   // 3.4: late game
         case ("board_ouster", _), ("exclusive_supply", _), ("swarm_audit", _), ("merger_offer", _), ("spinoff", _), ("sovereign_deal", _), ("talent_raid", _),
              ("distill_campaign", _), ("eval_escape", _), ("insider_caught", _):
             StrategyEvents.resolve(&s, d, option: option)
@@ -399,6 +435,7 @@ enum Achievements {
         if s.employees.filter({ $0.role == .researcher }).count >= 100 { unlock(&s, "researchers") }
         let tpus = s.rentals.filter { HardwareCatalog.get($0.accelID)?.cls == .tpu }.reduce(0) { $0 + $1.count }
         if tpus >= 1000 { unlock(&s, "tpu") }
+        guard !s.achievements.contains("frontier") || !s.achievements.contains("arena") else { return }
         let board = Leaderboard.entries(s, includeUnreleased: false)
         if board.first?.isPlayer == true { unlock(&s, "frontier") }
         if let top = board.max(by: { $0.arena < $1.arena }), top.isPlayer { unlock(&s, "arena") }

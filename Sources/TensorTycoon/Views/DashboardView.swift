@@ -13,7 +13,7 @@ struct DashboardView: View {
         let released = d.board.filter(\.released)
         let mine = d.board.filter(\.isPlayer)
         let best = mine.max { $0.index < $1.index }
-        let rank = best.map { e in released.filter { !$0.isPlayer && $0.index > e.index }.count + 1 }
+        let rank = best.map { Leaderboard.labRank(index: $0.index, board: released, gone: Leaderboard.goneLabs(s)) }
 
         Page(title: "Dashboard", subtitle: "\(s.companyName) · day \(GameCalendar.daysBetween(s.startDate, s.date) + 1)") {
             HeroBanner(image: heroImage(s), height: 170) {
@@ -45,7 +45,7 @@ struct DashboardView: View {
                 StatTile(title: "Valuation", value: Fmt.money(s.valuation), detail: s.isPublic ? "Public · \(Fmt.price(s.sharePrice))/share" : "Private", symbol: "building.columns.fill", tint: .purple)
                 StatTile(title: "Chat users", value: Fmt.count(s.consumerUsers), detail: "\(Fmt.count(s.paidUsers)) paying", symbol: "person.2.fill", tint: .pink)
                 StatTile(title: "API tokens / day", value: Fmt.count(s.models.reduce(0) { $0 + $1.servedTokensDay }), detail: "Reliability \(Fmt.pct(s.reliability, decimals: 0))", symbol: "bolt.horizontal.fill", tint: .teal)
-                StatTile(title: "Best model", value: best.map { "\(Fmt.score($0.index))" } ?? "—", detail: best.map { "\($0.model) · #\(rank ?? 0) worldwide\($0.released ? "" : " (unreleased)")" } ?? "Train one in the Model Lab", symbol: "trophy.fill", tint: .orange)
+                StatTile(title: "Best model", value: best.map { "\(Fmt.score($0.index))" } ?? "—", detail: best.map { "\($0.model) · #\(rank ?? 0) worldwide · capability \(Int($0.capability.rounded()))\($0.released ? "" : " (unreleased)")" } ?? "Train one in the Model Lab", symbol: "trophy.fill", tint: .orange)
                 StatTile(title: "Agent seats", value: Fmt.count(s.agentSeats), detail: s.agentModelID == nil ? "Launch in Market" : "\(Fmt.pct(s.agentShare, decimals: 1)) share · \(Fmt.money(s.agentPrice))/seat", symbol: "person.badge.key.fill", tint: .indigo)
                 if !s.swarms.isEmpty {
                     StatTile(title: "Agent swarms", value: Fmt.count(s.swarms.filter { !$0.paused }.reduce(0) { $0 + $1.active }),
@@ -67,11 +67,12 @@ struct DashboardView: View {
             HStack(alignment: .top, spacing: 16) {
                 Card {
                     CardHeader("Revenue vs. costs", symbol: "chart.bar.fill", subtitle: "Monthly")
-                    RevenueChart(history: Array(s.history.suffix(24)) + [s.month])
+                    RevenueChart(history: Array(s.history.suffix(24)) + [s.month], week: RevenueChart.week(s.date))
+                        .equatable()
                         .frame(height: 220)
                 }
                 Card {
-                    CardHeader("Frontier race", symbol: "flag.checkered", subtitle: "Best Intelligence Index over time (re-scored on today's benchmarks)")
+                    CardHeader("Frontier race", symbol: "flag.checkered", subtitle: "Best capability over time (100 = GPT-4; +10 is ten times the effective compute)")
                     FrontierChart(points: FrontierChart.points(s))
                         .equatable()
                         .frame(height: 220)
@@ -126,15 +127,17 @@ struct BenchmarkRaceCard: View {
             CardHeader(title: "Benchmark race", symbol: "flame.fill") {
                 Button("All benchmarks") { store.open(.benchmarks) }.buttonStyle(.link)
             }
-            Text("The live benchmarks in the Intelligence Index. The red tick is where each one saturates and gets replaced by something harder.")
+            Text("The benchmarks in the Intelligence Index now. The red tick is the saturation line: once two labs pass it, the benchmark rotates out as soon as a successor is ready.")
                 .font(.caption).foregroundStyle(.secondary)
             ForEach(set.prefix(6)) { b in
+                let retiring = store.game.benchSaturated[b.id] != nil
                 let sota = released.map { $0.score(b) }.max() ?? 0
                 let you = mine.map { $0.score(b) }.max()
                 HStack(spacing: 8) {
                     Text(b.name).font(.caption.weight(.medium)).frame(width: 150, alignment: .leading).lineLimit(1)
+                        .help(retiring ? "Saturated: leaves the index when a successor is ready." : b.about)
                     ZStack(alignment: .leading) {
-                        Meter(value: sota / 100, tint: .orange, height: 7)
+                        Meter(value: sota / 100, tint: retiring ? .green : .orange, height: 7)
                         if let you { Meter(value: you / 100, tint: .accentColor, height: 3).padding(.top, 9) }
                         GeometryReader { g in
                             Rectangle().fill(.red.opacity(0.75)).frame(width: 2, height: 12).offset(x: g.size.width * b.saturation / 100 - 1, y: -2)
@@ -288,11 +291,21 @@ struct SwarmStatusCard: View {
     }
 }
 
-struct RevenueChart: View {
+/// Redraws when a month closes or a new game week starts, not on every tick: Charts layout is expensive.
+struct RevenueChart: View, Equatable {
     let history: [MonthRecord]
+    /// The game week this snapshot of the current month was taken in.
+    let week: Int
+
+    static func week(_ date: Date) -> Int { Int(date.timeIntervalSince1970 / 86_400) / 7 }
+
+    static func == (a: RevenueChart, b: RevenueChart) -> Bool {
+        a.week == b.week && a.history.count == b.history.count && a.history.first?.month == b.history.first?.month
+            && a.history.last?.month == b.history.last?.month
+    }
 
     struct Bar: Identifiable {
-        let id = UUID()
+        var id: String { "\(month.timeIntervalSince1970)-\(kind)" }
         let month: Date
         let kind: String
         let value: Double
@@ -335,41 +348,49 @@ struct FrontierChart: View, Equatable {
         let id: Int
         let date: Date
         let lab: String
-        let index: Double
+        let value: Double
     }
     let points: [Point]
 
     var body: some View {
         Chart(points) { p in
-            LineMark(x: .value("Date", p.date), y: .value("Index", p.index))
+            LineMark(x: .value("Date", p.date), y: .value("Capability", p.value))
                 .foregroundStyle(by: .value("Lab", p.lab))
                 .interpolationMethod(.stepEnd)
         }
-        .chartYScale(domain: 0...100)
+        .chartYScale(domain: .automatic(includesZero: false))
         .chartLegend(position: .bottom, alignment: .leading)
     }
 
+    /// Each lab's best capability so far (a scale that doesn't re-base when benchmarks rotate), top three rival labs
+    /// plus you.
     static func points(_ s: GameState) -> [Point] {
         let from = GameCalendar.addMonths(s.startDate, -18)
+        // The "now" end of each line moves weekly, so the chart only redraws when something changes.
+        let latest = (s.competitors.flatMap { $0.models.map(\.date) } + s.models.map(\.created)).max() ?? s.startDate
+        let weekStart = GameCalendar.addDays(s.date, -(Int(s.date.timeIntervalSince1970 / 86_400) % 7))
+        let now = max(latest, weekStart)
         var pts: [Point] = []
-        func add(_ d: Date, _ lab: String, _ v: Double) { pts.append(Point(id: pts.count, date: d, lab: lab, index: v)) }
+        func add(_ d: Date, _ lab: String, _ v: Double) { pts.append(Point(id: pts.count, date: d, lab: lab, value: v)) }
+        func rivalCap(_ c: CompetitorState, _ m: CompetitorModel) -> Double {
+            BenchmarkCatalog.capability(Leaderboard.profile(m, def: c.def, boost: Competitors.boost(s, c.id, at: m.date.decimalYear)))
+        }
         let labs = s.competitors.filter { !$0.models.isEmpty }
-            .sorted { ($0.models.map(\.index).max() ?? 0) > ($1.models.map(\.index).max() ?? 0) }.prefix(3)
+            .sorted { ($0.models.map(\.c).max() ?? 0) > ($1.models.map(\.c).max() ?? 0) }.prefix(3)
         for comp in labs {
-            var best = 0.0
+            var best = -Double.infinity
             for m in comp.models.sorted(by: { $0.date < $1.date }) {
-                best = max(best, m.index)
+                best = max(best, rivalCap(comp, m))
                 if m.date >= from { add(m.date, comp.def.name, best) }
             }
-            add(s.date, comp.def.name, best)
+            if best.isFinite { add(now, comp.def.name, best) }
         }
-        var best = 0.0
-        add(s.startDate, s.companyName, 0)
+        var best = -Double.infinity
         for m in s.models.sorted(by: { $0.created < $1.created }) where m.released || !m.preview {
-            best = max(best, m.index)
+            best = max(best, BenchmarkCatalog.capability(Leaderboard.profile(m)))
             add(m.created, s.companyName, best)
         }
-        add(s.date, s.companyName, best)
+        if best.isFinite { add(now, s.companyName, best) }
         return pts
     }
 }
@@ -441,25 +462,30 @@ struct ActiveRunsCard: View {
     }
 }
 
+/// The top labs by flagship (one row per lab, so one lab's back catalogue can't fill it), plus you if you're further down.
+/// Labs are ranked from the store's full board; `board` (the top released models) just says whether there's anything to show.
 struct TopModelsCard: View {
     @Environment(GameStore.self) private var store
     let board: [Leaderboard.Entry]
 
     var body: some View {
+        let labs = board.isEmpty ? [] : Leaderboard.labs(store.derived.board.filter(\.released), state: store.game)
+            .filter { $0.rank > 0 }.sorted { $0.rank < $1.rank }
+        let top = labs.contains { $0.isPlayer && $0.rank > 6 } ? Array(labs.prefix(5)) + labs.filter(\.isPlayer) : Array(labs.prefix(6))
         Card {
             CardHeader(title: "World leaderboard", symbol: "trophy") {
                 Button("All") { store.open(.leaderboard) }.buttonStyle(.link)
             }
-            ForEach(Array(board.enumerated()), id: \.element.id) { i, e in
+            ForEach(top) { r in
                 HStack {
-                    Text("\(i + 1)").font(.caption.monospacedDigit().weight(.bold)).frame(width: 18).foregroundStyle(.secondary)
+                    Text(verbatim: "\(r.rank)").font(.caption.monospacedDigit().weight(.bold)).frame(width: 18).foregroundStyle(.secondary)
                     VStack(alignment: .leading, spacing: 0) {
-                        Text(e.model).font(.callout.weight(e.isPlayer ? .bold : .regular))
-                        Text(e.lab).font(.caption).foregroundStyle(.secondary)
+                        Text(r.lab).font(.callout.weight(r.isPlayer ? .bold : .regular))
+                        Text(verbatim: "\(r.flagship.model) · capability \(Int(r.flagship.capability.rounded()))").font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
-                    Text(Fmt.score(e.index)).font(.callout.monospacedDigit().weight(.semibold))
-                        .foregroundStyle(e.isPlayer ? Color.accentColor : .primary)
+                    Text(Fmt.score(r.flagship.index)).font(.callout.monospacedDigit().weight(.semibold))
+                        .foregroundStyle(r.isPlayer ? Color.accentColor : .primary)
                 }
             }
         }

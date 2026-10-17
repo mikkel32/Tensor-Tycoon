@@ -682,8 +682,12 @@ enum RivalLifecycle {
         }
         if !known.isEmpty { s.rivalTech[buyerID] = known }
         if RivalEconomy.parent(s.competitors[b], s) == nil {
+            // Half a takeover (all of a merger) is paid in new shares: the buyer is worth more, and anyone holding a
+            // stake in it, you included, owns a smaller slice of it.
+            let stock = paid ? price * 0.5 : target.valuation * 0.8
             s.competitors[b].cash += max(0, target.cash) - (paid ? price * 0.5 : 0)
-            s.competitors[b].valuation += paid ? price * 0.5 : target.valuation * 0.8
+            s.competitors[b].valuation += stock
+            RivalEconomy.dilute(&s, b, amount: stock, post: s.competitors[b].valuation)
         }
         // Their people know their recipes: the buyer's next run gets a little better.
         if var p = s.competitors[b].project, p.procedural {

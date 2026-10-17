@@ -63,7 +63,8 @@ enum RealModels {
 
     /// Real models scored on the given index set (cached per set).
     static func scored(on set: [Benchmark]) -> [(RealModel, Double)] {
-        let key = set.map(\.id).joined(separator: ",")
+        // Phasing-in slots score differently from week to week, so the key includes how far each has phased in.
+        let key = set.map { b in b.id + (b.blend.map { "@\(Int(($0.t * 100).rounded()))" } ?? "") }.joined(separator: ",")
         if let c = cache, c.0 == key { return c.1 }
         let out = all.map { m in (m, set.isEmpty ? 0 : set.reduce(0) { $0 + $1.score(m.profile(), noise: false) } / Double(set.count)) }
         cache = (key, out)

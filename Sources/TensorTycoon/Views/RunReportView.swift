@@ -8,7 +8,6 @@ struct RunReportID: Identifiable, Equatable {
 /// The payoff moment: shown when a training run finishes (and from the run history).
 struct RunReportSheet: View {
     @Environment(GameStore.self) private var store
-    @Environment(\.dismiss) private var dismiss
     let runID: UUID
     @State private var shownIndex = 0.0
 
@@ -29,7 +28,7 @@ struct RunReportSheet: View {
         let index = profile.map { BenchmarkCatalog.index($0, set: d.indexSet) } ?? 0
         let released = d.board.filter(\.released)
         let rivals = released.filter { !$0.isPlayer }
-        let rank = rivals.filter { $0.index > index }.count + 1
+        let rank = Leaderboard.labRank(index: index, board: released, gone: d.gone)
         let top = rivals.max { $0.index < $1.index }
         let prevBest = s.models.filter { $0.id != model?.id }.map(\.index).max() ?? 0
         let days = max(1, GameCalendar.daysBetween(run.started, run.finished ?? s.date))
@@ -157,9 +156,9 @@ struct RunReportSheet: View {
         }
     }
 
+    /// Clearing the store's run ID closes the sheet (calling dismiss() too would make the shell forget the next sheet).
     private func close() {
         store.reportRunID = nil
-        dismiss()
     }
 
     /// Release with an API and put every idle chip of the training hardware behind it (keeping a few for research).

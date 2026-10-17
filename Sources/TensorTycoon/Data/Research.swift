@@ -266,7 +266,9 @@ enum ResearchCatalog {
                      blurb: blurb, tradeoff: tradeoff, rival: rival)
     }
 
-    static let all: [ResearchItem] = core + exotic
+    /// 3.4: `lateGame` (LateResearch.swift) holds the projected 2028–2034 techniques. They are kept out of `core`, which
+    /// seeds new games, so early eras start exactly as before; the research tree lists them alongside `core`.
+    static let all: [ResearchItem] = core + lateGame + exotic
 
     // MARK: - Core techniques (real research, with historical dates)
 
@@ -1065,6 +1067,7 @@ enum ResearchCatalog {
 
     /// Items that never appear in the tree but carry effects into the bonuses: signature levels, fusions, alien artifacts.
     static let virtual: [ResearchItem] = SignatureSecret.virtualItems + Breakthroughs.fusionItems + XenoCatalog.virtualItems
+        + FrontierProgram.virtualItems + Moonshots.virtualItems   // 3.4: late game
 
     static let virtualByID: [String: ResearchItem] = Dictionary(uniqueKeysWithValues: virtual.map { ($0.id, $0) })
 

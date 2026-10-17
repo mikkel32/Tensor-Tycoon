@@ -137,12 +137,30 @@ enum Economy {
         return max(0.2, 1 - 0.8 * (age - 0.75) / max(1, stop - 0.75))
     }
 
+    /// Sum of fleet weights over the catalogue (for normalising each chip's share). Cached per game day and
+    /// catalogue size: the hardware store asks for every chip's supply on every redraw.
+    nonisolated(unsafe) private static var totalsCache: (key: Int, cloud: Double, production: Double)?
+
+    static func supplyTotals(_ y: Double) -> (cloud: Double, production: Double) {
+        let key = Int(y * 365.25) &* 1_000 &+ HardwareCatalog.all.count
+        if let c = totalsCache, c.key == key { return (c.cloud, c.production) }
+        var cloud = 0.0, production = 0.0
+        for b in HardwareCatalog.all {
+            let w = fleetWeight(b)
+            guard w > 0 else { continue }
+            if b.rentable { cloud += w * fleetLife(b, y) }
+            if b.purchasable { production += w * productionLife(b, y) }
+        }
+        totalsCache = (key, cloud, production)
+        return (cloud, production)
+    }
+
     /// Chips of this type in the world's rentable cloud fleet today.
     static func cloudSupply(_ a: Accelerator, _ s: GameState) -> Double {
         let y = s.year
         let mine = fleetWeight(a) * fleetLife(a, y)
         guard mine > 0 else { return 0 }
-        let total = HardwareCatalog.all.reduce(0.0) { $0 + ($1.rentable ? fleetWeight($1) * fleetLife($1, y) : 0) }
+        let total = supplyTotals(y).cloud
         return worldFleet(y) * mine / max(total, 1e-9) * HardwareCatalog.h100.bf16 / max(a.bf16, 1)
     }
 
@@ -151,7 +169,7 @@ enum Economy {
         let y = s.year
         let mine = fleetWeight(a) * productionLife(a, y)
         guard mine > 0 else { return 0 }
-        let total = HardwareCatalog.all.reduce(0.0) { $0 + ($1.purchasable ? fleetWeight($1) * productionLife($1, y) : 0) }
+        let total = supplyTotals(y).production
         return worldFleet(y) * 0.3 * mine / max(total, 1e-9) * HardwareCatalog.h100.bf16 / max(a.bf16, 1)
     }
 
@@ -261,6 +279,39 @@ enum Economy {
             return (amort + power) * Double(count)
         }
         return (rent(a, s) ?? 0) * 24 * Double(count)
+    }
+
+    /// What serving 1M tokens of this model costs you at full load (the "Serving cost / 1M" on the Models page):
+    /// its chips' daily cost — rent, or power plus amortisation — over their daily token capacity.
+    /// A model with no chips yet is costed on one replica of your most plentiful accelerator.
+    /// What a model of this design would cost to serve per 1M tokens on its training hardware at full load
+    /// (for the Model Lab: bigger models are smarter but cost more on every token you sell).
+    static func servingCostPerM(design d: ModelDesign, _ s: GameState) -> Double? {
+        guard let a = HardwareCatalog.get(d.accelID) else { return nil }
+        let b = s.bonuses
+        var m = AIModel(name: d.name, design: d, created: s.date, c: 0, reasoning: d.reasoning, reasoningBoost: 0, codeBoost: 0,
+                        arenaBonus: 0, scores: [:], index: 0)
+        m.servingPrecision = b.has(.int8Serving) ? .fp8 : .bf16
+        m.deployments = [Deployment(accelID: a.id, chips: Physics.chipsPerReplica(m, accel: a, precision: m.servingPrecision, bonuses: b))]
+        let cost = servingCostPerM(m, s, bonuses: b)
+        return cost > 0 ? cost : nil
+    }
+
+    static func servingCostPerM(_ m: AIModel, _ s: GameState, bonuses: ResearchBonuses? = nil) -> Double {
+        let b = bonuses ?? s.bonuses
+        var cost = 0.0, cap = 0.0
+        for d in m.deployments {
+            guard let a = HardwareCatalog.get(d.accelID) else { continue }
+            cost += chipDailyCost(a, count: d.chips, state: s)
+            cap += Physics.capacity(m, deployment: d, bonuses: b)
+        }
+        if cap <= 0 {
+            let a = pools(s).first?.accel ?? HardwareCatalog.h100
+            let replica = Deployment(accelID: a.id, chips: Physics.chipsPerReplica(m, accel: a, precision: m.servingPrecision, bonuses: b))
+            cost = chipDailyCost(a, count: replica.chips, state: s)
+            cap = Physics.capacity(m, deployment: replica, bonuses: b)
+        }
+        return cap > 0 ? cost / cap * 1e6 : 0
     }
 
     static func siteLoadKW(_ s: GameState, _ siteID: UUID) -> Double {

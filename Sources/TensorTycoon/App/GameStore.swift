@@ -18,6 +18,8 @@ struct Derived {
     var board: [Leaderboard.Entry] = []
     var entryByID: [String: Leaderboard.Entry] = [:]
     var rankByID: [String: Int] = [:]
+    /// Labs out of the race (acquired or bankrupt): they don't rank.
+    var gone: Set<String> = []
     var snapshot = MarketSnapshot()
     var runRate = 0.0
     var h100e = 0.0
@@ -36,6 +38,7 @@ struct Derived {
         benchmarks = s.benchmarks
         indexSet = BenchmarkCatalog.indexSet(benchmarks, date: s.date, saturated: s.benchSaturated)
         board = Leaderboard.entries(s, set: indexSet)
+        gone = Leaderboard.goneLabs(s)
         for (i, e) in board.enumerated() {
             entryByID[e.id] = e
             rankByID[e.id] = i + 1
@@ -52,7 +55,7 @@ struct Derived {
     func free(_ accelID: String) -> Int { poolByID[accelID]?.free ?? 0 }
     func rank(_ id: UUID) -> Int {
         guard let me = entryByID[id.uuidString] else { return board.count + 1 }
-        return board.filter { !$0.isPlayer && $0.released && $0.index > me.index }.count + 1
+        return Leaderboard.labRank(index: me.index, board: board, gone: gone)
     }
     func entry(_ id: UUID) -> Leaderboard.Entry? { entryByID[id.uuidString] }
 }
@@ -76,6 +79,8 @@ final class GameStore {
     var pauseReason: String?
     /// The era introduction, shown once when a new game starts.
     var showEraIntro = false
+    /// The ⌘K "Go to…" palette.
+    var showPalette = false
     var showRunReports = UserDefaults.standard.object(forKey: "showRunReports") as? Bool ?? true {
         didSet { UserDefaults.standard.set(showRunReports, forKey: "showRunReports") }
     }
@@ -95,6 +100,10 @@ final class GameStore {
         ("Paused", 0), ("1×", 1.5), ("2×", 4), ("4×", 10), ("Fast", 30), ("Turbo", 90),
     ]
     static let frameInterval = 0.1
+
+    /// How often the UI gets a new state. At Fast and Turbo several days pass per frame anyway, so publishing
+    /// 4–5 times a second instead of 10 halves the rendering work without slowing the game.
+    static func publishInterval(_ speed: Int) -> Double { speed >= 5 ? 0.25 : (speed == 4 ? 0.2 : frameInterval) }
 
     // MARK: Derived data
 
@@ -135,7 +144,7 @@ final class GameStore {
         dayDebt = 0
         if s == 0 { save() }
         guard s > 0, state?.gameOver == nil else { return }
-        timer = Timer.scheduledTimer(withTimeInterval: Self.frameInterval, repeats: true) { [weak self] _ in
+        timer = Timer.scheduledTimer(withTimeInterval: Self.publishInterval(s), repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
         }
     }
@@ -144,7 +153,7 @@ final class GameStore {
 
     func tick() {
         guard state != nil, speed > 0 else { return }
-        dayDebt += Self.speeds[speed].daysPerSecond * Self.frameInterval
+        dayDebt += Self.speeds[speed].daysPerSecond * Self.publishInterval(speed)
         let days = Int(dayDebt)
         guard days > 0 else { return }
         dayDebt -= Double(days)

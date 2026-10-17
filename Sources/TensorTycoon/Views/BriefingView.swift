@@ -65,7 +65,6 @@ struct BriefingCard: View {
 
 struct BriefingSheet: View {
     @Environment(GameStore.self) private var store
-    @Environment(\.dismiss) private var dismiss
     let id: UUID
     @State private var current: UUID?
 
@@ -144,6 +143,5 @@ struct BriefingSheet: View {
 
     private func close() {
         store.briefingID = nil
-        dismiss()
     }
 }

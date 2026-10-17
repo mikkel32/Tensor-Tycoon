@@ -6,6 +6,7 @@ struct FundingView: View {
     @State private var fraction = 0.15
     @State private var secondary = 0.05
     @State private var founderSale = 0.05
+    @State private var confirmSale = false
 
     var body: some View {
         let s = store.game
@@ -57,11 +58,18 @@ struct FundingView: View {
                     }
                     .chartYScale(domain: .automatic(includesZero: false))
                     .frame(height: 220)
-                    HStack {
-                        Text("Secondary offering")
-                        Slider(value: $secondary, in: 0.01...0.15)
-                        Text("\(Fmt.pct(secondary, decimals: 0)) new shares ≈ \(Fmt.money(s.totalShares * secondary * s.sharePrice * 0.95))").font(.callout.monospacedDigit())
-                        Button("Issue") { store.act("Shares issued") { $0.secondaryOffering(fraction: secondary) } }
+                    let cap = s.maxOfferingFraction
+                    if let why = s.offeringBlocker {
+                        Label(why, systemImage: "clock").font(.callout).foregroundStyle(.secondary)
+                    } else {
+                        HStack {
+                            Text("Secondary offering")
+                            Slider(value: Binding(get: { min(secondary, cap) }, set: { secondary = $0 }), in: 0.005...max(0.006, cap))
+                            Text("\(Fmt.pct(min(secondary, cap), decimals: 1)) new shares ≈ \(Fmt.money(s.totalShares * min(secondary, cap) * s.sharePrice * 0.95))").font(.callout.monospacedDigit())
+                            Button("Issue") { store.act("Shares issued") { $0.secondaryOffering(fraction: min(secondary, cap)) } }
+                        }
+                        Text("Sold at a 5% discount; at most 20% new shares a year and one offering every 90 days. You can sell up to \(Fmt.pct(cap, decimals: 1)) now.")
+                            .font(.caption).foregroundStyle(.secondary)
                     }
                 }
             } else {
@@ -122,9 +130,17 @@ struct FundingView: View {
                     Slider(value: $founderSale, in: 0.01...0.25, step: 0.01)
                     Text("\(Fmt.pct(founderSale, decimals: 0)) of your shares").font(.callout.monospacedDigit()).frame(width: 150)
                     Text("≈ \(Fmt.money(gross * (1 - Treasury.capitalGainsTax))) after tax").font(.callout.monospacedDigit()).foregroundStyle(.green)
-                    Button("Sell shares") { store.act("Shares sold") { $0.sellFounderShares(fraction: founderSale) } }
+                    Button("Sell shares…") { confirmSale = true }
                         .buttonStyle(.borderedProminent)
                         .disabled(blocker != nil)
+                        .confirmationDialog("Sell \(Fmt.pct(founderSale, decimals: 0)) of your shares?", isPresented: $confirmSale, titleVisibility: .visible) {
+                            Button("Sell for \(Fmt.money(gross * (1 - Treasury.capitalGainsTax))) after tax") {
+                                store.act("Shares sold") { $0.sellFounderShares(fraction: founderSale) }
+                            }
+                            Button("Cancel", role: .cancel) {}
+                        } message: {
+                            Text("Your stake falls from \(Fmt.pct(s.founderStake, decimals: 1)) to about \(Fmt.pct(s.founderStake * (1 - founderSale), decimals: 1)). Below 50% you no longer control the board.")
+                        }
                 }
                 Text(blocker ?? "\(s.isPublic ? "Sold into the market at" : "Secondary buyers pay") \(Fmt.price(price))/share\(s.isPublic ? " (the stock dips a little)" : " — a 15% discount to the last mark")). One sale every six months; over 10% at once spooks the press.")
                     .font(.caption).foregroundStyle(.secondary)

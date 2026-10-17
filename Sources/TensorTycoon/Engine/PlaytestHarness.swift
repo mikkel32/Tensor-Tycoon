@@ -299,6 +299,7 @@ enum PTPlay {
         sum.importantAvg = rows.isEmpty ? 0 : Double(rows.reduce(0) { $0 + $1.important }) / Double(rows.count)
 
         if mode != "quiet" { printGame(rows, sum, bot, s, mode: mode) }
+        lastState = s
         return sum
     }
 
@@ -498,12 +499,16 @@ enum PTPlay {
         let mfu = Physics.mfu(accel: a, chips: chips, state: s, bonuses: b)
         let g = Physics.goodput(chips: chips, state: s, bonuses: b)
         let perDay = Double(chips) * a.trainTFLOPS(d.precision) * 1e12 * mfu * g * 86_400
-        size(&d, flops: perDay * days / (1 + post), overtrain: d.isMoE ? 2 : 1, accel: a, bonuses: b)
+        // Sized with the engine's Model Lab rule (parameter/token caps). Mid-training shift mirrors the old popup answer.
+        d.mixShift = b.has(.curriculum) ? (s.year >= 2024 ? .code : .stem) : .keep
+        LabMath.size(&d, flops: perDay * days / (1 + post), overtrain: d.isMoE ? 2 : 1, accel: a, state: s)
         return d
     }
 
     /// Money a sensible player would put into the next run: 40% of cash, keeping six months of net burn in reserve.
     static var cautiousFlag = false
+    /// The final state of the last game played (for probes).
+    static var lastState: GameState?
 
     static func trainingBudget(_ s: GameState) -> Double {
         let rr = Economy.runRate(s)

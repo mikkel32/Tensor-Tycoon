@@ -356,6 +356,8 @@ enum RivalStrategy {
         let c = s.competitors[i]
         let amount = clamp(c.valuation * 0.08, 5e8, 5e10)
         let giant = ["a cloud giant", "a chip giant", "a sovereign cloud", "a hyperscaler"][Int(RivalIntel.unit("\(c.id)|ally|\(s.date.ym.year)") * 4) % 4]
+        // New money dilutes anyone already holding a stake, you included.
+        RivalEconomy.dilute(&s, i, amount: amount, post: 0)
         s.competitors[i].rounds.append(RivalRound(date: s.date, label: "Compute alliance", amount: amount, postMoney: 0, lead: giant, kind: .strategic))
         // The money arrives as cash its budget turns into compute over the next months.
         s.competitors[i].cash += amount

@@ -45,7 +45,7 @@ extension BalanceHarness {
             if delegates {
                 s.updateOps {
                     $0.autoscale = true; $0.autoLaunch = true; $0.autoRenew = true; $0.leaseIdle = true
-                    $0.autoHire = true; $0.autoRaises = true; $0.autoLeads = true
+                    $0.autoHire = true; $0.autoRaises = true; $0.autoLeads = true; $0.autoTrain = true
                 }
             }
             let comp = Operations.competence(s)
@@ -61,6 +61,8 @@ extension BalanceHarness {
             let rev = last.map(\.revenue).reduce(0, +) / Double(max(1, last.count))
             let served = last.map(\.served).reduce(0, +) / Double(max(1, last.count))
             let live = s.models.filter { $0.released && !$0.retired }
+            let trained = s.models.filter { !["Probe-1", "Probe-2"].contains($0.name) }.map { "\($0.name) c\(Fmt.trim($0.c, 2))" }
+            if delegates { print("  models the training delegate made: " + (trained.isEmpty ? "none" : trained.joined(separator: ", "))) }
             print("  \(delegates ? "delegates on " : "delegates off"): revenue \(Fmt.money(rev))/mo · served \(Fmt.pct(served, decimals: 0)) · cash \(Fmt.money(s.cash - cash0)) · "
                   + "staff \(s.employees.count) · contracts \(s.deals.filter(\.active).count) · live models \(live.map(\.name).joined(separator: ", ")) · pauses \(pauses)")
             if delegates {
