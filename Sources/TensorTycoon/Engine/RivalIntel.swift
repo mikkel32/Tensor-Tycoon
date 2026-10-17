@@ -233,6 +233,8 @@ enum RivalIntel {
         var outlook: RivalOutlook
         var threat: Threat
         var last: CompetitorModel?
+        var play: RivalPlay?
+        var playReason: String
     }
 
     /// Every active lab's next model, soonest rumoured launch first.
@@ -249,7 +251,7 @@ enum RivalIntel {
             }
             let def = s.competitors[i].def
             out.append(Row(id: def.id, lab: def.name, color: def.color, symbol: def.symbol, project: p, outlook: o, threat: threat,
-                           last: s.competitors[i].models.last))
+                           last: s.competitors[i].models.last, play: RivalStrategy.play(s.competitors[i]), playReason: s.competitors[i].playReason))
         }
         return out.sorted { $0.outlook.center < $1.outlook.center }
     }

@@ -689,6 +689,20 @@ struct CompetitorState: Codable, Identifiable, Hashable {
     @D var exitNote: String = ""
     /// 3.3: the run behind the lab's next release (Rival Watch).
     @D var project: RivalProject? = nil
+    // 3.3: strategy (RivalStrategy)
+    /// The play the lab is running (RivalPlay raw value), since when, and why.
+    @D var play: String = ""
+    @D var playSince: Date? = nil
+    @D var playReason: String = ""
+    @D var nextReview: Date? = nil
+    /// Recent plays, newest first.
+    @D var playLog: [String] = []
+    /// API share at each month end (last 12).
+    @D var shareHistory: [Double] = []
+    /// Open-weights side releases (a step behind the flagship).
+    @D var openModels: [CompetitorModel] = []
+    @D var raidCooldown: Date? = nil
+    @D var lastAlliance: Date? = nil
 
     var def: CompetitorDef { CompetitorCatalog.byID[id]! }
     var funding: Double { fundingFactor > 0 ? fundingFactor : 1 }

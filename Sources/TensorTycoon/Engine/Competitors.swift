@@ -189,7 +189,7 @@ enum Competitors {
             model.index = BenchmarkCatalog.index(Leaderboard.profile(model, def: def, boost: boost(s, def.id, at: s.year)), set: Leaderboard.indexSet(s))
             s.competitors[i].models.append(model)
             s.competitors[i].releaseCount += 1
-            let jitter = s.rng.range(0.8, 1.25) * (s.lawsPassed.contains("compute_licensing") ? 1.15 : 1)
+            let jitter = s.rng.range(0.8, 1.25) * (s.lawsPassed.contains("compute_licensing") ? 1.15 : 1) * RivalStrategy.cadence(s.competitors[i])
             s.competitors[i].nextRelease = nextReleaseDate(def, count: s.competitors[i].releaseCount, after: s.date, jitter: jitter)
             s.competitors[i].brand = min(100, s.competitors[i].brand + 2)
             let isTop = prevTopC < model.c
@@ -248,10 +248,11 @@ enum Competitors {
     static func monthly(_ s: inout GameState) {
         for i in s.competitors.indices { refreshFinancials(&s, i) }
         RivalEconomy.monthly(&s)
+        RivalStrategy.monthly(&s)
         // Price war: if you grab API share, rivals cut prices; otherwise they slowly restore them.
         // Labs in distress raise prices instead (RivalEconomy sets that).
         let playerShare = Market.snapshot(s).api.filter(\.isPlayer).reduce(0) { $0 + $1.share }
-        for i in s.competitors.indices where s.competitors[i].distressMonths == 0 {
+        for i in s.competitors.indices where s.competitors[i].distressMonths == 0 && !RivalStrategy.controlsPrice(s.competitors[i]) {
             let before = s.competitors[i].priceCut
             if playerShare > 0.08 {
                 s.competitors[i].priceCut = min(0.45, before + 0.03 * (playerShare / 0.08))

@@ -33,6 +33,49 @@ extension BalanceHarness {
             }
         }
         codeRedCheck()
+        strategyCheck()
+    }
+
+    /// You lead the world in 2027 with a strong research team: how do the rivals play against you?
+    static func strategyCheck() {
+        print("\n== Rival strategies against a leading lab (2027–2029) ==")
+        var (s, id) = frontierLab(year: 2027.0, chips: 150_000, seed: 72)
+        for k in 0..<10 {
+            s.employees.append(Employee(name: "Researcher \(k)", role: .researcher, skill: 80, salary: 900_000, hired: s.date))
+        }
+        if let i = s.models.firstIndex(where: { $0.id == id }) {
+            s.models[i].c += 0.45
+            s.models[i].index = BenchmarkCatalog.index(Leaderboard.profile(s.models[i]), set: Leaderboard.indexSet(s))
+            _ = s.deploy(id, accelID: Silicon.reference(s).id, chips: 60_000)
+        }
+        var kinds: [String: Int] = [:]
+        var sponsored = 0
+        var shares: [String] = []
+        for day in 0..<(365 * 2) {
+            Sim.advanceDay(&s)
+            for d in s.decisions {
+                kinds[d.kind, default: 0] += 1
+                if d.kind == "policy_bill", s.bills.contains(where: { $0.id == d.ref && !$0.sponsor.isEmpty }) { sponsored += 1 }
+                s.resolveDecision(d.id, option: d.kind == "talent_raid" ? 1 : (d.options.count - 1))
+            }
+            s.decisions.removeAll()
+            s.gameOver = nil
+            s.cash = max(s.cash, 1e10)
+            if day % 120 == 0 {
+                let snap = Market.snapshot(s)
+                let mine = snap.api.filter(\.isPlayer).reduce(0) { $0 + $1.share }
+                shares.append("\(s.date.gameMonth) \(Fmt.pct(mine, decimals: 0))")
+                if day % 240 == 0 {
+                    let top = snap.api.sorted { $0.share > $1.share }.prefix(5)
+                    print("    \(s.date.gameMonth) top API: " + top.map { "\($0.name) \(Fmt.pct($0.share, decimals: 0)) $\(Fmt.trim($0.price, 2)) c\(Fmt.trim($0.c - Macro.frontier(s.year), 2))" }.joined(separator: " · "))
+                }
+            }
+        }
+        print("  your API share: " + shares.joined(separator: " · ") + " · price pressure \(Fmt.trim(s.market.apiPricePressure, 2))")
+        print("  decisions: " + kinds.sorted { $0.key < $1.key }.map { "\($0.key) \($0.value)" }.joined(separator: " · ") + " · sponsored bills \(sponsored)")
+        for c in s.competitors where !c.playLog.isEmpty {
+            print("  \(c.def.name): " + c.playLog.prefix(4).reversed().joined(separator: " → "))
+        }
     }
 
     static func printOutlooks(_ s: GameState) {

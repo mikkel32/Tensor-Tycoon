@@ -71,8 +71,13 @@ enum Market {
             if y >= 2025.0 && m.reasoning && !m.open {
                 let x = Leaderboard.profile(m, def: def).agenticX
                 snap.agents.append(MarketProduct(id: "\(comp.id)-agent", lab: comp.id, labName: def.name, name: "\(def.chatProduct) Agent", c: x,
-                                                 price: def.id == "halcyon" ? 120 : 100, tps: m.tps, brand: comp.brand * (1 + def.codeBonus * 2),
+                                                 price: def.id == "halcyon" ? 120 : 100, tps: m.tps, brand: comp.brand * (1 + def.codeBonus * 2) * RivalStrategy.agentBoost(comp),
                                                  open: false, reasoning: true, isPlayer: false))
+            }
+            // Open-weights side releases stay on the market for two years.
+            if let o = comp.openModels.last, GameCalendar.daysBetween(o.date, s.date) < 730 {
+                snap.api.append(MarketProduct(id: "\(comp.id)-open", lab: comp.id, labName: def.name, name: o.name, c: o.c, price: o.price,
+                                              tps: o.tps, brand: comp.brand, open: true, reasoning: o.reasoning, isPlayer: false))
             }
             let launched = comp.id == "prometheus" ? chatOn : (chatOn && y >= def.firstModel.decimal + 0.2 && y >= 2023.0)
             if launched {

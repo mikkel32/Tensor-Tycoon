@@ -27,7 +27,7 @@ enum RivalEconomy {
         let consumer = snap.consumerUsersPool * c.consumerShare * Market.paidConversion(price: 20, freeTier: true) * 20
         let agents = snap.agentSeatsPool * c.agentShare * 100
         // Enterprises buy from the labs that earn the API money, not the ones with the cheapest tokens.
-        let enterprise = allAPI > 0 ? snap.enterprisePool / 12 * apiDay / allAPI * open : 0
+        let enterprise = allAPI > 0 ? snap.enterprisePool / 12 * apiDay / allAPI * open * RivalStrategy.enterpriseBoost(c) : 0
         return api + consumer + agents + enterprise
     }
 
@@ -158,7 +158,8 @@ enum RivalEconomy {
         }
         let compute = c.computeH100e * costPerH100eMonth(y)
         let payroll = Double(s.competitors[i].headcount) * Macro.salary(.researcher, y) / 12 * 1.6
-        let cost = compute + payroll + rev * 0.12
+        // A consumer blitz is mostly marketing.
+        let cost = compute + payroll + rev * (RivalStrategy.play(c) == .consumer ? 0.18 : 0.12)
         s.competitors[i].computeCostMonth = compute
         s.competitors[i].costMonth = cost
         guard parent(c, s) == nil else { return }

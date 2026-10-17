@@ -20,6 +20,13 @@ extension BalanceHarness {
         print("  procedural rounds after Oct 2026: \(after.count) · IPOs: \(after.filter { $0.1.kind == .ipo }.map(\.0).joined(separator: ", ")) · down/rescue rounds: \(after.filter { $0.1.label == "Down round" || $0.1.kind == .rescue }.count)")
         print("  exits: " + (s.competitors.filter { !$0.exitNote.isEmpty }.map { "\($0.def.name): \($0.exitNote)" }.joined(separator: " · ").isEmpty ? "none" : s.competitors.filter { !$0.exitNote.isEmpty }.map { "\($0.def.name): \($0.exitNote)" }.joined(separator: " · ")))
         print("  corrections: \(s.lastCorrection.map { "last \($0.gameShort)" } ?? "none")")
+        print("\n== Rival strategies 2017–2033 ==")
+        for c in s.competitors where !c.playLog.isEmpty {
+            print("  \(c.def.name): now \(RivalStrategy.play(c)?.title ?? "—")\(c.exitNote.isEmpty ? "" : " (\(c.exitNote))")")
+            for line in c.playLog.reversed() { print("      \(line)") }
+        }
+        let opens = s.competitors.flatMap(\.openModels)
+        print("  open-weights side releases: \(opens.count) · sponsored bills passed or failed: \(s.lawsPassed.count + s.lawsFailed.count) · API price pressure \(Fmt.trim(s.market.apiPricePressure, 2))")
         investorCheck()
     }
 

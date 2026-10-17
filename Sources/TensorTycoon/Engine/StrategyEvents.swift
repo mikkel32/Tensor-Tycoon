@@ -265,7 +265,14 @@ enum StrategyEvents {
         case ("talent_raid", _):
             let top = s.employees.filter { $0.role == .researcher }.sorted { $0.skill > $1.skill }.prefix(3).map(\.id)
             s.employees.removeAll { top.contains($0.id) }
-            if let i = s.competitors.firstIndex(where: { $0.id == d.ref }) { s.competitors[i].brand = min(100, s.competitors[i].brand + 3) }
+            if let i = s.competitors.firstIndex(where: { $0.id == d.ref }) {
+                s.competitors[i].brand = min(100, s.competitors[i].brand + 3)
+                // Your people know your recipes: the raider's next model gets better.
+                if var p = s.competitors[i].project, p.procedural {
+                    p.cAdjust += 0.02
+                    s.competitors[i].project = p
+                }
+            }
             Sim.news(&s, "Three researchers defect", "Your best people left for a rival.", .company, important: true, good: false)
         default:
             break

@@ -83,7 +83,7 @@ enum Leaderboard {
         out.reserveCapacity(120)
         for comp in s.competitors {
             let def = comp.def
-            for m in comp.models {
+            for m in comp.models + comp.openModels {
                 let p = profile(m, def: def, boost: Competitors.boost(s, comp.id, at: m.date.decimalYear))
                 out.append(Entry(id: m.id.uuidString, lab: def.name, labID: comp.id, model: m.name, date: m.date, c: m.c, profile: p,
                                  index: BenchmarkCatalog.index(p, set: set), arena: competitorArena(m),
@@ -123,7 +123,7 @@ enum BenchLife {
     static func contenders(_ s: GameState, until date: Date? = nil) -> [Contender] {
         var out: [Contender] = []
         for comp in s.competitors {
-            for m in comp.models where date == nil || m.date <= date! {
+            for m in comp.models + comp.openModels where date == nil || m.date <= date! {
                 out.append(Contender(name: m.name, lab: comp.def.name, isPlayer: false, date: m.date,
                                      profile: Leaderboard.profile(m, def: comp.def, boost: Competitors.boost(s, comp.id, at: m.date.decimalYear))))
             }

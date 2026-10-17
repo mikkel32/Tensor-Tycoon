@@ -26,6 +26,7 @@ struct RivalWatchView: View {
                          symbol: "binoculars.fill", tint: .teal)
             }
             ReleaseRadarCard(rows: rows, state: s)
+            StrategyBoardCard(state: s)
             HStack(alignment: .top, spacing: 16) {
                 ForecastChartCard(rows: rows, mine: mine, next: next, today: s.date)
                 IntelDeskCard(state: s, rows: rows)
@@ -336,6 +337,56 @@ private struct Legend: View {
     }
 }
 
+// MARK: - Strategies
+
+/// What each lab is trying to do right now, and why.
+private struct StrategyBoardCard: View {
+    let state: GameState
+    @State private var expanded: String?
+
+    var body: some View {
+        let s = state
+        let labs = s.competitors.filter { RivalStrategy.isActive($0, s) && !$0.play.isEmpty }
+        Card {
+            CardHeader("What the labs are playing at", symbol: "brain.head.profile",
+                       subtitle: "Every few months each lab reads its position — gap to the leader, share, cash, your lead — and picks a strategy")
+            if labs.isEmpty {
+                Text("Strategies start once there's a market to fight over (late 2022).").font(.callout).foregroundStyle(.secondary)
+            }
+            ForEach(labs) { c in
+                let play = RivalStrategy.play(c)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 8) {
+                        Circle().fill(Theme.competitorColor(c.def.color)).frame(width: 9, height: 9)
+                        Text(c.def.name).font(.callout.weight(.semibold)).frame(width: 170, alignment: .leading)
+                        if let play {
+                            Label(play.title, systemImage: play.symbol)
+                                .font(.callout.weight(.semibold))
+                                .foregroundStyle(play.threat >= 2 ? .red : (play.threat == 1 ? .orange : .secondary))
+                        }
+                        Spacer()
+                        if let since = c.playSince { Text("since \(since.gameMonth)").font(.caption).foregroundStyle(.tertiary) }
+                        Button(expanded == c.id ? "Hide history" : "History") { expanded = expanded == c.id ? nil : c.id }
+                            .buttonStyle(.borderless).font(.caption)
+                    }
+                    Text("\(c.playReason)\(play.map { " \($0.effect)" } ?? "")").font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.leading, 17)
+                    if expanded == c.id {
+                        VStack(alignment: .leading, spacing: 2) {
+                            ForEach(Array(c.playLog.enumerated()), id: \.offset) { _, line in
+                                Text(line).font(.caption2).foregroundStyle(.secondary)
+                            }
+                        }
+                        .padding(.leading, 17)
+                    }
+                }
+                if c.id != labs.last?.id { Divider() }
+            }
+        }
+    }
+}
+
 // MARK: - Forecast chart
 
 private struct ForecastChartCard: View {
@@ -486,6 +537,17 @@ private struct RivalRunCard: View {
                 WatchMini(label: "Site", value: known ? p.site : "unknown")
                 WatchMini(label: "Training since", value: known ? p.started.gameMonth : "—")
                 WatchMini(label: "vs your largest run", value: known && s.maxRunCompute > 0 ? "\(Fmt.trim(p.flops / s.maxRunCompute, p.flops > 10 * s.maxRunCompute ? 0 : 1))×" : "—")
+            }
+            if let play = row.play {
+                VStack(alignment: .leading, spacing: 3) {
+                    Label("Strategy: \(play.title)", systemImage: play.symbol)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(play.threat >= 2 ? .red : (play.threat == 1 ? .orange : .secondary))
+                    Text(row.playReason).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.quaternary.opacity(0.3), in: .rect(cornerRadius: 8))
             }
             if let last = row.last {
                 Text("Last release: \(last.name), \(last.date.gameMonth) · index \(Fmt.score(last.index))")

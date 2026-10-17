@@ -260,6 +260,8 @@ enum Business {
         let quality = exp(1.2 * (best.c - frontier))
         var p = clamp(0.15 + sales * 0.12 + s.brand / 300, 0, 0.9) * (1 + b.enterpriseDemand) * max(0.3, 1 + s.traits.enterprise)
         if s.lawsPassed.contains("liability") { p *= clamp(1 + (s.safetyScore - 50) / 150, 0.6, 1.4) }
+        // Rivals running enterprise pushes win some of the deals that would have come to you.
+        p *= RivalStrategy.playerDealFactor(s)
         let n = s.rng.chance(p) ? (s.rng.chance(p * 0.5) ? 2 : 1) : 0
         for _ in 0..<n {
             let size = Macro.marketSize(s.year) * Macro.segmentSplit(s.year, chatMoment: s.chatMoment != nil).enterprise

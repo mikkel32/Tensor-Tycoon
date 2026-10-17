@@ -77,6 +77,15 @@ private struct CompetitorCard: View {
                 Label("Signature: \(trait.signature)", systemImage: "seal.fill")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(color)
+                if let play = RivalStrategy.play(comp) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Label("Strategy: \(play.title)\(comp.playSince.map { " since \($0.gameMonth)" } ?? "")", systemImage: play.symbol)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(play.threat >= 2 ? .red : (play.threat == 1 ? .orange : .secondary))
+                        Text("\(comp.playReason) \(play.effect)").font(.caption).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
                 let armed = Xeno.rivalC(s, comp.id, at: s.date)
                 if armed > 0.005 {
                     Label("Running on your tech: +\(Fmt.trim(armed, 2)) capability from chips and licenses you sold them", systemImage: "exclamationmark.triangle.fill")
