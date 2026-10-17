@@ -1,7 +1,7 @@
 import Foundation
 
 enum Screen: String, CaseIterable, Identifiable, Hashable {
-    case dashboard, operations, strategy, security, lab, training, models, leaderboard, rivalWatch, benchmarks, rsi, swarms, xeno
+    case dashboard, operations, strategy, security, lab, training, models, leaderboard, rivals, rivalWatch, benchmarks, rsi, swarms, xeno
     case hardware, partners, compute, datacenters, silicon
     case research, team, data
     case market, industry, chipSales, competitors, finance, funding
@@ -19,6 +19,7 @@ enum Screen: String, CaseIterable, Identifiable, Hashable {
         case .training: "Training Runs"
         case .models: "Models & Serving"
         case .leaderboard: "Leaderboard"
+        case .rivals: "Rivals"
         case .rivalWatch: "Rival Watch"
         case .benchmarks: "Benchmarks"
         case .rsi: "Self-Improvement Lab"
@@ -35,7 +36,7 @@ enum Screen: String, CaseIterable, Identifiable, Hashable {
         case .market: "Market & Products"
         case .industry: "AI Industry"
         case .chipSales: "Chip & Cloud Sales"
-        case .competitors: "Competitors"
+        case .competitors: "Rival Labs"
         case .finance: "Finance"
         case .funding: "Funding & Equity"
         case .news: "News"
@@ -54,6 +55,7 @@ enum Screen: String, CaseIterable, Identifiable, Hashable {
         case .training: "chart.line.downtrend.xyaxis"
         case .models: "cube.box.fill"
         case .leaderboard: "trophy.fill"
+        case .rivals: "flag.2.crossed.fill"
         case .rivalWatch: "binoculars.fill"
         case .benchmarks: "checklist.checked"
         case .rsi: "arrow.triangle.2.circlepath.circle.fill"
@@ -70,7 +72,7 @@ enum Screen: String, CaseIterable, Identifiable, Hashable {
         case .market: "chart.pie.fill"
         case .industry: "building.columns.circle.fill"
         case .chipSales: "shippingbox.fill"
-        case .competitors: "flag.2.crossed.fill"
+        case .competitors: "building.2.fill"
         case .finance: "dollarsign.circle.fill"
         case .funding: "banknote.fill"
         case .news: "newspaper.fill"
@@ -79,13 +81,15 @@ enum Screen: String, CaseIterable, Identifiable, Hashable {
         }
     }
 
+    /// The sidebar. The Rivals hub has one entry; `.competitors`, `.rivalWatch` and `.industry` open its Labs, Watch and
+    /// Industry tabs (links from alerts, briefings and the Chief of Staff still use them).
     static let sections: [(String, [Screen])] = [
         ("Company", [.dashboard, .operations, .strategy, .security, .news]),
         ("Build AI", [.lab, .training, .models, .rsi, .swarms, .xeno]),
-        ("Evaluate", [.leaderboard, .rivalWatch, .benchmarks]),
+        ("Evaluate", [.leaderboard, .rivals, .benchmarks]),
         ("Infrastructure", [.hardware, .partners, .compute, .datacenters, .silicon]),
         ("R&D", [.research, .team, .data]),
-        ("Business", [.market, .industry, .chipSales, .competitors, .finance, .funding]),
+        ("Business", [.market, .chipSales, .finance, .funding]),
         ("More", [.achievements, .credits]),
     ]
 }

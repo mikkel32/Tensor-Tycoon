@@ -712,8 +712,23 @@ struct CompetitorState: Codable, Identifiable, Hashable {
     @D var openModels: [CompetitorModel] = []
     @D var raidCooldown: Date? = nil
     @D var lastAlliance: Date? = nil
+    // 3.4: lifecycle (RivalLifecycle)
+    /// People trouble — layoffs, a down round, a lost race, a takeover. Makes researchers leave to found spin-outs; fades monthly.
+    @D var turmoil: Double = 0
+    /// The compute the lab has contracted (H100e), which its budget moves month by month (0 in old saves).
+    @D var computePlan: Double = 0
+    /// Capability its current run loses for want of compute, and the release it applies to.
+    @D var runShortfall: Double = 0
+    @D var runShortfallFor: Int = 0
+    /// Who bought it: a lab ID, "player", or empty for an outside buyer.
+    @D var acquiredBy: String = ""
+    @D var exitDate: Date? = nil
 
-    var def: CompetitorDef { CompetitorCatalog.byID[id]! }
+    var def: CompetitorDef { CompetitorCatalog.def(id) }
+    /// Set for labs founded during the game.
+    var spec: CustomLabSpec? { CompetitorCatalog.spec(id) }
+    /// Still in business (founded, not bought, not bankrupt).
+    var alive: Bool { !acquired && !bankrupt && exitNote.isEmpty }
     var funding: Double { fundingFactor > 0 ? fundingFactor : 1 }
     var lastRound: RivalRound? { rounds.last { $0.postMoney > 0 } }
     var latest: CompetitorModel? { models.last }
@@ -1063,6 +1078,15 @@ struct GameState: Codable {
     /// Decision kind → the option to pick automatically, and its label when it was chosen.
     @D var standingAnswers: [String: Int] = [:]
     @D var standingLabels: [String: String] = [:]
+    // 3.4: rival lifecycle
+    /// Labs founded during the game (spin-outs, national labs, startups), registered with CompetitorCatalog on load.
+    @D var customLabs: [CustomLabSpec] = []
+    /// Foundings, takeovers, mergers, listings, failures and raids, newest first.
+    @D var rivalEvents: [RivalEvent] = []
+    /// Rival takeovers waiting on your right of first refusal.
+    @D var pendingDeals: [RivalDeal] = []
+    /// Keys the lifecycle's hashed rolls to this game (set once, from the RNG's state, without drawing from it).
+    @D var lifecycleSalt: String = ""
 
     var totalShares: Double {
         founderShares + employeePoolShares + publicShares + holdings.reduce(0) { $0 + $1.shares }

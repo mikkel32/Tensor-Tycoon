@@ -24,7 +24,7 @@ enum Competitors {
         case "dragonlake": LabTrait(signature: "MLA + FP8 + fine-grained MoE efficiency stack", reasoning: 0.05, lang: 0.1, safety: -15, audio: false)
         case "sirocco": LabTrait(signature: "Compact multilingual models", lang: 0.25, safety: -5, audio: false)
         case "aletheia": LabTrait(signature: "Straight-shot superintelligence research", reasoning: 0.1, agent: 0.05, safety: 10, audio: false)
-        default: LabTrait(signature: "")
+        default: CompetitorCatalog.spec(id)?.trait ?? LabTrait(signature: "")
         }
     }
 

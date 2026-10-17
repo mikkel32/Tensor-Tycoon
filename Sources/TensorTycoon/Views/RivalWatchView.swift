@@ -1,9 +1,11 @@
 import Charts
 import SwiftUI
 
-/// Rival Watch: who is training what, when it ships and how good it will be — as far as the rumour mill can tell.
-struct RivalWatchView: View {
+/// Rival Watch, the Rivals hub's Watch tab: who is training what, when it ships and how good it will be — as far as the
+/// rumour mill can tell. Reads the store's cached rows (`derived.watch`).
+struct RivalWatchTab: View {
     @Environment(GameStore.self) private var store
+    let open: (String) -> Void
 
     var body: some View {
         let s = store.game
@@ -12,7 +14,7 @@ struct RivalWatchView: View {
         let mine = RivalIntel.playerBest(s, set: set)
         let next = RivalIntel.playerNext(s)
         let q = RivalIntel.quality(s)
-        Page(title: "Rival Watch", subtitle: "Every lab's next frontier run as the rumour mill sees it: the cluster, the progress, a launch window that narrows as the date nears and a capability forecast against your own models. Better intel sharpens every number.") {
+        VStack(alignment: .leading, spacing: 18) {
             WatchHero(rows: rows, mine: mine)
             HStack(spacing: 12) {
                 StatTile(title: "In pre-training", value: "\(rows.filter { $0.outlook.phase == .pretraining }.count) of \(rows.count) labs",
@@ -26,7 +28,7 @@ struct RivalWatchView: View {
                          symbol: "binoculars.fill", tint: .teal)
             }
             ReleaseRadarCard(rows: rows, state: s)
-            StrategyBoardCard(state: s)
+            StrategyBoardCard(state: s, open: open)
             HStack(alignment: .top, spacing: 16) {
                 ForecastChartCard(rows: rows, mine: mine, next: next, today: s.date)
                 IntelDeskCard(state: s, rows: rows)
@@ -39,7 +41,7 @@ struct RivalWatchView: View {
                 }
             } else {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 430), spacing: 14)], spacing: 14) {
-                    ForEach(rows) { r in RivalRunCard(row: r, state: s) }
+                    ForEach(rows) { r in RivalRunCard(row: r, state: s, open: open) }
                 }
             }
             HStack(alignment: .top, spacing: 16) {
@@ -52,6 +54,11 @@ struct RivalWatchView: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
+}
+
+/// Kept for links and helpers: opens the Rivals hub on its Watch tab.
+struct RivalWatchView: View {
+    var body: some View { RivalsHubView(tab: .watch) }
 
     static func threatColor(_ t: RivalIntel.Threat) -> Color {
         switch t {
@@ -342,6 +349,7 @@ private struct Legend: View {
 /// What each lab is trying to do right now, and why.
 private struct StrategyBoardCard: View {
     let state: GameState
+    let open: (String) -> Void
     @State private var expanded: String?
 
     var body: some View {
@@ -358,7 +366,11 @@ private struct StrategyBoardCard: View {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 8) {
                         Circle().fill(Theme.competitorColor(c.def.color)).frame(width: 9, height: 9)
-                        Text(c.def.name).font(.callout.weight(.semibold)).frame(width: 170, alignment: .leading)
+                        Button(c.def.name) { open(c.id) }
+                            .buttonStyle(.plain)
+                            .font(.callout.weight(.semibold))
+                            .frame(width: 170, alignment: .leading)
+                            .help("Open \(c.def.name)'s profile")
                         if let play {
                             Label(play.title, systemImage: play.symbol)
                                 .font(.callout.weight(.semibold))
@@ -494,6 +506,7 @@ private struct IntelDeskCard: View {
 private struct RivalRunCard: View {
     let row: RivalIntel.Row
     let state: GameState
+    let open: (String) -> Void
 
     var body: some View {
         let s = state
@@ -549,9 +562,15 @@ private struct RivalRunCard: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(.quaternary.opacity(0.3), in: .rect(cornerRadius: 8))
             }
-            if let last = row.last {
-                Text("Last release: \(last.name), \(last.date.gameMonth) · index \(Fmt.score(last.index))")
-                    .font(.caption).foregroundStyle(.tertiary)
+            HStack {
+                if let last = row.last {
+                    Text("Last release: \(last.name), \(last.date.gameMonth) · index \(Fmt.score(last.index))")
+                        .font(.caption).foregroundStyle(.tertiary)
+                }
+                Spacer()
+                Button("\(row.lab) profile") { open(row.id) }
+                    .buttonStyle(.link)
+                    .font(.caption)
             }
         }
     }
