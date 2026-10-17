@@ -281,6 +281,26 @@ enum Economy {
         return (rent(a, s) ?? 0) * 24 * Double(count)
     }
 
+    /// What serving 1M tokens of this model costs you at full load (the "Serving cost / 1M" on the Models page):
+    /// its chips' daily cost — rent, or power plus amortisation — over their daily token capacity.
+    /// A model with no chips yet is costed on one replica of your most plentiful accelerator.
+    static func servingCostPerM(_ m: AIModel, _ s: GameState, bonuses: ResearchBonuses? = nil) -> Double {
+        let b = bonuses ?? s.bonuses
+        var cost = 0.0, cap = 0.0
+        for d in m.deployments {
+            guard let a = HardwareCatalog.get(d.accelID) else { continue }
+            cost += chipDailyCost(a, count: d.chips, state: s)
+            cap += Physics.capacity(m, deployment: d, bonuses: b)
+        }
+        if cap <= 0 {
+            let a = pools(s).first?.accel ?? HardwareCatalog.h100
+            let replica = Deployment(accelID: a.id, chips: Physics.chipsPerReplica(m, accel: a, precision: m.servingPrecision, bonuses: b))
+            cost = chipDailyCost(a, count: replica.chips, state: s)
+            cap = Physics.capacity(m, deployment: replica, bonuses: b)
+        }
+        return cap > 0 ? cost / cap * 1e6 : 0
+    }
+
     static func siteLoadKW(_ s: GameState, _ siteID: UUID) -> Double {
         s.owned.filter { $0.siteID == siteID }.reduce(0) { acc, b in
             acc + (HardwareCatalog.get(b.accelID).map(chipKW) ?? 0) * Double(b.count)

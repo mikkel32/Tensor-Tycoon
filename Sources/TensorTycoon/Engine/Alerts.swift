@@ -172,6 +172,7 @@ enum Alerts {
         "distill_campaign": "Distillation campaigns against your API", "jailbreak": "Viral jailbreaks", "policy_bill": "New bills",
         "loss_spike": "Loss spikes in training", "contamination": "Benchmark contamination", "fault_storm": "Hardware fault storms",
         "train_bug": "Bugs found mid-run", "sycophancy": "Sycophancy after RLHF", "reward_hack": "Reward hacking in RL",
+        "trade_secret": "Trade-secret suits over researchers you hired",
     ]
 
     /// Answer decisions the player has a standing answer for (end of day, before the clock checks for urgent ones).

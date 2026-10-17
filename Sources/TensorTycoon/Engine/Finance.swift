@@ -280,18 +280,57 @@ enum Business {
             var monthly = size / 12 * s.rng.range(0.00002, 0.0004) * quality * (1 + sales * 0.05)
             monthly = max(monthly, 8_000)
             let months = [6, 12, 12, 24, 36][s.rng.int(0, 4)]
-            let price = max(best.apiPrice, 0.05)
+            // Clients size their token needs at the market rate for a near-frontier model, not at your price.
+            let price = max(0.05, Macro.referencePrice(c: frontier - 0.3, y: s.year) * s.market.apiPricePressure)
             let tokens = monthly / 30.4 / price * 1e6 * s.rng.range(0.4, 0.9)
             let titles = s.year < 2022 ? ["custom NLP model", "document classification", "translation pipeline", "search ranking", "chatbot pilot"]
                                        : ["customer-support agents", "coding assistant rollout", "document intelligence", "internal copilot",
                                           "research assistant", "claims automation", "contract review", "voice agents"]
+            // The bar is set by what the market offers (85–100% of the best rival flagship), so some leads
+            // need a better model than you have.
             let deal = EnterpriseDeal(client: s.rng.pick(NameBank.clients), title: s.rng.pick(titles), monthly: monthly,
                                       tokensPerDay: tokens, months: months, monthsLeft: months,
-                                      minIndex: max(0, best.index - s.rng.range(0, 12)),
+                                      minIndex: marketBar(s, fallback: best.index) * s.rng.range(0.85, 1.0),
                                       minSafety: s.rng.range(20, 70), expires: GameCalendar.addDays(s.date, 30))
             s.deals.append(deal)
             Sim.news(&s, "Enterprise lead: \(deal.client)", "\(Fmt.money(monthly))/month for \(deal.title), \(months) months. Review it in Market.",
                      .market, important: false, good: true)
+        }
+    }
+
+    /// The Intelligence Index of the best rival flagship on the market (`fallback` if there is none).
+    static func marketBar(_ s: GameState, fallback: Double) -> Double {
+        s.competitors.filter { !$0.acquired }.compactMap { $0.latest?.index }.max() ?? fallback
+    }
+
+    /// Your best released model that meets a contract's bar (nil if none does).
+    static func qualifyingModel(_ d: EnterpriseDeal, _ s: GameState) -> AIModel? {
+        s.releasedModels.filter { $0.index + 0.01 >= d.minIndex }.max { $0.index < $1.index }
+    }
+
+    /// Contracts whose model is gone (retired, or never set) move to your best model that meets their bar.
+    /// If none does, they stay unserved and breach their SLA every day until the client walks.
+    static func rehomeDeals(_ s: inout GameState, from retired: UUID? = nil) {
+        var moved: [String] = [], stranded: [String] = []
+        for i in s.deals.indices where s.deals[i].active && s.deals[i].tokensPerDay > 0 {
+            let current = s.deals[i].modelID
+            let gone = current == nil || current == retired || !s.releasedModels.contains { $0.id == current }
+            guard gone else { continue }
+            if let m = qualifyingModel(s.deals[i], s) {
+                s.deals[i].modelID = m.id
+                moved.append("\(s.deals[i].client) → \(m.name)")
+            } else {
+                s.deals[i].modelID = nil
+                stranded.append(s.deals[i].client)
+            }
+        }
+        if !moved.isEmpty {
+            Sim.news(&s, "Contracts moved to another model", "\(moved.joined(separator: ", ")). Make sure it has the capacity.", .company)
+        }
+        if !stranded.isEmpty {
+            Sim.news(&s, "\(stranded.count) contract\(stranded.count == 1 ? " has" : "s have") no model good enough",
+                     "\(stranded.joined(separator: ", ")) need\(stranded.count == 1 ? "s" : "") a better model than you have released. They'll breach their SLA every day until you assign one in Market.",
+                     .company, important: true, good: false)
         }
     }
 }

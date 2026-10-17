@@ -209,9 +209,9 @@ private struct ModelCard: View {
                 }
                 if m.api {
                     Toggle(isOn: Binding(get: { m.autoPrice }, set: { v in store.mutate { $0.setAutoPrice(m.id, v) } })) {
-                        Text("Auto-price: track the market for this quality (\(Fmt.price(Treasury.targetPrice(m, s))) today)")
+                        Text("Auto-price: keep it 80–90% busy near the going rate (\(Fmt.price(Treasury.targetPrice(m, s))) today)")
                     }
-                    .help("Re-prices a little every day so an older model stays competitive as the frontier moves. Setting a price by hand turns it off.")
+                    .help("Re-prices a little every day: up when the model is swamped, down when it sits idle, within half to twice the going rate and never below serving cost. Setting a price by hand turns it off.")
                     HStack {
                         Text("API price $/1M tokens")
                         TextField("Price", text: $priceText)
@@ -221,7 +221,7 @@ private struct ModelCard: View {
                         Button("Set") { applyPrice(m) }
                     }
                     HStack(spacing: 12) {
-                        Text("Market rate for this quality: \(Fmt.price(ref))").font(.caption).foregroundStyle(.secondary)
+                        Text("Going rate \(Fmt.price(Treasury.marketPrice(m, s))) · serving cost \(Fmt.price(Economy.servingCostPerM(m, s)))").font(.caption).foregroundStyle(.secondary)
                         Button("Match market") { priceText = String(format: "%.3f", ref); applyPrice(m) }.buttonStyle(.link).font(.caption)
                         Button("Undercut 30%") { priceText = String(format: "%.3f", ref * 0.7); applyPrice(m) }.buttonStyle(.link).font(.caption)
                     }
@@ -233,8 +233,10 @@ private struct ModelCard: View {
 
     private func applyPrice(_ m: AIModel) {
         if let v = Double(priceText.replacingOccurrences(of: "$", with: "")), v > 0 {
-            store.mutate { $0.setAPIPrice(m.id, v) }
-            store.show("Price set to \(Fmt.price(v))/M tokens")
+            // Below serving cost the price is held at the floor and the reason is shown.
+            if store.act("Price set to \(Fmt.price(v))/M tokens", { $0.setAPIPrice(m.id, v) }) == false {
+                priceText = String(format: "%.3f", store.game.models.first { $0.id == m.id }?.apiPrice ?? v)
+            }
         }
     }
 }

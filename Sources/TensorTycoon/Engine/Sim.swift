@@ -25,7 +25,7 @@ enum Sim {
         SecurityOps.daily(&s)
         ResearchLab.daily(&s, b)
         XenoScience.daily(&s)
-        Treasury.autoPrice(&s)
+        Treasury.autoPrice(&s, b)
         dailyMarket(&s, b)
         ChipBusiness.daily(&s)
         dailyCosts(&s, Economy.pools(s))
@@ -79,6 +79,8 @@ enum Sim {
     static func historicalEvents(_ s: inout GameState) {
         for e in EventCatalog.historical where e.date <= s.date && !s.firedEvents.contains(e.id) {
             s.firedEvents.insert(e.id)
+            // History about a lab that has been bought, gone bust or left the market doesn't happen.
+            if let lab = e.lab, let c = s.competitors.first(where: { $0.id == lab }), c.acquired || c.bankrupt || !c.exitNote.isEmpty { continue }
             var important = false
             for eff in e.effects {
                 switch eff {
@@ -294,15 +296,23 @@ enum Sim {
 
         // Consumer
         var chatTokens = 0.0
+        // What rival apps earn per weekly user a month (RivalEconomy's assumption).
+        let rivalChatARPU = Market.paidConversion(price: 20, freeTier: true) * 20
         if let chat = snap.consumer.first(where: { $0.isPlayer }) {
             let target = chat.share * snap.consumerUsersPool
             let speed = s.year < 2022.91 ? 0.08 : 0.04
             var users = s.consumerUsers + (target - s.consumerUsers) * speed
-            if !s.freeTier { users = min(users, target * 0.06 * (20 / max(s.chatPrice, 1))) }
+            // Paying users follow the price against what the app is worth to them (chatWTP).
+            let wtp = Market.chatWTP(s)
+            if !s.freeTier { users = min(users, target * 0.06 * Market.wtpDemand(s.chatPrice / wtp)) }
             s.consumerUsers = max(0, users)
             s.consumerShare = chat.share
-            let conv = Market.paidConversion(price: s.chatPrice, freeTier: s.freeTier)
+            let conv = Market.paidConversion(price: s.chatPrice, freeTier: s.freeTier, wtp: wtp)
+            // Consumers' subscription budget is fixed (the consumer pool): if every app's subscribers together would
+            // outspend it, fewer of yours pay — you get your share of the pool, never more than all of it.
+            let others = (1 - chat.share) * snap.consumerUsersPool * rivalChatARPU / 30.4
             s.paidUsers = s.consumerUsers * conv
+                * Market.budgetFactor(s.consumerUsers * conv * s.chatPrice / 30.4, pool: snap.consumerRevenuePool, others: others)
             let reasoningMult = chat.reasoning ? 2.2 : 1
             chatTokens = s.consumerUsers * Macro.tokensPerUserDay(y) * reasoningMult
             if let id = chat.modelID { demand[id, default: 0] += chatTokens }
@@ -319,15 +329,24 @@ enum Sim {
             }
         } else {
             s.consumerUsers *= 0.97
-            s.paidUsers = s.consumerUsers * Market.paidConversion(price: s.chatPrice, freeTier: s.freeTier)
+            let conv = Market.paidConversion(price: s.chatPrice, freeTier: s.freeTier, wtp: Market.chatWTP(s))
+            s.paidUsers = s.consumerUsers * conv * Market.budgetFactor(s.consumerUsers * conv * s.chatPrice / 30.4, pool: snap.consumerRevenuePool,
+                                                                      others: snap.consumerUsersPool * rivalChatARPU / 30.4)
             s.consumerShare = 0
         }
 
         // Coding & computer-use agents (seat subscriptions)
         var agentModelID: UUID? = nil
+        var billedSeats = 0.0
         if let ag = snap.agents.first(where: { $0.isPlayer }) {
-            let target = ag.share * snap.agentSeatsPool
+            // Seat budgets are fixed too (the agent pool): at a price that would outspend it you sell fewer seats.
+            let othersSpend = (snap.agents.filter { !$0.isPlayer }.reduce(0) { $0 + $1.share * $1.price }
+                               + max(0, 1 - snap.agents.reduce(0) { $0 + $1.share }) * snap.agentSeatBudget) * snap.agentSeatsPool / 30.4
+            let natural = ag.share * snap.agentSeatsPool * max(1, s.agentPrice) / 30.4
+            let target = ag.share * snap.agentSeatsPool * Market.budgetFactor(natural, pool: snap.agentRevenuePool, others: othersSpend)
             s.agentSeats = max(0, s.agentSeats + (target - s.agentSeats) * 0.05)
+            // Seats take weeks to sign up or wind down, but only as many as your share supports at today's price pay it.
+            billedSeats = min(s.agentSeats, target)
             s.agentShare = ag.share
             agentModelID = ag.modelID
             if let id = ag.modelID { demand[id, default: 0] += s.agentSeats * Macro.tokensPerSeatDay(y) }
@@ -335,6 +354,13 @@ enum Sim {
         } else {
             s.agentSeats *= 0.95
             s.agentShare = 0
+            billedSeats = s.agentSeats
+        }
+
+        // Contracts with no model behind them (theirs was retired): move them to one that meets their bar,
+        // or they miss their SLA every day until the client walks.
+        for di in s.deals.indices where s.deals[di].active && s.deals[di].modelID == nil && s.deals[di].tokensPerDay > 0 {
+            if let m = Business.qualifyingModel(s.deals[di], s) { s.deals[di].modelID = m.id } else { s.deals[di].breaches += 1 }
         }
 
         // Enterprise token commitments
@@ -381,8 +407,17 @@ enum Sim {
         s.reliability = clamp(s.reliability * 0.93 + overall * 0.07, 0.05, 1)
 
         let revConsumer = s.paidUsers * s.chatPrice / 30.4 * (0.5 + 0.5 * chatServed)
-        let revEnterprise = s.deals.filter(\.active).reduce(0) { $0 + $1.monthly } / 30.4
-        let revAgents = s.agentSeats * max(1, s.agentPrice) / 30.4 * (0.4 + 0.6 * agentServed)
+        // Enterprise budgets are fixed too: rivals win the enterprise pool in proportion to their API business
+        // (RivalEconomy); if your contracts plus theirs would outspend it, yours are squeezed to your share.
+        let contracts = s.deals.filter(\.active).reduce(0.0) { $0 + $1.monthly } / 30.4
+        var billedAPI = 0.0, rivalsBilled = 0.0
+        for p in snap.api {
+            billedAPI += p.share * p.price
+            if !p.isPlayer { rivalsBilled += p.share * p.price * (p.open ? 0.5 : 1) }
+        }
+        let rivalsEnterprise = billedAPI > 0 ? snap.enterprisePool / 365 * rivalsBilled / billedAPI : 0
+        let revEnterprise = contracts * Market.budgetFactor(contracts, pool: snap.enterprisePool / 365, others: rivalsEnterprise)
+        let revAgents = billedSeats * max(1, s.agentPrice) / 30.4 * (0.4 + 0.6 * agentServed)
         let total = revAPI + revConsumer + revEnterprise + revAgents
         s.month.revAgents += revAgents
         s.month.revAPI += revAPI
