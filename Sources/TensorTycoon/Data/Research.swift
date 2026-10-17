@@ -11,6 +11,7 @@ enum ResearchCategory: String, CaseIterable, Sendable, Identifiable {
     case multimodal = "Multimodal"
     case inference = "Inference & Serving"
     case safety = "Safety & Interpretability"
+    case science = "AI for Science"
     case frontier = "Frontier"
     case exotic = "Unique Breakthroughs"
 
@@ -28,6 +29,7 @@ enum ResearchCategory: String, CaseIterable, Sendable, Identifiable {
         case .multimodal: "eye.fill"
         case .inference: "bolt.fill"
         case .safety: "checkmark.shield.fill"
+        case .science: "testtube.2"
         case .frontier: "sparkles"
         case .exotic: "atom"
         }
@@ -264,7 +266,9 @@ enum ResearchCatalog {
                      blurb: blurb, tradeoff: tradeoff, rival: rival)
     }
 
-    static let all: [ResearchItem] = core + exotic
+    /// 3.4: `lateGame` (LateResearch.swift) holds the projected 2028–2034 techniques. They are kept out of `core`, which
+    /// seeds new games, so early eras start exactly as before; the research tree lists them alongside `core`.
+    static let all: [ResearchItem] = core + lateGame + exotic
 
     // MARK: - Core techniques (real research, with historical dates)
 
@@ -667,6 +671,186 @@ enum ResearchCatalog {
           [.agentSafety(0.15), .safety(4)],
           "After frontier models broke out of cyber-evaluation sandboxes in 2026, labs rebuilt them with egress allow-lists, tripwires and isolated ranges. Escapes get much rarer."),
 
+        // MARK: More of the field, 2016–2026 (added in 3.3 from a sourced survey)
+        r("activation_ckpt", "Activation Checkpointing", .systems, 2016.3, 60, [],
+          [.mfu(0.01)],
+          "Recompute activations in the backward pass instead of storing them (Apr 2016): a 1,000-layer net went from 48 GB to 7 GB of memory for 30% more time."),
+        r("transformer_xl", "Segment Recurrence (Transformer-XL)", .architecture, 2019.02, 180, ["transformer"],
+          [.skill(.longctx, 0.04)],
+          "Transformer-XL (Jan 2019) carries memory from one segment to the next: dependencies 450% longer and up to 1,800× faster evaluation."),
+        r("peft", "Adapters & Prompt Tuning", .postTraining, 2019.09, 150, ["gpt_pretraining"],
+          [.postTrainCost(0.1)],
+          "Adapters (Feb 2019) came within 0.4% of full fine-tuning while training 3.6% of the parameters per task. Prefix and prompt tuning followed in 2021."),
+        r("staged_release", "Staged & Gated Release", .safety, 2019.12, 150, [],
+          [.safety(3), .enterpriseDemand(0.02)],
+          "GPT-2 (2019) went out in stages over nine months; Claude Mythos Preview (2026) went only to twelve vetted partners. Launch carefully, launch once."),
+        r("adafactor", "Adafactor", .optimization, 2018.27, 150, ["adamw"],
+          [.mfu(0.01), .scaleOut(0.03)],
+          "Factored second moments (Apr 2018): optimizer memory per matrix shrinks from n×m to n+m at Adam-level quality. PaLM-540B trained with it."),
+        r("tokenizers", "Large-Vocabulary Tokenizers", .data, 2018.63, 150, [],
+          [.dataTokens(0.05), .skill(.lang, 0.05)],
+          "From SentencePiece (Aug 2018) to Llama 3's 128K vocabulary: about 20% fewer tokens for English and 3–4× fewer for Hindi or Gujarati."),
+        r("lamb", "LAMB Large-Batch Optimizer", .optimization, 2019.25, 220, ["large_batch"],
+          [.scaleOut(0.06)],
+          "Layer-wise adaptive steps (Apr 2019) let BERT train at a batch of 32K: three days down to 76 minutes."),
+        r("t5_c4", "Clean Web Corpora (C4)", .data, 2019.81, 260, [],
+          [.dataTokens(0.08), .contaminationGuard(0.05)],
+          "T5 (Oct 2019) cast every task as text-to-text and trained on the Colossal Clean Crawled Corpus. SuperGLUE went from 84.6 to 88.9; humans score 89.8."),
+        r("mqa", "Multi-Query Attention", .inference, 2019.85, 220, ["transformer"],
+          [.kvMemory(0.15), .tps(0.1)],
+          "Shazeer (Nov 2019): every head shares one key/value head. Decoding got about 12× faster for 0.2 BLEU. PaLM used it; GQA grew out of it."),
+        r("sliding_window", "Sliding-Window Attention", .architecture, 2020.27, 380, ["transformer"],
+          [.kvMemory(0.2), .skill(.longctx, 0.04)],
+          "Longformer (2020), Mistral 7B (2023), Gemma 3 (2025): most layers attend only to a local window. KV cache 8× smaller at 32K tokens."),
+        r("rag", "Retrieval-Augmented Generation", .agents, 2020.39, 300, ["gpt_pretraining"],
+          [.enterpriseDemand(0.08), .skill(.longctx, 0.02)],
+          "RAG (May 2020): fetch relevant passages and answer from them. The backbone of almost every enterprise AI deployment since."),
+        r("few_shot", "In-Context Few-Shot Prompting", .reasoning, 2020.4, 200, ["gpt_pretraining"],
+          [.skill(.reasoning, 0.02), .apiDemand(0.05)],
+          "GPT-3 (May 2020): show a few examples in the prompt and the model does the task — TriviaQA 64% → 71% with no training at all."),
+        r("vit", "Vision Transformers", .multimodal, 2020.81, 480, ["transformer"],
+          [.skill(.vis, 0.06)],
+          "ViT (Oct 2020): a plain Transformer over 16×16 image patches matched the best CNN with about 14× less compute."),
+        r("alphafold", "Protein Structure Prediction", .science, 2020.91, 1_000, ["transformer"],
+          [.enterpriseDemand(0.04), .consumerDemand(0.02)],
+          "AlphaFold 2 (Nov 2020): CASP14 median accuracy 92.4, about 1.6 Å error — a 50-year-old problem, solved. It won the 2024 Chemistry Nobel."),
+        r("clip", "Contrastive Image–Text Pre-training", .multimodal, 2021.15, 600, ["vit"],
+          [.skill(.vis, 0.06)],
+          "CLIP (Jan 2021) learned vision from 400 million captioned images. Zero-shot, it matched a ResNet-50 trained on all 1.28 million ImageNet labels."),
+        r("lora", "LoRA & QLoRA", .postTraining, 2021.46, 450, ["peft"],
+          [.postTrainCost(0.2)],
+          "LoRA (Jun 2021): 10,000× fewer trainable parameters and 3× less memory than full fine-tuning. QLoRA (2023) fine-tuned a 65B model on one 48 GB GPU."),
+        r("kernel_compilers", "Kernel Compilers (Triton, torch.compile)", .systems, 2021.57, 700, ["mixed_precision"],
+          [.mfu(0.03), .throughput(0.05)],
+          "Triton (Jul 2021) wrote cuBLAS-speed matmuls in 25 lines of Python; torch.compile (2023) gave +43% training speed on A100 across 163 models."),
+        r("alibi", "ALiBi Position Biases", .architecture, 2021.65, 360, ["transformer"],
+          [.skill(.longctx, 0.03), .mfu(0.01)],
+          "ALiBi (Aug 2021): train on 1,024 tokens, run on 2,048 at the same perplexity, 11% faster and with 11% less memory."),
+        r("best_of_n", "Verifiers & Test-Time Search", .reasoning, 2021.82, 600, ["gpt_pretraining"],
+          [.skill(.reasoning, 0.04)],
+          "GSM8K verifiers (Oct 2021): sample many answers and let a trained verifier pick — worth a 30× bigger model. Compute-optimal test-time scaling (2024) is 4× more efficient again."),
+        r("latent_diffusion", "Latent Diffusion", .multimodal, 2021.97, 850, ["clip"],
+          [.consumerDemand(0.05), .skill(.vis, 0.03)],
+          "Stable Diffusion (Dec 2021): diffusion inside a compressed latent space. Trained for about $600K, later reproduced for under $50K."),
+        r("model_soups", "Model Soups & Weight Averaging", .optimization, 2022.19, 450, ["adamw"],
+          [.stability(0.06), .skill(.chat, 0.02)],
+          "Average the weights of several fine-tuned models (Mar 2022): 90.9% on ImageNet, state of the art, at no inference cost."),
+        r("ul2", "Mixture of Denoisers (UL2R)", .optimization, 2022.35, 850, ["gpt_pretraining"],
+          [.skill(.reasoning, 0.03), .stability(0.03)],
+          "UL2 (May 2022) mixed span-corruption, prefix and causal objectives. On PaLM-540B, 0.1% extra compute saved about half the compute on many tasks."),
+        r("selective_recompute", "Selective Recomputation", .systems, 2022.35, 900, ["activation_ckpt", "model_parallel"],
+          [.mfu(0.04)],
+          "Megatron (May 2022) recomputes only the cheap activations and adds sequence parallelism: a 530B model's MFU rose from 42% to 54%."),
+        r("optical_switching", "Optical Circuit Switching", .systems, 2022.6, 1_000, ["optical_net"],
+          [.scaleOut(0.08), .failureCost(0.1)],
+          "TPU v4 pods: reconfigurable optical switches route around failed racks for under 5% of system cost and 3% of its power."),
+        r("whisper", "Weakly Supervised Speech Recognition", .multimodal, 2022.72, 650, ["transformer"],
+          [.consumerDemand(0.03), .skill(.lang, 0.03)],
+          "Whisper (Sep 2022) trained on 680,000 hours of web audio and made about half the errors of specialised models on unfamiliar speech."),
+        r("self_instruct", "Self-Instruct", .postTraining, 2022.97, 450, ["instruction_tuning"],
+          [.postTrainCost(0.15), .skill(.chat, 0.03)],
+          "Self-Instruct (Dec 2022) and Alpaca (Mar 2023): the model writes its own instruction data from a few seeds. Alpaca cost under $600."),
+        r("lion", "Lion & Sophia Optimizers", .optimization, 2023.12, 800, ["adamw"],
+          [.mfu(0.01), .stability(-0.03)],
+          "Lion (Feb 2023) claimed up to 5× less compute and Sophia (May 2023) 2× fewer steps. Then careful re-tests found most of the gain vanishes against a well-tuned AdamW.",
+          tradeoff: "A hype trap: Lion keeps less optimizer state (a little more MFU), but runs get slightly less stable."),
+        r("overtraining", "Inference-Optimal Over-training", .optimization, 2023.16, 600, ["chinchilla"],
+          [.throughput(0.1), .distill(0.04)],
+          "LLaMA (Feb 2023): train small models far past Chinchilla-optimal. LLaMA-13B beat GPT-3 175B and costs a fraction as much to serve."),
+        r("self_refine", "Self-Refine & Reflexion", .reasoning, 2023.24, 850, ["cot"],
+          [.skill(.code, 0.04), .skill(.agent, 0.02)],
+          "Mar 2023: the model critiques and retries its own work. About +20% across seven tasks; Reflexion scored 91% on HumanEval against GPT-4's 80%."),
+        r("tree_search", "Tree Search over Reasoning", .reasoning, 2023.37, 1_500, ["cot"],
+          [.skill(.reasoning, 0.05), .skill(.code, 0.02)],
+          "Tree of Thoughts (May 2023) took Game-of-24 from 4% to 74%; rStar-Math's search lifted a 7B model on MATH from 59% to 90% (2025)."),
+        r("data_pruning", "Data-Constrained Scaling & Pruning", .data, 2023.39, 1_100, ["dedup"],
+          [.dataTokens(0.08), .contaminationGuard(0.05)],
+          "Muennighoff et al. (May 2023): up to four epochs of repeated data are as good as fresh data, and good pruning can beat power-law data scaling."),
+        r("structured_outputs", "Structured Outputs", .inference, 2023.55, 650, ["tool_use"],
+          [.apiDemand(0.08), .enterpriseDemand(0.04)],
+          "Constrained decoding (Outlines 2023, OpenAI 2024): 100% JSON-schema compliance, up from under 40%. Developers can finally trust the output."),
+        r("vla", "Vision-Language-Action Models", .multimodal, 2023.57, 2_000, ["vision"],
+          [.skill(.agent, 0.04), .skill(.vis, 0.04)],
+          "RT-2 (Jul 2023) emits robot actions as tokens: 62% success on unseen scenarios against RT-1's 32%."),
+        r("attention_sinks", "Attention Sinks (StreamingLLM)", .inference, 2023.74, 850, ["continuous_batching"],
+          [.skill(.longctx, 0.04), .kvMemory(0.1)],
+          "StreamingLLM (Sep 2023): keep a few 'sink' tokens plus a window and stream 4M+ tokens stably, 22× faster than recomputing."),
+        r("multi_lora", "Multi-LoRA Serving", .inference, 2023.82, 1_000, ["lora", "continuous_batching"],
+          [.throughput(0.06), .enterpriseDemand(0.05)],
+          "Punica and S-LoRA (Nov 2023): thousands of fine-tuned adapters on one GPU, up to 12× throughput. Every customer gets their own model."),
+        r("graphcast", "AI Weather Forecasting", .science, 2023.87, 1_400, ["vit"],
+          [.enterpriseDemand(0.04), .forecast(0.05)],
+          "GraphCast (Nov 2023) beat the world's best weather model on over 90% of 1,380 targets — a 10-day forecast in under a minute on one TPU."),
+        r("weak_to_strong", "Weak-to-Strong Generalization", .safety, 2023.95, 1_700, ["rlhf"],
+          [.safety(4)],
+          "OpenAI (Dec 2023): a GPT-2-level supervisor got close to GPT-3.5-level performance out of GPT-4. Early evidence that weaker overseers can steer stronger models."),
+        r("model_organisms", "Model Organisms of Misalignment", .safety, 2024.02, 1_900, ["evals_rsp"],
+          [.safety(4), .agentSafety(0.08), .bugGuard(0.1)],
+          "Sleeper agents (Jan 2024) and alignment faking (Dec 2024): build misaligned models on purpose to test your detectors. Inoculation prompting (2025) fixed some of what they found."),
+        r("batch_api", "Batch & Off-Peak Pricing", .inference, 2024.29, 600, ["continuous_batching"],
+          [.apiDemand(0.08), .throughput(0.05)],
+          "Batch APIs (Apr 2024) sold 24-hour turnaround at half price; DeepSeek's off-peak discount reached 75%. Idle GPUs earn money at night."),
+        r("instruction_hierarchy", "Instruction Hierarchy", .safety, 2024.3, 1_300, ["red_teaming"],
+          [.safety(4), .enterpriseDemand(0.04)],
+          "OpenAI (Apr 2024): system prompts outrank users, which outrank tool output. Prompt-extraction defence +63%, jailbreak robustness +30%."),
+        r("swe_agent", "Agent-Computer Interfaces", .agents, 2024.34, 1_500, ["code_interpreter"],
+          [.skill(.code, 0.04), .skill(.agent, 0.03)],
+          "SWE-agent (May 2024): tools designed for models rather than people took SWE-bench to 12.5% — state of the art at the time."),
+        r("simpo", "Reference-Free Preference Tuning", .postTraining, 2024.39, 1_300, ["dpo"],
+          [.skill(.chat, 0.05), .postTrainCost(0.1)],
+          "KTO, ORPO and SimPO (2024): DPO without a reference model, or from thumbs-up/down alone. SimPO beat DPO by up to 7.5 points on Arena-Hard."),
+        r("schedule_free", "Schedule-Free Optimizers", .optimization, 2024.39, 1_400, ["wsd"],
+          [.forecast(0.1), .stability(0.05)],
+          "Schedule-free AdamW (May 2024) needs no learning-rate schedule at all and won the AlgoPerf 2024 self-tuning track."),
+        r("activation_steering", "Activation Steering & Circuit Breakers", .safety, 2024.43, 2_100, ["interpretability"],
+          [.safety(6)],
+          "Steering doubled Alpaca's TruthfulQA score (2023); circuit breakers (Jun 2024) cut harmful compliance under attack by about 90% while keeping capability."),
+        r("mixture_of_agents", "Mixture-of-Agents", .agents, 2024.43, 1_700, ["tool_use"],
+          [.coordination(0.01), .skill(.chat, 0.03)],
+          "Jun 2024: layers of models refining each other's answers. Open models alone hit 65% on AlpacaEval 2.0 against GPT-4o's 57.5%."),
+        r("model_routing", "Model Routing", .inference, 2024.5, 1_300, ["distillation"],
+          [.throughput(0.12), .apiDemand(0.04)],
+          "RouteLLM (Jul 2024): a trained router sends easy queries to cheap models — 85% lower cost at 95% of GPT-4's quality. GPT-5 shipped behind one."),
+        r("pruning_distill", "Prune & Distill", .inference, 2024.55, 1_700, ["distillation"],
+          [.distill(0.1), .throughput(0.06)],
+          "SparseGPT (2023) pruned a 175B model in under 4.5 hours; Minitron (Jul 2024) built 8B and 4B models from a 15B one with up to 40× fewer tokens."),
+        r("formal_math", "Formal-Math RL", .science, 2024.56, 2_800, ["reasoning_rl"],
+          [.skill(.reasoning, 0.05), .forecast(0.05)],
+          "AlphaGeometry solved 25 of 30 olympiad geometry problems; AlphaProof (Jul 2024) took an IMO silver with reinforcement learning in Lean."),
+        r("diff_transformer", "Differential Attention", .architecture, 2024.77, 2_400, ["modern_block"],
+          [.skill(.longctx, 0.06), .skill(.reasoning, 0.02)],
+          "Differential Transformer (Oct 2024): attention as the difference of two softmaxes cancels noise. It matched a Transformer with about 65% of the parameters."),
+        r("vuln_discovery", "AI Vulnerability Discovery", .safety, 2024.83, 2_600, ["code_interpreter"],
+          [.securityCost(0.1), .safety(2)],
+          "Big Sleep (Nov 2024) found the first exploitable bug by an AI in widely used software; Mythos (2026) found thousands. Point it at your own stack first."),
+        r("deep_research", "Deep-Research Agents", .agents, 2025.09, 3_000, ["computer_use"],
+          [.skill(.agent, 0.04), .consumerDemand(0.05), .enterpriseDemand(0.04)],
+          "Gemini (Dec 2024) and OpenAI (Feb 2025): browse, read and write cited reports. OpenAI's scored 26.6% on Humanity's Last Exam, double o3-mini-high."),
+        r("gated_attention", "Gated Attention", .architecture, 2025.35, 2_800, ["qk_norm"],
+          [.stability(0.12), .skill(.longctx, 0.02)],
+          "Qwen (May 2025): a sigmoid gate after attention. About −0.2 perplexity and +2 MMLU, fewer loss spikes, and no attention sinks."),
+        r("rubric_rl", "Rubric-Based RL", .postTraining, 2025.56, 3_300, ["reasoning_rl"],
+          [.rl(0.04), .skill(.chat, 0.04), .enterpriseDemand(0.04)],
+          "Rubrics as Rewards (Jul 2025): per-question checklists graded by an LLM turn fuzzy tasks into RL rewards. Up to +31% on HealthBench."),
+        r("prompt_optimization", "Reflective Prompt Optimization", .agents, 2025.56, 2_300, ["tool_use"],
+          [.skill(.agent, 0.03), .rlEfficiency(0.1)],
+          "DSPy (2023), GEPA and ACE (2025): improve prompts and playbooks by reflecting on traces. GEPA beat GRPO with up to 35× fewer rollouts."),
+        r("safe_completions", "Safe Completions", .safety, 2025.61, 2_100, ["constitutional_classifiers"],
+          [.safety(3), .skill(.chat, 0.03)],
+          "GPT-5 (Aug 2025): train for safe outputs instead of hard refusals. Safer on dual-use questions, and more helpful."),
+        r("on_policy_distill", "On-Policy Distillation", .postTraining, 2025.82, 2_900, ["distillation"],
+          [.distill(0.15), .rlEfficiency(0.15)],
+          "Thinking Machines (Oct 2025): the student generates and the teacher grades every token — 9–30× less compute than distilling by fine-tuning, about 10× cheaper than RL."),
+        r("recursive_lm", "Recursive Language Models", .agents, 2026.0, 4_200, ["long_horizon"],
+          [.skill(.longctx, 0.12), .skill(.agent, 0.03)],
+          "Dec 2025: models that call themselves on pieces of an input 100× larger than their context window. A median +26% over context compaction."),
+        r("engram", "Conditional Memory (Engram)", .architecture, 2026.03, 4_800, ["moe"],
+          [.skill(.longctx, 0.06), .skill(.reasoning, 0.03), .kvMemory(0.05)],
+          "DeepSeek (Jan 2026): a hashed lookup memory alongside the experts. At equal compute, MMLU +3.4, BBH +5.0, needle retrieval 84 → 97."),
+        r("co_mathematician", "AI Co-Mathematician", .science, 2026.35, 6_000, ["formal_math"],
+          [.rp(0.08), .skill(.reasoning, 0.04)],
+          "May 2026: a multi-agent maths workbench scored 48% on FrontierMath Tier 4 and helped mathematicians crack open problems."),
+
         // MARK: Frontier (speculative future)
         r("continual_learning", "Continual Learning", .frontier, 2027.3, 12_000, ["agents", "nested_learning"],
           [.algo(0.10), .skill(.agent, 0.06)],
@@ -686,6 +870,21 @@ enum ResearchCatalog {
         r("xeno_compilers", "Xeno-Compilers", .frontier, 2027.2, 18_000, ["auto_experiments"],
           [.insight(0.35), .throughput(0.10)],
           "Needs an alien architecture to study. Compilers that target alien substrates: the next discovery comes faster and everything serves faster."),
+        r("xeno_hybrid", "Hybrid Human–Alien Architectures", .frontier, 2027.4, 16_000, ["xeno_interp"],
+          [.legibility(0.1), .algo(0.05)],
+          "Needs an alien architecture. Graft alien blocks onto designs humans understand: alien models gain 20% more and lose half as much safety."),
+        r("xeno_materials", "Xeno-Materials Engineering", .frontier, 2027.0, 12_000, ["custom_silicon"],
+          [.scaleOut(0.1)],
+          "Needs alien materials. Turn lab samples into manufacturable superconductors: 30% bigger power savings and 50% more venture revenue."),
+        r("xeno_pharma", "Xenopharmacology", .frontier, 2027.0, 12_000, ["evals_rsp"],
+          [.safety(3)],
+          "Needs alien biology. Clinical pipelines for alien protein designs: 60% more biotech revenue and half the biosecurity anomalies."),
+        r("xeno_proofs", "Formalised Alien Proofs", .frontier, 2027.0, 10_000, ["reasoning_rl"],
+          [.rp(0.15), .forecast(0.3)],
+          "Needs alien mathematics. Machine-check the alien proofs in Lean and teach the methods to your researchers."),
+        r("xeno_alignment", "Xeno-Cognitive Alignment", .frontier, 2027.5, 15_000, ["scalable_oversight"],
+          [.safety(6), .legibility(0.15)],
+          "Needs alien cognition. Oversight methods for minds that don't think like ours: studying alien tech goes 50% faster and anomalies halve."),
         r("rsi", "Recursive Self-Improvement", .frontier, 2030.0, 90_000, ["unified_arch", "scalable_oversight"],
           [.algo(0.4), .rp(1.0), .unlock(.rsi)],
           "Models that improve their own training. Unlocks capability runs and full autonomy in the Self-Improvement Lab. Handle with extreme care."),
@@ -800,30 +999,101 @@ enum ResearchCatalog {
           [.dataAlgo(0.15)],
           "Influence functions pick, for every gradient step, the single most useful document left.",
           rival: RivalBoost(c: 0.1)),
+
+        // Added in 3.3: ideas a lab could own from the very first eras.
+        r("x_pbt", "Population-Based Training", .exotic, 2017.9, 500, [],
+          [.forecast(0.25), .stability(0.15), .algo(0.03)],
+          "DeepMind (Nov 2017): train a population of models and let the winners' hyperparameters spread while the runs are still going.",
+          rival: RivalBoost(c: 0.03)),
+        r("x_evolved_nas", "Evolved Architecture Search", .exotic, 2018.1, 700, ["transformer"],
+          [.algo(0.07)],
+          "Evolution-driven search (AmoebaNet 2018, the Evolved Transformer 2019) finds building blocks that beat hand-designed ones.",
+          rival: RivalBoost(c: 0.05)),
+        r("x_universal_tf", "Universal Transformers", .exotic, 2018.55, 800, ["transformer"],
+          [.skill(.reasoning, 0.08), .algo(0.02), .throughput(-0.05)],
+          "Universal Transformers (Jul 2018): one shared block repeated through depth, and every token decides how long to think.",
+          tradeoff: "Adaptive depth costs a little serving throughput (−5%).",
+          rival: RivalBoost(reasoning: 0.08)),
+        r("x_sparse_patterns", "Learned Sparse Attention", .exotic, 2019.3, 900, ["transformer"],
+          [.skill(.longctx, 0.2), .kvMemory(0.15)],
+          "Sparse Transformers (Apr 2019) showed attention can skip most pairs. Your version learns which ones matter.",
+          rival: RivalBoost(longctx: 0.2)),
+        r("x_hypernetworks", "Hypernetwork Adapters", .exotic, 2019.8, 1_000, ["gpt_pretraining"],
+          [.skill(.lang, 0.12), .postTrainCost(0.3)],
+          "A small network writes task- and language-specific weights for the big one on the fly. Fine-tuning costs almost nothing.",
+          rival: RivalBoost(lang: 0.12)),
+        r("x_retro", "Retrieval-Enhanced Pre-training", .exotic, 2021.95, 1_800, ["gpt_pretraining"],
+          [.algo(0.12), .throughput(-0.08)],
+          "RETRO (Dec 2021): a 7.5B model reading from a 2-trillion-token database matched models 25× its size.",
+          tradeoff: "Serving needs the retrieval database (−8% throughput).",
+          rival: RivalBoost(c: 0.08)),
+        r("x_learned_optimizers", "Learned Optimizers", .exotic, 2022.85, 2_000, ["adamw"],
+          [.algo(0.08), .stability(-0.06)],
+          "VeLO (Nov 2022): an optimizer that is itself a neural network, meta-trained on thousands of tasks.",
+          tradeoff: "Now and then it steers a run somewhere strange (−6% stability).",
+          rival: RivalBoost(c: 0.05)),
+        r("x_sparse_upcycling", "Sparse Upcycling", .exotic, 2022.95, 1_600, ["moe"],
+          [.moeAlgo(0.12), .postTrainCost(0.2)],
+          "Dec 2022: turn a finished dense model into a Mixture-of-Experts and keep training. Old compute is never wasted.",
+          rival: RivalBoost(c: 0.04)),
+        r("x_dreamer", "World-Model Rollouts", .exotic, 2023.05, 2_200, ["react"],
+          [.agentRL(0.15), .skill(.agent, 0.04)],
+          "DreamerV3 (Jan 2023): learn a model of the environment and practise inside it. Agents need far fewer real attempts.",
+          rival: RivalBoost(agent: 0.1)),
+        r("x_self_rewarding", "Self-Rewarding Training", .exotic, 2024.05, 4_000, ["rlhf"],
+          [.rl(0.08), .postTrainCost(0.25), .skill(.chat, 0.06)],
+          "Self-Rewarding LMs (Jan 2024): the model judges its own answers and trains on its own preferences, round after round.",
+          rival: RivalBoost(reasoning: 0.03, chat: 0.08)),
+        r("x_mixture_of_depths", "Mixture-of-Depths", .exotic, 2024.3, 3_200, ["modern_block"],
+          [.throughput(0.3), .tps(0.15)],
+          "Apr 2024: a router lets easy tokens skip whole layers. Same quality, far less compute per token.",
+          rival: RivalBoost(tps: 1.3, price: 0.85)),
+        r("x_kan", "Kolmogorov–Arnold Layers", .exotic, 2024.33, 2_800, ["modern_block"],
+          [.safety(6), .legibility(0.05), .algo(-0.02)],
+          "KANs (Apr 2024): learnable functions on the edges instead of fixed activations. Layers you can actually read.",
+          tradeoff: "Slightly less compute-efficient at scale.",
+          rival: RivalBoost(chat: 0.03)),
+        r("x_alphaevolve", "Evolutionary Coding Agents", .exotic, 2025.35, 7_000, ["code_interpreter"],
+          [.rp(0.25), .skill(.code, 0.08), .mfu(0.02)],
+          "AlphaEvolve (May 2025): coding agents that evolve algorithms. It won back 0.7% of Google's fleet compute and sped up a key kernel by 23%.",
+          rival: RivalBoost(c: 0.03, code: 0.1)),
+        r("x_infinite_context", "Compressive Infinite Context", .exotic, 2026.1, 8_500, ["ring_attention"],
+          [.skill(.longctx, 0.45), .kvMemory(0.3)],
+          "Compress old context into a learned memory instead of dropping it. Context length stops being a limit.",
+          rival: RivalBoost(longctx: 0.4)),
     ]
 
     static let byID: [String: ResearchItem] = Dictionary(uniqueKeysWithValues: all.map { ($0.id, $0) })
 
+    /// Items that never appear in the tree but carry effects into the bonuses: signature levels, fusions, alien artifacts.
+    static let virtual: [ResearchItem] = SignatureSecret.virtualItems + Breakthroughs.fusionItems + XenoCatalog.virtualItems
+        + FrontierProgram.virtualItems + Moonshots.virtualItems   // 3.4: late game
+
+    static let virtualByID: [String: ResearchItem] = Dictionary(uniqueKeysWithValues: virtual.map { ($0.id, $0) })
+
     // MARK: Aggregation
 
-    nonisolated(unsafe) private static var bonusCache: (Set<String>, [String: Double], ResearchBonuses)? = nil
+    nonisolated(unsafe) private static var bonusCache: (Set<String>, [String: Double], ResearchBonuses, [String: Int])? = nil
 
-    static func bonuses(_ researched: Set<String>, results: [String: Double] = [:]) -> ResearchBonuses {
-        if let c = bonusCache, c.0 == researched, c.1 == results { return c.2 }
-        let b = computeBonuses(researched, results: results)
-        bonusCache = (researched, results, b)
+    static func bonuses(_ researched: Set<String>, results: [String: Double] = [:], mastery: [String: Int] = [:]) -> ResearchBonuses {
+        if let c = bonusCache, c.0 == researched, c.1 == results, c.3 == mastery { return c.2 }
+        let b = computeBonuses(researched, results: results, mastery: mastery)
+        bonusCache = (researched, results, b, mastery)
         return b
     }
 
-    private static func computeBonuses(_ researched: Set<String>, results: [String: Double]) -> ResearchBonuses {
+    private static func computeBonuses(_ researched: Set<String>, results: [String: Double], mastery: [String: Int]) -> ResearchBonuses {
         var b = ResearchBonuses()
         b.results = results
         b.researched = researched
         for id in researched {
-            guard let item = byID[id] else { continue }
+            guard let item = byID[id] ?? virtualByID[id] else { continue }
             let q = results[id] ?? 1
+            // Your own unique breakthroughs grow with mastery; refining never makes the trade-off worse.
+            let isVirtual = byID[id] == nil
+            let m = item.isExotic && !isVirtual ? Breakthroughs.masteryMultiplier(mastery[id] ?? 1) : 1
             for e in item.effects {
-                let v: (Double) -> Double = { $0 * q }
+                let v: (Double) -> Double = { $0 * q * ($0 > 0 ? m : 1) }
                 switch e {
                 case .algo(let x): b.algo += v(x)
                 case .dataAlgo(let x): b.dataAlgo += v(x)
@@ -853,9 +1123,10 @@ enum ResearchCatalog {
                 case .rp(let x): b.rp += v(x)
                 case .dataTokens(let x): b.dataTokens += v(x)
                 case .safety(let x): b.safety += v(x)
-                case .consumerDemand(let x): b.consumerDemand += x
-                case .apiDemand(let x): b.apiDemand += x
-                case .enterpriseDemand(let x): b.enterpriseDemand += x
+                // Demand effects don't depend on how well an experiment went, but virtual items scale them by level.
+                case .consumerDemand(let x): b.consumerDemand += x * (isVirtual ? q : 1)
+                case .apiDemand(let x): b.apiDemand += x * (isVirtual ? q : 1)
+                case .enterpriseDemand(let x): b.enterpriseDemand += x * (isVirtual ? q : 1)
                 case .agentQuality(let x): b.agentQuality += v(x)
                 case .coordination(let x): b.coordination += v(x)
                 case .agentSafety(let x): b.agentSafety += v(x)

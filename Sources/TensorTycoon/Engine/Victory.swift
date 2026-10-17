@@ -28,7 +28,7 @@ enum VictoryPath: String, CaseIterable, Identifiable, Sendable {
     var goal: String {
         switch self {
         case .superintelligence: "Release a model 1.5 capability beyond the frontier with safety 80+."
-        case .empire: "Reach a $10T valuation, or $1T of personal net worth."
+        case .empire: "Reach a $10T valuation, or $1T of personal net worth (after 2030 the bar rises with what frontier labs are worth)."
         case .dominance: "Hold the #1 model for 24 months in a row while taking 40% of the API market."
         case .guardian: "Keep a safety score of 95+ with a top-3 model for 12 months in a row."
         case .xeno: "Discover three alien architectures and ship a million alien chips."
@@ -37,6 +37,10 @@ enum VictoryPath: String, CaseIterable, Identifiable, Sendable {
 }
 
 enum Victory {
+    /// 3.4: after 2030 the empire bar grows with frontier-lab valuations, so it stays an achievement rather than
+    /// something any surviving lab reaches. 1 until 2030.
+    static func empireScale(_ y: Double) -> Double { max(1, Macro.frontierValuation(y) / Macro.frontierValuation(2030)) }
+
     static func progress(_ v: VictoryPath, _ s: GameState) -> Double {
         switch v {
         case .superintelligence:
@@ -44,14 +48,17 @@ enum Victory {
             let lead = clamp((m.c - Macro.frontier(s.year) + 0.5) / 2.0, 0, 1)
             return lead * (m.safety >= 80 ? 1 : 0.7)
         case .empire:
-            return clamp(max(s.valuation / 1e13, s.founderNetWorth / 1e12), 0, 1)
+            let k = empireScale(s.year)
+            return clamp(max(s.valuation / (1e13 * k), s.founderNetWorth / (1e12 * k)), 0, 1)
         case .dominance:
             return clamp(Double(s.monthsAtTop) / 24, 0, 1) * (s.month.revAPI > 0 ? 1 : 0.5)
         case .guardian:
             return clamp(Double(s.monthsGuardian) / 12, 0, 1)
         case .xeno:
+            // Alien Tech Mastery: discoveries, and either flooding the world with alien chips or completing Contact.
             let alienShipped = s.chipLines.filter { ChipBusiness.isAlien($0.chipID, s) }.reduce(0) { $0 + $1.shipped }
-            return clamp(Double(s.alienArchs.count) / 3, 0, 1) * 0.5 + clamp(alienShipped / 1e6, 0, 1) * 0.5
+            let reach = XenoScience.megaDone(s, "contact") ? 1 : clamp(alienShipped / 1e6, 0, 1)
+            return clamp(Double(XenoScience.discoveries(s)) / 4, 0, 1) * 0.5 + reach * 0.5
         }
     }
 
@@ -60,7 +67,11 @@ enum Victory {
         case .superintelligence:
             return s.releasedModels.contains { $0.c >= Macro.frontier(s.year) + 1.5 && $0.safety >= 80 }
         case .empire:
-            return s.valuation >= 1e13 || s.founderNetWorth >= 1e12
+            // Held for three month-ends, not a one-month spike.
+            let recent = s.history.suffix(3).map(\.valuation)
+            guard recent.count == 3, let low = recent.min() else { return false }
+            let k = empireScale(s.year)
+            return min(low, s.valuation) >= 1e13 * k || s.founderStake * min(low, s.valuation) + s.founderCash >= 1e12 * k
         case .dominance:
             return s.monthsAtTop >= 24 && s.apiShareNow >= 0.4
         case .guardian:
@@ -78,6 +89,9 @@ enum Victory {
         score += Double(s.victories.count) * 1_000
         score += (s.models.map(\.index).max() ?? 0) * 8
         score += Double(s.objectivesCompleted) * 25
+        // 3.4: late-game legacy — moonshots achieved and frontier research pushed further.
+        score += Double(Moonshots.succeeded(s)) * 150
+        score += Double(min(s.programLevelsTotal, 250)) * 4
         score += s.safetyScore * 3
         score -= Double(s.thefts) * 60
         if s.gameOver != nil && s.exitValue == nil && !s.keptStake { score *= 0.6 }
@@ -91,7 +105,7 @@ enum Victory {
         s.monthsAtTop = top?.isPlayer == true ? s.monthsAtTop + 1 : 0
         s.apiShareNow = Market.snapshot(s).api.filter(\.isPlayer).reduce(0) { $0 + $1.share }
         let myBest = board.filter(\.isPlayer).max { $0.index < $1.index }
-        let rank = myBest.map { me in board.filter { !$0.isPlayer && $0.index > me.index }.count + 1 } ?? 99
+        let rank = myBest.map { Leaderboard.labRank(index: $0.index, board: board, gone: Leaderboard.goneLabs(s)) } ?? 99
         s.monthsGuardian = (s.safetyScore >= 95 && rank <= 3) ? s.monthsGuardian + 1 : 0
 
         for v in VictoryPath.allCases where !s.victories.contains(v.rawValue) && achieved(v, s) {

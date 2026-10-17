@@ -152,6 +152,12 @@ struct Site: Codable, Identifiable, Hashable {
     var monthlyFee: Double
     var expanding: Double = 0       // extra kW under construction
     var expansionReady: Date? = nil
+    /// 3.3: capacity of later phases of a phased campus, not started yet (paid for as each phase starts).
+    @D var plannedKW: Double = 0
+    /// Size of each construction phase.
+    @D var phaseKW: Double = 0
+    /// The next phase is waiting for cash.
+    @D var phaseBlocked: Bool = false
 
     var location: Location { LocationCatalog.byID[locationID] ?? LocationCatalog.all[0] }
 
@@ -239,6 +245,27 @@ enum DataMix: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+/// How the data mix shifts for the second half of pre-training (mid-training), chosen in the Model Lab.
+/// Needs Annealing & Data Curriculum research; `.keep` (the default, and what older saves decode to) changes nothing.
+enum MixShift: String, Codable, CaseIterable, Identifiable {
+    case keep = "Keep the mix"
+    case code = "More code"
+    case stem = "More math & science"
+    case multilingual = "More multilingual"
+    var id: String { rawValue }
+
+    var detail: String {
+        switch self {
+        case .keep: "The second half trains on the same mix as the first."
+        case .code: "Lean the second half into code: +coding, slightly flatter chat."
+        case .stem: "Lean the second half into math and science: +reasoning."
+        case .multilingual: "Lean the second half into other languages: +multilingual and global appeal."
+        }
+    }
+}
+
+extension MixShift: DefaultValue { static var defaultValue: MixShift { .keep } }
+
 /// RL compute as a share of pre-training compute.
 enum RLLevel: Int, Codable, CaseIterable, Identifiable {
     case off = 0, light, standard, heavy, extreme
@@ -283,6 +310,8 @@ struct ModelDesign: Codable, Hashable {
     var mtp = false
     var anneal = false
     var useDPO = false
+    /// 3.4: mid-training data-mix shift for the second half of pre-training (was a mid-run popup).
+    @D var mixShift: MixShift = .keep
 
     var activeParamsB: Double { paramsB * activeFraction }
     var isMoE: Bool { activeFraction < 0.999 }
@@ -400,6 +429,19 @@ struct TrainingRun: Codable, Identifiable, Hashable {
     var decided: Set<String> = []
     var emerged: Set<String> = []
     var proxyCompute: Double = 0
+    // 3.3: ops agents watching the run
+    /// Share of the run's chips watched by ops agents (refreshed daily).
+    @D var opsCoverage: Double = 0
+    /// Failures drained before they crashed the job.
+    @D var prevented: Double = 0
+    /// Nodes caught (and missed) silently corrupting gradients.
+    @D var sdcCaught: Double = 0
+    @D var sdcMissed: Double = 0
+    // 3.4: honest goodput
+    /// An experiment too small for mid-run incidents (estimated under `Training.toyCost` at launch).
+    @D var toy: Bool = false
+    /// Consecutive days the run has made next to no progress (hardware failures eating the whole day).
+    @D var stalledDays: Int = 0
 
     var schedule: LRSchedule { LRSchedule(rawValue: lr) ?? .standard }
     var interval: Double { checkpointEvery > 0 ? checkpointEvery : 0.1 }
@@ -562,6 +604,27 @@ struct FundingRound: Codable, Identifiable, Hashable {
     var percent: Double
 }
 
+/// A delivered hardware order: what, how many and when it was ordered.
+struct OrderStamp: Codable, Hashable {
+    var accelID: String
+    var count: Int
+    var ordered: Date
+}
+
+/// New shares a public company sold in a secondary offering.
+struct ShareIssue: Codable, Hashable {
+    var date: Date
+    var shares: Double
+}
+
+/// A rival lab's trade-secret suit that will land on `due`.
+struct PendingSuit: Codable, Hashable {
+    var lab: String
+    var tech: String
+    var due: Date
+    var amount: Double
+}
+
 struct RaiseOffer: Codable, Identifiable, Hashable {
     var id = UUID()
     var investor: String
@@ -621,6 +684,8 @@ struct Decision: Codable, Identifiable, Hashable {
     var date: Date
     var amount: Double = 0
     var ref: String = ""
+    /// Inbox decisions resolve with their default answer on this date.
+    var deadline: Date? = nil
 }
 
 struct CompetitorModel: Codable, Identifiable, Hashable {
@@ -652,9 +717,84 @@ struct CompetitorState: Codable, Identifiable, Hashable {
     @D var agentShare: Double = 0
     /// H100-equivalents of your chips this lab has bought (ages out slowly).
     @D var armedH100e: Double = 0
+    // 3.3: the business behind each lab
+    @D var econReady: Bool = false
+    @D var cash: Double = 0
+    /// Annualised revenue (this month × 12).
+    @D var revenueRun: Double = 0
+    /// Monthly revenue, oldest first (last 36 months).
+    @D var revenueHistory: [Double] = []
+    @D var costMonth: Double = 0
+    @D var computeCostMonth: Double = 0
+    @D var headcount: Int = 0
+    @D var totalRaised: Double = 0
+    @D var rounds: [RivalRound] = []
+    /// How many of the lab's real-world rounds have been applied.
+    @D var historyIndex: Int = 0
+    @D var isPublic: Bool = false
+    @D var distressMonths: Int = 0
+    /// Compute multiplier from how well funded the lab is (0 in old saves means 1).
+    @D var fundingFactor: Double = 0
+    @D var bankrupt: Bool = false
+    /// How the lab left the market, if it did.
+    @D var exitNote: String = ""
+    /// 3.3: the run behind the lab's next release (Rival Watch).
+    @D var project: RivalProject? = nil
+    // 3.3: strategy (RivalStrategy)
+    /// The play the lab is running (RivalPlay raw value), since when, and why.
+    @D var play: String = ""
+    @D var playSince: Date? = nil
+    @D var playReason: String = ""
+    @D var nextReview: Date? = nil
+    /// Recent plays, newest first.
+    @D var playLog: [String] = []
+    /// API share at each month end (last 12).
+    @D var shareHistory: [Double] = []
+    /// Open-weights side releases (a step behind the flagship).
+    @D var openModels: [CompetitorModel] = []
+    @D var raidCooldown: Date? = nil
+    @D var lastAlliance: Date? = nil
+    // 3.4: lifecycle (RivalLifecycle)
+    /// People trouble — layoffs, a down round, a lost race, a takeover. Makes researchers leave to found spin-outs; fades monthly.
+    @D var turmoil: Double = 0
+    /// The compute the lab has contracted (H100e), which its budget moves month by month (0 in old saves).
+    @D var computePlan: Double = 0
+    /// Capability its current run loses for want of compute, and the release it applies to.
+    @D var runShortfall: Double = 0
+    @D var runShortfallFor: Int = 0
+    /// Who bought it: a lab ID, "player", or empty for an outside buyer.
+    @D var acquiredBy: String = ""
+    @D var exitDate: Date? = nil
 
-    var def: CompetitorDef { CompetitorCatalog.byID[id]! }
+    var def: CompetitorDef { CompetitorCatalog.def(id) }
+    /// Set for labs founded during the game.
+    var spec: CustomLabSpec? { CompetitorCatalog.spec(id) }
+    /// Still in business (founded, not bought, not bankrupt).
+    var alive: Bool { !acquired && !bankrupt && exitNote.isEmpty }
+    var funding: Double { fundingFactor > 0 ? fundingFactor : 1 }
+    var lastRound: RivalRound? { rounds.last { $0.postMoney > 0 } }
     var latest: CompetitorModel? { models.last }
+}
+
+/// A rival lab's funding event.
+struct RivalRound: Codable, Hashable, Identifiable {
+    enum Kind: String, Codable, Sendable { case equity, strategic, tender, debt, merger, ipo, rescue }
+    var id = UUID()
+    var date: Date
+    var label: String
+    var amount: Double
+    var postMoney: Double
+    var lead: String
+    var kind: Kind
+}
+
+/// A rival that agreed to spend money on your compute when you invested in it.
+struct ComputeCommitment: Codable, Hashable, Identifiable {
+    var id = UUID()
+    var labID: String
+    var labName: String
+    var monthly: Double
+    var monthsLeft: Int
 }
 
 struct MonthRecord: Codable, Identifiable, Hashable {
@@ -691,6 +831,21 @@ struct MonthRecord: Codable, Identifiable, Hashable {
     var apiTokensDay = 0.0
     var bestIndex = 0.0
     var chips = 0.0
+    // 3.4: market position at month end, for the briefing
+    @D var apiShare: Double = 0
+    @D var consumerShare: Double = 0
+    @D var agentShare: Double = 0
+    /// World rank of your best released model (0 = none).
+    @D var rank: Int = 0
+    @D var myIndex: Double = 0
+    /// Demand-weighted average API price.
+    @D var apiPrice: Double = 0
+    /// Share of demand you served.
+    @D var served: Double = 0
+    @D var contracts: Int = 0
+    @D var headcount: Int = 0
+    /// Capability of your best released model (0 = none recorded).
+    @D var bestC: Double = 0
 
     var revenue: Double { revAPI + revConsumer + revEnterprise + revOther + revAgents + revCloud + revChips + revLicensing + revLabor }
     /// Selling hardware and leasing compute: valued like a hardware business, not a software one.
@@ -790,6 +945,8 @@ struct GameState: Codable {
     var sharePrice: Double = 0
     var publicShares: Double = 0
     var stock: [StockPoint] = []
+    /// Secondary offerings in the last few years (for the cooldown and the 20%-a-year cap).
+    @D var shareIssues: [ShareIssue] = []
     var valuation: Double = 0
     var creditScore: Double = 600
 
@@ -838,6 +995,8 @@ struct GameState: Codable {
     var partnerships: [Partnership] = []
     var partnerContacted: [String: Date] = [:]
     @D var lastHeadhunt: Date? = nil
+    /// Trade-secret suits from researchers you poached, waiting to be filed.
+    @D var pendingSuits: [PendingSuit] = []
     /// Your unique breakthroughs you published under an open-science policy (rivals adopt them ~6 months later).
     @D var publishedTech: [String: Date] = [:]
 
@@ -870,6 +1029,10 @@ struct GameState: Codable {
     @D var objectivesFailed: Int = 0
     @D var boardConfidence: Double = 0
     @D var lastBoardThreat: Date? = nil
+    /// When you last asked the board for a different goal (60-day cooldown).
+    @D var lastObjectiveReroll: Date? = nil
+    /// When a keynote last moved market hype (once per 90 days).
+    @D var lastKeynoteHype: Date? = nil
     @D var acquiredLabs: [String] = []
     @D var lastAntitrustBlock: Date? = nil
     @D var exclusiveSupplyUntil: Date? = nil
@@ -898,6 +1061,88 @@ struct GameState: Codable {
     /// Rival lab ID → when it found its own alien architecture.
     @D var rivalXeno: [String: Date] = [:]
 
+    // v4.3 (3.3): signature secret, research director, unique breakthroughs, xenoscience
+    @D var signatureID: String = ""
+    @D var signatureLevel: Int = 0
+    /// Research points put toward the next signature level.
+    @D var signatureProgress: Double = 0
+    /// Share of daily research that goes to the signature programme.
+    @D var signatureShare: Double = 0
+    @D var signatureRPToday: Double = 0
+    /// The research director keeps the queue full.
+    @D var autoResearch: Bool = false
+    @D var researchFocus: String = ""
+    @D var eurekas: Int = 0
+    /// Unique breakthrough ID → mastery level (1–3).
+    @D var exoticMastery: [String: Int] = [:]
+    /// Fusions already announced.
+    @D var fusionsSeen: Set<String> = []
+    @D var exoticLicenses: [ExoticLicense] = []
+    @D var xenoArtifacts: [XenoArtifact] = []
+    /// What the next alien search looks for (XenoKind raw value; empty means architecture).
+    @D var xenoTarget: String = ""
+    /// Share of daily research spent decoding alien discoveries.
+    @D var xenoStudyShare: Double = 0
+    @D var studyRPToday: Double = 0
+    @D var megaProjects: [MegaProject] = []
+    // 3.3: the AI industry
+    /// Rival lab ID → share of it you own, and what you paid.
+    @D var rivalStakes: [String: Double] = [:]
+    @D var rivalStakeCost: [String: Double] = [:]
+    @D var computeCommitments: [ComputeCommitment] = []
+    /// An AI-market correction is under way until this date.
+    @D var correctionUntil: Date? = nil
+    @D var lastCorrection: Date? = nil
+    /// Industry valuation ÷ revenue run-rate (independent labs), for the bubble meter.
+    @D var industryMultiple: Double = 0
+    // 3.3: agent missions
+    @D var swarmSecurity: Double = 0
+    @D var swarmIntel: Double = 0
+    // 3.3: Rival Watch
+    /// Monthly spend on competitive intelligence.
+    @D var intelBudget: Double = 0
+    /// The rumour mill, newest first.
+    @D var rumors: [RivalRumor] = []
+    /// How past rumour-mill forecasts compared with what shipped, newest first.
+    @D var watchRecord: [WatchCall] = []
+    // 3.4: the experience layer
+    /// Banners for things that need you, newest first.
+    @D var alerts: [GameAlert] = []
+    /// Alert kind + key → when it was last raised (for cooldowns).
+    @D var alertKeys: [String: Date] = [:]
+    /// Alert kinds that pause the game.
+    @D var pauseKinds: Set<String> = []
+    /// Whether the player has set pause-on preferences (old saves get the defaults once).
+    @D var pauseConfigured: Bool = false
+    /// Set by the engine when an alert that pauses fires; the clock stops and clears it.
+    @D var pauseRequested: Bool = false
+    /// Chief of Staff item ID → hidden until.
+    @D var snoozed: [String: Date] = [:]
+    /// The delegates and what they've done, newest first.
+    @D var ops: OpsPolicy = OpsPolicy()
+    @D var opsLog: [String] = []
+    /// What changed each month and why, newest first.
+    @D var briefings: [MonthlyBriefing] = []
+    /// Delivered hardware orders of the last few months, for vendor allocation.
+    @D var orderLog: [OrderStamp] = []
+    /// Decision kind → the option to pick automatically, and its label when it was chosen.
+    @D var standingAnswers: [String: Int] = [:]
+    @D var standingLabels: [String: String] = [:]
+    // 3.4: late game
+    /// Levels completed in each repeatable frontier research programme (FrontierProgram id → level).
+    @D var programLevels: [String: Int] = [:]
+    /// Moonshots: grand challenges offered to the lab, running, or finished.
+    @D var moonshots: [Moonshot] = []
+    // 3.4: rival lifecycle
+    /// Labs founded during the game (spin-outs, national labs, startups), registered with CompetitorCatalog on load.
+    @D var customLabs: [CustomLabSpec] = []
+    /// Foundings, takeovers, mergers, listings, failures and raids, newest first.
+    @D var rivalEvents: [RivalEvent] = []
+    /// Rival takeovers waiting on your right of first refusal.
+    @D var pendingDeals: [RivalDeal] = []
+    /// Keys the lifecycle's hashed rolls to this game (set once, from the RNG's state, without drawing from it).
+    @D var lifecycleSalt: String = ""
+
     var totalShares: Double {
         founderShares + employeePoolShares + publicShares + holdings.reduce(0) { $0 + $1.shares }
     }
@@ -909,6 +1154,12 @@ struct GameState: Codable {
     /// Doctrine + founder background + culture perks.
     var traits: TraitBonuses { CultureCatalog.bonuses(doctrine: doctrine, background: background, perks: perks) }
     var security: SecurityLevel { SecurityLevel(rawValue: max(1, securityRaw)) ?? .sl1 }
+    var signature: SignatureSecret? { signatureLevel > 0 ? SignatureSecret(rawValue: signatureID) : nil }
+    var focus: ResearchFocus { ResearchFocus(rawValue: researchFocus) ?? .balanced }
+    var xenoTargetKind: XenoKind { XenoKind(rawValue: xenoTarget) ?? .architecture }
+
+    /// Whether your signature is `secret` at `level` or higher.
+    func signatureAt(_ secret: SignatureSecret, _ level: Int) -> Bool { signature == secret && signatureLevel >= level }
 
     /// You control the board while you hold a majority of the shares.
     var founderControls: Bool { founderStake >= 0.5 }
@@ -920,7 +1171,6 @@ struct GameState: Codable {
 
     static let currentVersion = 3
 
-    var bonuses: ResearchBonuses { ResearchCatalog.bonuses(researched, results: researchResults) }
 
     var releasedModels: [AIModel] { models.filter { $0.released && !$0.retired } }
 

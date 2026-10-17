@@ -34,6 +34,26 @@ struct RootView: View {
 
 // MARK: - Game shell
 
+/// The one sheet the shell shows, most important first: a decision that can't wait, an inbox offer you opened,
+/// a finished run's report, a briefing.
+enum ShellSheet: Identifiable {
+    case decision(Decision)
+    case palette
+    case era
+    case report(UUID)
+    case briefing(UUID)
+
+    var id: String {
+        switch self {
+        case .decision(let d): "decision-\(d.id)"
+        case .palette: "palette"
+        case .era: "era"
+        case .report(let id): "report-\(id)"
+        case .briefing(let id): "briefing-\(id)"
+        }
+    }
+}
+
 struct GameShell: View {
     @Environment(GameStore.self) private var store
 
@@ -46,37 +66,74 @@ struct GameShell: View {
             if store.state != nil {
                 ScreenRouter(screen: store.screen)
                     .id(store.screen)
+                    .overlay(alignment: .topTrailing) {
+                        AlertBanners().padding(14)
+                    }
             }
         }
         .toolbar { GameToolbar() }
         .toolbar(removing: .title)
-        .sheet(item: Binding(get: { store.state?.decisions.first }, set: { _ in })) { d in
-            DecisionSheet(decision: d)
-                .interactiveDismissDisabled()
-        }
-        .sheet(item: Binding(get: { store.state?.decisions.isEmpty == false ? nil : store.reportRunID.map(RunReportID.init) },
-                             set: { if $0 == nil { store.reportRunID = nil } })) { r in
-            RunReportSheet(runID: r.id)
+        .sheet(item: Binding(get: { sheet }, set: { new in if new == nil { dismissed() } })) { item in
+            switch item {
+            case .decision(let d):
+                DecisionSheet(decision: d)
+                    .interactiveDismissDisabled(Alerts.isUrgent(d))
+            case .palette:
+                CommandPalette()
+            case .era:
+                EraIntroSheet()
+            case .report(let id):
+                RunReportSheet(runID: id)
+            case .briefing(let id):
+                BriefingSheet(id: id)
+            }
         }
         .sheet(isPresented: Binding(get: { store.state?.gameOver != nil }, set: { _ in })) {
             GameOverSheet()
                 .interactiveDismissDisabled()
         }
     }
+
+    private var sheet: ShellSheet? {
+        guard let s = store.state, s.gameOver == nil else { return nil }
+        if let d = s.decisions.first(where: Alerts.isUrgent) { return .decision(d) }
+        if store.showPalette { return .palette }
+        if let id = store.openDecisionID, let d = s.decisions.first(where: { $0.id == id }) { return .decision(d) }
+        if store.showEraIntro { return .era }
+        if let r = store.reportRunID { return .report(r) }
+        if let b = store.briefingID { return .briefing(b) }
+        return nil
+    }
+
+    /// The player closed the sheet (Escape or a Close button): forget what it showed.
+    private func dismissed() {
+        switch sheet {
+        case .decision(let d): if !Alerts.isUrgent(d) { store.openDecisionID = nil }
+        case .palette: store.showPalette = false
+        case .era: store.showEraIntro = false
+        case .report: store.reportRunID = nil
+        case .briefing: store.briefingID = nil
+        case nil: break
+        }
+    }
 }
 
 struct ScreenRouter: View {
+    @Environment(GameStore.self) private var store
     let screen: Screen
 
     var body: some View {
         switch screen {
         case .dashboard: DashboardView()
+        case .operations: OperationsView()
         case .strategy: StrategyView()
         case .security: SecurityView()
         case .lab: ModelLabView()
         case .training: TrainingView()
         case .models: ModelsView()
         case .leaderboard: LeaderboardView()
+        case .rivals: RivalsHubView(tab: store.rivalsTab ?? .overview, lab: store.rivalsLab)
+        case .rivalWatch: RivalsHubView(tab: .watch)
         case .benchmarks: BenchmarksView()
         case .rsi: RSIView()
         case .swarms: SwarmView()
@@ -91,12 +148,14 @@ struct ScreenRouter: View {
         case .team: TeamView()
         case .data: DataView()
         case .market: MarketView()
-        case .competitors: CompetitorsView()
+        case .industry: RivalsHubView(tab: .industry)
+        case .competitors: RivalsHubView(tab: .labs)
         case .finance: FinanceView()
         case .funding: FundingView()
         case .news: NewsView()
         case .achievements: AchievementsView()
         case .credits: CreditsView()
+        case .help: HelpView()
         }
     }
 }
@@ -137,16 +196,18 @@ struct Sidebar: View {
     private func badge(for screen: Screen, _ s: GameState) -> Int {
         switch screen {
         case .news: s.unreadNews
+        case .dashboard: s.decisions.filter { !Alerts.isUrgent($0) }.count + s.briefings.prefix(1).filter { !$0.seen }.count
+        case .rivals: s.rumors.prefix(30).filter { $0.kind == "imminent" && GameCalendar.daysBetween($0.date, s.date) <= 10 }.count
         case .training: s.runs.filter { $0.status == .running || $0.status == .postTraining }.count
         case .models: s.models.filter { !$0.released && !$0.retired }.count
         case .market: s.deals.filter { !$0.active }.count
         case .funding: s.raiseOffers.count
-        case .research: s.researchQueue.isEmpty ? 1 : 0
+        case .research: (s.researchQueue.isEmpty && !s.autoResearch) || s.signatureLevel == 0 ? 1 : 0
         case .rsi: s.rsiRuns.filter { $0.status == .running }.count
         case .swarms: s.swarms.filter { !$0.paused }.count
         case .strategy: s.culturePoints
         case .security: s.bills.filter { $0.stance == 0 }.count
-        case .xeno: s.alienArchs.reduce(0) { $0 + $1.offers.count }
+        case .xeno: s.alienArchs.reduce(0) { $0 + $1.offers.count } + s.decisions.filter { $0.kind == "xeno_anomaly" }.count
         case .silicon: s.chipProjects.filter { !$0.done }.count
         case .partners: s.partnerships.count
         default: 0
@@ -183,15 +244,35 @@ struct GameToolbar: ToolbarContent {
                         .labelStyle(.iconOnly)
                         .frame(width: 26)
                 }
-                .help(GameStore.speeds[i].label)
+                .help(i == 0 ? "Pause (⇧⌘P)" : "\(GameStore.speeds[i].label): \(Fmt.trim(GameStore.speeds[i].daysPerSecond, 1)) days per second (⌘\(i))")
                 .foregroundStyle(store.speed == i ? Color.accentColor : .secondary)
             }
             Button { store.step() } label: { Label("Advance one day", systemImage: "forward.frame.fill").labelStyle(.iconOnly) }
-                .help("Advance one day")
+                .help("Advance one day (⌘→)")
+            if store.speed == 0, let reason = store.pauseReason {
+                Button {
+                    store.setSpeed(1)
+                } label: {
+                    Label("Paused: \(reason)", systemImage: "pause.circle.fill")
+                        .font(.caption.weight(.semibold))
+                        .lineLimit(1)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(Color.orange.opacity(0.15), in: .capsule)
+                        .foregroundStyle(.orange)
+                }
+                .buttonStyle(.plain)
+                .help("The game paused itself: \(reason). Click to resume.")
+            }
         }
         if updater.updateAvailable {
             ToolbarItem(placement: .primaryAction) { UpdateToolbarButton() }
         }
+        ToolbarItem(placement: .primaryAction) {
+            Button { store.showPalette = true } label: { Label("Go to…", systemImage: "magnifyingglass").labelStyle(.iconOnly) }
+                .help("Go to a screen or do something (⌘K)")
+        }
+        ToolbarItem(placement: .primaryAction) { AlertsToolbarButton() }
         ToolbarItem(placement: .primaryAction) {
             HStack(spacing: 14) {
                 ToolbarStat(label: "Cash", value: Fmt.money(cash), tint: cash < 0 ? .red : .primary)
@@ -236,8 +317,12 @@ struct ToolbarStat: View {
 struct DecisionSheet: View {
     @Environment(GameStore.self) private var store
     let decision: Decision
+    @State private var remember = false
 
     var body: some View {
+        let inbox = !Alerts.isUrgent(decision)
+        let left = decision.deadline.map { GameCalendar.daysBetween(store.game.date, $0) }
+        let fallback = Alerts.inboxDefaults[decision.kind] ?? (decision.options.count - 1)
         VStack(alignment: .leading, spacing: 0) {
             if let img = decision.image {
                 Photo(key: img, thumb: false)
@@ -246,17 +331,27 @@ struct DecisionSheet: View {
                     .overlay(LinearGradient(colors: [.clear, .black.opacity(0.5)], startPoint: .top, endPoint: .bottom))
             }
             VStack(alignment: .leading, spacing: 14) {
-                Label("Decision required", systemImage: "exclamationmark.bubble.fill")
-                    .font(.caption.weight(.semibold)).foregroundStyle(.orange)
+                if inbox {
+                    Label("From your inbox\(left.map { " · \(max(0, $0)) day\($0 == 1 ? "" : "s") left" } ?? "")", systemImage: "tray.full.fill")
+                        .font(.caption.weight(.semibold)).foregroundStyle(.blue)
+                } else {
+                    Label("Decision required", systemImage: "exclamationmark.bubble.fill")
+                        .font(.caption.weight(.semibold)).foregroundStyle(.orange)
+                }
                 Text(decision.title).font(.title2.weight(.bold))
                 Text(decision.body).font(.body).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 VStack(spacing: 10) {
                     ForEach(Array(decision.options.enumerated()), id: \.offset) { i, opt in
                         Button {
-                            store.mutate { $0.resolveDecision(decision.id, option: i) }
+                            resolve(i)
                         } label: {
                             VStack(alignment: .leading, spacing: 3) {
-                                Text(opt.label).font(.headline)
+                                HStack {
+                                    Text(opt.label).font(.headline)
+                                    if inbox && i == fallback {
+                                        Pill(text: "If you don't answer", color: .secondary)
+                                    }
+                                }
                                 Text(opt.detail).font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.leading)
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -266,10 +361,37 @@ struct DecisionSheet: View {
                         .tint(i == 0 ? .accentColor : .secondary)
                     }
                 }
+                HStack {
+                    if let name = Alerts.rememberable[decision.kind] {
+                        Toggle("Always answer \(name.lowercased()) this way", isOn: $remember)
+                            .toggleStyle(.checkbox)
+                            .font(.caption)
+                            .help("The game picks the same option for you next time. Change it on the Operations page.")
+                    }
+                    Spacer()
+                    if inbox {
+                        Button("Decide later") { store.openDecisionID = nil }
+                            .keyboardShortcut(.cancelAction)
+                    }
+                }
             }
             .padding(22)
         }
         .frame(width: 520)
+    }
+
+    /// Answer, then say what happened.
+    private func resolve(_ option: Int) {
+        if remember, decision.options.indices.contains(option) {
+            let label = decision.options[option].label
+            store.mutate { $0.setStandingAnswer(decision.kind, option, label: label) }
+        }
+        let before = store.game.news.first?.id
+        store.mutate { $0.resolveDecision(decision.id, option: option) }
+        if store.openDecisionID == decision.id { store.openDecisionID = nil }
+        if let n = store.state?.news.first, n.id != before {
+            store.show(n.title + (n.body.isEmpty ? "" : " — " + String(n.body.prefix(140))))
+        }
     }
 }
 

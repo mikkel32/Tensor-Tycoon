@@ -11,6 +11,7 @@ struct ModelsView: View {
         let models = s.models.filter { showRetired || !$0.retired }
             .sorted { ($0.id == focus ? 1 : 0, $0.created) > ($1.id == focus ? 1 : 0, $1.created) }
         Page(title: "Models & Serving", subtitle: "Release models, give them accelerators, set prices. Tokens/sec comes from memory bandwidth; capacity from FLOPS.") {
+            ScreenHint(.models)
             HStack {
                 Toggle("Show retired", isOn: $showRetired).toggleStyle(.switch)
                 Spacer()
@@ -38,6 +39,7 @@ private struct ModelCard: View {
     @State private var priceText = ""
     @State private var launch: LaunchStyle = .standard
     @State private var addAccel = ""
+    @State private var confirmRetire = false
 
     var body: some View {
         let s = state
@@ -69,7 +71,8 @@ private struct ModelCard: View {
                 Spacer()
                 VStack(alignment: .trailing, spacing: 0) {
                     Text(Fmt.score(entry?.index ?? BenchmarkCatalog.index(p, set: d.indexSet))).font(.system(size: 34, weight: .bold).monospacedDigit())
-                    Text("Index · #\(rank) worldwide").font(.caption).foregroundStyle(.secondary)
+                    Text("Index · #\(rank) lab worldwide").font(.caption).foregroundStyle(.secondary)
+                    Text("Capability \(Int(BenchmarkCatalog.capability(p).rounded())) (GPT-4 = 100)").font(.caption).foregroundStyle(.secondary)
                     Text("Task horizon \(BenchmarkCatalog.formatHorizon(BenchmarkCatalog.taskHorizonMinutes(p)))").font(.caption2).foregroundStyle(.secondary)
                 }
             }
@@ -127,9 +130,15 @@ private struct ModelCard: View {
                     Button("Open-source the weights") { store.act("Weights released") { $0.release(m.id, api: m.api, openWeights: true) } }
                 }
             }
-            Button("Retire model", role: .destructive) { store.mutate { $0.retire(m.id) } }
+            Button("Retire model…", role: .destructive) { confirmRetire = true }
                 .buttonStyle(.link)
                 .font(.caption)
+                .confirmationDialog("Retire \(m.name)?", isPresented: $confirmRetire, titleVisibility: .visible) {
+                    Button("Retire", role: .destructive) { store.mutate { $0.retire(m.id) } }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text("It stops serving, its chips are freed and it can't be brought back. Products and contracts on it move to your next best model.")
+                }
         }
     }
 
@@ -202,9 +211,9 @@ private struct ModelCard: View {
                 }
                 if m.api {
                     Toggle(isOn: Binding(get: { m.autoPrice }, set: { v in store.mutate { $0.setAutoPrice(m.id, v) } })) {
-                        Text("Auto-price: track the market for this quality (\(Fmt.price(Treasury.targetPrice(m, s))) today)")
+                        Text("Auto-price: keep it 80–90% busy near the going rate (\(Fmt.price(Treasury.targetPrice(m, s))) today)")
                     }
-                    .help("Re-prices a little every day so an older model stays competitive as the frontier moves. Setting a price by hand turns it off.")
+                    .help("Re-prices a little every day: up when the model is swamped, down when it sits idle, within half to twice the going rate and never below serving cost. Setting a price by hand turns it off.")
                     HStack {
                         Text("API price $/1M tokens")
                         TextField("Price", text: $priceText)
@@ -214,7 +223,7 @@ private struct ModelCard: View {
                         Button("Set") { applyPrice(m) }
                     }
                     HStack(spacing: 12) {
-                        Text("Market rate for this quality: \(Fmt.price(ref))").font(.caption).foregroundStyle(.secondary)
+                        Text("Going rate \(Fmt.price(Treasury.marketPrice(m, s))) · serving cost \(Fmt.price(Economy.servingCostPerM(m, s)))").font(.caption).foregroundStyle(.secondary)
                         Button("Match market") { priceText = String(format: "%.3f", ref); applyPrice(m) }.buttonStyle(.link).font(.caption)
                         Button("Undercut 30%") { priceText = String(format: "%.3f", ref * 0.7); applyPrice(m) }.buttonStyle(.link).font(.caption)
                     }
@@ -226,8 +235,10 @@ private struct ModelCard: View {
 
     private func applyPrice(_ m: AIModel) {
         if let v = Double(priceText.replacingOccurrences(of: "$", with: "")), v > 0 {
-            store.mutate { $0.setAPIPrice(m.id, v) }
-            store.show("Price set to \(Fmt.price(v))/M tokens")
+            // Below serving cost the price is held at the floor and the reason is shown.
+            if store.act("Price set to \(Fmt.price(v))/M tokens", { $0.setAPIPrice(m.id, v) }) == false {
+                priceText = String(format: "%.3f", store.game.models.first { $0.id == m.id }?.apiPrice ?? v)
+            }
         }
     }
 }

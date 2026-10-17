@@ -93,6 +93,9 @@ struct PolicyBill: Codable, Identifiable, Hashable {
     var vote: Date
     /// −1 oppose, 0 stay out, +1 support.
     var stance: Int = 0
+    /// 3.3: the rival lab whose lobbyists back it, and how much that adds to its chances.
+    @D var sponsor: String = ""
+    @D var boost: Double = 0
 }
 
 enum PolicyCatalog {

@@ -4,24 +4,84 @@ struct NewsView: View {
     @Environment(GameStore.self) private var store
     @State private var category: NewsCategory? = nil
     @State private var importantOnly = false
+    @State private var compact = false
+    @State private var search = ""
 
     var body: some View {
         let s = store.game
-        let items = s.news.filter { (category == nil || $0.category == category) && (!importantOnly || $0.important) }.prefix(250)
-        Page(title: "News", subtitle: "Industry headlines, rival launches, hardware releases and your own company's milestones.") {
-            HStack {
+        let q = search.trimmingCharacters(in: .whitespaces).lowercased()
+        let items = s.news.filter {
+            (category == nil || $0.category == category) && (!importantOnly || $0.important)
+                && (q.isEmpty || $0.title.lowercased().contains(q) || $0.body.lowercased().contains(q))
+        }.prefix(300)
+        // Month by month, newest first, each with that month's briefing headline.
+        let months = Dictionary(grouping: items, by: { $0.date.ym }).sorted { $0.key > $1.key }
+        Page(title: "News", subtitle: "Industry headlines, rival launches, hardware releases and your own company's milestones, month by month.") {
+            HStack(spacing: 12) {
                 Picker("Category", selection: $category) {
                     Text("All").tag(NewsCategory?.none)
                     ForEach(NewsCategory.allCases) { c in Label(c.rawValue, systemImage: c.symbol).tag(NewsCategory?.some(c)) }
                 }
                 .pickerStyle(.segmented)
-                Toggle("Important only", isOn: $importantOnly).toggleStyle(.switch)
+                TextField("Search", text: $search)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 180)
+                Toggle("Major only", isOn: $importantOnly).toggleStyle(.switch)
+                Toggle("Compact", isOn: $compact).toggleStyle(.switch)
             }
-            LazyVStack(spacing: 10) {
-                ForEach(Array(items)) { n in NewsRow(item: n) }
+            if items.isEmpty {
+                Card {
+                    EmptyStateView(symbol: "newspaper", title: "Nothing here", message: q.isEmpty ? "News appears as the world moves." : "No stories match \"\(search)\".")
+                }
+            }
+            ForEach(months, id: \.key) { entry in
+                let ym = entry.key
+                let list = entry.value
+                VStack(alignment: .leading, spacing: compact ? 4 : 10) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(GameCalendar.date(ym.year, ym.month, 1).gameMonth).font(.title3.weight(.bold))
+                        Text("\(list.count) stor\(list.count == 1 ? "y" : "ies")\(list.contains(where: \.important) ? " · \(list.filter(\.important).count) major" : "")")
+                            .font(.callout).foregroundStyle(.secondary)
+                        Spacer()
+                    }
+                    if let b = s.briefings.first(where: { $0.month.ym == ym }) {
+                        Button { store.openBriefing(b.id) } label: {
+                            Label(b.headline, systemImage: "doc.text.magnifyingglass").font(.callout)
+                        }
+                        .buttonStyle(.link)
+                    }
+                    LazyVStack(spacing: compact ? 2 : 10) {
+                        ForEach(list) { n in
+                            if compact { CompactNewsRow(item: n) } else { NewsRow(item: n) }
+                        }
+                    }
+                }
             }
         }
         .onAppear { store.mutate { $0.unreadNews = 0 } }
+    }
+}
+
+/// One line per story, for scanning a busy month.
+private struct CompactNewsRow: View {
+    let item: NewsItem
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: item.category.symbol)
+                .font(.caption)
+                .foregroundStyle(Theme.categoryColor(item.category))
+                .frame(width: 16)
+            Text(item.date.gameShort).font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(width: 82, alignment: .leading)
+            Text(item.title)
+                .font(.callout.weight(item.important ? .semibold : .regular))
+                .foregroundStyle(item.good == false ? Color.red : .primary)
+                .lineLimit(1)
+                .help(item.body)
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 3)
+        .padding(.horizontal, 8)
     }
 }
 
@@ -62,7 +122,7 @@ struct AchievementsView: View {
 
     var body: some View {
         let s = store.game
-        Page(title: "Achievements", subtitle: "\(s.achievements.count) of \(AchievementCatalog.all.count) unlocked") {
+        Page(title: "Achievements", subtitle: "Milestones in your company's story; each one earns a culture point. \(s.achievements.count) of \(AchievementCatalog.all.count) unlocked.") {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 12)], spacing: 12) {
                 ForEach(AchievementCatalog.all) { a in
                     let done = s.achievements.contains(a.id)

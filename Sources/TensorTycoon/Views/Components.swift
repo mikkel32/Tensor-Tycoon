@@ -368,19 +368,21 @@ struct ToastView: View {
 struct QuantityPicker: View {
     @Binding var value: Int
     var range: ClosedRange<Int>
-    var presets: [Int] = [1, 8, 64, 512, 4096]
+    var presets: [Int] = [1, 8, 64, 512, 4096, 32_768, 262_144, 1_048_576]
 
     var body: some View {
         HStack(spacing: 6) {
             Button { value = max(range.lowerBound, value / 2) } label: { Image(systemName: "minus") }
                 .buttonStyle(.bordered)
+                .help("Halve").accessibilityLabel("Halve the quantity")
             TextField("Qty", value: $value, format: .number)
                 .textFieldStyle(.roundedBorder)
-                .frame(width: 90)
+                .frame(width: 110)
                 .multilineTextAlignment(.center)
                 .onChange(of: value) { _, new in value = clamp(new, range.lowerBound, max(range.lowerBound, range.upperBound)) }
             Button { value = min(range.upperBound, max(1, value * 2)) } label: { Image(systemName: "plus") }
                 .buttonStyle(.bordered)
+                .help("Double").accessibilityLabel("Double the quantity")
             Menu("Presets") {
                 ForEach(presets.filter { $0 <= range.upperBound }, id: \.self) { p in
                     Button(Fmt.int(p)) { value = p }

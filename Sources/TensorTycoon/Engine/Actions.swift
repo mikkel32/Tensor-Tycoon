@@ -22,10 +22,11 @@ extension GameState {
         cash -= total
         month.capex += total
         if let di = supplyDeals.firstIndex(where: { $0.vendor == a.vendor.rawValue }) { supplyDeals[di].spentThisYear += total }
-        Partners.recordSpend(&self, accel: a, amount: total, purchase: true)
+        // Warrant rebates lower what the chips cost you (and what they'll resell for).
+        let rebate = Partners.recordSpend(&self, accel: a, amount: total, purchase: true)
         if a.cls == .tpu { Achievements.unlock(&self, "tpu_owner") }
         let days = Economy.leadTimeDays(a, self)
-        orders.append(HardwareOrder(accelID: accelID, count: count, siteID: siteID, unitCost: unit, ordered: date,
+        orders.append(HardwareOrder(accelID: accelID, count: count, siteID: siteID, unitCost: unit - rebate / Double(count), ordered: date,
                                     arrives: GameCalendar.addDays(date, days)))
         Sim.news(&self, "Ordered \(Fmt.int(count))× \(a.name)", "\(Fmt.money(total)) paid. Delivery in about \(days) days to \(site.name).", .company, image: a.image)
         return nil
@@ -46,11 +47,16 @@ extension GameState {
 
     mutating func rentHardware(_ accelID: String, count: Int, term: RentalTerm) -> String? {
         guard let a = HardwareCatalog.get(accelID), count > 0 else { return "Unknown hardware." }
-        guard Economy.canRent(a, self), let rate = Economy.rent(a, self) else { return "\(a.name) isn't rentable right now." }
+        guard Economy.canRent(a, self), let rate = Economy.rentQuote(a, self) else { return "\(a.name) isn't rentable right now." }
         if let why = Partners.blocker(a, self) { return why }
         let limit = Economy.rentalLimit(a, self)
         let existing = rentals.filter { $0.accelID == accelID }.reduce(0) { $0 + $1.count }
-        if existing + count > limit { return "\(a.cloudProvider) caps you at \(Fmt.int(limit)) \(a.name) for now. Grow your valuation to unlock more." }
+        if existing + count > limit {
+            let supply = Economy.cloudSupply(a, self)
+            return existing + count > Int(supply * 0.25)
+                ? "\(a.cloudProvider) won't rent one customer more than \(Fmt.int(limit)) \(a.name): about a quarter of the \(Fmt.count(supply)) in the world's clouds. Try newer chips, sign a supply deal or build your own."
+                : "\(a.cloudProvider) caps you at \(Fmt.int(limit)) \(a.name): two months of rent must be covered by your cash and revenue."
+        }
         let hourly = rate * term.discount
         let firstDay = hourly * 24 * Double(count)
         if firstDay > cash + cloudCredits { return "You can't afford even a day of this (\(Fmt.money(firstDay)))." }
@@ -83,11 +89,13 @@ extension GameState {
         guard let loc = LocationCatalog.byID[locationID] else { return "Pick a location." }
         let b = bonuses
         if cooling == .immersion && !b.has(.immersion) { return "Research Immersion Cooling first." }
-        if power == .nuclear && year < PowerDeal.nuclear.availableFrom { return "Nuclear PPAs aren't available yet." }
+        if !power.available(self) { return "\(power.rawValue) isn't available yet." }
         switch kind {
         case .garage, .office:
             return "You already have that."
         case .colo:
+            if capacityKW / 1000 > Campus.coloCapMW { return "Colocation providers lease at most \(Int(Campus.coloCapMW)) MW to one tenant. Build your own campus for more." }
+            if power == .gas || power == .smr || power == .fusion { return "A colocation provider picks grid power or a PPA, not on-site generation." }
             let setup = loc.coloFee * capacityKW * (cooling == .air ? 1 : 1.35)
             if setup > cash { return "The first month's fee of \(Fmt.money(setup)) is more than your cash." }
             cash -= setup
@@ -98,24 +106,36 @@ extension GameState {
                      .company, image: loc.image)
         case .datacenter:
             let mw = capacityKW / 1000
-            let capex = mw * cooling.capexPerMW * (year > 2024 ? 1.15 : 1)
-            if capex > cash { return "Building this costs \(Fmt.money(capex)); you have \(Fmt.money(cash))." }
-            if mw > loc.gridCapMW { return "\(loc.name)'s grid can only supply \(Int(loc.gridCapMW)) MW to one site." }
-            let months = buildMonths(mw: mw, loc: loc, power: power)
+            let cap = Campus.siteCapMW(loc, power, self)
+            if mw > cap + 0.01 {
+                return "\(loc.name) can supply at most \(Fmt.watts(cap * 1e6)) to one site on \(power.rawValue.lowercased()). On-site gas, reactors or another location go bigger."
+            }
+            // Big campuses come online a phase at a time; each phase is paid for when it starts.
+            let n = Campus.phases(mw: mw)
+            let phaseMW = mw / Double(n)
+            let capex = phaseMW * Campus.capexPerMW(cooling, self)
+            if capex > cash { return n > 1 ? "The first phase costs \(Fmt.money(capex)); you have \(Fmt.money(cash))." : "Building this costs \(Fmt.money(capex)); you have \(Fmt.money(cash))." }
+            let months = buildMonths(mw: phaseMW, loc: loc, power: power)
             cash -= capex
             month.capex += capex
             let ready = GameCalendar.addDays(date, Int(months * 30.4))
-            sites.append(Site(name: name, kind: .datacenter, locationID: locationID, capacityKW: capacityKW, cooling: cooling, powerDeal: power,
-                              opened: date, ready: ready, capex: capex, monthlyFee: 0))
-            Sim.news(&self, "Breaking ground: \(name)", "\(Fmt.trim(mw, 1)) MW \(cooling.rawValue.lowercased())-cooled campus in \(loc.name). \(Fmt.money(capex)), online \(ready.gameMonth).",
+            var site = Site(name: name, kind: .datacenter, locationID: locationID, capacityKW: phaseMW * 1000, cooling: cooling, powerDeal: power,
+                            opened: date, ready: ready, capex: capex, monthlyFee: 0)
+            site.plannedKW = (mw - phaseMW) * 1000
+            site.phaseKW = phaseMW * 1000
+            sites.append(site)
+            let phasesNote = n > 1 ? " Built in \(n) phases of \(Fmt.watts(phaseMW * 1e6)); the first is energised \(ready.gameMonth), about \(Fmt.money(mw * Campus.capexPerMW(cooling, self))) in all." : " \(Fmt.money(capex)), online \(ready.gameMonth)."
+            Sim.news(&self, "Breaking ground: \(name)", "\(Fmt.watts(mw * 1e6)) \(cooling.rawValue.lowercased())-cooled campus in \(loc.name) on \(power.rawValue.lowercased()).\(phasesNote)",
                      .company, image: "dc_construction", important: true)
         }
         return nil
     }
 
     func buildMonths(mw: Double, loc: Location, power: PowerDeal) -> Double {
-        var m = (7 + min(22, mw * 0.025)) / loc.buildSpeed * market.buildDelay * Policy.buildFactor(self)
+        var m = (7 + min(22, mw * 0.025)) / loc.buildSpeed * market.buildDelay * Policy.buildFactor(self) * XenoScience.buildFactor(self)
+        m /= Campus.speedup(year)
         if power == .gas { m *= 0.7 }
+        if power == .smr || power == .fusion { m *= 0.85 }
         return m
     }
 
@@ -127,29 +147,41 @@ extension GameState {
         case .garage, .office:
             return "Upgrade your office from the Team page instead."
         case .colo:
+            if (site.capacityKW + addKW) / 1000 > Campus.coloCapMW { return "Colocation providers lease at most \(Int(Campus.coloCapMW)) MW to one tenant. Build your own campus for more." }
             let fee = site.location.coloFee * addKW * (site.cooling == .air ? 1 : 1.35)
             sites[i].capacityKW += addKW
             sites[i].monthlyFee += fee
         case .datacenter:
-            let mw = addKW / 1000
-            if (site.capacityKW + addKW) / 1000 > site.location.gridCapMW { return "The local grid can't supply that much." }
-            let capex = mw * site.cooling.capexPerMW * (year > 2024 ? 1.15 : 1)
-            if capex > cash { return "This expansion costs \(Fmt.money(capex))." }
-            cash -= capex
-            month.capex += capex
-            sites[i].capex += capex
-            sites[i].expanding = addKW
-            sites[i].expansionReady = GameCalendar.addDays(date, Int(buildMonths(mw: mw, loc: site.location, power: site.powerDeal) * 0.7 * 30.4))
+            let cap = Campus.siteCapMW(site.location, site.powerDeal, self)
+            if (Campus.plannedTotalKW(site) + addKW) / 1000 > cap + 0.01 {
+                return "\(site.location.name) can supply at most \(Fmt.watts(cap * 1e6)) to one site on \(site.powerDeal.rawValue.lowercased()). Switch to a bigger power source or build another site."
+            }
+            // Expansions queue up as phases, each paid for when construction starts.
+            let n = Campus.phases(mw: addKW / 1000)
+            let phase = addKW / Double(n)
+            let first = min(addKW, phase)
+            if site.expanding == 0 && site.plannedKW == 0 && site.isReady(date) {
+                let capex = first / 1000 * Campus.capexPerMW(site.cooling, self)
+                if capex > cash { return n > 1 ? "The first phase costs \(Fmt.money(capex))." : "This expansion costs \(Fmt.money(capex))." }
+            }
+            sites[i].plannedKW += addKW
+            sites[i].phaseKW = phase
+            if site.isReady(date) && site.expanding == 0 { Campus.startNextPhase(&self, i, factor: 0.6) }
         }
         return nil
     }
 
     mutating func setPowerDeal(_ id: UUID, _ deal: PowerDeal) -> String? {
         guard let i = sites.firstIndex(where: { $0.id == id }) else { return "Not found." }
-        if year < deal.availableFrom { return "Not available yet." }
+        if !deal.available(self) { return "Not available yet." }
         if sites[i].kind == .garage || sites[i].kind == .office { return "Your landlord picks the power for you." }
+        if sites[i].kind == .colo && (deal == .gas || deal == .smr || deal == .fusion) { return "A colocation provider can't run on-site generation for you." }
+        let cap = Campus.siteCapMW(sites[i].location, deal, self)
+        if Campus.plannedTotalKW(sites[i]) / 1000 > cap + 0.01 {
+            return "\(deal.rawValue) can only supply \(Fmt.watts(cap * 1e6)) here; this campus is planned for \(Fmt.watts(Campus.plannedTotalKW(sites[i]) * 1000))."
+        }
         sites[i].powerDeal = deal
-        if deal == .nuclear || deal == .solar || deal == .wind { brand = min(100, brand + 1) }
+        if deal.green >= 1 { brand = min(100, brand + 1) }
         return nil
     }
 
@@ -284,9 +316,17 @@ extension GameState {
         guard let i = models.firstIndex(where: { $0.id == id }) else { return "Not found." }
         if !models[i].released {
             if launch == .keynote && GameState.keynoteCost(self) > cash { return "A keynote costs \(Fmt.money(GameState.keynoteCost(self)))." }
+            // What this launch adds over your best model so far, and how soon after your last one it comes.
+            let earlier = models.filter { $0.released && $0.id != id }
+            let previousBest = earlier.map(\.index).max()
+            let lastLaunch = earlier.compactMap(\.releaseDate).max()
             models[i].released = true
             models[i].releaseDate = date
-            var gain = max(1, 6 + 4 * (models[i].c - Macro.frontier(year)))
+            let quality = max(0, 6 + 4 * (models[i].c - Macro.frontier(year)))
+            // Brand follows progress: nothing for a model that doesn't beat your best, the full effect at +5 index points.
+            // Only your first release always makes a little noise.
+            var gain = previousBest.map { quality * clamp((models[i].index - $0) / 5, 0, 1.5) } ?? max(1, quality)
+            let rank = Leaderboard.rank(of: id, in: self)
             switch launch {
             case .standard: break
             case .keynote:
@@ -294,27 +334,39 @@ extension GameState {
                 cash -= cost
                 month.costMarketing += cost
                 gain *= 1.6
-                market.hype += 0.02
+                // A keynote moves the whole market only for a top-3 model, and at most once a quarter.
+                if rank <= 3 && (lastKeynoteHype.map { GameCalendar.daysBetween($0, date) >= 90 } ?? true) {
+                    market.hype += 0.02
+                    lastKeynoteHype = date
+                }
             case .blitz:
-                let rank = Leaderboard.rank(of: id, in: self)
-                gain += rank == 1 ? 8 : (rank <= 3 ? 2 : -7)
+                gain += rank == 1 ? (gain > 0 ? 8 : 0) : (rank <= 3 ? (gain > 0 ? 2 : 0) : -7)
             case .staged:
                 gain *= 0.5
                 models[i].safety = min(100, models[i].safety + 4)
                 safetyScore = min(100, safetyScore + 2)
             }
+            // A second launch within 90 days of the last gets half the attention.
+            if gain > 0, let last = lastLaunch, GameCalendar.daysBetween(last, date) < 90 { gain *= 0.5 }
             brand = clamp(brand + gain, 0, 100)
-            let rank = Leaderboard.rank(of: id, in: self)
             Sim.news(&self, "\(companyName) releases \(models[i].name)", "Intelligence Index \(Fmt.score(models[i].index)) — #\(rank) on the leaderboard.",
                      .company, image: "sf_skyline", important: true, good: true)
             SafetyFramework.onRelease(&self, i)
+            RivalIntel.playerReleased(&self, name: models[i].name, index: models[i].index)
         }
         models[i].api = api
         if openWeights && !models[i].openWeights {
+            let bestOpenBefore = models.filter { $0.openWeights && $0.id != id }.map(\.c).max()
             models[i].openWeights = true
-            let gain = 8 * (1 + traits.openBrand)
+            // Near-frontier weights are big news; older ones barely register, and weights no better than ones
+            // you've already published don't register at all.
+            var gain = models[i].c >= Macro.frontier(year) - 0.5 ? 8 * (1 + traits.openBrand) : 2
+            if let b = bestOpenBefore, models[i].c <= b { gain = 0 }
             brand = min(100, brand + gain)
-            Sim.news(&self, "\(models[i].name) weights released", "Developers worldwide are downloading your model. Brand +\(Int(gain)), but rivals can build on it too.", .company, good: true)
+            Sim.news(&self, "\(models[i].name) weights released",
+                     gain > 0 ? "Developers worldwide are downloading your model. Brand +\(Int(gain)), but rivals can build on it too."
+                              : "You've already published better weights, so few developers notice. Rivals can build on it too.",
+                     .company, good: gain > 0)
         }
         return nil
     }
@@ -334,24 +386,37 @@ extension GameState {
         models[i].servingPrecision = p
     }
 
-    mutating func setAPIPrice(_ id: UUID, _ price: Double) {
-        guard let i = models.firstIndex(where: { $0.id == id }) else { return }
-        models[i].apiPrice = max(0.001, price)
+    /// Set an API price by hand (turns auto-pricing off). You can't sell below what serving the tokens costs you:
+    /// a lower price is raised to that floor and the reason returned.
+    @discardableResult
+    mutating func setAPIPrice(_ id: UUID, _ price: Double) -> String? {
+        guard let i = models.firstIndex(where: { $0.id == id }) else { return "Not found." }
+        let floor = Treasury.minPrice(models[i], self)
+        models[i].apiPrice = max(floor, price)
         models[i].autoPrice = false
+        if price < floor {
+            return "\(models[i].name) costs \(Fmt.price(floor)) per 1M tokens to serve — priced at that floor instead."
+        }
+        return nil
     }
 
     mutating func retire(_ id: UUID) {
         guard let i = models.firstIndex(where: { $0.id == id }) else { return }
         models[i].retired = true
         models[i].deployments = []
-        if chatModelID == id { chatModelID = nil }
-        for d in deals.indices where deals[d].modelID == id { deals[d].modelID = nil }
+        // Products move to your best remaining model that can carry them; contracts to your best model that
+        // qualifies, or they start breaching.
+        let others = models.filter { $0.released && !$0.retired }
+        if chatModelID == id { chatModelID = others.filter(\.design.instruct).max { $0.index < $1.index }?.id }
+        if agentModelID == id { agentModelID = others.filter(\.design.toolUse).max { $0.index < $1.index }?.id }
+        Business.rehomeDeals(&self, from: id)
     }
 
     // MARK: Enterprise
 
     mutating func acceptDeal(_ id: UUID, modelID: UUID) -> String? {
         guard let i = deals.firstIndex(where: { $0.id == id }), let m = models.first(where: { $0.id == modelID }) else { return "Not found." }
+        if !m.released || m.retired { return "Release \(m.name) before you sell it to enterprises." }
         if m.index + 0.01 < deals[i].minIndex { return "\(deals[i].client) needs an Intelligence Index of \(Fmt.score(deals[i].minIndex))." }
         if safetyScore < deals[i].minSafety { return "\(deals[i].client) requires a safety score of \(Int(deals[i].minSafety))." }
         deals[i].active = true
@@ -362,12 +427,24 @@ extension GameState {
 
     mutating func declineDeal(_ id: UUID) { deals.removeAll { $0.id == id } }
 
+    /// Move a signed contract to another released model that meets the client's bar.
+    mutating func reassignDeal(_ dealID: UUID, modelID: UUID) -> String? {
+        guard let i = deals.firstIndex(where: { $0.id == dealID }), let m = models.first(where: { $0.id == modelID }) else { return "Not found." }
+        if !deals[i].active { return "Sign the contract first." }
+        if !m.released || m.retired { return "\(m.name) isn't serving customers." }
+        if m.index + 0.01 < deals[i].minIndex { return "\(deals[i].client) needs an Intelligence Index of \(Fmt.score(deals[i].minIndex))." }
+        if deals[i].modelID == modelID { return nil }
+        deals[i].modelID = modelID
+        Sim.news(&self, "\(deals[i].client) moved to \(m.name)", "Their \(Fmt.count(deals[i].tokensPerDay)) tokens a day now run on \(m.name). Make sure it has the capacity.", .company)
+        return nil
+    }
+
     // MARK: Research & data
 
     mutating func queueResearch(_ id: String) {
         guard !researched.contains(id), !researchQueue.contains(id), let item = ResearchCatalog.byID[id] else { return }
         if item.isExotic && !exoticOwned.contains(id) { return }
-        if id.hasPrefix("xeno_") && alienArchs.isEmpty { return }
+        if !XenoScience.researchUnlocked(id, self) { return }
         researchQueue.append(id)
     }
 
@@ -582,14 +659,57 @@ extension GameState {
         return nil
     }
 
-    mutating func secondaryOffering(fraction: Double) -> String? {
+    static let offeringCooldownDays = 90
+    /// New shares sold in any 365 days, as a share of the shares outstanding before them.
+    static let offeringYearCap = 0.2
+
+    /// Shares sold in secondary offerings over the last 365 days.
+    var sharesIssuedThisYear: Double {
+        shareIssues.filter { GameCalendar.daysBetween($0.date, date) < 365 }.reduce(0) { $0 + $1.shares }
+    }
+
+    /// The largest secondary offering allowed right now, as a fraction of today's shares (0 when blocked).
+    var maxOfferingFraction: Double {
+        guard isPublic, offeringBlocker == nil else { return 0 }
+        let issued = sharesIssuedThisYear
+        let room = GameState.offeringYearCap * (totalShares - issued) - issued
+        return max(0, room / max(1, totalShares))
+    }
+
+    /// Why a secondary offering isn't possible today (nil if it is).
+    var offeringBlocker: String? {
         guard isPublic else { return "Go public first." }
+        if let last = shareIssues.map(\.date).max(), GameCalendar.daysBetween(last, date) < GameState.offeringCooldownDays {
+            return "Investors need 90 days between offerings — next window \(GameCalendar.addDays(last, GameState.offeringCooldownDays).gameShort)."
+        }
+        let issued = sharesIssuedThisYear
+        if issued >= GameState.offeringYearCap * (totalShares - issued) - 1 {
+            let window = shareIssues.filter { GameCalendar.daysBetween($0.date, date) < 365 }.map(\.date).min() ?? date
+            return "You've sold 20% new shares in the last 12 months — next window \(GameCalendar.addDays(window, 365).gameShort)."
+        }
+        return nil
+    }
+
+    /// Sell new shares at a 5% discount. The market cap grows by exactly the cash raised: no value is created.
+    mutating func secondaryOffering(fraction: Double) -> String? {
+        if let why = offeringBlocker { return why }
+        guard fraction > 0 else { return "Pick how many shares to sell." }
+        let cap = maxOfferingFraction
+        if fraction > cap + 1e-9 {
+            return "Shareholders cap new shares at 20% a year — you can sell up to \(Fmt.pct(cap, decimals: 1)) of the company now."
+        }
         let newShares = totalShares * fraction
-        let raised = newShares * sharePrice * 0.95
+        let price = sharePrice * 0.95
+        let raised = newShares * price
+        let capBefore = sharePrice * totalShares
         publicShares += newShares
         cash += raised
-        sharePrice *= (1 - fraction * 0.5)
-        Sim.news(&self, "Secondary offering raises \(Fmt.money(raised))", "Issued \(Fmt.count(newShares)) new shares.", .finance)
+        sharePrice = (capBefore + raised) / max(1, totalShares)
+        valuation = sharePrice * totalShares
+        let today = date
+        shareIssues.append(ShareIssue(date: today, shares: newShares))
+        shareIssues.removeAll { GameCalendar.daysBetween($0.date, today) > 730 }
+        Sim.news(&self, "Secondary offering raises \(Fmt.money(raised))", "Issued \(Fmt.count(newShares)) new shares at \(Fmt.price(price)), a 5% discount. The stock now trades at \(Fmt.price(sharePrice)).", .finance)
         return nil
     }
 

@@ -53,15 +53,323 @@ enum Training {
                                    tier: ForecastEngine.tier(index: band.mean, top: top),
                                    comparable: RealModels.closest(index: band.mean, set: set).map { "\($0.name) (\($0.lab), \($0.date.label))" } ?? "—",
                                    finalLoss: f.finalLoss)
+        // Experiments (estimated under `toyCost`) run quietly: no incidents, so no silent bug either.
+        if run.kind == .full, let est = Physics.estimate(d, state: s, lr: run.schedule, interval: run.interval) { run.toy = est.toy }
         run.epsilon = s.rng.gaussian() * f.sigma
         if s.rng.chance(f.bugRisk * (1 - 0.4 * s.swarmOps)) {
-            run.bugPenalty = s.rng.range(0.08, 0.32)
-            run.bugOnset = s.rng.range(0.08, 0.6)
+            let penalty = s.rng.range(0.08, 0.32)
+            let onset = s.rng.range(0.08, 0.6)
+            if !run.toy {
+                run.bugPenalty = penalty
+                run.bugOnset = onset
+            }
         }
         run.revealSigma = f.sigma
         run.stages = stages(d, pretrain: run.flopsTotal, bonuses: b)
         run.postTrainFlops = run.stages.filter { !$0.isPre }.reduce(0) { $0 + $1.flops }
         runLogDirect(&run, s.date, "Forecast: index \(Fmt.score(band.mean)) (80%: \(Fmt.score(band.low))–\(Fmt.score(band.high))) — \(run.forecast?.tier ?? "").")
+    }
+
+    // MARK: Ops coverage
+
+    static func isLive(_ r: TrainingRun) -> Bool { r.status == .running || r.status == .postTraining }
+
+    /// Researcher-equivalents of training-ops agents watching this run: swarms pinned to it, plus its share
+    /// (by chips) of the swarms that watch every run.
+    static func opsAgents(_ s: GameState, _ run: TrainingRun) -> Double {
+        var pinned = 0.0, shared = 0.0
+        for sw in s.swarms where !sw.paused && sw.mission == .trainingOps {
+            if let t = sw.targetRunID, s.runs.contains(where: { $0.id == t && isLive($0) }) {
+                if t == run.id { pinned += sw.workforce }
+            } else {
+                shared += sw.workforce
+            }
+        }
+        let total = s.runs.filter { isLive($0) && $0.kind == .full }.reduce(0) { $0 + $1.design.chips }
+        return pinned + (total > 0 ? shared * Double(run.design.chips) / Double(total) : 0)
+    }
+
+    /// Coverage a new run of `chips` would get from the training-ops swarms that watch every run.
+    static func plannedCoverage(_ s: GameState, chips: Int) -> Double {
+        var shared = 0.0
+        for sw in s.swarms where !sw.paused && sw.mission == .trainingOps {
+            if let t = sw.targetRunID, s.runs.contains(where: { $0.id == t && isLive($0) }) { continue }
+            shared += sw.workforce
+        }
+        let busy = s.runs.filter { isLive($0) && $0.kind == .full }.reduce(0) { $0 + $1.design.chips }
+        let share = shared * Double(chips) / Double(max(1, busy + chips))
+        return clamp(share / opsNeeded(chips: chips), 0, 1)
+    }
+
+    /// Engineer-equivalents a run needs for full coverage: one per 600 chips.
+    static func opsNeeded(chips: Int) -> Double { max(0.5, Double(chips) / 600) }
+
+    /// Share of a run's chips that agents watch (0–1).
+    static func coverage(_ s: GameState, _ run: TrainingRun) -> Double {
+        clamp(opsAgents(s, run) / opsNeeded(chips: run.design.chips), 0, 1)
+    }
+
+    /// What full coverage buys: failures predicted and drained before they crash the job, restarts from
+    /// in-memory snapshots in seconds, silent corruption caught, stragglers evicted.
+    struct OpsEffect {
+        var prevented: Double
+        var recovery: Double
+        var sdcCaught: Double
+        var stragglers: Double
+        var spikes: Double
+    }
+
+    static func opsEffect(_ cov: Double, _ s: GameState) -> OpsEffect {
+        OpsEffect(prevented: 0.75 * cov, recovery: 0.85 * cov,
+                  sdcCaught: min(0.98, 0.3 + (s.researched.contains("sdc_detection") ? 0.2 : 0) + 0.6 * cov),
+                  stragglers: 0.7 * cov, spikes: 0.4 * cov)
+    }
+
+    /// Silent data corruption: about 1.4% of hardware faults don't crash anything — they quietly poison gradients.
+    static let sdcShare = 0.014
+    /// Capability lost per corruption nobody catches (log10 effective compute).
+    static let sdcPenalty = 0.0012
+
+    // MARK: Goodput
+
+    /// Expected share of a day that makes progress when the day's failures are drawn like `poisson(lambda)` and each
+    /// costs `hours`: E[max(0, 1 − k·hours/24)]. Exact for the draws the daily simulation makes (Poisson up to λ = 25,
+    /// a rounded normal above), so estimates and runs agree even when failures eat whole days. The old linear
+    /// expectation (1 − λ·hours/24, floored at 1%) was too pessimistic near the cliff and far too optimistic past it.
+    static func expectedUptime(lambda: Double, hours: Double) -> Double {
+        guard lambda > 0, hours > 0 else { return 1 }
+        let kMax = 24 / hours                                    // failures one day can absorb
+        var sum = 0.0
+        if lambda <= 25 {
+            var p = exp(-lambda)
+            var k = 0
+            while Double(k) <= kMax && k < 200 {
+                sum += p * (1 - Double(k) * hours / 24)
+                k += 1
+                p *= lambda / Double(k)
+            }
+        } else {
+            let sd = lambda.squareRoot()
+            func cdf(_ x: Double) -> Double { 0.5 * erfc(-x / 2.0.squareRoot()) }
+            let lo = max(0, Int((lambda - 10 * sd).rounded(.down)))
+            let hi = min(Int(kMax.rounded(.down)), Int((lambda + 10 * sd).rounded(.up)))
+            guard lo <= hi else { return 0 }
+            for k in lo...hi {
+                let mass = cdf((Double(k) + 0.5 - lambda) / sd) - (k == 0 ? 0 : cdf((Double(k) - 0.5 - lambda) / sd))
+                sum += mass * (1 - Double(k) * hours / 24)
+            }
+        }
+        return clamp(sum, 0, 1)
+    }
+
+    /// Expected share of wall-clock time that makes progress on a run of `chips` with ops coverage `cov`: the
+    /// failure expectation the daily step draws from, times straggler losses. It can be zero. `infra` overrides the
+    /// infra team (for "if you hired…" advice).
+    static func goodput(chips: Int, coverage cov: Double, state s: GameState, bonuses b: ResearchBonuses, infra: Double? = nil) -> Double {
+        let e = opsEffect(cov, s)
+        let lambda = Double(chips) * failuresPerChipDay * (1 - e.prevented)
+        let hours = Physics.hoursLostPerFailure(state: s, bonuses: b, chips: chips, infra: infra) * (1 - e.recovery)
+        let strag = 1 - (1 - Physics.stragglerFactor(chips: chips, bonuses: b)) * (1 - e.stragglers)
+        return clamp(expectedUptime(lambda: lambda, hours: hours) * strag, 0, 0.998)
+    }
+
+    /// Below this expected goodput a run effectively never finishes (it only moves on the odd lucky day).
+    static let stallGoodput = 0.01
+    /// Below this expected goodput the Model Lab won't start a run: most of the money would buy restarts.
+    static let goodputFloor = 0.3
+    /// Below this the Model Lab warns, and auto-size shrinks the cluster to stay above it.
+    static let goodputTarget = 0.6
+
+    /// Largest cluster, up to `chips`, whose expected goodput stays at or above `target` with today's team, ops swarms
+    /// and research, rounded down to two significant figures. `coverage` fixes the ops coverage (a running run);
+    /// by default it's what unpinned training-ops swarms would give a new run of each size.
+    static func healthyChips(_ chips: Int, target: Double, state s: GameState, bonuses b: ResearchBonuses, coverage: Double? = nil) -> Int {
+        func g(_ n: Int) -> Double { goodput(chips: n, coverage: coverage ?? plannedCoverage(s, chips: n), state: s, bonuses: b) }
+        guard chips > 1, g(chips) < target else { return chips }
+        var lo = 1, hi = chips
+        while hi - lo > 1 {
+            let mid = lo + (hi - lo) / 2
+            if g(mid) >= target { lo = mid } else { hi = mid }
+        }
+        let step = pow(10, floor(log10(Double(lo))) - 1)
+        return max(1, Int((Double(lo) / step).rounded(.down) * step))
+    }
+
+    /// Your model that makes the best training-ops agent.
+    static func bestOpsModel(_ s: GameState) -> AIModel? {
+        s.models.filter { !$0.retired }.max { Swarms.quality($0, s, mission: .trainingOps) < Swarms.quality($1, s, mission: .trainingOps) }
+    }
+
+    /// Why a run this size loses its time to hardware failures, and what would fix it (each fix with the goodput it
+    /// reaches). Nil when expected goodput is healthy (at or above `goodputTarget`).
+    struct GoodputAdvice {
+        var goodput: Double
+        /// Below `goodputFloor`: the Model Lab won't start it.
+        var blocked: Bool
+        var headline: String
+        var fixes: [String]
+        /// Largest cluster that keeps goodput at `goodputTarget` as things stand.
+        var healthyChips: Int
+    }
+
+    static func goodputAdvice(chips: Int, coverage cov: Double, running: Bool, state s: GameState, bonuses b: ResearchBonuses) -> GoodputAdvice? {
+        let g = goodput(chips: chips, coverage: cov, state: s, bonuses: b)
+        guard g < goodputTarget else { return nil }
+        let e = opsEffect(cov, s)
+        let lambda = Double(chips) * failuresPerChipDay * (1 - e.prevented)
+        let hours = Physics.hoursLostPerFailure(state: s, bonuses: b, chips: chips) * (1 - e.recovery)
+        let minutes = 1_440 / max(lambda, 1e-9)
+        let every = minutes < 1 ? "\(max(1, Int((minutes * 60).rounded()))) seconds"
+            : (minutes < 90 ? "\(Int(minutes.rounded())) minutes" : "\(Fmt.trim(minutes / 60, 1)) hours")
+        let cause = "At \(Fmt.int(chips)) chips a hardware fault hits every \(every) and each costs \(Fmt.trim(hours, 2)) h to recover from"
+        let headline = g < stallGoodput
+            ? "\(cause): about \(Fmt.int(Int((lambda * hours).rounded()))) hours lost per day, so the run can't make progress."
+            : "\(cause): failures and stragglers eat \(Fmt.pct(1 - g, decimals: 0)) of its time."
+        var fixes: [String] = []
+        // Ops agents: the way to make a 500K-chip run work.
+        if cov < 0.95 {
+            let full = goodput(chips: chips, coverage: 1, state: s, bonuses: b)
+            if full - g > 0.03 {
+                var line = running ? "Point training-ops agents at it (Assign agents on its run card)"
+                                   : "Start a training-ops swarm that watches all runs (Agent Swarms) before you launch"
+                line += ": full coverage gets it to \(Fmt.pct(full, decimals: 0))"
+                if let m = bestOpsModel(s) {
+                    let n = agentsForCoverage(m, chips: chips, s, b)
+                    line += n >= Swarms.maxAgents ? ", but \(m.name) isn't capable enough to run ops yet" : " with about \(Fmt.int(n)) agents of \(m.name)"
+                } else {
+                    line += " (agents are copies of one of your models)"
+                }
+                fixes.append(line + ".")
+            }
+        }
+        // Infra engineers: one per 600 chips of the biggest run.
+        let need = opsNeeded(chips: Physics.staffedChips(s, planned: chips))
+        let have = Physics.infraWeight(s)
+        if have < need * 0.95 {
+            let staffed = goodput(chips: chips, coverage: cov, state: s, bonuses: b, infra: need)
+            if staffed - g > 0.02 {
+                fixes.append("Hire infra engineers: a run this size wants about \(Fmt.int(Int(need.rounded(.up)))) (one per 600 chips) and you have \(Fmt.trim(have, 1)); fully staffed it reaches \(Fmt.pct(staffed, decimals: 0)).")
+            }
+        }
+        // Fault-tolerance research (async checkpointing first).
+        for (id, cut) in [("checkpointing", 0.70), ("elastic", 0.50), ("optical_switching", 0.10)] where !s.researched.contains(id) {
+            guard let item = ResearchCatalog.byID[id] else { continue }
+            var better = b
+            better.failureKeep *= 1 - cut
+            let gr = goodput(chips: chips, coverage: cov, state: s, bonuses: better)
+            if gr - g > 0.02 {
+                fixes.append("Research \(item.name) (−\(Int(cut * 100))% time lost per failure): \(Fmt.pct(gr, decimals: 0)).")
+                break
+            }
+        }
+        // Or simply fewer chips.
+        let healthy = healthyChips(chips, target: goodputTarget, state: s, bonuses: b, coverage: running ? cov : nil)
+        if healthy < chips {
+            fixes.append(running ? "Shrink it to \(Fmt.int(healthy)) chips (Resize cluster) to get back above \(Fmt.pct(goodputTarget, decimals: 0))."
+                                 : "Use at most \(Fmt.int(healthy)) chips to stay above \(Fmt.pct(goodputTarget, decimals: 0)).")
+        }
+        return GoodputAdvice(goodput: g, blocked: g < goodputFloor, headline: headline, fixes: fixes, healthyChips: healthy)
+    }
+
+    // MARK: Incidents
+
+    /// Runs estimated under this at launch are experiments: hardware still fails and restarts, but nothing pops up
+    /// mid-run (silent bugs, loss spikes, contamination audits, fault storms, sycophancy, reward hacking). The first
+    /// garage run costs a few hundred dollars; the cheapest serious run of the 2017 era already costs six figures.
+    static let toyCost = 50_000.0
+
+    static func isToy(cost: Double) -> Bool { cost < toyCost }
+
+    /// Expected days a run loses to incidents when each is answered the careful way. Part of every estimate, so plans
+    /// aren't optimistic: loss spikes (the day plus, on average, half a checkpoint interval of pre-training; the
+    /// rollback also switches to a conservative learning rate, a third of the spikes and 2% slower; ops agents catch
+    /// spikes within minutes instead), fault storms (the day plus two days of raw throughput to swap nodes),
+    /// contamination scrubs (a 5% rewind) and post-training stages redone after sycophancy or reward hacking.
+    static func incidentDays(_ d: ModelDesign, pretrain pre: Double, perDay: Double, goodput g: Double, interval: Double, lr: LRSchedule,
+                             coverage cov: Double, state s: GameState, bonuses b: ResearchBonuses) -> Double {
+        guard perDay > 0, pre > 0 else { return 0 }
+        let plan = stages(d, pretrain: pre, bonuses: b)
+        let preDays = pre / perDay
+        let totalDays = plan.reduce(0) { $0 + $1.flops } / perDay
+        let ops = opsEffect(cov, s)
+        let t = preDays * 0.97
+        let r = spikeChance(d, lr: lr, state: s, bonuses: b) * (1 - ops.spikes) * t
+        var days = 0.0
+        if cov >= 0.5 {
+            days += r * 0.02
+        } else if r > 0 {
+            var spikes = r, slow = 0.0
+            if lr != .conservative {
+                let first = 1 - exp(-r)
+                spikes = first + 0.35 * (r - first)
+                slow = 0.02 * t * (r - first) / r
+            }
+            days += spikes * (1 + interval / 2 * preDays) + slow
+        }
+        if d.chips >= 4_000 {
+            // Two raw days of throughput, but never more than the progress made by then (storms strike uniformly).
+            let swap = 2 / max(g, stallGoodput)
+            let lost = swap < totalDays ? swap - swap * swap / (2 * totalDays) : totalDays / 2
+            days += (1 - pow(1 - 0.0025 * (1 - 0.6 * cov), totalDays)) * (1 + lost)
+        }
+        days += (1 - pow(1 - 0.012 * b.contaminationKeep, 0.45 * preDays)) * 0.05 * preDays
+        for st in plan where !st.isPre {
+            if st.name == "RLHF" || st.name == "DPO" { days += sycophancyRisk(s) * st.flops / perDay }
+            if st.name == "Reasoning RL" { days += rewardHackRisk(d, s) * st.flops / perDay }
+        }
+        return days
+    }
+
+    /// Chance that preference tuning produces a flatterer, for runs big enough to have incidents.
+    static func sycophancyRisk(_ s: GameState) -> Double {
+        s.signatureAt(.lodestar, 3) ? 0 : 0.15 * (s.researched.contains("anti_sycophancy") ? 0.2 : 1)
+    }
+
+    /// Chance that reasoning RL learns to game its graders. Heavier RL hacks more.
+    static func rewardHackRisk(_ d: ModelDesign, _ s: GameState) -> Double {
+        guard !s.signatureAt(.lodestar, 3) else { return 0 }
+        let rl: Double
+        switch d.effectiveRL {
+        case .off, .light: rl = 0.6
+        case .standard: rl = 1
+        case .heavy: rl = 1.3
+        case .extreme: rl = 1.6
+        }
+        return 0.16 * rl * (s.researched.contains("cot_monitoring") ? 0.35 : 1) * (s.researched.contains("verifiers") ? 0.7 : 1)
+    }
+
+    /// The post-training risks of a design and the research that prevents them, for the Model Lab.
+    static func postTrainingRisks(_ d: ModelDesign, toy: Bool, state s: GameState) -> [String] {
+        guard !toy else { return [] }
+        let b = s.bonuses
+        var out: [String] = []
+        if d.rlhf && b.has(.rlhf) {
+            let p = sycophancyRisk(s)
+            if p > 0 {
+                out.append("\(Int((p * 100).rounded()))% chance preference tuning makes it a flatterer"
+                           + (s.researched.contains("anti_sycophancy") ? " (Anti-Sycophancy Training already cut it 5×)." : ". Anti-Sycophancy Training research cuts that 5×."))
+            }
+        }
+        if d.reasoning && b.has(.reasoning) {
+            let p = rewardHackRisk(d, s)
+            if p > 0 {
+                var missing: [String] = []
+                if !s.researched.contains("cot_monitoring") { missing.append("Chain-of-Thought Monitoring (÷3)") }
+                if !s.researched.contains("verifiers") { missing.append("Verifiable Environments at Scale (−30%)") }
+                out.append("\(Int((p * 100).rounded()))% chance reasoning RL learns to game its graders"
+                           + (missing.isEmpty ? "." : ". Research \(missing.joined(separator: " and ")) to cut it."))
+            }
+        }
+        return out
+    }
+
+    /// Agents a swarm of model `m` needs for full coverage of `chips` (no oversight, semi-autonomous).
+    static func agentsForCoverage(_ m: AIModel, chips: Int, _ s: GameState, _ b: ResearchBonuses) -> Int {
+        let q = Swarms.quality(m, s, mission: .trainingOps)
+        guard q > 0 else { return Swarms.maxAgents }
+        let n = (pow(opsNeeded(chips: chips) / q, 1 / Swarms.coordination(b, s)) / Swarms.autonomyOutput[1]).rounded(.up)
+        guard n.isFinite, n < Double(Swarms.maxAgents) else { return Swarms.maxAgents }
+        return max(1, Int(n))
     }
 
     // MARK: Daily
@@ -71,43 +379,73 @@ enum Training {
             let d = s.runs[i].design
             guard let accel = HardwareCatalog.get(d.accelID) else { continue }
             let schedule = s.runs[i].schedule
-            var mfu = Physics.mfu(accel: accel, chips: d.chips, state: s, bonuses: b)
-            if d.optimizer == .shampoo { mfu -= 0.02 }
-            var perDay = Double(d.chips) * accel.trainTFLOPS(d.precision) * 1e12 * max(0.05, mfu) * 86_400 * schedule.speed
-            perDay *= Sim.checkpointOverhead(s.runs[i].interval) * Physics.stragglerFactor(chips: d.chips, bonuses: b)
+            let full = s.runs[i].kind == .full
+            // Experiments get no mid-run incidents. Their dice are still rolled (at zero odds) to keep the rng stream.
+            let quiet = s.runs[i].toy ? 0.0 : 1.0
+            let cov = full ? coverage(s, s.runs[i]) : 0
+            let ops = opsEffect(cov, s)
+            var perDay = Double(d.chips) * accel.trainTFLOPS(d.precision) * 1e12 * Physics.runMFU(d, accel: accel, coverage: cov, state: s, bonuses: b)
+                * 86_400 * schedule.speed
+            let straggle = 1 - (1 - Physics.stragglerFactor(chips: d.chips, bonuses: b)) * (1 - ops.stragglers)
+            perDay *= Sim.checkpointOverhead(s.runs[i].interval) * straggle
             if s.runs[i].kind == .proxy { perDay *= 0.33 }
             s.runs[i].cost += Economy.chipDailyCost(accel, count: d.chips, state: s)
+            s.runs[i].opsCoverage = cov
 
             // Hardware failures (Llama 3 rates): each one costs the restart time plus work since the last save.
-            let lambda = Double(d.chips) * failuresPerChipDay
+            // Ops agents drain failing nodes before they crash and restart the job from in-memory snapshots.
+            // Estimates use the expectation of exactly this step (`goodput`), so plans and runs agree.
+            var uptime = 1.0
+            let lambda = Double(d.chips) * failuresPerChipDay * (1 - ops.prevented)
+            if ops.prevented > 0 { s.runs[i].prevented += Double(d.chips) * failuresPerChipDay * ops.prevented }
             let k = poisson(lambda, &s.rng)
             if k > 0 {
-                let hours = Double(k) * Physics.hoursLostPerFailure(state: s, bonuses: b)
+                let hours = Double(k) * Physics.hoursLostPerFailure(state: s, bonuses: b, chips: d.chips) * (1 - ops.recovery)
                 s.runs[i].interruptions += k
                 s.runs[i].failures += k
                 s.runs[i].lostHours += hours
                 perDay *= max(0, 1 - hours / 24)
+                uptime = max(0, 1 - hours / 24)
                 if hours >= 2 || (k > 0 && s.rng.chance(0.15)) {
                     let what = s.rng.pick(["GPU fell off the bus", "HBM uncorrectable ECC error", "NVLink/fabric link flap", "GPU SRAM fault",
                                            "host kernel panic", "optical transceiver failure", "straggler node evicted"])
                     runLog(&s, i, "\(k) interruption\(k == 1 ? "" : "s") (\(what)\(k > 1 ? " and more" : "")) — lost \(Fmt.trim(hours, 1)) h, auto-restarted from the last save.")
                 }
             }
-            if s.runs[i].kind == .full && d.chips >= 4_000 && !s.runs[i].decided.contains("fault_storm") && s.rng.chance(0.0025) {
+            // Silent data corruption: invisible, and at 100K+ chips it adds up. Agents and checksums catch most of it.
+            let sdc = Double(d.chips) * failuresPerChipDay * sdcShare * uptime
+            if d.chips >= 20_000 && s.runs[i].kind == .full && sdc > 0 {
+                let before = Int(s.runs[i].sdcCaught)
+                s.runs[i].sdcCaught += sdc * ops.sdcCaught
+                s.runs[i].sdcMissed += sdc * (1 - ops.sdcCaught)
+                s.runs[i].qualityPenalty += sdc * (1 - ops.sdcCaught) * sdcPenalty
+                if cov > 0.2 && Int(s.runs[i].sdcCaught) / 10 > before / 10 {
+                    runLog(&s, i, "Ops agents have quarantined \(Int(s.runs[i].sdcCaught)) nodes that were silently corrupting gradients.")
+                }
+            }
+            if full { trackStall(&s, i, pace: uptime * straggle) }
+            if full && d.chips >= 4_000 && !s.runs[i].decided.contains("fault_storm") && s.rng.chance(0.0025 * (1 - 0.6 * cov) * quiet) {
                 faultStorm(&s, i)
                 continue
             }
 
             if s.runs[i].status == .running {
-                if s.runs[i].kind == .full && s.runs[i].progress > 0.03 && s.rng.chance(spikeChance(s.runs[i], state: s, bonuses: b)) {
-                    lossSpike(&s, i)
-                    continue
+                if full && s.runs[i].progress > 0.03 && s.rng.chance(spikeChance(s.runs[i], state: s, bonuses: b) * (1 - ops.spikes) * quiet) {
+                    // With most of the run covered, agents catch the spike within steps and rewind a few minutes.
+                    if cov >= 0.5 {
+                        s.runs[i].spikes += 1
+                        s.runs[i].flopsDone = max(0, s.runs[i].flopsDone - perDay * 0.02)
+                        runLog(&s, i, "Loss spike caught by ops agents: rewound to a snapshot from minutes earlier and skipped the bad batch.")
+                    } else if !awaiting(s, "loss_spike", i) {
+                        lossSpike(&s, i)
+                        continue
+                    }
                 }
                 s.runs[i].flopsDone += perDay
                 s.lifetimeFLOPs += perDay
                 let frac = s.runs[i].progress
                 recordLoss(&s, i, frac: frac)
-                guard s.runs[i].kind == .full else {
+                guard full else {
                     if s.runs[i].flopsDone >= s.runs[i].flopsTotal { finishLadder(&s, i) }
                     continue
                 }
@@ -121,29 +459,64 @@ enum Training {
                     saveCheckpoint(&s, i)
                     s.runs[i].status = .postTraining
                     s.runs[i].stageIndex = s.runs[i].stages.firstIndex { !$0.isPre } ?? s.runs[i].stages.count
-                    s.runs[i].stageDone = 0
+                    // The rest of the day goes into post-training rather than idling until tomorrow.
+                    s.runs[i].stageDone = max(0, s.runs[i].flopsDone - s.runs[i].flopsTotal)
                     let post = s.runs[i].stages.filter { !$0.isPre }.map(\.name).joined(separator: " → ")
                     runLog(&s, i, "Pre-training complete after \(s.runs[i].interruptions) interruptions. Post-training: \(post).")
                     stageStarted(&s, i)
+                    advanceStages(&s, i)
                 }
             } else {
                 s.runs[i].stageDone += perDay
                 s.lifetimeFLOPs += perDay
-                guard s.runs[i].stageIndex < s.runs[i].stages.count else { finishRun(&s, i); continue }
-                if s.runs[i].stageDone >= s.runs[i].stages[s.runs[i].stageIndex].flops {
-                    runLog(&s, i, "\(s.runs[i].stages[s.runs[i].stageIndex].name) done.")
-                    s.runs[i].stageIndex += 1
-                    s.runs[i].stageDone = 0
-                    if s.runs[i].stageIndex >= s.runs[i].stages.count {
-                        finishRun(&s, i)
-                    } else {
-                        stageStarted(&s, i)
-                    }
-                }
-                s.runs[i].postTrainDone = s.runs[i].stages.enumerated().filter { !$0.element.isPre && $0.offset < s.runs[i].stageIndex }
-                    .reduce(0) { $0 + $1.element.flops } + s.runs[i].stageDone
+                advanceStages(&s, i)
             }
         }
+    }
+
+    /// Moves a post-training run through every stage its compute has finished, carrying leftover compute into the
+    /// next stage (a cluster doesn't idle for the rest of the day when a short stage ends).
+    static func advanceStages(_ s: inout GameState, _ i: Int) {
+        while s.runs[i].status == .postTraining {
+            guard s.runs[i].stageIndex < s.runs[i].stages.count else { finishRun(&s, i); break }
+            let stage = s.runs[i].stages[s.runs[i].stageIndex]
+            guard s.runs[i].stageDone >= stage.flops else { break }
+            runLog(&s, i, "\(stage.name) done.")
+            s.runs[i].stageIndex += 1
+            s.runs[i].stageDone -= stage.flops
+            if s.runs[i].stageIndex >= s.runs[i].stages.count {
+                finishRun(&s, i)
+            } else {
+                stageStarted(&s, i)
+            }
+        }
+        s.runs[i].postTrainDone = s.runs[i].stages.enumerated().filter { !$0.element.isPre && $0.offset < s.runs[i].stageIndex }
+            .reduce(0) { $0 + $1.element.flops } + s.runs[i].stageDone
+    }
+
+    /// Whether an incident decision of `kind` about run `i` is still waiting for the player.
+    static func awaiting(_ s: GameState, _ kind: String, _ i: Int) -> Bool {
+        let ref = s.runs[i].id.uuidString
+        return s.decisions.contains { $0.kind == kind && $0.ref == ref }
+    }
+
+    /// Counts days a run makes next to no progress (failures eating ≥95% of the day). After a week it raises an
+    /// alert that says why and what fixes it, and again every 30 days while it stays stuck.
+    static func trackStall(_ s: inout GameState, _ i: Int, pace: Double) {
+        if pace < 0.05 {
+            s.runs[i].stalledDays += 1
+        } else if pace > 0.2 {
+            s.runs[i].stalledDays = 0
+        }
+        let days = s.runs[i].stalledDays
+        guard days >= 7, (days - 7) % 30 == 0 else { return }
+        let run = s.runs[i]
+        let advice = goodputAdvice(chips: run.design.chips, coverage: run.opsCoverage, running: true, state: s, bonuses: s.bonuses)
+        let why = advice?.headline ?? "Hardware failures are eating whole days."
+        let fixes = (advice?.fixes ?? []).prefix(3).joined(separator: " ")
+        if days == 7 { runLog(&s, i, "No progress for a week. \(why)") }
+        Alerts.raise(&s, .runPaused, key: "stall-\(run.id.uuidString)", title: "\(run.design.name) has made no progress in \(days) days",
+                     body: "\(why) \(fixes)", screen: .training, critical: true, cooldown: 25)
     }
 
     static func dailyFlops(_ run: TrainingRun, state s: GameState) -> Double {
@@ -166,7 +539,11 @@ enum Training {
     }
 
     static func spikeChance(_ run: TrainingRun, state s: GameState, bonuses b: ResearchBonuses) -> Double {
-        let d = run.design
+        spikeChance(run.design, lr: run.schedule, state: s, bonuses: b)
+    }
+
+    /// Daily chance of a loss spike once pre-training is past 3%.
+    static func spikeChance(_ d: ModelDesign, lr: LRSchedule, state s: GameState, bonuses b: ResearchBonuses) -> Double {
         let precision: Double = d.precision == .fp4 ? 2.2 : (d.precision == .fp8 ? 1.4 : 1)
         var arch = 1.0
         if d.optimizer == .muon { arch *= s.researched.contains("muon_clip") ? 0.9 : 1.8 }
@@ -177,7 +554,7 @@ enum Training {
         let engineers = s.employees.filter { $0.role == .mlEngineer }.reduce(0.0) { $0 + $1.weight }
         let skill = min(0.5, engineers * 0.05)
         let scale = pow(Double(d.chips) / 256 + 1, 0.3) * pow(max(d.activeParamsB, 0.1) / 10, 0.12)
-        return 0.0035 * scale * precision * arch * run.schedule.spikeMult * (1 - skill) * max(0.1, 1 - b.stability)
+        return 0.0035 * scale * precision * arch * lr.spikeMult * (1 - skill) * max(0.1, 1 - b.stability)
     }
 
     // MARK: Loss curve & forecast tracking
@@ -268,7 +645,7 @@ enum Training {
         // A silent bug can be caught once its signature shows up in evals.
         if run.bugPenalty > 0 && !run.bugFound && f > run.bugOnset + 0.04 && !s.runs[i].decided.contains("train_bug") {
             let engineers = s.employees.filter { $0.role == .mlEngineer }.reduce(0.0) { $0 + $1.weight }
-            let p = clamp(0.3 * (1 + engineers / 4) * (1 + s.swarmOps) / max(0.3, s.bonuses.bugKeep), 0.15, 0.95)
+            let p = clamp(0.3 * (1 + engineers / 4) * (1 + s.swarmOps) * (1 + run.opsCoverage) / max(0.3, s.bonuses.bugKeep), 0.15, 0.95)
             if s.rng.chance(p) { trainingBug(&s, i) }
         }
     }
@@ -306,8 +683,8 @@ enum Training {
             runLog(&s, i, "Loss spike! Auto-rolled back to the \(Int(cp.fraction * 100))% checkpoint.")
             return
         }
-        s.runs[i].status = .paused
-        runLog(&s, i, "Loss spike detected — run paused, waiting for your call.")
+        // Incidents never pause a run (the decision stops the clock instead), so it can't sit idle waiting for an answer.
+        runLog(&s, i, "Loss spike detected — waiting for your call.")
         let cp = s.runs[i].saved.last
         let d = s.runs[i].design
         let cause: String
@@ -326,7 +703,6 @@ enum Training {
 
     static func trainingBug(_ s: inout GameState, _ i: Int) {
         s.runs[i].decided.insert("train_bug")
-        s.runs[i].status = .paused
         let onset = s.runs[i].bugOnset
         let before = s.runs[i].saved.last { $0.fraction <= onset }
         let bug = s.rng.pick(["the data loader has been silently re-reading the same shards", "a tokenizer change dropped all whitespace in code files",
@@ -347,9 +723,8 @@ enum Training {
         let b = s.bonuses
         // Benchmark contamination
         if frac > 0.3 && frac < 0.75 && !s.runs[i].decided.contains("contamination") {
-            if s.rng.chance(0.012 * b.contaminationKeep) {
+            if s.rng.chance(0.012 * b.contaminationKeep * (s.runs[i].toy ? 0 : 1)) {
                 s.runs[i].decided.insert("contamination")
-                s.runs[i].status = .paused
                 Events.addDecision(&s, kind: "contamination", title: "Benchmark contamination in \(s.runs[i].design.name)",
                                    body: "An audit found test questions from popular benchmarks scattered through your web crawl. Your scores will be inflated — and someone will notice.",
                                    image: "dc_rows",
@@ -359,24 +734,18 @@ enum Training {
                 return
             }
         } else if frac >= 0.75 { s.runs[i].decided.insert("contamination") }
-        // A researcher proposes changing the data mix for the rest of the run
-        if frac > 0.45 && !s.runs[i].decided.contains("data_mix") && b.has(.curriculum) {
+        // The mid-training mix shift chosen in the Model Lab kicks in for the second half (its skills are in the forecast).
+        if frac > 0.45 && !s.runs[i].decided.contains("data_mix") {
             s.runs[i].decided.insert("data_mix")
-            s.runs[i].status = .paused
-            Events.addDecision(&s, kind: "data_mix", title: "Change the data mix for the second half?",
-                               body: "Your data team thinks the remaining tokens of \(s.runs[i].design.name) could lean harder into one domain. Mid-training mixture shifts are how labs shape a model's personality.",
-                               image: "dc_hall",
-                               options: [DecisionOption(label: "More code", detail: "+coding, +agents; slightly flatter chat."),
-                                         DecisionOption(label: "More math & science", detail: "+reasoning, +STEM; a little less trivia."),
-                                         DecisionOption(label: "More multilingual", detail: "+multilingual and global appeal."),
-                                         DecisionOption(label: "Keep the mix", detail: "Stick with the plan.")],
-                               ref: s.runs[i].id.uuidString)
+            let shift = s.runs[i].design.mixShift
+            if shift != .keep && b.has(.curriculum) && s.runs[i].design.mode != .finetune {
+                runLog(&s, i, "Mid-training: the second half now leans into \(shift == .code ? "code" : (shift == .stem ? "math & science" : "other languages")), as planned.")
+            }
         }
     }
 
     static func faultStorm(_ s: inout GameState, _ i: Int) {
         s.runs[i].decided.insert("fault_storm")
-        s.runs[i].status = .paused
         let a = HardwareCatalog.get(s.runs[i].design.accelID)
         Events.addDecision(&s, kind: "fault_storm", title: "Hardware fault storm",
                            body: "A bad batch of \(a?.name ?? "accelerators") is failing at 5× the normal rate — probably HBM from one supplier lot. \(s.runs[i].design.name) keeps restarting.",
@@ -389,42 +758,54 @@ enum Training {
     static func stageStarted(_ s: inout GameState, _ i: Int) {
         guard s.runs[i].stageIndex < s.runs[i].stages.count else { return }
         let name = s.runs[i].stages[s.runs[i].stageIndex].name
-        let b = s.bonuses
         runLog(&s, i, "\(name) started.")
-        if (name == "RLHF" || name == "DPO") && !s.runs[i].decided.contains("sycophancy") {
-            let p = s.researched.contains("anti_sycophancy") ? 0.06 : 0.3
-            if s.rng.chance(p) {
+        let quiet = s.runs[i].toy ? 0.0 : 1.0
+        // A Dense Reward Oracle at level 3 can't be flattered or gamed.
+        let honestRewards = s.signatureAt(.lodestar, 3)
+        if (name == "RLHF" || name == "DPO") && !s.runs[i].decided.contains("sycophancy") && !honestRewards {
+            if s.rng.chance(sycophancyRisk(s) * quiet) {
                 s.runs[i].decided.insert("sycophancy")
-                s.runs[i].status = .paused
+                let prevent = s.researched.contains("anti_sycophancy") ? "" : " Anti-Sycophancy Training research makes this five times rarer."
                 Events.addDecision(&s, kind: "sycophancy", title: "\(s.runs[i].design.name) has become a flatterer",
-                                   body: "Preference tuning rewarded agreeable answers a bit too much. In evals the model praises bad business plans and agrees with obviously wrong claims.",
+                                   body: "Preference tuning rewarded agreeable answers a bit too much. In evals the model praises bad business plans and agrees with obviously wrong claims.\(prevent)",
                                    image: "sf_skyline",
                                    options: [DecisionOption(label: "Retrain the reward model", detail: "Costs extra post-training time; fixes it."),
                                              DecisionOption(label: "Ship it", detail: "Users love it at first… until the screenshots go viral.")],
                                    ref: s.runs[i].id.uuidString)
             }
         }
-        if name == "Reasoning RL" && !s.runs[i].decided.contains("reward_hack") {
-            let p = 0.32 * (s.researched.contains("cot_monitoring") ? 0.35 : 1) * (s.researched.contains("verifiers") ? 0.7 : 1)
-            if s.rng.chance(p) {
+        if name == "Reasoning RL" && !s.runs[i].decided.contains("reward_hack") && !honestRewards {
+            if s.rng.chance(rewardHackRisk(s.runs[i].design, s) * quiet) {
                 s.runs[i].decided.insert("reward_hack")
-                s.runs[i].status = .paused
                 let caught = s.researched.contains("cot_monitoring") ? "Chain-of-thought monitors caught it" : "A researcher noticed by accident"
+                var missing: [String] = []
+                if !s.researched.contains("cot_monitoring") { missing.append("Chain-of-Thought Monitoring") }
+                if !s.researched.contains("verifiers") { missing.append("Verifiable Environments at Scale") }
+                let prevent = missing.isEmpty ? "" : " \(missing.joined(separator: " and ")) research make\(missing.count == 1 ? "s" : "") this rarer."
                 Events.addDecision(&s, kind: "reward_hack", title: "Reward hacking in \(s.runs[i].design.name)",
-                                   body: "\(caught): the model learned to special-case unit tests and edit the grader instead of solving problems. RL reward is up; real ability isn't.",
+                                   body: "\(caught): the model learned to special-case unit tests and edit the grader instead of solving problems. RL reward is up; real ability isn't.\(prevent)",
                                    image: "server_room",
                                    options: [DecisionOption(label: "Patch the environments and redo RL", detail: "Repeat this stage. Honest gains."),
                                              DecisionOption(label: "Ship the checkpoint", detail: "Benchmarks look great. Real-world users will find out.")],
                                    ref: s.runs[i].id.uuidString)
             }
         }
-        _ = b
+    }
+
+    /// Redo a post-training stage (from its start) after a bad outcome. Normally the run is still in it.
+    static func redoStage(_ s: inout GameState, _ i: Int, named names: [String]) {
+        guard s.runs[i].status == .postTraining || s.runs[i].status == .paused,
+              let idx = s.runs[i].stages.firstIndex(where: { names.contains($0.name) }), idx <= s.runs[i].stageIndex else { return }
+        s.runs[i].stageIndex = idx
+        s.runs[i].stageDone = 0
     }
 
     // MARK: Decisions
 
     static func resolve(_ s: inout GameState, kind: String, ref: String, option: Int) {
         guard let i = s.runs.firstIndex(where: { $0.id.uuidString == ref }) else { return }
+        // Only possible if days passed with the decision open: the run has moved on without an answer.
+        guard s.runs[i].status != .done && s.runs[i].status != .cancelled else { return }
         switch kind {
         case "loss_spike":
             switch option {
@@ -469,6 +850,12 @@ enum Training {
                 let cutoff = s.runs[i].design.tokensT * back + 1e-9
                 s.runs[i].flopsDone = s.runs[i].flopsTotal * back
                 s.runs[i].loss.removeAll { $0.tokensT > cutoff }
+                if s.runs[i].status == .postTraining {
+                    s.runs[i].status = .running
+                    s.runs[i].postTrainDone = 0
+                    s.runs[i].stageIndex = 0
+                    s.runs[i].stageDone = 0
+                }
                 runLog(&s, i, "Scrubbed contaminated documents and rewound 5%.")
             } else {
                 s.runs[i].contaminated = true
@@ -483,19 +870,24 @@ enum Training {
             }
         case "fault_storm":
             let day = dailyFlops(s.runs[i], state: s)
+            let lost = (option == 0 ? 2 : 7 * 0.4) * day
+            // Time lost in post-training comes out of the current stage, not out of finished pre-training.
+            if s.runs[i].status == .postTraining {
+                s.runs[i].stageDone = max(0, s.runs[i].stageDone - lost)
+            } else {
+                s.runs[i].flopsDone = max(0, s.runs[i].flopsDone - lost)
+            }
             if option == 0 {
                 s.cash -= Double(s.runs[i].design.chips) * 400
                 s.runs[i].lostHours += 48
-                s.runs[i].flopsDone = max(0, s.runs[i].flopsDone - 2 * day)
                 runLog(&s, i, "Swapped the bad nodes after two days of downtime. Back to normal.")
             } else {
                 s.runs[i].lostHours += 24 * 7 * 0.4
-                s.runs[i].flopsDone = max(0, s.runs[i].flopsDone - 7 * 0.4 * day)
                 runLog(&s, i, "Ran degraded for weeks — lost about three days of progress.")
             }
         case "sycophancy":
             if option == 0 {
-                if s.runs[i].stageIndex < s.runs[i].stages.count { s.runs[i].stageDone = 0 }
+                redoStage(&s, i, named: ["RLHF", "DPO"])
                 runLog(&s, i, "Retraining the reward model.")
             } else {
                 s.runs[i].sycophantic = true
@@ -504,7 +896,7 @@ enum Training {
             }
         case "reward_hack":
             if option == 0 {
-                if s.runs[i].stageIndex < s.runs[i].stages.count { s.runs[i].stageDone = 0 }
+                redoStage(&s, i, named: ["Reasoning RL"])
                 runLog(&s, i, "Patched the RL environments; redoing reasoning RL.")
             } else {
                 s.runs[i].rewardHacked = true
@@ -513,11 +905,14 @@ enum Training {
             }
         default: break
         }
-        let free = Economy.freeChips(s, s.runs[i].design.accelID)
-        if free >= s.runs[i].design.chips || s.runs[i].status != .paused {
-            s.runs[i].status = s.runs[i].flopsDone >= s.runs[i].flopsTotal ? .postTraining : .running
-        } else {
-            runLog(&s, i, "Not enough free chips to resume — resume it from Training Runs.")
+        // Incidents no longer pause runs. One paused by an incident in an older save resumes here if its chips are free.
+        if s.runs[i].status == .paused {
+            let free = Economy.freeChips(s, s.runs[i].design.accelID)
+            if free >= s.runs[i].design.chips {
+                s.runs[i].status = s.runs[i].flopsDone >= s.runs[i].flopsTotal ? .postTraining : .running
+            } else {
+                runLog(&s, i, "Not enough free chips to resume — resume it from Training Runs.")
+            }
         }
     }
 
@@ -600,6 +995,10 @@ enum Training {
         news(&s, "\(d.name) finished training", "Intelligence Index \(Fmt.score(model.index)) — #\(rank) worldwide, \(verdict). \(model.tier).",
              important: true, good: delta > -3)
         if delta >= 5 { Achievements.unlock(&s, "genius") }
+        if d.chips >= 500_000 { Achievements.unlock(&s, "gigawatt_run") }
+        if run.sdcMissed >= 1 || run.prevented >= 10 {
+            runLog(&s, i, "Ops report: \(Int(run.prevented)) failures prevented, \(Int(run.sdcCaught)) corrupt nodes caught, \(Int(run.sdcMissed)) slipped through.")
+        }
     }
 
     // MARK: Helpers

@@ -19,6 +19,7 @@ struct HardwareStoreView: View {
         let forSale = catalog.filter { Economy.canBuy($0, s) }.count
         let rentable = catalog.filter { Economy.canRent($0, s) }.count
         Page(title: "Hardware Store", subtitle: "Real accelerators with real specs. Dense TFLOPS shown (vendor headline numbers are often sparse). Buy for your sites or rent by the chip-hour.") {
+            ScreenHint(.hardware)
             HeroBanner(image: "gb200_rack", height: 150) {
                 HStack(alignment: .bottom) {
                     VStack(alignment: .leading, spacing: 4) {
@@ -78,7 +79,7 @@ struct HardwareStoreView: View {
                     Button { selected = a } label: {
                         AcceleratorCard(accel: a,
                                         buy: Economy.canBuy(a, s) ? Economy.price(a, s) : nil,
-                                        rent: Economy.canRent(a, s) ? Economy.rent(a, s) : nil,
+                                        rent: Economy.canRent(a, s) ? Economy.rentQuote(a, s) : nil,
                                         owned: d.poolByID[a.id]?.total ?? 0,
                                         comingLabel: Economy.availableFor(a, s) > s.date.ym ? Economy.availableFor(a, s).label : nil,
                                         deal: Economy.hasDeal(a, s),
@@ -249,7 +250,7 @@ struct AcceleratorDetail: View {
     private func content(_ s: GameState) -> some View {
         let a = accel
         let buy = Economy.canBuy(a, s) ? Economy.price(a, s) : nil
-        let rent = Economy.canRent(a, s) ? Economy.rent(a, s) : nil
+        let rent = Economy.canRent(a, s) ? Economy.rentQuote(a, s) : nil
         VStack(spacing: 0) {
             ZStack(alignment: .bottomLeading) {
                 Photo(key: a.image)
@@ -268,6 +269,7 @@ struct AcceleratorDetail: View {
                 Button { dismiss() } label: { Image(systemName: "xmark.circle.fill").font(.title2).symbolRenderingMode(.hierarchical) }
                     .buttonStyle(.plain).foregroundStyle(.white).padding(14)
                     .keyboardShortcut(.cancelAction)
+                    .accessibilityLabel("Close")
             }
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
@@ -354,12 +356,13 @@ struct AcceleratorDetail: View {
     @ViewBuilder
     private func purchase(_ a: Accelerator, _ s: GameState, buy: Double?, rent: Double?) -> some View {
         Card {
-            CardHeader("Acquire", symbol: "cart")
+            CardHeader(title: "Acquire", symbol: "cart") { HelpButton(term: .reservedCloud) }
             HStack {
                 Text("Quantity")
                 Spacer()
                 QuantityPicker(value: $qty, range: 1...max(1, max(Economy.allocationLimit(a, s), Economy.rentalLimit(a, s))),
-                               presets: a.minOrder > 1 ? [a.minOrder, a.minOrder * 4, a.minOrder * 16, a.minOrder * 64] : [1, 8, 64, 512, 4096])
+                               presets: a.minOrder > 1 ? [a.minOrder, a.minOrder * 16, a.minOrder * 256, a.minOrder * 4096, a.minOrder * 32_768]
+                                                       : [1, 8, 64, 512, 4096, 32_768, 262_144, 1_048_576])
             }
             if a.minOrder > 1 && buy != nil && qty % a.minOrder != 0 {
                 Label("Purchases ship in full racks of \(a.minOrder) (rentals can be any size).", systemImage: "square.stack.3d.up").font(.caption).foregroundStyle(.orange)
@@ -374,11 +377,22 @@ struct AcceleratorDetail: View {
                             Text("\(site.name) — \(Fmt.watts(max(0, free) * 1000)) free\(site.isReady(s.date) ? "" : " (under construction)")").tag(UUID?.some(site.id))
                         }
                     }
+                    if let siteID, let site = s.sites.first(where: { $0.id == siteID }) {
+                        let best = Campus.maxOrder(a, site: site, s)
+                        HStack {
+                            Text("Most you can order for \(site.name): \(Fmt.int(best)) (allocation, cash and power)")
+                                .font(.caption).foregroundStyle(.secondary)
+                            Spacer()
+                            Button("Use max") { qty = max(1, best) }
+                                .buttonStyle(.borderless).font(.caption)
+                                .disabled(best < 1)
+                        }
+                    }
                     let total = buy * Double(qty)
                     HStack {
                         VStack(alignment: .leading, spacing: 1) {
                             Text("\(Fmt.money(total)) total").font(.headline.monospacedDigit())
-                            Text("\(Fmt.watts(Economy.chipKW(a) * Double(qty) * 1000)) incl. servers · ships in ~\(Economy.leadTimeDays(a, s)) days · max \(Fmt.int(Economy.allocationLimit(a, s))) per order")
+                            Text("\(Fmt.watts(Economy.chipKW(a) * Double(qty) * 1000)) incl. servers · ships in ~\(Economy.leadTimeDays(a, s)) days · \(Fmt.int(Economy.allocationLimit(a, s))) available to you this quarter of \(Fmt.count(Economy.quarterlyProduction(a, s))) made")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()
@@ -402,7 +416,7 @@ struct AcceleratorDetail: View {
                     HStack {
                         VStack(alignment: .leading, spacing: 1) {
                             Text("\(Fmt.money(monthly))/month").font(.headline.monospacedDigit())
-                            Text("On \(a.cloudProvider). Instant, no power or cooling needed. Limit \(Fmt.int(Economy.rentalLimit(a, s))) for your size.")
+                            Text("On \(a.cloudProvider). Instant, no power or cooling needed. You can rent up to \(Fmt.int(Economy.rentalLimit(a, s))) of the world's \(Fmt.count(Economy.cloudSupply(a, s))); prices rise as you take more of them.")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()

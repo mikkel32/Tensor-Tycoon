@@ -154,16 +154,18 @@ enum Partners {
         covering(a, s)?.allocationMult ?? 1
     }
 
-    /// Track spend against the commitment (and AMD-style warrant gains).
-    static func recordSpend(_ s: inout GameState, accel a: Accelerator, amount: Double, purchase: Bool) {
-        guard let i = s.partnerships.firstIndex(where: { $0.end > s.date && $0.def.vendors.contains(a.vendor) }) else { return }
+    /// Track spend against the commitment (and AMD-style warrant gains). Returns the warrant rebate paid back.
+    /// The rebate is a discount on the hardware (capex), not revenue: it never enters the run-rate or valuation.
+    @discardableResult
+    static func recordSpend(_ s: inout GameState, accel a: Accelerator, amount: Double, purchase: Bool) -> Double {
+        guard let i = s.partnerships.firstIndex(where: { $0.end > s.date && $0.def.vendors.contains(a.vendor) }) else { return 0 }
         s.partnerships[i].spentThisYear += amount
         let rebate = s.partnerships[i].def.rebate
-        if purchase && rebate > 0 {
-            let gain = amount * rebate
-            s.cash += gain
-            s.month.revOther += gain
-        }
+        guard purchase && rebate > 0 else { return 0 }
+        let gain = amount * rebate
+        s.cash += gain
+        s.month.capex -= gain
+        return gain
     }
 
     static func monthly(_ s: inout GameState) {

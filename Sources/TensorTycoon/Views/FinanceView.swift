@@ -10,6 +10,7 @@ struct FinanceView: View {
         let payments = s.loans.reduce(0) { $0 + $1.payment }
         let rows = Array(s.history.suffix(18).reversed())
         Page(title: "Finance", subtitle: "Profit & loss, cash and debt. Interest rates follow the real Fed funds rate until late 2026, then drift.") {
+            ScreenHint(.finance)
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 190), spacing: 12)], spacing: 12) {
                 StatTile(title: "Cash", value: Fmt.money(s.cash), detail: s.cloudCredits > 0 ? "+ \(Fmt.money(s.cloudCredits)) cloud credits" : nil, symbol: "banknote.fill", tint: s.cash >= 0 ? .green : .red)
                 StatTile(title: "Debt", value: Fmt.money(debt), detail: "\(Fmt.money(payments))/mo payments", symbol: "creditcard.fill", tint: .orange)
@@ -18,8 +19,9 @@ struct FinanceView: View {
                 StatTile(title: "Hardware value", value: Fmt.money(Economy.hardwareValue(s)), detail: "Resale, usable as collateral", symbol: "cpu", tint: .green)
                 StatTile(title: "Lifetime revenue", value: Fmt.money(s.lifetimeRevenue), detail: "\(Fmt.flops(s.lifetimeFLOPs)) FLOPs trained", symbol: "sum", tint: .teal)
                 StatTile(title: "Interest on cash", value: "\(Fmt.trim(Treasury.yieldRate(s), 2))%", detail: "Idle cash sits in T-bills · \(Fmt.money(s.cash * Treasury.yieldRate(s) / 100 / 12))/mo", symbol: "building.columns", tint: .mint)
-                StatTile(title: "Runway", value: Treasury.runwayMonths(s).map { $0 > 48 ? "4+ years" : "\(Fmt.trim($0, 1)) months" } ?? "Profitable",
-                         detail: "At last month's burn", symbol: "hourglass", tint: (Treasury.runwayMonths(s) ?? 99) < 6 ? .red : .green)
+                StatTile(title: "Runway", value: Treasury.runwayMonths(s).map { $0 > 48 ? "4+ years" : "\(Fmt.trim($0, 1)) months" } ?? (s.history.isEmpty ? "—" : "Profitable"),
+                         detail: s.history.isEmpty ? "After your first month closes" : "At last month's burn", symbol: "hourglass", tint: (Treasury.runwayMonths(s) ?? 99) < 6 ? .red : .green)
+                    .helpBadge(.runway)
             }
 
             HStack(alignment: .top, spacing: 16) {
@@ -28,16 +30,9 @@ struct FinanceView: View {
                     if s.history.count < 2 {
                         Text("Charts appear after a couple of months.").font(.callout).foregroundStyle(.secondary).frame(height: 200)
                     } else {
-                        Chart(s.history.suffix(48)) { m in
-                            AreaMark(x: .value("Month", m.month, unit: .month), y: .value("Cash", m.cashEnd))
-                                .foregroundStyle(LinearGradient(colors: [.green.opacity(0.4), .green.opacity(0.05)], startPoint: .top, endPoint: .bottom))
-                                .interpolationMethod(.monotone)
-                            LineMark(x: .value("Month", m.month, unit: .month), y: .value("Cash", m.cashEnd))
-                                .foregroundStyle(.green)
-                                .interpolationMethod(.monotone)
-                        }
-                        .chartYAxis { AxisMarks { v in AxisGridLine(); AxisValueLabel { if let d = v.as(Double.self) { Text(Fmt.money(d, decimals: 0)) } } } }
-                        .frame(height: 200)
+                        CashChart(history: Array(s.history.suffix(48)))
+                            .equatable()
+                            .frame(height: 200)
                     }
                 }
                 Card {
@@ -45,12 +40,9 @@ struct FinanceView: View {
                     if s.history.isEmpty {
                         Text("No closed months yet.").font(.callout).foregroundStyle(.secondary).frame(height: 200)
                     } else {
-                        Chart(s.history.suffix(36)) { m in
-                            BarMark(x: .value("Month", m.month, unit: .month), y: .value("Profit", m.profit))
-                                .foregroundStyle(m.profit >= 0 ? Color.green.gradient : Color.red.gradient)
-                        }
-                        .chartYAxis { AxisMarks { v in AxisGridLine(); AxisValueLabel { if let d = v.as(Double.self) { Text(Fmt.money(d, decimals: 0)) } } } }
-                        .frame(height: 200)
+                        ProfitChart(history: Array(s.history.suffix(36)))
+                            .equatable()
+                            .frame(height: 200)
                     }
                 }
             }
@@ -152,5 +144,35 @@ private struct LoansCard: View {
                 }
             }
         }
+    }
+}
+
+/// Month-end cash; redraws only when a month closes.
+struct CashChart: View, Equatable {
+    let history: [MonthRecord]
+
+    var body: some View {
+        Chart(history) { m in
+            AreaMark(x: .value("Month", m.month, unit: .month), y: .value("Cash", m.cashEnd))
+                .foregroundStyle(LinearGradient(colors: [.green.opacity(0.4), .green.opacity(0.05)], startPoint: .top, endPoint: .bottom))
+                .interpolationMethod(.monotone)
+            LineMark(x: .value("Month", m.month, unit: .month), y: .value("Cash", m.cashEnd))
+                .foregroundStyle(.green)
+                .interpolationMethod(.monotone)
+        }
+        .chartYAxis { AxisMarks { v in AxisGridLine(); AxisValueLabel { if let d = v.as(Double.self) { Text(Fmt.money(d, decimals: 0)) } } } }
+    }
+}
+
+/// Monthly profit; redraws only when a month closes.
+struct ProfitChart: View, Equatable {
+    let history: [MonthRecord]
+
+    var body: some View {
+        Chart(history) { m in
+            BarMark(x: .value("Month", m.month, unit: .month), y: .value("Profit", m.profit))
+                .foregroundStyle(m.profit >= 0 ? Color.green.gradient : Color.red.gradient)
+        }
+        .chartYAxis { AxisMarks { v in AxisGridLine(); AxisValueLabel { if let d = v.as(Double.self) { Text(Fmt.money(d, decimals: 0)) } } } }
     }
 }

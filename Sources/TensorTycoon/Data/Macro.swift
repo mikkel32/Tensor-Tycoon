@@ -18,6 +18,8 @@ enum Macro {
         (2016.5, 1.5e7), (2017.5, 2.5e7), (2018.5, 5e7), (2019.5, 1e8), (2020.5, 2e8), (2021.5, 4e8),
         (2022.5, 7e8), (2022.9, 9e8), (2023.0, 1.6e9), (2023.5, 4e9), (2024.5, 1.2e10), (2025.5, 4e10),
         (2026.5, 1.5e11), (2027.5, 3.2e11), (2028.5, 5.5e11), (2029.5, 8e11), (2030.5, 1.1e12), (2035.5, 2.6e12),
+        // 3.4: growth eases after 2035 instead of compounding at 19% a year forever.
+        (2040.5, 4.8e12),
     ]
 
     static func marketSize(_ y: Double) -> Double { interpolateLog(marketCurve, at: y, extrapolate: true) }
@@ -25,7 +27,9 @@ enum Macro {
     /// Weekly active users of AI chat assistants worldwide (all providers).
     static let usersCurve: [(Double, Double)] = [
         (2016.5, 2e4), (2020.5, 1e5), (2022.85, 3e5), (2022.95, 2e7), (2023.1, 1e8), (2023.9, 2.2e8),
-        (2024.9, 4.5e8), (2025.9, 1.1e9), (2026.5, 1.6e9), (2027.5, 2.3e9), (2028.5, 2.9e9), (2030.5, 3.8e9), (2035.5, 5e9),
+        (2024.9, 4.5e8), (2025.9, 1.1e9), (2026.5, 1.6e9), (2027.5, 2.3e9), (2028.5, 2.9e9), (2030.5, 3.8e9),
+        // 3.4: saturates toward the world's internet population instead of growing without limit.
+        (2033.5, 4.6e9), (2036.5, 5.1e9), (2045, 5.7e9),
     ]
 
     static func chatUsers(_ y: Double, chatMoment: Double?) -> Double {
@@ -56,7 +60,7 @@ enum Macro {
     /// Paid seats for coding / computer-use agents across the industry.
     static func agentSeats(_ y: Double) -> Double {
         guard y >= 2024.9 else { return 0 }
-        return interpolateLog([(2024.9, 1e5), (2025.5, 3e6), (2026.0, 8e6), (2026.8, 2e7), (2028.0, 6e7), (2030.0, 1.5e8), (2035, 4e8)], at: y, extrapolate: true)
+        return interpolateLog([(2024.9, 1e5), (2025.5, 3e6), (2026.0, 8e6), (2026.8, 2e7), (2028.0, 6e7), (2030.0, 1.5e8), (2035, 4e8), (2040, 6e8)], at: y, extrapolate: true)
     }
 
     /// Tokens an agent seat burns per day (agents read whole codebases and loop for hours).
@@ -104,13 +108,16 @@ enum Macro {
     static let frontierLabValuation: [(Double, Double)] = [
         (2016.5, 1e9), (2019.0, 1e9), (2019.5, 1.5e9), (2021.0, 1.4e10), (2023.0, 2.9e10), (2023.3, 8.6e10),
         (2024.8, 1.57e11), (2025.2, 3e11), (2025.8, 5e11), (2026.5, 8.5e11), (2028.0, 1.5e12), (2030.0, 2.5e12),
+        // 3.4: after 2030 a frontier lab's worth grows with the AI market (~19% a year), not 29% a year.
+        (2035.0, 6e12),
     ]
 
     static func frontierValuation(_ y: Double) -> Double { interpolateLog(frontierLabValuation, at: y, extrapolate: true) }
 
     /// EV / forward revenue multiple investors pay for AI labs.
     static func revenueMultiple(_ y: Double) -> Double {
-        interpolate([(2016, 12), (2021.5, 20), (2022.9, 25), (2023.5, 40), (2025.0, 35), (2026.5, 30), (2030, 18)], at: y)
+        // 3.4: multiples keep easing after 2030 as the industry matures (18× → 12× by 2036).
+        interpolate([(2016, 12), (2021.5, 20), (2022.9, 25), (2023.5, 40), (2025.0, 35), (2026.5, 30), (2030, 18), (2036, 12)], at: y)
     }
 
     /// Seed-stage valuation for a credible team with no product.
@@ -150,6 +157,15 @@ enum Difficulty: String, Codable, CaseIterable, Identifiable, Sendable {
         case .easy: -0.15
         case .normal: 0
         case .hard: 0.12
+        }
+    }
+
+    /// How much of a lead you've held for a training cycle rival labs answer with their next runs.
+    var rivalResponse: Double {
+        switch self {
+        case .easy: 0.6
+        case .normal: 0.85
+        case .hard: 1.0
         }
     }
 

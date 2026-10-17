@@ -39,7 +39,7 @@ private struct SecurityCard: View {
         let next = SecurityLevel(rawValue: s.security.rawValue + 1)
         let upgrading = s.securityTarget > s.security.rawValue
         Card {
-            CardHeader("Weight security", symbol: "lock.shield.fill", subtitle: "Each level stops a more capable attacker — and costs more to run and work behind")
+            CardHeader(title: "Weight security", symbol: "lock.shield.fill", subtitle: "Each level stops a more capable attacker — and costs more to run and work behind") { HelpButton(term: .securityLevels) }
             ForEach(SecurityLevel.allCases) { level in
                 HStack(alignment: .top, spacing: 10) {
                     Image(systemName: level <= s.security ? "checkmark.shield.fill" : (upgrading && level.rawValue == s.securityTarget ? "hammer.fill" : "shield"))
@@ -135,7 +135,7 @@ private struct LobbyCard: View {
         let s = state
         let budget = budgetLog <= 4.01 ? 0 : (pow(10, budgetLog) / 1000).rounded() * 1000
         Card {
-            CardHeader("Government relations", symbol: "building.columns.fill", subtitle: "Lobbying builds political capital: better odds on bills, smaller fines, easier antitrust reviews")
+            CardHeader(title: "Government relations", symbol: "building.columns.fill", subtitle: "Lobbying builds political capital: better odds on bills, smaller fines, easier antitrust reviews") { HelpButton(term: .politicalCapital) }
             HStack {
                 Text("Monthly lobbying")
                 Slider(value: $budgetLog, in: 4...8)
@@ -166,14 +166,15 @@ private struct LobbyCard: View {
 }
 
 private struct BillsCard: View {
+    @Environment(GameStore.self) private var store
     let state: GameState
 
     var body: some View {
         let s = state
         Card {
-            CardHeader("AI legislation", symbol: "doc.text.magnifyingglass", subtitle: "Bills arrive as decisions; you pick a side and the vote comes about four months later")
+            CardHeader("AI legislation", symbol: "doc.text.magnifyingglass", subtitle: "Pick a side on each bill here or when it arrives; the vote comes about four months later")
             if s.bills.isEmpty {
-                Text("No bills pending.").font(.callout).foregroundStyle(.secondary)
+                Text("No bills pending. New ones arrive in your inbox; their vote dates show under Coming up on the dashboard.").font(.callout).foregroundStyle(.secondary)
             }
             ForEach(s.bills) { b in
                 if let bill = PolicyCatalog.byID[b.id] {
@@ -185,9 +186,17 @@ private struct BillsCard: View {
                             Text("If it passes: \(bill.ifPasses)").font(.caption2).foregroundStyle(.secondary)
                         }
                         Spacer()
-                        VStack(alignment: .trailing, spacing: 2) {
-                            Pill(text: b.stance > 0 ? "You support" : (b.stance < 0 ? "You oppose" : "Neutral"), color: b.stance > 0 ? .green : (b.stance < 0 ? .red : .secondary))
-                            Text("\(Int(Policy.passChance(bill, stance: b.stance, s) * 100))% to pass · vote \(b.vote.gameShort)").font(.caption2.monospacedDigit())
+                        VStack(alignment: .trailing, spacing: 4) {
+                            Picker("Your stance", selection: Binding(get: { b.stance }, set: { v in store.act { $0.setBillStance(b.id, v) } })) {
+                                Text("Back").tag(1)
+                                Text("Stay out").tag(0)
+                                Text("Oppose").tag(-1)
+                            }
+                            .pickerStyle(.segmented)
+                            .labelsHidden()
+                            .frame(width: 210)
+                            .help("Taking a side costs 5 political capital; stepping back costs 2; switching sides also costs brand.")
+                            Text("\(Int(clamp(Policy.passChance(bill, stance: b.stance, s) + b.boost, 0.05, 0.95) * 100))% to pass · vote \(b.vote.gameShort)").font(.caption2.monospacedDigit())
                         }
                     }
                 }

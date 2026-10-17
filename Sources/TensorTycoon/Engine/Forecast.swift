@@ -123,7 +123,8 @@ enum ForecastEngine {
             // MoE experts store knowledge too: count them partially when judging the parameter/token split.
             let nEff = d.activeParamsB * (d.isMoE ? pow(1 / d.activeFraction, 0.3) : 1)
             let l1 = loss(paramsB: nEff, tokensT: d.tokensT)
-            let dEff = effectiveTokens(d.tokensT, unique: unique)
+            // Synthetic Mind Data level 3: repeated data loses no value.
+            let dEff = s.signatureAt(.mirror, 3) ? d.tokensT : effectiveTokens(d.tokensT, unique: unique)
             let l2 = loss(paramsB: nEff, tokensT: dEff)
             f.allocation = min(0, log10(computeForLoss(l1, reference: pre) / pre))
             f.repetition = min(0, log10(computeForLoss(l2, reference: pre) / pre) - f.allocation)
@@ -188,7 +189,7 @@ enum ForecastEngine {
                 f.keyTech.append("Diffusion LM")
             case .alien:
                 if let arch = Xeno.best(s) {
-                    algo += arch.computeGain
+                    algo += arch.computeGain * (s.researched.contains("xeno_hybrid") ? 1.2 : 1)
                     drivers.append(ForecastDriver(name: "Alien architecture (\(arch.name))", value: arch.computeGain, kind: .gain,
                                                   detail: "Found by your agents. Humans follow about \(Int(arch.legibility * 100))% of it"))
                     f.keyTech.append("Alien: \(arch.name)")
@@ -284,6 +285,17 @@ enum ForecastEngine {
         case .stem: reasoning += 0.08; code += 0.02
         default: break
         }
+        // Mid-training mix shift for the second half (chosen in the Model Lab; needs the data curriculum).
+        let shift = b.has(.curriculum) && d.mode != .finetune ? d.mixShift : .keep
+        switch shift {
+        case .code: code += 0.06
+        case .stem: reasoning += 0.06
+        case .keep, .multilingual: break
+        }
+        if shift != .keep {
+            drivers.append(ForecastDriver(name: "Mid-training: \(shift.rawValue.lowercased())", value: shift == .multilingual ? 0.18 : 0.06, kind: .skill,
+                                          detail: shift.detail))
+        }
         if d.reasoning && b.has(.reasoning) {
             let level = d.effectiveRL
             let scale = log2(1 + level.share / 0.01) / log2(1 + 0.05 / 0.01)
@@ -313,12 +325,14 @@ enum ForecastEngine {
         }
         chat += dataArena / 90
         if d.dataMix == .conversational { chat += 0.1 }
+        if shift == .code { chat -= 0.03 }
         if d.rlhf && !dataSources.contains("human_feedback") {
             chat -= 0.2
             f.penalties.append("RLHF without a human-preference data vendor is weak (Training Data page)")
         }
         var lang = 0.05 + b.skill(.lang)
         if d.dataMix == .multilingual { lang += 0.3 }
+        if shift == .multilingual { lang += 0.18 }
         var longctx = b.skill(.longctx)
         if d.mixer == .hybrid { longctx += 0.1 }
         let vis = d.vision ? b.skill(.vis) : 0
@@ -328,7 +342,7 @@ enum ForecastEngine {
         safety += s.traits.safety
         if d.mixer == .alien {
             // You can't audit what you can't read.
-            safety -= 25 * (1 - Xeno.bestLegibility(s))
+            safety -= 25 * (1 - Xeno.bestLegibility(s)) * (s.researched.contains("xeno_hybrid") ? 0.5 : 1)
             reasoning += 0.05
             agent += 0.05
         }

@@ -25,10 +25,10 @@ struct ChipSalesView: View {
             }
 
             Card {
-                CardHeader("Lease idle compute", symbol: "cloud.fill",
-                           subtitle: "Owned chips only. Occupancy falls as you flood the market; the platform takes \(Int(ChipBusiness.platformFee * 100))%.")
+                CardHeader(title: "Lease idle compute", symbol: "cloud.fill",
+                           subtitle: "Owned chips only. Occupancy falls as you flood the market; the platform takes \(Int(ChipBusiness.platformFee * 100))%.") { HelpButton(term: .leasing) }
                 if owned.isEmpty {
-                    Text("You don't own any accelerators. Buy some in the Hardware Store — rented ones can't be sublet.").font(.callout).foregroundStyle(.secondary)
+                    NextStep("You don't own any accelerators. Buy some in the Hardware Store — rented ones can't be sublet.", action: "Hardware Store", screen: .hardware)
                 } else {
                     ForEach(owned) { p in LeaseRow(pool: p, leased: s.leases[p.accel.id] ?? 0, state: s) }
                     Text("Today's occupancy \(Fmt.pct(ChipBusiness.occupancy(s, leasedH100e: ChipBusiness.leasedH100e(s)), decimals: 0)). Leased chips draw full power and can be recalled any time.")

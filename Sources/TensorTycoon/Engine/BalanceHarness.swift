@@ -103,6 +103,8 @@ enum BalanceHarness {
                 _ = s.release(m.id, api: true, openWeights: false)
                 if s.bonuses.has(.chat) { s.chatModelID = m.id }
             }
+            // Price the chat app at what its users will pay (revenue peaks there).
+            s.chatPrice = max(5, Market.chatWTP(s).rounded())
             for m in s.models where m.released && !m.retired {
                 // Re-allocate all free chips of the best type to the newest model
                 for p in Economy.pools(s) where p.free > 0 && m.id == s.models.last?.id {

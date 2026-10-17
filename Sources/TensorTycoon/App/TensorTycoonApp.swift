@@ -35,6 +35,30 @@ struct TensorTycoonApp: App {
             BalanceHarness.strategy(era: i + 1 < args.count ? args[i + 1] : "2022")
             exit(0)
         }
+        if let i = args.firstIndex(of: "--industry") {
+            BalanceHarness.industry(era: i + 1 < args.count ? args[i + 1] : "2017")
+            exit(0)
+        }
+        if args.contains("--scale") {
+            BalanceHarness.scale()
+            exit(0)
+        }
+        if let i = args.firstIndex(of: "--watch") {
+            BalanceHarness.watch(era: i + 1 < args.count ? args[i + 1] : "2026")
+            exit(0)
+        }
+        if let i = args.firstIndex(of: "--research") {
+            BalanceHarness.research(era: i + 1 < args.count ? args[i + 1] : "2022")
+            exit(0)
+        }
+        if let i = args.firstIndex(of: "--playtest") {
+            PlaytestHarness.main(Array(args.dropFirst(i + 1)))
+            exit(0)
+        }
+        if let i = args.firstIndex(of: "--experience") {
+            BalanceHarness.experience(era: i + 1 < args.count ? args[i + 1] : "2024")
+            exit(0)
+        }
         if let i = args.firstIndex(of: "--ventures") {
             BalanceHarness.ventures(era: i + 1 < args.count ? args[i + 1] : "2026")
             exit(0)
@@ -77,7 +101,10 @@ struct TensorTycoonApp: App {
                     .disabled(store.state == nil)
             }
             CommandMenu("Game") {
-                Button("Save Game") { store.save(); store.show("Game saved") }
+                Button("Go to…") { store.showPalette = true }
+                    .keyboardShortcut("k")
+                    .disabled(store.state == nil)
+                Button("Save Game") { store.save(force: true); store.show("Game saved") }
                     .keyboardShortcut("s")
                     .disabled(store.state == nil)
                 Divider()
@@ -91,6 +118,11 @@ struct TensorTycoonApp: App {
                 }
                 Button("Advance One Day") { store.step() }
                     .keyboardShortcut(.rightArrow, modifiers: .command)
+                    .disabled(store.state == nil)
+            }
+            CommandGroup(replacing: .help) {
+                Button("Tensor Tycoon Help & Glossary") { store.open(.help) }
+                    .keyboardShortcut("?", modifiers: .command)
                     .disabled(store.state == nil)
             }
         }

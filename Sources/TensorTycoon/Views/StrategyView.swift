@@ -123,7 +123,7 @@ private struct ObjectivesCard: View {
         let active = s.objectives.filter { !$0.done && !$0.failed }
         let closed = s.objectives.filter { $0.done || $0.failed }.suffix(5).reversed()
         Card {
-            CardHeader("Board goals", symbol: "flag.checkered", subtitle: "Hit them for a milestone tranche, culture points and board confidence. Checked at month end.")
+            CardHeader(title: "Board goals", symbol: "flag.checkered", subtitle: "Hit them for a milestone tranche, culture points and board confidence. Checked at month end.") { HelpButton(term: .board) }
             if active.isEmpty {
                 Text("The board will set new goals at the end of the month.").font(.callout).foregroundStyle(.secondary)
             }
@@ -140,7 +140,8 @@ private struct ObjectivesCard: View {
                         Text("+\(o.rewardPoints) CP · +\(Int(o.rewardConfidence)) confidence").font(.caption2).foregroundStyle(.secondary)
                         Button("Ask for another") { store.act("New goal set") { $0.rerollObjective(o.id) } }
                             .buttonStyle(.link).font(.caption)
-                            .help("Costs 4 board confidence.")
+                            .disabled(s.rerollReadyOn != nil)
+                            .help(s.rerollReadyOn.map { "The board just rewrote a goal — ask again after \($0.gameShort)." } ?? "Costs 4 board confidence. Once every 60 days.")
                     }
                     .frame(width: 200, alignment: .trailing)
                 }

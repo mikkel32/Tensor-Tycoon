@@ -120,8 +120,10 @@ enum StrategyEvents {
 
         // A rival raids your research team.
         let researchers = s.employees.filter { $0.role == .researcher }.sorted { $0.skill > $1.skill }
-        if researchers.count >= 6, s.rng.chance(0.03),
-           let rival = s.competitors.filter({ !$0.acquired && s.year >= $0.def.founded.decimal }).randomElement(using: &s.rng) {
+        if researchers.count >= 6, s.year < RivalStrategy.start, !RivalStrategy.raidedRecently(s), s.rng.chance(0.03),
+           let rival = s.competitors.filter({ !$0.acquired && s.year >= $0.def.founded.decimal }).randomElement(using: &s.rng),
+           let ri = s.competitors.firstIndex(where: { $0.id == rival.id }) {
+            s.competitors[ri].raidCooldown = GameCalendar.addMonths(s.date, 12)
             let top = researchers.prefix(3)
             let bonus = top.reduce(0) { $0 + $1.salary } * 0.6
             Events.addDecision(&s, kind: "talent_raid", title: "\(rival.def.name) is raiding your research team",
@@ -204,7 +206,7 @@ enum StrategyEvents {
             } else {
                 s.employees.remove(at: i)
                 s.brand = min(100, s.brand + 1)
-                Sim.news(&s, "\(name) leaves to found a startup", "Alumni of \(s.companyName) are becoming a thing. Brand +1.", .company)
+                Sim.news(&s, "\(name)\(RivalLifecycle.alumniSuffix)", "Alumni of \(s.companyName) are becoming a thing. Brand +1.", .company)
             }
         case ("sovereign_deal", 0):
             s.deals.append(EnterpriseDeal(client: "Sovereign AI programme", title: "national model", monthly: d.amount, tokensPerDay: 0,
@@ -265,7 +267,14 @@ enum StrategyEvents {
         case ("talent_raid", _):
             let top = s.employees.filter { $0.role == .researcher }.sorted { $0.skill > $1.skill }.prefix(3).map(\.id)
             s.employees.removeAll { top.contains($0.id) }
-            if let i = s.competitors.firstIndex(where: { $0.id == d.ref }) { s.competitors[i].brand = min(100, s.competitors[i].brand + 3) }
+            if let i = s.competitors.firstIndex(where: { $0.id == d.ref }) {
+                s.competitors[i].brand = min(100, s.competitors[i].brand + 3)
+                // Your people know your recipes: the raider's next model gets better.
+                if var p = s.competitors[i].project, p.procedural {
+                    p.cAdjust += 0.02
+                    s.competitors[i].project = p
+                }
+            }
             Sim.news(&s, "Three researchers defect", "Your best people left for a rival.", .company, important: true, good: false)
         default:
             break
