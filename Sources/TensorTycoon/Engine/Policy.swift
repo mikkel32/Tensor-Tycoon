@@ -124,6 +124,7 @@ enum Policy {
         s.bills[i].stance = new
         // The bill's decision, if it's still waiting, is answered.
         s.decisions.removeAll { $0.kind == "policy_bill" && $0.ref == id }
+        Stakeholders.tookSide(&s, id, stance: new, was: old)   // 3.4: world and stakeholders
         return nil
     }
 

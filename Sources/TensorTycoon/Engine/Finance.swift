@@ -236,6 +236,7 @@ enum Monthly {
         StrategyEvents.monthly(&s)
         Victory.monthly(&s)
         Xeno.rivalDiscovery(&s)
+        World.monthly(&s)   // 3.4: world and stakeholders
 
         // Valuation and records. A private company's mark moves halfway (in log terms) toward its new level each
         // month, so one launch or one bad month doesn't swing it 40× or wipe out two thirds of it overnight.

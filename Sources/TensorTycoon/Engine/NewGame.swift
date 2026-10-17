@@ -136,6 +136,7 @@ enum NewGame {
         }
         Board.refill(&s)
         s.market.interestRate = Macro.historicalRate(y) ?? 3.4
+        World.bootstrap(&s)   // 3.4: the world as it stands on the start date
 
         // Welcome news
         Sim.news(&s, "Project \(settings.signature.codename): your founding secret",

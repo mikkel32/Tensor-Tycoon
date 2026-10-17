@@ -543,6 +543,7 @@ extension GameState {
         month.costPayroll += e.salary * 0.25
         employees.removeAll { $0.id == id }
         for i in employees.indices { employees[i].morale -= 2 }
+        Stakeholders.letGo(&self, e)   // 3.4: world and stakeholders
     }
 
     /// Veterans (a year in, skill 65+) can be promoted into a trait of your choice.
@@ -714,7 +715,9 @@ extension GameState {
     }
 
     mutating func resolveDecision(_ id: UUID, option: Int) {
+        let decision = decisions.first { $0.id == id }   // 3.4: world and stakeholders
         Events.resolve(&self, id, option: option)
+        if let decision { Stakeholders.decided(&self, decision, option: option) }
     }
 
     // MARK: Training checkpoints

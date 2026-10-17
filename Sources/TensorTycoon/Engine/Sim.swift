@@ -35,6 +35,7 @@ enum Sim {
         Finance.daily(&s)
         Events.daily(&s)
         if GameCalendar.components(s.date).day % 7 == 3 { BenchLife.weekly(&s) }
+        World.daily(&s)   // 3.4: world and stakeholders
 
         if s.date.ym != oldMonth { Monthly.close(&s) }
         Achievements.check(&s)

@@ -156,6 +156,7 @@ struct ScreenRouter: View {
         case .achievements: AchievementsView()
         case .credits: CreditsView()
         case .help: HelpView()
+        case .world: WorldView()   // 3.4: world and stakeholders
         }
     }
 }

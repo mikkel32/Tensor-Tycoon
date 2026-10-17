@@ -19,6 +19,8 @@ enum GlossaryTerm: String, CaseIterable, Identifiable, Sendable {
     case forecastBand, leapfrog, codeRed, marketCorrection
     // Safety and the frontier
     case safetyThresholds, securityLevels, politicalCapital, rsi, swarms, alignmentDrift, alienTech
+    // The world
+    case stakeholders, publicMood, regulation, consequences
 
     var id: String { rawValue }
 }
@@ -32,6 +34,7 @@ enum GlossaryCategory: String, CaseIterable, Identifiable, Sendable {
     case company = "Running the company"
     case rivals = "Rivals"
     case frontier = "Safety & the frontier"
+    case world = "The world"
 
     var id: String { rawValue }
 
@@ -45,6 +48,7 @@ enum GlossaryCategory: String, CaseIterable, Identifiable, Sendable {
         case .company: "gearshape.2.fill"
         case .rivals: "flag.2.crossed.fill"
         case .frontier: "exclamationmark.shield.fill"
+        case .world: "globe.americas.fill"
         }
     }
 }
@@ -346,6 +350,26 @@ extension GlossaryTerm {
                           definition: "How well your model weights are protected, after RAND's framework: each level stops a more capable attacker, from a lone amateur to a nation-state operation.",
                           detail: "The closer you are to the frontier, the more attackers come for your weights. Higher levels take months to build, cost more to run and slow research a little.",
                           screen: .security, aliases: ["SL3", "weights security", "theft", "RAND"])
+        case .stakeholders:
+            GlossaryEntry(title: "Your standing", category: .world,
+                          definition: "How five groups see you, 0–100: the public, researchers, developers, investors (the board's confidence) and governments in seven regions. Each drifts toward where your record puts it.",
+                          detail: "Launches, open weights, published research, leaks, layoffs, price changes, outages, bill stances and deals move them, and each move is listed with its date. In return, public trust moves chat demand and developer goodwill moves API demand by up to 6%, researchers' respect shifts candidates' skill by up to 3 points, and governments decide how many sovereign deals come your way.",
+                          screen: .world, aliases: ["stakeholders", "trust", "reputation", "goodwill", "standing"])
+        case .publicMood:
+            GlossaryEntry(title: "Public mood and safety concern", category: .world,
+                          definition: "How people feel about AI, and how worried they are about it. Both move every month.",
+                          detail: "Useful AI, jobs created and cheap prices lift the mood; job losses and incidents (escapes, leaks, misuse) sour it. Safety concern jumps with incidents and fades slowly. High concern slows adoption and pushes regulators to act.",
+                          screen: .world, aliases: ["sentiment", "concern", "opinion", "mood"])
+        case .regulation:
+            GlossaryEntry(title: "Rules by region", category: .world,
+                          definition: "How strict AI rules are in the US, EU, UK, China, the Gulf, India and Japan & Korea, 0–100. They follow real laws up to 2026, then move with incidents, public mood, lobbying and the bills that pass.",
+                          detail: "Strict rules slow adoption in that region, and a major incident there can bring emergency rules or an inquiry into the lab responsible. Your standing with each government is shown next to its rules.",
+                          screen: .world, aliases: ["regulation", "regulators", "law", "regions", "rules"])
+        case .consequences:
+            GlossaryEntry(title: "Consequences", category: .world,
+                          definition: "Things the world does because of where it stands, not by chance: regulators answering incidents, protests and strikes over jobs, grid emergencies, hearings on very capable AI, partnerships when trust is high.",
+                          detail: "At most five a year and at least 60 days apart. None of them stops the clock: they arrive as news and banners, and the few that ask you something wait in the inbox.",
+                          screen: .world, aliases: ["protests", "strikes", "robot tax", "hearings", "summons", "grid emergency"])
         case .politicalCapital:
             GlossaryEntry(title: "Political capital", category: .frontier,
                           definition: "Your influence in policy, built mostly by a monthly lobbying budget. It fades about 5% a month, so it needs steady lobbying.",

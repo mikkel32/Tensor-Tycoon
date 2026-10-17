@@ -22,8 +22,7 @@ struct DashboardView: View {
                 VStack(spacing: 16) {
                     NeedsYouCard(needs: needs, stepsLeft: stepsLeft)
                     SinceLastMonthCard(state: s)
-                    // Slot: WorldCard() — the world and its stakeholders (another branch adds it; wire it in here at merge).
-                    EmptyView()
+                    WorldCard()
                     RevenueCard(state: s)
                     ActiveRunsCard(state: s)
                     if !liveRSI.isEmpty { RSIStatusCard(runs: liveRSI) }
