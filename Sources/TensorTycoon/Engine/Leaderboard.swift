@@ -456,8 +456,11 @@ enum BenchLife {
         let pool = contenders(s)
         guard !pool.isEmpty else { return }
         for b in all where b.isActive(s.date, saturated: s.benchSaturated) {
+            // Saturation needs two labs at the bar, and most live tests are nowhere near it: a cheap bound (no hashing)
+            // drops models that can't get there before exact scores are looked up. Same outcome, a fraction of the work.
+            let exact = b.blend.map { $0.t < 1 } ?? false
             var labs: [String: (score: Double, who: Contender)] = [:]
-            for c in pool {
+            for c in pool where exact || b.scoreBound(c.profile) >= b.saturation {
                 let v = BenchmarkCatalog.cachedScore(b, c.profile)
                 if v > (labs[c.labKey]?.score ?? -1) { labs[c.labKey] = (v, c) }
             }

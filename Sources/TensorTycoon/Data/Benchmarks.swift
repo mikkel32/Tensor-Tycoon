@@ -134,12 +134,21 @@ struct Benchmark: Identifiable, Codable, Hashable, Sendable {
         guard let x = x(p) else { return floor }
         var s = floor + (ceiling - floor) * sigmoid((x - mid) / scale)
         if noise {
-            let u = BenchmarkCatalog.hashUnit("\(p.key)|\(id)")
+            let u = BenchmarkCatalog.hashUnit(p.key, id)
             let edge = 1 - abs(2 * (s - floor) / max(ceiling - floor, 1) - 1)
             s += (u - 0.5) * 4.0 * (0.3 + 0.7 * edge)
         }
         if kind != .safety && kind != .dangerous { s += p.tuning * (ceiling - floor) * 0.04 }
         return (clamp(s, floor * 0.95, ceiling) * 10).rounded() / 10
+    }
+
+    /// A ceiling on `ownScore` that skips the hashing: noise moves a score by at most 2 points and rounding by 0.05.
+    /// Lets a scan rule out models that can't reach a threshold before looking up exact scores.
+    func scoreBound(_ p: ModelProfile) -> Double {
+        guard let x = x(p) else { return floor }
+        var s = floor + (ceiling - floor) * sigmoid((x - mid) / scale) + 2
+        if kind != .safety && kind != .dangerous { s += p.tuning * (ceiling - floor) * 0.04 }
+        return max(floor * 0.95, min(s, ceiling)) + 0.05
     }
 
     func isActive(_ date: Date, saturated: [String: Date]) -> Bool {
@@ -573,18 +582,43 @@ enum BenchmarkCatalog {
 
     // MARK: Score cache
 
-    nonisolated(unsafe) private static var cache: [String: Double] = [:]
+    /// Cache key without string building: the profile and benchmark ids, plus how far a blended index slot has phased in.
+    private struct ScoreKey: Hashable {
+        let profile: String
+        let bench: String
+        let generated: Bool
+        let blendT: Int
+        let blendFrom: [String]
+    }
+
+    nonisolated(unsafe) private static var cache: [ScoreKey: Double] = [:]
 
     static func resetCache() { cache.removeAll(keepingCapacity: true) }
 
     static func cachedScore(_ b: Benchmark, _ p: ModelProfile) -> Double {
-        var key = "\(p.key)|\(b.id)|\(b.generated ? "g" : "r")"
-        if let bl = b.blend { key += "|\(Int((bl.t * 1000).rounded()))<\(bl.from.map(\.id).joined(separator: "+"))" }
+        let key = ScoreKey(profile: p.key, bench: b.id, generated: b.generated,
+                           blendT: b.blend.map { Int(($0.t * 1000).rounded()) } ?? -1, blendFrom: b.blend?.from.map(\.id) ?? [])
         if let v = cache[key] { return v }
         let v = b.score(p)
         if cache.count > 200_000 { cache.removeAll(keepingCapacity: true) }
         cache[key] = v
         return v
+    }
+
+    /// `hashUnit("\(a)|\(b)")` without building the string (same bytes, same hash).
+    static func hashUnit(_ a: String, _ b: String) -> Double {
+        var h: UInt64 = 0xcbf2_9ce4_8422_2325
+        for byte in a.utf8 {
+            h ^= UInt64(byte)
+            h = h &* 0x100_0000_01b3
+        }
+        h ^= 0x7C
+        h = h &* 0x100_0000_01b3
+        for byte in b.utf8 {
+            h ^= UInt64(byte)
+            h = h &* 0x100_0000_01b3
+        }
+        return Double(h >> 11) / Double(1 << 53)
     }
 
     /// FNV-1a hash → [0, 1)

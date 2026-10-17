@@ -435,6 +435,7 @@ enum Achievements {
         if s.employees.filter({ $0.role == .researcher }).count >= 100 { unlock(&s, "researchers") }
         let tpus = s.rentals.filter { HardwareCatalog.get($0.accelID)?.cls == .tpu }.reduce(0) { $0 + $1.count }
         if tpus >= 1000 { unlock(&s, "tpu") }
+        guard !s.achievements.contains("frontier") || !s.achievements.contains("arena") else { return }
         let board = Leaderboard.entries(s, includeUnreleased: false)
         if board.first?.isPlayer == true { unlock(&s, "frontier") }
         if let top = board.max(by: { $0.arena < $1.arena }), top.isPlayer { unlock(&s, "arena") }
