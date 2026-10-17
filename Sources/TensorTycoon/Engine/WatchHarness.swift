@@ -105,7 +105,23 @@ extension BalanceHarness {
         let rivalBest = s.competitors.indices.map { Competitors.plannedC(s, compIndex: $0, date: s.date) }.max() ?? m.c
         m.c = max(m.c, rivalBest) + 1.2
         m.released = false
-        m.index = BenchmarkCatalog.index(Leaderboard.profile(m), set: Leaderboard.indexSet(s))
+        // A complete frontier model (vision, long context, strong skills), so no benchmark kind caps its index.
+        m.design.vision = true
+        m.design.contextK = max(m.design.contextK, 1_000)
+        m.reasoningBoost += 0.5
+        m.agentBoost += 0.5
+        m.codeBoost += 0.3
+        m.visSkill = max(m.visSkill, 0.3)
+        // The index compresses near the top, so raise it until it clears every in-flight forecast by 3 points.
+        let set = Leaderboard.indexSet(s)
+        let bar = (s.competitors.indices.compactMap { RivalIntel.outlook(s, $0, set: set)?.index }.max() ?? 0) + 3
+        var steps = 0
+        while BenchmarkCatalog.index(Leaderboard.profile(m), set: set) < bar && steps < 30 {
+            m.c += 0.2
+            m.id = UUID()   // scores are cached by profile key (the model id): a new id re-scores
+            steps += 1
+        }
+        m.index = BenchmarkCatalog.index(Leaderboard.profile(m), set: set)
         s.models.append(m)
         printOutlooks(s)
         _ = s.release(m.id, api: true, openWeights: false)

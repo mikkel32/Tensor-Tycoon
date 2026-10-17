@@ -164,14 +164,16 @@ enum Competitors {
         let def = comp.def
         let y = date.decimalYear
         // Rivals answer your lead. They size their next runs against the lead you've held for a training cycle
-        // (about six months before this release), copy part of what they can see today by distilling your API,
-        // and build on anything you publish as open weights at once. Well-funded labs answer harder.
+        // (about six months before this release), copy part of what they had seen a quarter before it by distilling
+        // your API, and build on what you published as open weights by then. A fresh leap holds for a few months:
+        // a run already in post-training can't absorb a model you shipped last week. Well-funded labs answer harder.
         let released = s.models.filter(\.released)
         let leadNow = max(0, (released.map(\.c).max() ?? -10) - Macro.frontier(y))
-        let openLead = min(leadNow, max(0, (released.filter(\.openWeights).map(\.c).max() ?? -10) - Macro.frontier(y)))
+        let seen = min(leadNow, leadSeen(s, before: date, days: 91, now: leadNow))
+        let openLead = min(seen, max(0, (released.filter(\.openWeights).map(\.c).max() ?? -10) - Macro.frontier(y)))
         let held = min(leadNow + 0.2, leadAgo(s, before: date) ?? leadNow)
         let k = s.difficulty.rivalResponse * (0.75 + 0.25 * min(1.2, comp.funding))
-        let copied = 0.3 * max(0, leadNow - held) * (1 - 0.6 * min(1, s.bonuses.distillGuard))
+        let copied = 0.3 * max(0, seen - held) * (1 - 0.6 * min(1, s.bonuses.distillGuard))
         let race = max(k * held + copied, 0.7 * openLead)
         var c = Macro.frontier(y) + def.offset(y) + s.difficulty.competitorBoost + race + boost(s, def.id, at: y).c
         // Money buys compute: well-funded labs train bigger, starved ones fall behind.
@@ -185,7 +187,10 @@ enum Competitors {
         // A big lab that has watched you hold #1 for half a year bets a run on passing you — on the leaderboard, not just
         // in raw capability. The longer you lead, the more of their runs are that bet. Whether this one is, and by how
         // much, is fixed per release (hashed), so Rival Watch can see it coming.
-        if s.monthsAtTop >= 6, y >= 2018, def.computeShare >= 0.15, let mine = released.map(\.index).max(), mine > 0 {
+        // The bet targets the models you had out a quarter before this release (what they could plan the run against).
+        let seenBy = GameCalendar.addDays(date, -91)
+        let known = seenBy < s.date ? released.filter { ($0.releaseDate ?? $0.created) <= seenBy } : released
+        if s.monthsAtTop >= 6, y >= 2018, def.computeShare >= 0.15, let mine = known.map(\.index).max(), mine > 0 {
             let shift = s.difficulty == .hard ? 0.1 : (s.difficulty == .easy ? -0.1 : 0)
             let tries = clamp(0.25 + 0.03 * Double(s.monthsAtTop - 6) + shift, 0.1, 0.6)
             if RivalIntel.unit("\(def.id)|leap|\(comp.releaseCount)") < tries {
@@ -211,12 +216,26 @@ enum Competitors {
         return c
     }
 
-    /// Your best released model's lead over the world frontier about six months before `date`, from the monthly
-    /// records (nil when that's still in the future or wasn't recorded).
+    /// Your released models' lead over the frontier at `then`, from the monthly records: 0 when nothing was out yet,
+    /// nil when the record predates the field (history from saves before 3.3).
+    static func recordedLead(_ s: GameState, at then: Date) -> Double? {
+        guard s.models.contains(where: { $0.released && ($0.releaseDate ?? $0.created) <= then }) else { return 0 }
+        guard let r = s.history.last(where: { $0.month <= then }), r.bestC != 0 else { return nil }
+        return max(0, r.bestC - Macro.frontier(r.month.decimalYear))
+    }
+
+    /// Your lead as rivals could see it `days` before `date`: today's when that moment is still ahead.
+    static func leadSeen(_ s: GameState, before date: Date, days: Int, now: Double) -> Double {
+        let then = GameCalendar.addDays(date, -days)
+        guard then < s.date else { return now }
+        return recordedLead(s, at: then) ?? now
+    }
+
+    /// Your lead about six months (a training cycle) before `date`; nil when that's still ahead or wasn't recorded.
     static func leadAgo(_ s: GameState, before date: Date) -> Double? {
         let then = GameCalendar.addDays(date, -182)
-        guard then < s.date, let r = s.history.last(where: { $0.month <= then }), r.bestC != 0 else { return nil }
-        return max(0, r.bestC - Macro.frontier(r.month.decimalYear))
+        guard then < s.date else { return nil }
+        return recordedLead(s, at: then)
     }
 
     static func makeModel(_ s: inout GameState, compIndex i: Int, date: Date) -> CompetitorModel {
