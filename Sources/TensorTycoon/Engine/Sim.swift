@@ -77,7 +77,7 @@ enum Sim {
     // MARK: - Scripted history
 
     static func historicalEvents(_ s: inout GameState) {
-        for e in EventCatalog.historical where e.date <= s.date && !s.firedEvents.contains(e.id) {
+        for e in EventCatalog.historical + EventCatalog.future where e.date <= s.date && !s.firedEvents.contains(e.id) && e.date >= max(s.startDate, GameCalendar.addDays(s.date, -60)) {
             s.firedEvents.insert(e.id)
             // History about a lab that has been bought, gone bust or left the market doesn't happen.
             if let lab = e.lab, let c = s.competitors.first(where: { $0.id == lab }), c.acquired || c.bankrupt || !c.exitNote.isEmpty { continue }

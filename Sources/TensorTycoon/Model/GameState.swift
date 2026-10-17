@@ -1113,6 +1113,11 @@ struct GameState: Codable {
     /// Decision kind → the option to pick automatically, and its label when it was chosen.
     @D var standingAnswers: [String: Int] = [:]
     @D var standingLabels: [String: String] = [:]
+    // 3.4: late game
+    /// Levels completed in each repeatable frontier research programme (FrontierProgram id → level).
+    @D var programLevels: [String: Int] = [:]
+    /// Moonshots: grand challenges offered to the lab, running, or finished.
+    @D var moonshots: [Moonshot] = []
 
     var totalShares: Double {
         founderShares + employeePoolShares + publicShares + holdings.reduce(0) { $0 + $1.shares }

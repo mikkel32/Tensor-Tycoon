@@ -4,6 +4,9 @@ import Foundation
 /// Below 50% ownership a board that has lost confidence can move to replace you.
 enum Board {
     static let activeTarget = 3
+    /// 3.4: from this year goals scale with the lab's share of its market, so a 2030s giant isn't asked to double
+    /// a market it already dominates. Earlier goals are exactly as before.
+    static let lateYear = 2027.0
 
     // MARK: Confidence
 
@@ -56,7 +59,7 @@ enum Board {
         case .profit: return s.history.last?.profit ?? -1
         case .compute: return Economy.h100e(s)
         case .safety: return s.safetyScore
-        case .research: return Double(s.researched.count)
+        case .research: return Double(s.researched.count + s.programLevelsTotal)
         case .agents: return s.swarms.filter { !$0.paused }.reduce(0) { $0 + $1.active }
         // Your best released model's Intelligence Index: a release goal asks you to beat it.
         case .release: return s.models.filter(\.released).map(\.index).max() ?? 0
@@ -129,7 +132,9 @@ enum Board {
         case .revenue:
             // Scale the floor to the company: a seed-stage lab isn't asked for a frontier lab's revenue.
             let stage = clamp(s.valuation / Macro.frontierValuation(y) * 10, 0.05, 1)
-            target = max(now * s.rng.range(1.6, 2.2), Macro.marketSize(y) * 0.0008 * stage)
+            var mult = s.rng.range(1.6, 2.2)
+            if y >= lateYear { mult = 1 + (mult - 1) * clamp((0.5 - now / max(1, Macro.marketSize(y))) / 0.4, 0.2, 1) }
+            target = max(now * mult, Macro.marketSize(y) * 0.0008 * stage)
             months = 12
             title = "Reach a \(Fmt.money(target)) revenue run-rate"
             detail = "Investors want proof of a business. API, chat, agents, enterprise, chips and labor all count."
@@ -149,13 +154,17 @@ enum Board {
             points = 2
         case .users:
             guard s.chatModelID != nil, now > 10_000 else { return nil }
-            target = now * s.rng.range(1.8, 2.5)
+            var mult = s.rng.range(1.8, 2.5)
+            if y >= lateYear { mult = 1 + (mult - 1) * clamp((0.6 - now / max(1, Macro.chatUsers(y, chatMoment: s.chatMoment))) / 0.5, 0.15, 1) }
+            target = now * mult
             months = 12
             title = "Grow chat to \(Fmt.count(target)) users"
             detail = "Consumer momentum drives the next round."
         case .valuation:
             guard s.valuation > 0 else { return nil }
-            target = s.valuation * s.rng.range(1.8, 2.4)
+            var mult = s.rng.range(1.8, 2.4)
+            if y >= lateYear { mult = 1 + (mult - 1) * clamp(2 * Macro.frontierValuation(y) / s.valuation, 0.25, 1) }
+            target = s.valuation * mult
             months = 18
             title = "Be worth \(Fmt.money(target))"
             detail = "Double the company's value."
@@ -168,7 +177,9 @@ enum Board {
             detail = "Show the board the model works without fresh capital."
             points = 2
         case .compute:
-            target = max(now * s.rng.range(2.2, 3.5), 50)
+            var mult = s.rng.range(2.2, 3.5)
+            if y >= lateYear { mult = 1 + (mult - 1) * clamp((0.3 - now / max(1, CompetitorCatalog.industryCompute(y))) / 0.25, 0.15, 1) }
+            target = max(now * mult, 50)
             months = 12
             title = "Control \(Fmt.count(target)) H100-equivalents"
             detail = "Owned or rented. Compute is the moat."
@@ -182,10 +193,10 @@ enum Board {
             target = now + Double(s.rng.int(4, 7))
             months = 8
             title = "Complete \(Int(target - now)) more research projects"
-            detail = "Keep the research engine running."
+            detail = y >= lateYear ? "Keep the research engine running. New techniques and frontier-programme levels both count." : "Keep the research engine running."
         case .agents:
             guard s.bonuses.has(.toolUse), !s.models.isEmpty else { return nil }
-            target = max(1_000, now * 5)
+            target = max(1_000, now * (y >= lateYear && now > 1e6 ? 2.5 : 5))
             months = 9
             title = "Run \(Fmt.count(target)) agents at once"
             detail = "Agent swarms are the story investors want to hear."
@@ -198,7 +209,7 @@ enum Board {
                              : "Put a model in front of customers."
         case .chipSales:
             guard !s.customChips.isEmpty || s.owned.reduce(0, { $0 + $1.count }) > 500 else { return nil }
-            target = now + max(5e6, Economy.runRate(s) * 0.3)
+            target = now + max(5e6, y >= lateYear ? max(Economy.hardwareRunRate(s) * 1.5, Economy.runRate(s) * 0.08) : Economy.runRate(s) * 0.3)
             months = 12
             title = "Earn \(Fmt.money(target - now)) selling compute"
             detail = "Lease idle chips or sell your own silicon."
