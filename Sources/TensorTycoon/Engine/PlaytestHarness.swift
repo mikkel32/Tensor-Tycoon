@@ -498,7 +498,9 @@ enum PTPlay {
         let mfu = Physics.mfu(accel: a, chips: chips, state: s, bonuses: b)
         let g = Physics.goodput(chips: chips, state: s, bonuses: b)
         let perDay = Double(chips) * a.trainTFLOPS(d.precision) * 1e12 * mfu * g * 86_400
-        size(&d, flops: perDay * days / (1 + post), overtrain: d.isMoE ? 2 : 1, accel: a, bonuses: b)
+        // Sized with the engine's Model Lab rule (parameter/token caps). Mid-training shift mirrors the old popup answer.
+        d.mixShift = b.has(.curriculum) ? (s.year >= 2024 ? .code : .stem) : .keep
+        LabMath.size(&d, flops: perDay * days / (1 + post), overtrain: d.isMoE ? 2 : 1, accel: a, state: s)
         return d
     }
 

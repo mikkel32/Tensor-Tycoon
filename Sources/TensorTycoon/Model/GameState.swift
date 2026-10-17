@@ -245,6 +245,27 @@ enum DataMix: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+/// How the data mix shifts for the second half of pre-training (mid-training), chosen in the Model Lab.
+/// Needs Annealing & Data Curriculum research; `.keep` (the default, and what older saves decode to) changes nothing.
+enum MixShift: String, Codable, CaseIterable, Identifiable {
+    case keep = "Keep the mix"
+    case code = "More code"
+    case stem = "More math & science"
+    case multilingual = "More multilingual"
+    var id: String { rawValue }
+
+    var detail: String {
+        switch self {
+        case .keep: "The second half trains on the same mix as the first."
+        case .code: "Lean the second half into code: +coding, slightly flatter chat."
+        case .stem: "Lean the second half into math and science: +reasoning."
+        case .multilingual: "Lean the second half into other languages: +multilingual and global appeal."
+        }
+    }
+}
+
+extension MixShift: DefaultValue { static var defaultValue: MixShift { .keep } }
+
 /// RL compute as a share of pre-training compute.
 enum RLLevel: Int, Codable, CaseIterable, Identifiable {
     case off = 0, light, standard, heavy, extreme
@@ -289,6 +310,8 @@ struct ModelDesign: Codable, Hashable {
     var mtp = false
     var anneal = false
     var useDPO = false
+    /// 3.4: mid-training data-mix shift for the second half of pre-training (was a mid-run popup).
+    @D var mixShift: MixShift = .keep
 
     var activeParamsB: Double { paramsB * activeFraction }
     var isMoE: Bool { activeFraction < 0.999 }
@@ -414,6 +437,11 @@ struct TrainingRun: Codable, Identifiable, Hashable {
     /// Nodes caught (and missed) silently corrupting gradients.
     @D var sdcCaught: Double = 0
     @D var sdcMissed: Double = 0
+    // 3.4: honest goodput
+    /// An experiment too small for mid-run incidents (estimated under `Training.toyCost` at launch).
+    @D var toy: Bool = false
+    /// Consecutive days the run has made next to no progress (hardware failures eating the whole day).
+    @D var stalledDays: Int = 0
 
     var schedule: LRSchedule { LRSchedule(rawValue: lr) ?? .standard }
     var interval: Double { checkpointEvery > 0 ? checkpointEvery : 0.1 }

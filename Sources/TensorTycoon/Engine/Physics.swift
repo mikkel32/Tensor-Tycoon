@@ -55,11 +55,22 @@ enum Physics {
         return clamp(base * mult, 0.05, 0.7)
     }
 
-    /// Hours of progress lost per hardware interruption (restart + work since the last save).
-    static func hoursLostPerFailure(state s: GameState, bonuses b: ResearchBonuses) -> Double {
-        let infra = s.employees.filter { $0.role == .infra }.reduce(0.0) { $0 + $1.weight }
-        let chips = max(1, s.runs.filter { $0.status == .running || $0.status == .postTraining }.map(\.design.chips).max() ?? 1)
-        let staffing = min(1, infra / max(0.5, Double(chips) / 600))
+    /// Infra engineers on the team, weighted by skill (a skill-50 engineer counts as one).
+    static func infraWeight(_ s: GameState) -> Double {
+        s.employees.filter { $0.role == .infra }.reduce(0.0) { $0 + $1.weight }
+    }
+
+    /// Chips of the biggest run going (or about to go: `planned`), which the infra team is staffed against.
+    static func staffedChips(_ s: GameState, planned: Int = 0) -> Int {
+        max(1, planned, s.runs.filter { $0.status == .running || $0.status == .postTraining }.map(\.design.chips).max() ?? 1)
+    }
+
+    /// Hours of progress lost per hardware interruption (restart + work since the last save). The infra team is
+    /// staffed against the biggest run going *including the one being planned* (`chips`), so an estimate made
+    /// before a run starts sees the same staffing the run will. `infra` overrides the team ("if you hired…").
+    static func hoursLostPerFailure(state s: GameState, bonuses b: ResearchBonuses, chips planned: Int = 0, infra: Double? = nil) -> Double {
+        let team = infra ?? infraWeight(s)
+        let staffing = min(1, team / Training.opsNeeded(chips: staffedChips(s, planned: planned)))
         return 1.5 * b.failureKeep * (1.3 - 0.3 * staffing) * (1 - 0.4 * s.swarmOps)
     }
 
@@ -68,12 +79,29 @@ enum Physics {
         clamp(1 - 0.015 * log10(max(1, Double(chips) / 500)) * (1 - b.scaleOut), 0.9, 1)
     }
 
-    /// Fraction of wall-clock time that makes forward progress (hardware failures at Llama 3 rates, stragglers).
+    /// Expected fraction of wall-clock time that makes forward progress (hardware failures at Llama 3 rates,
+    /// stragglers): the same expectation the daily simulation draws from, so it really can reach zero.
     /// `coverage` is the share of the run watched by ops agents; by default, what your unpinned training-ops
     /// swarms would give a new run of this size. Past ~100K chips, a run without agents barely moves.
     static func goodput(chips: Int, state s: GameState, bonuses b: ResearchBonuses, coverage: Double? = nil) -> Double {
         let cov = coverage ?? Training.plannedCoverage(s, chips: chips)
-        return max(0.01, Training.goodput(chips: chips, coverage: cov, state: s, bonuses: b))
+        return Training.goodput(chips: chips, coverage: cov, state: s, bonuses: b)
+    }
+
+    /// MFU the daily simulation will use for this design (ops agents tune kernels too).
+    static func runMFU(_ d: ModelDesign, accel: Accelerator, coverage cov: Double, state s: GameState, bonuses b: ResearchBonuses) -> Double {
+        var m = mfu(accel: accel, chips: d.chips, state: s, bonuses: b) + 0.02 * cov
+        if d.optimizer == .shampoo { m -= 0.02 }
+        return max(0.05, m)
+    }
+
+    /// Expected FLOPs a design's cluster delivers per day, exactly as the daily simulation computes them on average.
+    static func flopsPerDay(_ d: ModelDesign, state s: GameState, lr: LRSchedule = .standard, interval: Double = 0.1) -> Double {
+        guard let a = HardwareCatalog.get(d.accelID) else { return 0 }
+        let b = s.bonuses
+        let cov = Training.plannedCoverage(s, chips: d.chips)
+        return Double(d.chips) * a.trainTFLOPS(d.precision) * 1e12 * runMFU(d, accel: a, coverage: cov, state: s, bonuses: b)
+            * Training.goodput(chips: d.chips, coverage: cov, state: s, bonuses: b) * 86_400 * lr.speed * Sim.checkpointOverhead(interval)
     }
 
     static func pretrainFLOPs(_ d: ModelDesign) -> Double {
@@ -92,6 +120,8 @@ enum Physics {
     struct Estimate {
         var flops: Double
         var postFlops: Double
+        /// Expected wall-clock days, including the LR schedule's speed, checkpoint overhead and expected incidents.
+        /// Infinite when hardware failures leave no time for progress.
         var days: Double
         var dailyCost: Double
         var totalCost: Double
@@ -99,22 +129,92 @@ enum Physics {
         var goodput: Double
         var memory: MemoryCheck
         var forecast: Forecast
+        /// Ops-agent coverage the estimate assumes (training-ops swarms that watch every run).
+        var coverage: Double = 0
+        /// Days set aside for incidents answered the careful way (loss-spike rollbacks, fault storms, contamination scrubs,
+        /// post-training stages redone); see `Training.incidentDays`.
+        var incidentDays: Double = 0
+        /// Small enough to be an experiment: no mid-run incidents (`Training.toyCost`).
+        var toy: Bool = false
+
+        /// Whether the run would finish at all.
+        var finishes: Bool { days.isFinite }
     }
 
-    static func estimate(_ d: ModelDesign, state s: GameState) -> Estimate? {
+    static func estimate(_ d: ModelDesign, state s: GameState, lr: LRSchedule = .standard, interval: Double = 0.1) -> Estimate? {
         guard let accel = HardwareCatalog.get(d.accelID) else { return nil }
         let b = s.bonuses
         let pre = pretrainFLOPs(d)
         let post = postTrainFLOPs(d, pretrain: pre, bonuses: b)
-        var m = mfu(accel: accel, chips: d.chips, state: s, bonuses: b)
-        if d.optimizer == .shampoo { m -= 0.02 }
-        let g = goodput(chips: d.chips, state: s, bonuses: b)
-        let perDay = Double(d.chips) * accel.trainTFLOPS(d.precision) * 1e12 * max(0.05, m) * g * 86_400
-        let days = (pre + post) / max(perDay, 1)
+        let cov = Training.plannedCoverage(s, chips: d.chips)
+        let m = runMFU(d, accel: accel, coverage: cov, state: s, bonuses: b)
+        let g = Training.goodput(chips: d.chips, coverage: cov, state: s, bonuses: b)
+        let perDay = flopsPerDay(d, state: s, lr: lr, interval: interval)
         let daily = Economy.chipDailyCost(accel, count: d.chips, state: s)
-        return Estimate(flops: pre, postFlops: post, days: days, dailyCost: daily, totalCost: daily * days,
+        var days = Double.infinity, incidents = 0.0, toy = false
+        // Below 1% goodput progress comes from the odd lucky day, if ever: the run doesn't finish.
+        if perDay > 0 && g >= Training.stallGoodput {
+            let base = (pre + post) / perDay + 0.5          // a run ends at the end of a day
+            toy = Training.isToy(cost: daily * base)
+            incidents = toy ? 0 : Training.incidentDays(d, pretrain: pre, perDay: perDay, goodput: g, interval: interval, lr: lr,
+                                                        coverage: cov, state: s, bonuses: b)
+            days = base + incidents
+        }
+        return Estimate(flops: pre, postFlops: post, days: days, dailyCost: daily, totalCost: days.isFinite ? daily * days : .infinity,
                         mfu: m, goodput: g, memory: trainingMemory(d, accel: accel, bonuses: b),
-                        forecast: ForecastEngine.forecast(d, state: s, dataSources: Array(s.dataSources)))
+                        forecast: ForecastEngine.forecast(d, state: s, dataSources: Array(s.dataSources)),
+                        coverage: cov, incidentDays: incidents, toy: toy)
+    }
+
+    // MARK: Size limits
+
+    /// Biggest model (total parameters, billions) your training stack can shard: 20T to start, ×1.5 with fine-grained
+    /// experts, ×1.5 with expert parallelism, ×1.25 with multi-datacenter training, and +25% a year from 2026 as tooling
+    /// matures. It grows slower than compute on purpose: past it, compute goes into more tokens (over-training), which is
+    /// what real labs do to keep giant models affordable to serve.
+    static func maxParamsB(_ s: GameState) -> Double {
+        let b = s.bonuses
+        var cap = 20_000.0
+        if b.has(.fineMoE) { cap *= 1.5 }
+        if b.researched.contains("dualpipe") { cap *= 1.5 }
+        if b.has(.multiSite) { cap *= 1.25 }
+        return cap * (1 + 0.25 * max(0, s.year - 2026))
+    }
+
+    /// What would raise `maxParamsB`, for the Model Lab.
+    static func paramCapLifts(_ s: GameState) -> String {
+        let b = s.bonuses
+        var out: [String] = []
+        if !b.has(.fineMoE) { out.append("Fine-grained & Shared Experts research (×1.5)") }
+        if !b.researched.contains("dualpipe") { out.append("DualPipe & Expert Parallelism research (×1.5)") }
+        if !b.has(.multiSite) { out.append("Multi-Datacenter Training research (×1.25)") }
+        let time = s.year < 2026 ? "starts growing 25% a year in 2026" : "grows 25% a year as tooling matures"
+        return out.isEmpty ? "It \(time)." : "\(out.joined(separator: ", ")) raise it, and it \(time)."
+    }
+
+    /// Unique tokens (trillions) a design can draw on: your data sources, data research and its synthetic share.
+    static func uniqueTokensT(_ d: ModelDesign, state s: GameState) -> Double {
+        let b = s.bonuses
+        let raw = availableTokensT(Array(s.dataSources), y: s.year, bonuses: b)
+        return raw * (d.syntheticShare > 0 && b.has(.syntheticData) ? 1 + d.syntheticShare * 3 : 1)
+    }
+
+    /// Passes over the unique data worth planning: past this a repeated token is worth well under half a fresh one.
+    static let maxEpochs = 16.0
+
+    /// Most training tokens worth planning (trillions): `maxEpochs` passes over your unique data, never below 150T.
+    static func maxTokensT(_ d: ModelDesign, state s: GameState) -> Double {
+        max(150, maxEpochs * uniqueTokensT(d, state: s))
+    }
+
+    /// What would raise `maxTokensT`, for the Model Lab.
+    static func tokenCapLifts(_ d: ModelDesign, state s: GameState) -> String {
+        let b = s.bonuses
+        var out = ["more data sources (Training Data page)"]
+        if !b.has(.syntheticData) { out.append("Synthetic Data Pipelines research") }
+        else if d.syntheticShare < 0.5 { out.append("a higher synthetic share") }
+        out.append("data research that adds usable tokens")
+        return "It's \(Int(maxEpochs)) passes over your \(Fmt.tokens(uniqueTokensT(d, state: s))) of unique data: \(out.joined(separator: ", ")) raise it."
     }
 
     /// Chinchilla loss (Epoch AI's corrected fit).
@@ -226,5 +326,101 @@ enum Physics {
         case .fp8: 0.01
         case .fp4: 0.05
         }
+    }
+}
+
+extension ResearchBonuses {
+    var researchedChinchilla: Bool { researched.contains("chinchilla") }
+}
+
+/// The Model Lab's sizing rules. They live in the engine so headless harnesses size runs exactly like the Lab does.
+enum LabMath {
+    /// Splits a FLOP budget between parameters and tokens. Before Chinchilla research labs sized like GPT-3
+    /// (big, ~2 tokens/param); after it, compute-optimally (Epoch's corrected fit). `overtrain` multiplies tokens/param.
+    /// Memory and the parameter cap limit the model, the token cap (the data wall) limits tokens: when one binds the
+    /// compute moves to the other side, and only when both bind does compute go unused. Returns a note saying which
+    /// limit bound and what lifts it, or nil.
+    @discardableResult
+    static func size(_ design: inout ModelDesign, flops: Double, overtrain: Double, accel a: Accelerator, state s: GameState) -> String? {
+        let b = s.bonuses
+        var active: Double
+        if b.researchedChinchilla {
+            active = ForecastEngine.optimalParamsB(flops: flops) / sqrt(overtrain)
+        } else {
+            active = sqrt(flops / (6 * 2 * overtrain)) / 1e9
+        }
+        let memCap = a.weightStreaming ? 1e9 : (b.has(.sharding) ? Double(design.chips) * a.memoryGB / 17.6
+            : (b.has(.modelParallel) ? Double(min(design.chips, a.scaleUp)) * a.memoryGB / 17.6 : a.memoryGB / 17.6))
+        let paramCap = Physics.maxParamsB(s)
+        let tokenCap = Physics.maxTokensT(design, state: s)
+        func tokensFor(_ act: Double) -> Double { flops / (6 * max(act, 0.001) * 1e9) / 1e12 }
+        // Out of fresh data: a bigger model gets more out of the compute than more passes over the same tokens.
+        let dataBound = tokensFor(active) > tokenCap
+        if dataBound { active = flops / (6 * tokenCap * 1e12) / 1e9 }
+        let want = active / design.activeFraction
+        let total = clamp(min(want, memCap * 0.9), 0.05, paramCap)
+        design.paramsB = total
+        let tokens = tokensFor(total * design.activeFraction)
+        design.tokensT = clamp(tokens, 0.0005, tokenCap)
+
+        let memBound = want > memCap * 0.9 && memCap * 0.9 < paramCap
+        let capBound = want > paramCap && paramCap <= memCap * 0.9
+        let modelLimit = memBound
+            ? "memory (\(Fmt.int(design.chips)) \(a.name) chips train at most ~\(Fmt.params(memCap * 0.9)) parameters; more chips, sharding research or bigger-memory chips raise it)"
+            : "the \(Fmt.params(paramCap)) parameter cap (\(Physics.paramCapLifts(s)))"
+        if tokens > tokenCap * 1.001 {
+            let used = 6 * total * design.activeFraction * 1e9 * tokenCap * 1e12 / max(flops, 1)
+            return "Both size limits bind, so the model uses only \(Fmt.pct(used, decimals: 0)) of this compute and the run will be shorter. "
+                + "Parameters are limited by \(modelLimit). Tokens are capped at \(Fmt.tokens(tokenCap)): \(Physics.tokenCapLifts(design, state: s))"
+        }
+        if memBound || capBound {
+            return "Model size is limited by \(modelLimit), so the extra compute went into more tokens."
+        }
+        if dataBound {
+            return "Out of fresh data: tokens are capped at \(Fmt.tokens(tokenCap)), so the extra compute went into a bigger model. \(Physics.tokenCapLifts(design, state: s))"
+        }
+        return nil
+    }
+
+    /// Keep the compute, re-split it.
+    @discardableResult
+    static func reshape(_ design: inout ModelDesign, overtrain: Double, accel: Accelerator?, state s: GameState) -> String? {
+        guard let a = accel else { return nil }
+        return size(&design, flops: Physics.pretrainFLOPs(design), overtrain: overtrain, accel: a, state: s)
+    }
+
+    /// The Model Lab's auto-size: first shrink a cluster that your team, ops agents and research couldn't keep running
+    /// (expected goodput under `Training.goodputTarget`), so a plan never rests on a goodput floor; then size the model
+    /// to finish in about `days`, post-training included. Returns notes for the player, or nil.
+    @discardableResult
+    static func autoSize(_ design: inout ModelDesign, days: Double, overtrain: Double, state s: GameState,
+                         lr: LRSchedule = .standard, interval: Double = 0.1) -> String? {
+        guard let a = HardwareCatalog.get(design.accelID) else { return nil }
+        let b = s.bonuses
+        var notes: [String] = []
+        let healthy = Training.healthyChips(design.chips, target: Training.goodputTarget, state: s, bonuses: b)
+        if healthy < design.chips {
+            notes.append("Sized for \(Fmt.int(healthy)) of your \(Fmt.int(design.chips)) chips: beyond that, hardware failures would eat more than "
+                         + "\(Int(((1 - Training.goodputTarget) * 100).rounded()))% of the time. Ops agents, infra engineers and fault-tolerance research let a run use more.")
+            design.chips = healthy
+        }
+        let post = Physics.postTrainFLOPs(design, pretrain: 1e24, bonuses: b) / 1e24
+        let perDay = Physics.flopsPerDay(design, state: s, lr: lr, interval: interval)
+        if let note = size(&design, flops: perDay * days / (1 + post), overtrain: overtrain, accel: a, state: s) { notes.append(note) }
+        return notes.isEmpty ? nil : notes.joined(separator: " ")
+    }
+
+    /// Capability needed to hit a target index (binary search).
+    static func capabilityFor(index target: Double, base: ModelProfile, set: [Benchmark]) -> Double? {
+        var lo = -4.0, hi = 16.0
+        var p = base
+        p.c = hi
+        if ForecastEngine.index(p, set: set) < target { return nil }
+        for _ in 0..<40 {
+            let mid = (lo + hi) / 2
+            p.c = mid
+            if ForecastEngine.index(p, set: set) < target { lo = mid } else { hi = mid }
+        }
+        return hi
     }
 }

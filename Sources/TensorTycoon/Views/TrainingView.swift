@@ -146,6 +146,7 @@ private struct RunCard: View {
                     HStack {
                         Text(run.design.name).font(.title2.weight(.bold))
                         Pill(text: run.status == .paused ? "Paused" : Training.currentStageName(run), color: run.status == .paused ? .orange : (inPost ? .purple : .blue))
+                        if run.stalledDays >= 7 { Pill(text: "Stalled \(run.stalledDays) days", color: .red) }
                         if run.design.isMoE { Pill(text: "MoE", color: .teal) }
                         if run.design.reasoning { Pill(text: "RL: \(run.design.effectiveRL.label)", color: .pink) }
                         if run.design.optimizer != .adamw { Pill(text: run.design.optimizer.rawValue, color: .indigo) }
@@ -314,6 +315,13 @@ private struct OpsPanel: View {
                     Label("This run loses \(Fmt.pct(1 - now, decimals: 0)) of its time to failures. Full ops coverage would get it to \(Fmt.pct(full, decimals: 0)).",
                           systemImage: "exclamationmark.triangle.fill")
                         .font(.caption).foregroundStyle(.orange)
+                }
+                if let adv = Training.goodputAdvice(chips: chips, coverage: cov, running: true, state: s, bonuses: b), adv.blocked || run.stalledDays >= 7 {
+                    Text(run.stalledDays >= 7 ? "No progress in \(run.stalledDays) days. \(adv.headline)" : adv.headline)
+                        .font(.caption).foregroundStyle(.red)
+                    ForEach(adv.fixes, id: \.self) { fix in
+                        Label(fix, systemImage: "wrench.and.screwdriver").font(.caption).foregroundStyle(.secondary)
+                    }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)

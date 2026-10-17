@@ -182,6 +182,29 @@ enum Competitors {
             if s.lawsPassed.contains("chip_security") { c -= 0.1 }
             if s.lawsFailed.contains("chip_security") { c += 0.05 }
         }
+        // A big lab that has watched you hold #1 for half a year bets a run on passing you — on the leaderboard, not just
+        // in raw capability. The longer you lead, the more of their runs are that bet. Whether this one is, and by how
+        // much, is fixed per release (hashed), so Rival Watch can see it coming.
+        if s.monthsAtTop >= 6, y >= 2019, def.computeShare >= 0.15, let mine = released.map(\.index).max(), mine > 0 {
+            let shift = s.difficulty == .hard ? 0.1 : (s.difficulty == .easy ? -0.1 : 0)
+            let tries = clamp(0.25 + 0.03 * Double(s.monthsAtTop - 6) + shift, 0.1, 0.6)
+            if RivalIntel.unit("\(def.id)|leap|\(comp.releaseCount)") < tries {
+                let goal = mine + 1 + 4 * RivalIntel.unit("\(def.id)|leapsize|\(comp.releaseCount)")
+                let set = Leaderboard.indexSet(s)
+                func score(_ x: Double) -> Double { RivalIntel.index(s, i, c: x, on: date, set: set) }
+                if score(c) < goal {
+                    // The least capability that clears your best model's index by the goal (at most +1.5 over plan).
+                    var lo = c, hi = c + 1.5
+                    if score(hi) >= goal {
+                        for _ in 0..<18 {
+                            let mid = (lo + hi) / 2
+                            if score(mid) >= goal { hi = mid } else { lo = mid }
+                        }
+                    }
+                    c = hi
+                }
+            }
+        }
         if y < 2017.4 { c -= 1.0 }
         // Rushed after a code red, or held back to train harder.
         if let p = comp.project, p.count == comp.releaseCount { c += p.cAdjust }
