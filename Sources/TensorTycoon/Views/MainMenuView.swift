@@ -189,6 +189,7 @@ struct MainMenuView: View {
                     }
                     .buttonStyle(.borderless)
                     .help("Move save to Trash")
+                    .accessibilityLabel("Move save to Trash")
                 }
             }
         }

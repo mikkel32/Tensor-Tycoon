@@ -23,6 +23,7 @@ struct BriefingLineView: View {
                 }
                 .buttonStyle(.borderless)
                 .help("Open \(target.title)")
+                .accessibilityLabel("Open \(target.title)")
             }
         }
     }
@@ -86,10 +87,10 @@ struct BriefingSheet: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Button { current = older } label: { Image(systemName: "chevron.left") }
-                    .buttonStyle(.borderless).disabled(older == nil).help("Previous month")
+                    .buttonStyle(.borderless).disabled(older == nil).help("Previous month").accessibilityLabel("Previous month")
                 Text("\(b.month.gameMonth) briefing").font(.caption.weight(.semibold)).foregroundStyle(.secondary).textCase(.uppercase)
                 Button { current = newer } label: { Image(systemName: "chevron.right") }
-                    .buttonStyle(.borderless).disabled(newer == nil).help("Next month")
+                    .buttonStyle(.borderless).disabled(newer == nil).help("Next month").accessibilityLabel("Next month")
                 Spacer()
             }
             .padding([.horizontal, .top], 22)

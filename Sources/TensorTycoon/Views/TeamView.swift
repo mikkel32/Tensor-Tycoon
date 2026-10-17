@@ -10,6 +10,7 @@ struct TeamView: View {
         let office = Economy.officeLevels[min(s.officeLevel, Economy.officeLevels.count - 1)]
         let next = s.officeLevel + 1 < Economy.officeLevels.count ? Economy.officeLevels[s.officeLevel + 1] : nil
         Page(title: "Team", subtitle: "AI talent is the scarcest resource after GPUs. Underpaid stars get poached. Stars bring traits; promote veterans (a year in, skill 65+) into the trait you choose.") {
+            ScreenHint(.team)
             HStack(alignment: .top, spacing: 16) {
                 VStack(alignment: .leading, spacing: 0) {
                     Photo(key: office.image).frame(height: 130).frame(maxWidth: .infinity).clipped()
@@ -77,7 +78,7 @@ struct TeamView: View {
 
             Text("Employees").font(.title3.weight(.semibold))
             if s.employees.isEmpty {
-                Text("It's just you.").foregroundStyle(.secondary)
+                Text("It's just you. Hire from the candidates above: researchers speed up research, an ML engineer makes training more efficient.").foregroundStyle(.secondary)
             } else {
                 Card(padding: 0) {
                     Table(s.employees.filter { roleFilter == nil || $0.role == roleFilter }.sorted { $0.skill > $1.skill }) {

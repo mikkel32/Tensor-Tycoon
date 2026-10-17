@@ -411,8 +411,8 @@ private struct ForecastChartCard: View {
         let horizon = GameCalendar.addMonths(today, 12)
         let shown = rows.filter { $0.outlook.center <= horizon }
         Card {
-            CardHeader("Who leads when", symbol: "chart.dots.scatter",
-                       subtitle: "Forecast Intelligence Index of each lab's next model at its likeliest launch date (80% band), against your models")
+            CardHeader(title: "Who leads when", symbol: "chart.dots.scatter",
+                       subtitle: "Forecast Intelligence Index of each lab's next model at its likeliest launch date (80% band), against your models") { HelpButton(term: .forecastBand) }
             if shown.isEmpty && next == nil {
                 Text("Nothing rumoured for the next 12 months.").font(.callout).foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, minHeight: 200)

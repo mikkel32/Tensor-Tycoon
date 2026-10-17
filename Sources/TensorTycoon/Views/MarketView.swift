@@ -8,6 +8,7 @@ struct MarketView: View {
         let s = store.game
         let snap = store.derived.snapshot
         Page(title: "Market & Products", subtitle: "Four ways to make money: a consumer chat app, an API priced per token, coding/computer-use agents sold per seat, and enterprise contracts.") {
+            ScreenHint(.market)
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 200), spacing: 12)], spacing: 12) {
                 StatTile(title: "AI model market", value: "\(Fmt.money(snap.marketSize))/yr", detail: "All providers, all segments", symbol: "globe", tint: .blue)
                 StatTile(title: "API demand", value: "\(Fmt.count(snap.apiTokenPool))/day", detail: "Tokens across the industry", symbol: "bolt.horizontal.fill", tint: .teal)
@@ -89,7 +90,7 @@ private struct ChatProductCard: View {
         Card {
             CardHeader("\(s.companyName) Chat", symbol: "bubble.left.and.bubble.right.fill", subtitle: "Consumer subscription app")
             if chatModels.isEmpty {
-                Text("Release an instruction-tuned model to launch a chat app.").font(.callout).foregroundStyle(.secondary)
+                NextStep("Release an instruction-tuned model to launch a chat app.", action: "Models & Serving", screen: .models)
             } else {
                 Picker("Powered by", selection: Binding(get: { s.chatModelID }, set: { id in store.mutate { $0.chatModelID = id } })) {
                     Text("Not launched").tag(UUID?.none)
@@ -139,7 +140,7 @@ private struct AgentProductCard: View {
                 Label("Research Tool Use to build agent products. The agent market opens around 2025.", systemImage: "lock.fill")
                     .font(.callout).foregroundStyle(.secondary)
             } else if eligible.isEmpty {
-                Text("Release a model trained with tool use enabled (Model Lab → Capabilities) to launch an agent.").font(.callout).foregroundStyle(.secondary)
+                NextStep("Release a model trained with tool use enabled (Model Lab → Capabilities) to launch an agent.", action: "Open Model Lab", screen: .lab)
             } else {
                 Picker("Powered by", selection: Binding(get: { s.agentModelID }, set: { id in store.mutate { $0.agentModelID = id } })) {
                     Text("Not launched").tag(UUID?.none)
@@ -243,9 +244,10 @@ private struct DealsCard: View {
         let active = s.deals.filter(\.active)
         let models = s.releasedModels
         Card {
-            CardHeader("Enterprise", symbol: "briefcase.fill", subtitle: "Sales staff and brand bring in leads. Contracts reserve capacity on a model — breach the SLA and they walk.")
+            CardHeader(title: "Enterprise", symbol: "briefcase.fill", subtitle: "Sales staff and brand bring in leads. Contracts reserve capacity on a model — breach the SLA and they walk.") { HelpButton(term: .sla) }
             if offers.isEmpty && active.isEmpty {
-                Text("No enterprise leads yet. Release a model and hire Sales & Partnerships staff.").font(.callout).foregroundStyle(.secondary)
+                NextStep(s.releasedModels.isEmpty ? "No enterprise leads yet. Leads come once you have a model released." : "No enterprise leads yet. Sales & Partnerships staff and a stronger brand bring them in.",
+                         action: s.releasedModels.isEmpty ? "Models & Serving" : "Hire sales staff", screen: s.releasedModels.isEmpty ? .models : .team)
             }
             ForEach(offers) { d in
                 HStack(alignment: .top) {

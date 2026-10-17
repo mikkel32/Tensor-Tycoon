@@ -34,6 +34,7 @@ struct RivalsHubView: View {
 
     var body: some View {
         Page(title: "Rivals", subtitle: tab.subtitle) {
+            ScreenHint(.rivals)
             RivalsTabBar(tab: $tab, lab: $lab)
             content
         }
@@ -293,12 +294,12 @@ private struct FieldHeaderRow: View {
         HStack(spacing: 8) {
             Text("#").frame(width: 24, alignment: .trailing)
             Text("Lab · flagship").frame(maxWidth: .infinity, alignment: .leading)
-            Text("Index").frame(width: 50, alignment: .trailing)
-            Text("12 mo").frame(width: 56, alignment: .trailing)
-            Text("Behind").frame(width: 60, alignment: .trailing)
+            Text("Index").frame(width: 50, alignment: .trailing).help("Best released model on today's Intelligence Index")
+            Text("12 mo").frame(width: 56, alignment: .trailing).help("Change in that index over the last 12 months")
+            Text("Behind").frame(width: 60, alignment: .trailing).help("How far the lab's best model trails the world's best, in months of frontier progress")
             Text("Valuation").frame(width: 80, alignment: .trailing)
-            Text("Revenue").frame(width: 80, alignment: .trailing)
-            Text("H100e").frame(width: 66, alignment: .trailing)
+            Text("Revenue").frame(width: 80, alignment: .trailing).help("Annualised revenue")
+            Text("H100e").frame(width: 66, alignment: .trailing).help("Compute in H100-equivalents: each chip counted as its BF16 speed over an H100's")
             Text("Strategy").frame(width: 150, alignment: .leading)
         }
         .font(.caption.weight(.semibold))
@@ -451,6 +452,7 @@ private struct FieldNextUpCard: View {
     var body: some View {
         Card {
             CardHeader(title: "Next launches", symbol: "binoculars.fill", subtitle: "As the rumour mill sees them") {
+                HelpButton(term: .forecastBand)
                 Button("Watch") { show(.watch) }.buttonStyle(.link)
             }
             if rows.isEmpty {

@@ -9,6 +9,7 @@ struct OperationsView: View {
         let s = store.game
         let c = Operations.competence(s)
         Page(title: "Operations", subtitle: "Hand the chores to delegates that run on your best model, choose what stops the clock, and rewind a bad call.") {
+            ScreenHint(.operations)
             HStack(spacing: 12) {
                 StatTile(title: "Your COO", value: c.tier, detail: c.model.map { "Runs on \($0)" } ?? "No model of yours yet",
                          symbol: "person.badge.shield.checkmark.fill", tint: .indigo)
@@ -49,7 +50,7 @@ struct OperationsView: View {
 
     private func delegates(_ s: GameState) -> some View {
         Card {
-            CardHeader("Delegates", symbol: "switch.2", subtitle: "Each one runs on its own schedule. Turn off any you'd rather handle yourself.")
+            CardHeader(title: "Delegates", symbol: "switch.2", subtitle: "Each one runs on its own schedule. Turn off any you'd rather handle yourself.") { HelpButton(term: .delegates) }
             DelegateRow(title: "Serving capacity", symbol: "server.rack",
                         detail: "Adds inference chips when a model is turning users away and frees them when demand falls. Takes leased chips back first; with a cloud budget it rents on-demand chips when serving pays for them.",
                         isOn: flag(\.autoscale))
@@ -67,6 +68,7 @@ struct OperationsView: View {
                     }
                     HStack {
                         Text("Cloud budget").font(.caption)
+                        HelpButton(term: .cloudBudget)
                         Picker("Cloud budget", selection: Binding(get: { store.game.ops.rentBudget }, set: { v in store.mutate { $0.ops.rentBudget = v } })) {
                             Text("None").tag(0.0)
                             Text("$1M a month").tag(1e6)
@@ -156,7 +158,7 @@ struct OperationsView: View {
 
     private func pauseSettings(_ s: GameState) -> some View {
         Card {
-            CardHeader("What stops the clock", symbol: "pause.circle", subtitle: "Every alert shows as a banner. These also pause the game.")
+            CardHeader(title: "What stops the clock", symbol: "pause.circle", subtitle: "Every alert shows as a banner. These also pause the game.") { HelpButton(term: .alerts) }
             ForEach(AlertKind.allCases) { k in
                 Toggle(isOn: Binding(get: { store.game.pauseKinds.contains(k.rawValue) }, set: { v in store.mutate { $0.setPauseOn(k, v) } })) {
                     Label(k.title, systemImage: k.symbol).font(.callout)
@@ -178,7 +180,7 @@ struct OperationsView: View {
 
     private func standing(_ s: GameState) -> some View {
         Card {
-            CardHeader("Standing answers", symbol: "arrow.triangle.branch", subtitle: "Decisions the game answers for you. Tick \"Always answer this way\" on a decision to add one.")
+            CardHeader(title: "Standing answers", symbol: "arrow.triangle.branch", subtitle: "Decisions the game answers for you. Tick \"Always answer this way\" on a decision to add one.") { HelpButton(term: .standingAnswers) }
             if s.standingAnswers.isEmpty {
                 Text("None yet.").font(.callout).foregroundStyle(.secondary)
             } else {
@@ -201,7 +203,7 @@ struct OperationsView: View {
     private func rewind(_ s: GameState) -> some View {
         let saves = store.autosaves()
         return Card {
-            CardHeader("Rewind", symbol: "arrow.uturn.backward.circle", subtitle: "An autosave at the start of every quarter; the last eight are kept.")
+            CardHeader(title: "Rewind", symbol: "arrow.uturn.backward.circle", subtitle: "An autosave at the start of every quarter; the last eight are kept.") { HelpButton(term: .rewind) }
             if saves.isEmpty {
                 Text("No autosaves yet. The first one is made at the start of the next quarter.").font(.callout).foregroundStyle(.secondary)
             } else {

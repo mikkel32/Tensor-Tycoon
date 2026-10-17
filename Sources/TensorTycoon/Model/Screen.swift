@@ -6,6 +6,7 @@ enum Screen: String, CaseIterable, Identifiable, Hashable {
     case research, team, data
     case market, industry, chipSales, competitors, finance, funding
     case news, achievements, credits
+    case help
 
     var id: String { rawValue }
 
@@ -42,6 +43,7 @@ enum Screen: String, CaseIterable, Identifiable, Hashable {
         case .news: "News"
         case .achievements: "Achievements"
         case .credits: "Credits & Sources"
+        case .help: "Help & Glossary"
         }
     }
 
@@ -78,6 +80,7 @@ enum Screen: String, CaseIterable, Identifiable, Hashable {
         case .news: "newspaper.fill"
         case .achievements: "medal.fill"
         case .credits: "info.circle.fill"
+        case .help: "questionmark.circle.fill"
         }
     }
 
@@ -90,6 +93,6 @@ enum Screen: String, CaseIterable, Identifiable, Hashable {
         ("Infrastructure", [.hardware, .partners, .compute, .datacenters, .silicon]),
         ("R&D", [.research, .team, .data]),
         ("Business", [.market, .chipSales, .finance, .funding]),
-        ("More", [.achievements, .credits]),
+        ("More", [.help, .achievements, .credits]),
     ]
 }

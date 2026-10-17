@@ -89,9 +89,9 @@ private struct NewRSIRun: View {
         let b = d.bonuses
         let models = s.models.filter { !$0.retired }.sorted { $0.c > $1.c }
         Card {
-            CardHeader("Start a run", symbol: "play.circle.fill")
+            CardHeader(title: "Start a run", symbol: "play.circle.fill") { HelpButton(term: .rsi) }
             if models.isEmpty {
-                Text("Train a model first — self-improvement starts from one of your models.").foregroundStyle(.secondary)
+                NextStep("Train a model first — self-improvement starts from one of your models.", action: "Open Model Lab", screen: .lab)
             } else {
                 HStack(alignment: .top, spacing: 18) {
                     VStack(alignment: .leading, spacing: 12) {

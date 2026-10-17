@@ -95,6 +95,8 @@ struct CommandPalette: View {
                         keywords: "save") { st in st.save(force: true); st.show("Game saved") })
         out.append(Item(id: "era", title: "Era briefing", detail: "The world when you started and how to open", symbol: "globe",
                         keywords: "era intro start help guide") { $0.showEraIntro = true })
+        out.append(Item(id: "shortcuts", title: "Keyboard shortcuts", detail: "Help & Glossary", symbol: "keyboard",
+                        keywords: "keys shortcuts hotkeys help") { $0.open(.help) })
         for section in Screen.sections {
             for screen in section.1 {
                 out.append(Item(id: "screen-\(screen.rawValue)", title: screen.title, detail: section.0, symbol: screen.symbol,
@@ -111,7 +113,22 @@ struct CommandPalette: View {
             out.append(Item(id: "lab-\(c.id)", title: c.def.name, detail: "Lab profile", symbol: "building.2",
                             keywords: "lab rival profile \(c.id)") { $0.openLab(c.id) })
         }
+        // Glossary terms, once something is typed (they would bury the screens in the full list).
+        if !query.trimmingCharacters(in: .whitespaces).isEmpty {
+            for t in Glossary.search(query).prefix(8) {
+                out.append(Item(id: "term-\(t.rawValue)", title: t.title, detail: "Glossary · " + Self.short(t.definition), symbol: "book.closed",
+                                keywords: "glossary define definition meaning what is help \(t.entry.aliases.joined(separator: " "))") {
+                    HelpRouter.shared.show(t, in: $0)
+                })
+            }
+        }
         return out
+    }
+
+    /// A definition's first sentence, cut to fit one line.
+    private static func short(_ text: String) -> String {
+        let first = text.range(of: ". ").map { String(text[..<$0.lowerBound]) + "." } ?? text
+        return first.count > 110 ? String(first.prefix(108)) + "…" : first
     }
 
     private var filtered: [Item] {
