@@ -308,6 +308,7 @@ extension GameState {
             Sim.news(&self, "\(companyName) releases \(models[i].name)", "Intelligence Index \(Fmt.score(models[i].index)) — #\(rank) on the leaderboard.",
                      .company, image: "sf_skyline", important: true, good: true)
             SafetyFramework.onRelease(&self, i)
+            RivalIntel.playerReleased(&self, name: models[i].name, index: models[i].index)
         }
         models[i].api = api
         if openWeights && !models[i].openWeights {

@@ -39,6 +39,10 @@ struct TensorTycoonApp: App {
             BalanceHarness.industry(era: i + 1 < args.count ? args[i + 1] : "2017")
             exit(0)
         }
+        if let i = args.firstIndex(of: "--watch") {
+            BalanceHarness.watch(era: i + 1 < args.count ? args[i + 1] : "2026")
+            exit(0)
+        }
         if let i = args.firstIndex(of: "--research") {
             BalanceHarness.research(era: i + 1 < args.count ? args[i + 1] : "2022")
             exit(0)

@@ -77,6 +77,7 @@ struct ScreenRouter: View {
         case .training: TrainingView()
         case .models: ModelsView()
         case .leaderboard: LeaderboardView()
+        case .rivalWatch: RivalWatchView()
         case .benchmarks: BenchmarksView()
         case .rsi: RSIView()
         case .swarms: SwarmView()
@@ -138,6 +139,7 @@ struct Sidebar: View {
     private func badge(for screen: Screen, _ s: GameState) -> Int {
         switch screen {
         case .news: s.unreadNews
+        case .rivalWatch: s.rumors.prefix(30).filter { $0.kind == "imminent" && GameCalendar.daysBetween($0.date, s.date) <= 10 }.count
         case .training: s.runs.filter { $0.status == .running || $0.status == .postTraining }.count
         case .models: s.models.filter { !$0.released && !$0.retired }.count
         case .market: s.deals.filter { !$0.active }.count

@@ -113,8 +113,11 @@ private struct CompetitorCard: View {
                         Pill(text: "\(m.name) · \(m.date.gameMonth)", color: color)
                     }
                 }
-                if comp.nextRelease > s.date && comp.nextRelease < GameCalendar.addDays(s.date, 120) {
-                    Text("Rumour: next model expected around \(comp.nextRelease.gameMonth)").font(.caption).foregroundStyle(.orange)
+                if let i = s.competitors.firstIndex(where: { $0.id == comp.id }), let o = RivalIntel.outlook(s, i),
+                   o.center < GameCalendar.addDays(s.date, 150) {
+                    Label("Rumour: \(comp.project?.name ?? "next model") \(RivalIntel.windowText(o)) · forecast index \(Fmt.score(o.index))",
+                          systemImage: "binoculars.fill")
+                        .font(.caption).foregroundStyle(.orange)
                 }
                 if comp.acquired {
                     Label(s.acquiredLabs.contains(comp.id) ? "Acquired by \(s.companyName)" : "Acquired by a big-tech giant", systemImage: "building.2.crop.circle.fill")

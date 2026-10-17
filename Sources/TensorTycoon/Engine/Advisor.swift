@@ -79,6 +79,13 @@ enum Advisor {
         if let c = s.competitors.first(where: { !$0.acquired && $0.distressMonths > 0 }) {
             add("distress-\(c.id)", .info, "exclamationmark.triangle.fill", "\(c.def.name) is running out of money", "Its researchers and compute may soon be cheap.", .industry)
         }
+        // Rival Watch: a launch that will likely beat your best model, within the month.
+        let watchSet = Leaderboard.indexSet(s)
+        if let r = RivalIntel.rows(s, set: watchSet).first(where: { $0.threat == .passYou && GameCalendar.daysBetween(s.date, $0.outlook.center) <= 30 }),
+           let mine = RivalIntel.playerBest(s, set: watchSet) {
+            add("watch-\(r.id)", .warning, "binoculars.fill", "\(r.project.name) is about to pass you",
+                "\(r.lab), rumoured \(RivalIntel.windowText(r.outlook)) at ~\(Fmt.score(r.outlook.index)) vs your \(Fmt.score(mine.index)). Ship your next model first to steal the launch.", .rivalWatch)
+        }
         if RivalEconomy.inCorrection(s) {
             add("correction", .info, "chart.line.downtrend.xyaxis", "The AI market is correcting", "Valuations are down, but GPUs and cloud capacity are cheaper.", .industry)
         }

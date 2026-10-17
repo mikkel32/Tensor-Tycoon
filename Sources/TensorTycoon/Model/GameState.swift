@@ -673,6 +673,8 @@ struct CompetitorState: Codable, Identifiable, Hashable {
     @D var bankrupt: Bool = false
     /// How the lab left the market, if it did.
     @D var exitNote: String = ""
+    /// 3.3: the run behind the lab's next release (Rival Watch).
+    @D var project: RivalProject? = nil
 
     var def: CompetitorDef { CompetitorCatalog.byID[id]! }
     var funding: Double { fundingFactor > 0 ? fundingFactor : 1 }
@@ -976,6 +978,13 @@ struct GameState: Codable {
     @D var lastCorrection: Date? = nil
     /// Industry valuation ÷ revenue run-rate (independent labs), for the bubble meter.
     @D var industryMultiple: Double = 0
+    // 3.3: Rival Watch
+    /// Monthly spend on competitive intelligence.
+    @D var intelBudget: Double = 0
+    /// The rumour mill, newest first.
+    @D var rumors: [RivalRumor] = []
+    /// How past rumour-mill forecasts compared with what shipped, newest first.
+    @D var watchRecord: [WatchCall] = []
 
     var totalShares: Double {
         founderShares + employeePoolShares + publicShares + holdings.reduce(0) { $0 + $1.shares }

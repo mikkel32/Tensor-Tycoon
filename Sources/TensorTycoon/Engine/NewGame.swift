@@ -122,6 +122,7 @@ enum NewGame {
         s.agentPrice = 100
         Competitors.setup(&s)
         RivalEconomy.bootstrap(&s)
+        RivalIntel.bootstrap(&s)
         BenchLife.replayHistory(&s)
         BenchLife.refreshIndexes(&s)
         s.valuation = seedPre + raised

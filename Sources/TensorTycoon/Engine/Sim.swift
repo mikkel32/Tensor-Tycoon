@@ -30,6 +30,7 @@ enum Sim {
         dailyCosts(&s, Economy.pools(s))
         Treasury.daily(&s)
         Competitors.daily(&s)
+        RivalIntel.daily(&s)
         Finance.daily(&s)
         Events.daily(&s)
         if GameCalendar.components(s.date).day % 7 == 3 { BenchLife.weekly(&s) }

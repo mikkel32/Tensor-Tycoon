@@ -291,6 +291,9 @@ enum AchievementCatalog {
         Achievement(id: "eureka", title: "Shower Thoughts", detail: "Have ten eureka moments.", symbol: "lightbulb.fill"),
         Achievement(id: "xenologist", title: "Xenologist", detail: "Discover three different kinds of alien technology.", symbol: "allergens.fill"),
         Achievement(id: "megaproject", title: "Wonder of the World", detail: "Complete an alien mega-project.", symbol: "building.columns.circle.fill"),
+        Achievement(id: "upstage", title: "Stole the Show", detail: "Ship a better model in the two weeks before a rival's launch.", symbol: "theatermask.and.paintbrush.fill"),
+        Achievement(id: "gigawatt_run", title: "Half a Million GPUs", detail: "Finish a training run on 500,000 chips.", symbol: "bolt.horizontal.circle.fill"),
+        Achievement(id: "hundred_gw", title: "Dyson Ambitions", detail: "Run 100 GW of datacentre capacity.", symbol: "sun.max.fill"),
     ]
 
     static let byID: [String: Achievement] = Dictionary(uniqueKeysWithValues: all.map { ($0.id, $0) })

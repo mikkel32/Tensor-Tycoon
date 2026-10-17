@@ -138,24 +138,36 @@ enum Competitors {
         return "\(def.prefix)\(Fmt.trim(v, 1))"
     }
 
-    static func makeModel(_ s: inout GameState, compIndex i: Int, date: Date) -> CompetitorModel {
-        let def = s.competitors[i].def
+    /// The capability a lab's next model would have if it shipped on `date`, before release-day noise.
+    /// Rival Watch forecasts from this; makeModel adds the noise.
+    static func plannedC(_ s: GameState, compIndex i: Int, date: Date) -> Double {
+        let comp = s.competitors[i]
+        let def = comp.def
         let y = date.decimalYear
         let playerBest = s.models.filter(\.released).map(\.c).max() ?? -10
         // Rivals close part of any lead you open — partly by distilling your API outputs.
         let race = 0.5 * max(0, playerBest - Macro.frontier(y)) * (1 - 0.6 * min(1, s.bonuses.distillGuard))
-        let boost = boost(s, def.id, at: y)
-        var c = Macro.frontier(y) + def.offset(y) + s.difficulty.competitorBoost + race + boost.c + s.rng.gaussian() * 0.05
+        var c = Macro.frontier(y) + def.offset(y) + s.difficulty.competitorBoost + race + boost(s, def.id, at: y).c
         // Money buys compute: well-funded labs train bigger, starved ones fall behind.
-        c += 0.2 * log10(max(0.3, s.competitors[i].funding))
+        c += 0.2 * log10(max(0.3, comp.funding))
         // Whatever you sold or licensed them — or they stole.
         c += Xeno.rivalC(s, def.id, at: date)
-        if let stolen = s.stolenC[def.id] { c = max(c, stolen + s.rng.gaussian() * 0.03) }
         if def.id == "dragonlake" {
             if s.lawsPassed.contains("chip_security") { c -= 0.1 }
             if s.lawsFailed.contains("chip_security") { c += 0.05 }
         }
         if y < 2017.4 { c -= 1.0 }
+        // Rushed after a code red, or held back to train harder.
+        if let p = comp.project, p.count == comp.releaseCount { c += p.cAdjust }
+        return c
+    }
+
+    static func makeModel(_ s: inout GameState, compIndex i: Int, date: Date) -> CompetitorModel {
+        let def = s.competitors[i].def
+        let y = date.decimalYear
+        let boost = boost(s, def.id, at: y)
+        var c = plannedC(s, compIndex: i, date: date) + s.rng.gaussian() * 0.05
+        if let stolen = s.stolenC[def.id] { c = max(c, stolen + s.rng.gaussian() * 0.03) }
         let reasoning = y >= reasoningStart(def.id)
         let name = modelName(def, count: s.competitors[i].releaseCount)
         let price = Macro.referencePrice(c: c, y: y) * def.priceMult * s.market.apiPricePressure * boost.price
@@ -172,6 +184,7 @@ enum Competitors {
         for i in s.competitors.indices where !s.competitors[i].acquired && s.date >= s.competitors[i].nextRelease {
             let def = s.competitors[i].def
             let prevTopC = max(s.competitors.flatMap(\.models).map(\.c).max() ?? -10, s.models.filter(\.released).map(\.c).max() ?? -10)
+            let call = RivalIntel.outlook(s, i)
             var model = makeModel(&s, compIndex: i, date: s.date)
             model.index = BenchmarkCatalog.index(Leaderboard.profile(model, def: def, boost: boost(s, def.id, at: s.year)), set: Leaderboard.indexSet(s))
             s.competitors[i].models.append(model)
@@ -191,6 +204,7 @@ enum Competitors {
             Sim.news(&s, "\(def.name) releases \(model.name)\(isTop ? " — new #1" : "")",
                      "Intelligence Index \(Fmt.score(idx))\(details.isEmpty ? "" : " · " + details.joined(separator: " · ")). API price \(Fmt.price(model.price))/M tokens.\(openNote)",
                      .competitor, image: nil, important: isTop)
+            RivalIntel.released(&s, i, model: model, index: idx, outlook: call)
         }
     }
 

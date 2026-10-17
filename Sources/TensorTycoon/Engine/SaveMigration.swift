@@ -31,6 +31,8 @@ enum SaveMigration {
         Competitors.migrate(&s)
         // Labs' books (3.3): real rounds so far, cash and staff.
         RivalEconomy.bootstrap(&s)
+        // Rival Watch (3.3): the run behind each lab's next release.
+        RivalIntel.bootstrap(&s)
         // Catch up benchmarks added to the catalog after this save was made (idempotent for the rest).
         BenchLife.replayHistory(&s)
         BenchLife.refreshIndexes(&s)

@@ -165,6 +165,7 @@ enum Monthly {
         ResearchLab.monthly(&s)
         SecurityOps.monthly(&s)
         Policy.monthly(&s)
+        RivalIntel.monthly(&s)
         if s.publication == .secret { s.brand = max(0, s.brand - 0.25) }
         // Enterprise contracts tick
         for i in s.deals.indices where s.deals[i].active {
