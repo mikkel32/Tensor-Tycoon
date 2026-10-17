@@ -67,7 +67,8 @@ struct DashboardView: View {
             HStack(alignment: .top, spacing: 16) {
                 Card {
                     CardHeader("Revenue vs. costs", symbol: "chart.bar.fill", subtitle: "Monthly")
-                    RevenueChart(history: Array(s.history.suffix(24)) + [s.month])
+                    RevenueChart(history: Array(s.history.suffix(24)) + [s.month], week: RevenueChart.week(s.date))
+                        .equatable()
                         .frame(height: 220)
                 }
                 Card {
@@ -288,11 +289,21 @@ struct SwarmStatusCard: View {
     }
 }
 
-struct RevenueChart: View {
+/// Redraws when a month closes or a new game week starts, not on every tick: Charts layout is expensive.
+struct RevenueChart: View, Equatable {
     let history: [MonthRecord]
+    /// The game week this snapshot of the current month was taken in.
+    let week: Int
+
+    static func week(_ date: Date) -> Int { Int(date.timeIntervalSince1970 / 86_400) / 7 }
+
+    static func == (a: RevenueChart, b: RevenueChart) -> Bool {
+        a.week == b.week && a.history.count == b.history.count && a.history.first?.month == b.history.first?.month
+            && a.history.last?.month == b.history.last?.month
+    }
 
     struct Bar: Identifiable {
-        let id = UUID()
+        var id: String { "\(month.timeIntervalSince1970)-\(kind)" }
         let month: Date
         let kind: String
         let value: Double
@@ -351,6 +362,10 @@ struct FrontierChart: View, Equatable {
 
     static func points(_ s: GameState) -> [Point] {
         let from = GameCalendar.addMonths(s.startDate, -18)
+        // The "now" end of each line moves weekly, so the chart only redraws when something changes.
+        let latest = (s.competitors.flatMap { $0.models.map(\.date) } + s.models.map(\.created)).max() ?? s.startDate
+        let weekStart = GameCalendar.addDays(s.date, -(Int(s.date.timeIntervalSince1970 / 86_400) % 7))
+        let now = max(latest, weekStart)
         var pts: [Point] = []
         func add(_ d: Date, _ lab: String, _ v: Double) { pts.append(Point(id: pts.count, date: d, lab: lab, index: v)) }
         let labs = s.competitors.filter { !$0.models.isEmpty }
@@ -361,7 +376,7 @@ struct FrontierChart: View, Equatable {
                 best = max(best, m.index)
                 if m.date >= from { add(m.date, comp.def.name, best) }
             }
-            add(s.date, comp.def.name, best)
+            add(now, comp.def.name, best)
         }
         var best = 0.0
         add(s.startDate, s.companyName, 0)
@@ -369,7 +384,7 @@ struct FrontierChart: View, Equatable {
             best = max(best, m.index)
             add(m.created, s.companyName, best)
         }
-        add(s.date, s.companyName, best)
+        add(now, s.companyName, best)
         return pts
     }
 }

@@ -137,12 +137,30 @@ enum Economy {
         return max(0.2, 1 - 0.8 * (age - 0.75) / max(1, stop - 0.75))
     }
 
+    /// Sum of fleet weights over the catalogue (for normalising each chip's share). Cached per game day and
+    /// catalogue size: the hardware store asks for every chip's supply on every redraw.
+    nonisolated(unsafe) private static var totalsCache: (key: Int, cloud: Double, production: Double)?
+
+    static func supplyTotals(_ y: Double) -> (cloud: Double, production: Double) {
+        let key = Int(y * 365.25) &* 1_000 &+ HardwareCatalog.all.count
+        if let c = totalsCache, c.key == key { return (c.cloud, c.production) }
+        var cloud = 0.0, production = 0.0
+        for b in HardwareCatalog.all {
+            let w = fleetWeight(b)
+            guard w > 0 else { continue }
+            if b.rentable { cloud += w * fleetLife(b, y) }
+            if b.purchasable { production += w * productionLife(b, y) }
+        }
+        totalsCache = (key, cloud, production)
+        return (cloud, production)
+    }
+
     /// Chips of this type in the world's rentable cloud fleet today.
     static func cloudSupply(_ a: Accelerator, _ s: GameState) -> Double {
         let y = s.year
         let mine = fleetWeight(a) * fleetLife(a, y)
         guard mine > 0 else { return 0 }
-        let total = HardwareCatalog.all.reduce(0.0) { $0 + ($1.rentable ? fleetWeight($1) * fleetLife($1, y) : 0) }
+        let total = supplyTotals(y).cloud
         return worldFleet(y) * mine / max(total, 1e-9) * HardwareCatalog.h100.bf16 / max(a.bf16, 1)
     }
 
@@ -151,7 +169,7 @@ enum Economy {
         let y = s.year
         let mine = fleetWeight(a) * productionLife(a, y)
         guard mine > 0 else { return 0 }
-        let total = HardwareCatalog.all.reduce(0.0) { $0 + ($1.purchasable ? fleetWeight($1) * productionLife($1, y) : 0) }
+        let total = supplyTotals(y).production
         return worldFleet(y) * 0.3 * mine / max(total, 1e-9) * HardwareCatalog.h100.bf16 / max(a.bf16, 1)
     }
 

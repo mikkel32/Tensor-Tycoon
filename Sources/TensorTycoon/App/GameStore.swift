@@ -96,6 +96,10 @@ final class GameStore {
     ]
     static let frameInterval = 0.1
 
+    /// How often the UI gets a new state. At Fast and Turbo several days pass per frame anyway, so publishing
+    /// 4–5 times a second instead of 10 halves the rendering work without slowing the game.
+    static func publishInterval(_ speed: Int) -> Double { speed >= 5 ? 0.25 : (speed == 4 ? 0.2 : frameInterval) }
+
     // MARK: Derived data
 
     func refreshDerived() {
@@ -135,7 +139,7 @@ final class GameStore {
         dayDebt = 0
         if s == 0 { save() }
         guard s > 0, state?.gameOver == nil else { return }
-        timer = Timer.scheduledTimer(withTimeInterval: Self.frameInterval, repeats: true) { [weak self] _ in
+        timer = Timer.scheduledTimer(withTimeInterval: Self.publishInterval(s), repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
         }
     }
@@ -144,7 +148,7 @@ final class GameStore {
 
     func tick() {
         guard state != nil, speed > 0 else { return }
-        dayDebt += Self.speeds[speed].daysPerSecond * Self.frameInterval
+        dayDebt += Self.speeds[speed].daysPerSecond * Self.publishInterval(speed)
         let days = Int(dayDebt)
         guard days > 0 else { return }
         dayDebt -= Double(days)
