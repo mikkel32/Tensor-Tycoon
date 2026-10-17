@@ -79,11 +79,11 @@ enum Leaderboard {
     static func competitorArena(_ m: CompetitorModel) -> Double {
         let y = m.date.decimalYear
         let bonus: Double = y < 2022.0 ? -60 : (y < 2023.5 ? 55 : 85)
-        return BenchmarkCatalog.arenaElo(c: m.c, bonus: bonus) + (BenchmarkCatalog.hashUnit(m.id.uuidString + "arena") - 0.5) * 20
+        return BenchmarkCatalog.arenaElo(c: m.c, bonus: bonus) + (BenchmarkCatalog.hashUnit(m.id.uuidString, "arena", separator: nil) - 0.5) * 20
     }
 
     static func playerArena(_ m: AIModel) -> Double {
-        BenchmarkCatalog.arenaElo(c: m.c, bonus: m.arenaBonus) + (BenchmarkCatalog.hashUnit(m.id.uuidString + "arena") - 0.5) * 20
+        BenchmarkCatalog.arenaElo(c: m.c, bonus: m.arenaBonus) + (BenchmarkCatalog.hashUnit(m.id.uuidString, "arena", separator: nil) - 0.5) * 20
     }
 
     static func indexSet(_ s: GameState) -> [Benchmark] {

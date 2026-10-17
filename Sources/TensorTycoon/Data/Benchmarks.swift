@@ -605,15 +605,17 @@ enum BenchmarkCatalog {
         return v
     }
 
-    /// `hashUnit("\(a)|\(b)")` without building the string (same bytes, same hash).
-    static func hashUnit(_ a: String, _ b: String) -> Double {
+    /// `hashUnit("\(a)|\(b)")` without building the string (same bytes, same hash). `separator: nil` hashes `a + b`.
+    static func hashUnit(_ a: String, _ b: String, separator: UInt8? = 0x7C) -> Double {
         var h: UInt64 = 0xcbf2_9ce4_8422_2325
         for byte in a.utf8 {
             h ^= UInt64(byte)
             h = h &* 0x100_0000_01b3
         }
-        h ^= 0x7C
-        h = h &* 0x100_0000_01b3
+        if let separator {
+            h ^= UInt64(separator)
+            h = h &* 0x100_0000_01b3
+        }
         for byte in b.utf8 {
             h ^= UInt64(byte)
             h = h &* 0x100_0000_01b3
