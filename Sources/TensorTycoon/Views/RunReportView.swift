@@ -8,7 +8,6 @@ struct RunReportID: Identifiable, Equatable {
 /// The payoff moment: shown when a training run finishes (and from the run history).
 struct RunReportSheet: View {
     @Environment(GameStore.self) private var store
-    @Environment(\.dismiss) private var dismiss
     let runID: UUID
     @State private var shownIndex = 0.0
 
@@ -157,9 +156,9 @@ struct RunReportSheet: View {
         }
     }
 
+    /// Clearing the store's run ID closes the sheet (calling dismiss() too would make the shell forget the next sheet).
     private func close() {
         store.reportRunID = nil
-        dismiss()
     }
 
     /// Release with an API and put every idle chip of the training hardware behind it (keeping a few for research).

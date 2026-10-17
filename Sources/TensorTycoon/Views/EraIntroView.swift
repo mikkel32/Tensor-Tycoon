@@ -3,7 +3,6 @@ import SwiftUI
 /// The first thing a new game shows: the world as it is, what's about to happen, and how to open in this era.
 struct EraIntroSheet: View {
     @Environment(GameStore.self) private var store
-    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         if let s = store.state { content(EraGuide.intro(s)) }
@@ -85,6 +84,5 @@ struct EraIntroSheet: View {
 
     private func close() {
         store.showEraIntro = false
-        dismiss()
     }
 }

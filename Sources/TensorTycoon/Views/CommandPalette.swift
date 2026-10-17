@@ -3,7 +3,6 @@ import SwiftUI
 /// ⌘K: jump to any screen or run a common action by typing a few letters.
 struct CommandPalette: View {
     @Environment(GameStore.self) private var store
-    @Environment(\.dismiss) private var dismiss
     @State private var query = ""
     @State private var selected = 0
     @FocusState private var focused: Bool
@@ -125,8 +124,9 @@ struct CommandPalette: View {
         item.run(store)
     }
 
+    /// Closing clears the store flag; the shell's sheet binding then moves on (calling dismiss() here would make
+    /// the shell forget whichever sheet comes next).
     private func close() {
         store.showPalette = false
-        dismiss()
     }
 }
