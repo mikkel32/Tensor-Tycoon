@@ -318,6 +318,10 @@ enum Events {
             Policy.resolve(&s, d, option: option)
         case ("xeno_anomaly", _):
             XenoScience.resolveAnomaly(&s, d, option: option)
+        case ("rival_round", _):
+            RivalEconomy.resolveStake(&s, d, option: option)
+        case ("fire_sale", _):
+            RivalEconomy.resolveFireSale(&s, d, option: option)
         case ("victory", _):
             Victory.resolve(&s, d, option: option)
         case ("board_ouster", _), ("exclusive_supply", _), ("swarm_audit", _), ("merger_offer", _), ("spinoff", _), ("sovereign_deal", _), ("talent_raid", _),

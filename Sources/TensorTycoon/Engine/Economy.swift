@@ -259,7 +259,7 @@ enum Economy {
             let years = Double(GameCalendar.daysBetween(r.date, s.date)) / 365
             floor = (r.preMoney + r.amount) * max(0.4, 1 - 0.3 * years)
         }
-        return max(max(revVal, hypeVal, seed, talent) + assets * 0.6 + Xeno.moatValue(s), floor)
+        return max(max(revVal, hypeVal, seed, talent) + assets * 0.6 + Xeno.moatValue(s) + RivalEconomy.stakesValue(s) * 0.9, floor)
     }
 
     /// Annualised revenue from selling chips and leasing compute.

@@ -21,6 +21,8 @@ jobs:
         run: for f in Tests/Fixtures/*.json; do .build/release/TensorTycoon --check-save "$f"; done
       - name: Research check (signatures, director, breakthroughs, xenoscience)
         run: .build/release/TensorTycoon --research 2017
+      - name: Industry check (rival finances, rounds, IPOs, corrections, stakes)
+        run: .build/release/TensorTycoon --industry 2017 | tail -40
       - name: Ventures check (swarms, alien tech, chip sales, money)
         run: .build/release/TensorTycoon --ventures 2026
       - name: Strategy check (traits, board, acquisitions, security, policy)

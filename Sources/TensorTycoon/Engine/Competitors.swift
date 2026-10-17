@@ -146,6 +146,8 @@ enum Competitors {
         let race = 0.5 * max(0, playerBest - Macro.frontier(y)) * (1 - 0.6 * min(1, s.bonuses.distillGuard))
         let boost = boost(s, def.id, at: y)
         var c = Macro.frontier(y) + def.offset(y) + s.difficulty.competitorBoost + race + boost.c + s.rng.gaussian() * 0.05
+        // Money buys compute: well-funded labs train bigger, starved ones fall behind.
+        c += 0.2 * log10(max(0.3, s.competitors[i].funding))
         // Whatever you sold or licensed them — or they stole.
         c += Xeno.rivalC(s, def.id, at: date)
         if let stolen = s.stolenC[def.id] { c = max(c, stolen + s.rng.gaussian() * 0.03) }
@@ -200,9 +202,12 @@ enum Competitors {
             s.competitors[i].computeH100e = 0
             return
         }
-        var compute = CompetitorCatalog.industryCompute(y) * def.computeShare
+        // How much compute a lab runs follows its share of the industry, scaled by how well funded it is.
+        var compute = CompetitorCatalog.industryCompute(y) * def.computeShare * s.competitors[i].funding
         if def.id == "dragonlake" && s.market.exportControls { compute *= 0.6 }
         s.competitors[i].computeH100e = compute * s.rng.range(0.95, 1.05)
+        // Valuations come from RivalEconomy once a lab's books exist; this is only the opening estimate.
+        guard !s.competitors[i].econReady else { return }
         var v = Macro.frontierValuation(y) * exp(2.2 * def.offset(y))
         if def.id == "deepgrove" || def.id == "openweights" { v *= 0.4 }   // valued as a division of a giant
         s.competitors[i].valuation = v * s.market.hype / 1.3 * s.rng.range(0.9, 1.1)
@@ -228,9 +233,11 @@ enum Competitors {
 
     static func monthly(_ s: inout GameState) {
         for i in s.competitors.indices { refreshFinancials(&s, i) }
+        RivalEconomy.monthly(&s)
         // Price war: if you grab API share, rivals cut prices; otherwise they slowly restore them.
+        // Labs in distress raise prices instead (RivalEconomy sets that).
         let playerShare = Market.snapshot(s).api.filter(\.isPlayer).reduce(0) { $0 + $1.share }
-        for i in s.competitors.indices {
+        for i in s.competitors.indices where s.competitors[i].distressMonths == 0 {
             let before = s.competitors[i].priceCut
             if playerShare > 0.08 {
                 s.competitors[i].priceCut = min(0.45, before + 0.03 * (playerShare / 0.08))
@@ -242,13 +249,7 @@ enum Competitors {
                          .market, important: true, good: false)
             }
         }
-        // Consolidation among smaller labs after 2027
-        if s.year > 2027, s.rng.chance(0.006),
-           let i = s.competitors.indices.filter({ !s.competitors[$0].acquired && ["sirocco", "dragonlake", "xenon"].contains(s.competitors[$0].id) }).randomElement(using: &s.rng) {
-            s.competitors[i].acquired = true
-            Sim.news(&s, "\(s.competitors[i].def.name) acquired by a big-tech giant",
-                     "The lab's team and models will be folded into its new parent. One fewer rival on the leaderboard.", .competitor, important: true)
-        }
+        // Consolidation now comes from the labs' finances: see RivalEconomy (distress, fire sales, bankruptcies).
         // Brand drift toward base
         for i in s.competitors.indices {
             let base = s.competitors[i].def.brand * (s.year > 2022.9 ? 1.2 : 0.6)

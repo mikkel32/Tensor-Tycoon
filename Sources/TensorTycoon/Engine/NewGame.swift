@@ -121,6 +121,7 @@ enum NewGame {
         HardwareCatalog.register([])
         s.agentPrice = 100
         Competitors.setup(&s)
+        RivalEconomy.bootstrap(&s)
         BenchLife.replayHistory(&s)
         BenchLife.refreshIndexes(&s)
         s.valuation = seedPre + raised

@@ -5,7 +5,8 @@ import Foundation
 enum Acquisitions {
     static let premium = 1.35
 
-    static func price(_ c: CompetitorState, _ s: GameState) -> Double { max(c.valuation, 2e8) * premium }
+    /// What it costs to buy the part of the lab you don't already own.
+    static func price(_ c: CompetitorState, _ s: GameState) -> Double { max(c.valuation, 2e8) * premium * (1 - (s.rivalStakes[c.id] ?? 0)) }
 
     static func blocker(_ c: CompetitorState, _ s: GameState) -> String? {
         if c.acquired { return "\(c.def.name) has already been acquired." }
@@ -122,7 +123,10 @@ extension GameState {
             holdings.append(Holding(name: "Former \(c.def.name) shareholders", shares: stock / max(perShare, 0.01)))
         }
         competitors[i].acquired = true
+        competitors[i].exitNote = "Acquired by \(companyName)"
         acquiredLabs.append(id)
+        rivalStakes[id] = nil
+        rivalStakeCost[id] = nil
         // Their secret techniques: you get the code and the people who wrote it.
         for tech in haul.techs {
             researched.insert(tech)

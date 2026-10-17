@@ -75,6 +75,14 @@ enum Advisor {
             add("price", .info, "tag.fill", "Some API prices are stale", "Turn on auto-pricing or match the market.", .models)
         }
 
+        // The industry
+        if let c = s.competitors.first(where: { !$0.acquired && $0.distressMonths > 0 }) {
+            add("distress-\(c.id)", .info, "exclamationmark.triangle.fill", "\(c.def.name) is running out of money", "Its researchers and compute may soon be cheap.", .industry)
+        }
+        if RivalEconomy.inCorrection(s) {
+            add("correction", .info, "chart.line.downtrend.xyaxis", "The AI market is correcting", "Valuations are down, but GPUs and cloud capacity are cheaper.", .industry)
+        }
+
         // Business
         let leads = s.deals.filter { !$0.active }.count
         if leads > 0 {

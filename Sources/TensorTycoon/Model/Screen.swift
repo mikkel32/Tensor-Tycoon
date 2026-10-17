@@ -4,7 +4,7 @@ enum Screen: String, CaseIterable, Identifiable, Hashable {
     case dashboard, strategy, security, lab, training, models, leaderboard, benchmarks, rsi, swarms, xeno
     case hardware, partners, compute, datacenters, silicon
     case research, team, data
-    case market, chipSales, competitors, finance, funding
+    case market, industry, chipSales, competitors, finance, funding
     case news, achievements, credits
 
     var id: String { rawValue }
@@ -31,6 +31,7 @@ enum Screen: String, CaseIterable, Identifiable, Hashable {
         case .team: "Team"
         case .data: "Training Data"
         case .market: "Market & Products"
+        case .industry: "AI Industry"
         case .chipSales: "Chip & Cloud Sales"
         case .competitors: "Competitors"
         case .finance: "Finance"
@@ -63,6 +64,7 @@ enum Screen: String, CaseIterable, Identifiable, Hashable {
         case .team: "person.3.fill"
         case .data: "externaldrive.fill"
         case .market: "chart.pie.fill"
+        case .industry: "building.columns.circle.fill"
         case .chipSales: "shippingbox.fill"
         case .competitors: "flag.2.crossed.fill"
         case .finance: "dollarsign.circle.fill"
@@ -79,7 +81,7 @@ enum Screen: String, CaseIterable, Identifiable, Hashable {
         ("Evaluate", [.leaderboard, .benchmarks]),
         ("Infrastructure", [.hardware, .partners, .compute, .datacenters, .silicon]),
         ("R&D", [.research, .team, .data]),
-        ("Business", [.market, .chipSales, .competitors, .finance, .funding]),
+        ("Business", [.market, .industry, .chipSales, .competitors, .finance, .funding]),
         ("More", [.achievements, .credits]),
     ]
 }

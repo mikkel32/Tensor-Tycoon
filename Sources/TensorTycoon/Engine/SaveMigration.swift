@@ -29,6 +29,8 @@ enum SaveMigration {
             if a.available <= cutoff { s.availableHardware.insert(a.id) }
         }
         Competitors.migrate(&s)
+        // Labs' books (3.3): real rounds so far, cash and staff.
+        RivalEconomy.bootstrap(&s)
         // Catch up benchmarks added to the catalog after this save was made (idempotent for the rest).
         BenchLife.replayHistory(&s)
         BenchLife.refreshIndexes(&s)

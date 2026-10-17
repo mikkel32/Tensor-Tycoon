@@ -91,6 +91,7 @@ struct ScreenRouter: View {
         case .team: TeamView()
         case .data: DataView()
         case .market: MarketView()
+        case .industry: IndustryView()
         case .competitors: CompetitorsView()
         case .finance: FinanceView()
         case .funding: FundingView()

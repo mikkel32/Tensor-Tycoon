@@ -652,9 +652,53 @@ struct CompetitorState: Codable, Identifiable, Hashable {
     @D var agentShare: Double = 0
     /// H100-equivalents of your chips this lab has bought (ages out slowly).
     @D var armedH100e: Double = 0
+    // 3.3: the business behind each lab
+    @D var econReady: Bool = false
+    @D var cash: Double = 0
+    /// Annualised revenue (this month × 12).
+    @D var revenueRun: Double = 0
+    /// Monthly revenue, oldest first (last 36 months).
+    @D var revenueHistory: [Double] = []
+    @D var costMonth: Double = 0
+    @D var computeCostMonth: Double = 0
+    @D var headcount: Int = 0
+    @D var totalRaised: Double = 0
+    @D var rounds: [RivalRound] = []
+    /// How many of the lab's real-world rounds have been applied.
+    @D var historyIndex: Int = 0
+    @D var isPublic: Bool = false
+    @D var distressMonths: Int = 0
+    /// Compute multiplier from how well funded the lab is (0 in old saves means 1).
+    @D var fundingFactor: Double = 0
+    @D var bankrupt: Bool = false
+    /// How the lab left the market, if it did.
+    @D var exitNote: String = ""
 
     var def: CompetitorDef { CompetitorCatalog.byID[id]! }
+    var funding: Double { fundingFactor > 0 ? fundingFactor : 1 }
+    var lastRound: RivalRound? { rounds.last { $0.postMoney > 0 } }
     var latest: CompetitorModel? { models.last }
+}
+
+/// A rival lab's funding event.
+struct RivalRound: Codable, Hashable, Identifiable {
+    enum Kind: String, Codable, Sendable { case equity, strategic, tender, debt, merger, ipo, rescue }
+    var id = UUID()
+    var date: Date
+    var label: String
+    var amount: Double
+    var postMoney: Double
+    var lead: String
+    var kind: Kind
+}
+
+/// A rival that agreed to spend money on your compute when you invested in it.
+struct ComputeCommitment: Codable, Hashable, Identifiable {
+    var id = UUID()
+    var labID: String
+    var labName: String
+    var monthly: Double
+    var monthsLeft: Int
 }
 
 struct MonthRecord: Codable, Identifiable, Hashable {
@@ -922,6 +966,16 @@ struct GameState: Codable {
     @D var xenoStudyShare: Double = 0
     @D var studyRPToday: Double = 0
     @D var megaProjects: [MegaProject] = []
+    // 3.3: the AI industry
+    /// Rival lab ID → share of it you own, and what you paid.
+    @D var rivalStakes: [String: Double] = [:]
+    @D var rivalStakeCost: [String: Double] = [:]
+    @D var computeCommitments: [ComputeCommitment] = []
+    /// An AI-market correction is under way until this date.
+    @D var correctionUntil: Date? = nil
+    @D var lastCorrection: Date? = nil
+    /// Industry valuation ÷ revenue run-rate (independent labs), for the bubble meter.
+    @D var industryMultiple: Double = 0
 
     var totalShares: Double {
         founderShares + employeePoolShares + publicShares + holdings.reduce(0) { $0 + $1.shares }
