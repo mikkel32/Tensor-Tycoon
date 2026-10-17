@@ -19,6 +19,7 @@ struct LabProfileView: View {
                         LabModelsCard(comp: c, state: s)
                         LabStrategyCard(comp: c, state: s)
                         LabProductsCard(comp: c, state: s)
+                        LabCapabilitiesCard(labID: c.id)   // 3.4: domains, milestones, product lines
                     }
                     VStack(alignment: .leading, spacing: 16) {
                         LabBusinessCard(comp: c, state: s)

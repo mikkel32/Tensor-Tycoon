@@ -127,6 +127,7 @@ enum NewGame {
         RivalIntel.bootstrap(&s)
         BenchLife.replayHistory(&s)
         BenchLife.refreshIndexes(&s)
+        Capabilities.bootstrap(&s)   // 3.4: domain scores, milestone history, rival product lines
         s.valuation = seedPre + raised
         s.brand = 8 + (settings.background == .policy ? 5 : 0)
         if settings.doctrine == .open { s.publication = .open }

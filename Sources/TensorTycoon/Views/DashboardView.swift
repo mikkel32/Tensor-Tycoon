@@ -33,8 +33,7 @@ struct DashboardView: View {
                 VStack(spacing: 16) {
                     ComingUpCard(items: upcoming, today: s.date)
                     GettingStarted(state: s)
-                    // Slot: MilestonesCard() — the AI milestones race (another branch adds it; wire it in here at merge).
-                    EmptyView()
+                    MilestonesCard()
                     RaceCard(labs: labs, state: s)
                     TopLabsCard(labs: labs)
                     // Slot: PulseCard() — industry chatter (another branch adds it; wire it in here at merge).
@@ -877,7 +876,8 @@ struct RevenueChart: View, Equatable {
         let bars = history.flatMap { m -> [Bar] in
             [Bar(month: m.month, kind: "API", value: m.revAPI),
              Bar(month: m.month, kind: "Consumer", value: m.revConsumer),
-             Bar(month: m.month, kind: "Enterprise", value: m.revEnterprise + m.revOther),
+             Bar(month: m.month, kind: "Enterprise", value: m.revEnterprise),
+             Bar(month: m.month, kind: "Product lines", value: m.revOther),
              Bar(month: m.month, kind: "Agents", value: m.revAgents),
              Bar(month: m.month, kind: "Compute & chips", value: m.revCloud + m.revChips),
              Bar(month: m.month, kind: "Labor & licensing", value: m.revLabor + m.revLicensing)]
@@ -897,8 +897,8 @@ struct RevenueChart: View, Equatable {
                         .interpolationMethod(.monotone)
                 }
             }
-            .chartForegroundStyleScale(["API": Color.teal, "Consumer": Color.pink, "Enterprise": Color.indigo, "Agents": Color.orange,
-                                        "Compute & chips": Color.green, "Labor & licensing": Color.purple])
+            .chartForegroundStyleScale(["API": Color.teal, "Consumer": Color.pink, "Enterprise": Color.indigo, "Product lines": Color.mint,
+                                        "Agents": Color.orange, "Compute & chips": Color.green, "Labor & licensing": Color.purple])
             .chartYAxis { AxisMarks { v in AxisGridLine(); AxisValueLabel { if let d = v.as(Double.self) { Text(Fmt.money(d, decimals: 0)) } } } }
             .chartLegend(position: .bottom, alignment: .leading)
         }

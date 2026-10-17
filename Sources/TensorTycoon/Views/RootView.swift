@@ -157,6 +157,8 @@ struct ScreenRouter: View {
         case .credits: CreditsView()
         case .help: HelpView()
         case .world: WorldView()   // 3.4: world and stakeholders
+        case .milestones: MilestonesView()
+        case .products: ProductLinesView()
         }
     }
 }

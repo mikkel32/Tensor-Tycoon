@@ -126,10 +126,14 @@ enum ResearchEffect: Sendable {
     /// Rivals gain less by distilling your API outputs (fraction).
     case distillGuard(Double)
     case unlock(Feature)
+    /// 3.4: know-how in one capability domain (log10 compute units; Capabilities reads it, the bonuses don't).
+    case domain(CapDomain, Double)
+    /// 3.4: opens a product line (ProductLines).
+    case product(String)
 
     var isNumeric: Bool {
         switch self {
-        case .unlock, .consumerDemand, .apiDemand, .enterpriseDemand: false
+        case .unlock, .product, .consumerDemand, .apiDemand, .enterpriseDemand: false
         default: true
         }
     }
@@ -268,7 +272,7 @@ enum ResearchCatalog {
 
     /// 3.4: `lateGame` (LateResearch.swift) holds the projected 2028–2034 techniques. They are kept out of `core`, which
     /// seeds new games, so early eras start exactly as before; the research tree lists them alongside `core`.
-    static let all: [ResearchItem] = core + lateGame + exotic
+    static let all: [ResearchItem] = core + lateGame + capabilityTech + exotic
 
     // MARK: - Core techniques (real research, with historical dates)
 
@@ -1136,6 +1140,7 @@ enum ResearchCatalog {
                 case .chipDesign(let x): b.chipDesign += v(x)
                 case .distillGuard(let x): b.distillGuard += v(x)
                 case .unlock(let f): b.features.insert(f)
+                case .domain, .product: break
                 }
             }
         }
@@ -1192,6 +1197,8 @@ enum ResearchCatalog {
         case .chipDesign(let v): return "\(pct(v)) custom-chip design speed and quality"
         case .distillGuard(let v): return "\(pct(-v)) rival catch-up from distilling your outputs"
         case .unlock(let f): return "Unlocks: \(featureName(f))"
+        case .domain(let d, let v): return "\(v * r >= 0 ? "+" : "−")\(Fmt.trim(abs(v * r) * 10, 1)) \(d.label)"
+        case .product(let p): return "Opens a product line: \(ProductLines.name(p))"
         }
     }
 

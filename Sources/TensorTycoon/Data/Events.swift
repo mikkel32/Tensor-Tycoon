@@ -297,6 +297,10 @@ enum AchievementCatalog {
         Achievement(id: "upstage", title: "Stole the Show", detail: "Ship a better model in the two weeks before a rival's launch.", symbol: "theatermask.and.paintbrush.fill"),
         Achievement(id: "gigawatt_run", title: "Half a Million GPUs", detail: "Finish a training run on 500,000 chips.", symbol: "bolt.horizontal.circle.fill"),
         Achievement(id: "hundred_gw", title: "Dyson Ambitions", detail: "Run 100 GW of datacentre capacity.", symbol: "sun.max.fill"),
+        // 3.4: capabilities and milestones
+        Achievement(id: "milestone_first", title: "First Past the Post", detail: "Be the first lab to reach an AI milestone.", symbol: "signpost.right.fill"),
+        Achievement(id: "milestone_historic", title: "Science Fiction, Then Fact", detail: "Be first to a historic milestone from 2027 on, like an autonomous AI scientist or a household robot.", symbol: "sparkles"),
+        Achievement(id: "renaissance", title: "Renaissance Machine", detail: "Lead every rival in all eleven capability domains at once.", symbol: "circle.hexagongrid.circle.fill"),
     ]
 
     static let byID: [String: Achievement] = Dictionary(uniqueKeysWithValues: all.map { ($0.id, $0) })

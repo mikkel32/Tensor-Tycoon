@@ -631,6 +631,7 @@ struct ForecastPanel: View {
                         Label(risk, systemImage: "exclamationmark.shield").font(.caption).foregroundStyle(.secondary)
                     }
                 }
+                if known { DesignDomainsCard(profile: ForecastEngine.profile(adjusted(f), design: design, key: "domains"), design: design, state: s) }   // 3.4
 
                 Card {
                     CardHeader("Compute budget", symbol: "bolt.fill")

@@ -277,6 +277,7 @@ enum ResearchLab {
             if item.effects.contains(where: { if case .unlock = $0 { return true } else { return false } }) { value += 0.5 }
             if item.category == .frontier { value += 0.8 }
             if let partner = Breakthroughs.partner(of: item.id), s.researched.contains(partner) { value += 2 }
+            value *= ResearchCatalog.directorWeight(item)   // 3.4: domain-only research ranks below the core
             let score: Double = focus == .cheapest ? 1 / cost : focus.weight(item.category) * value / pow(cost, 0.75)
             if best == nil || score > best!.1 { best = (item.id, score) }
         }

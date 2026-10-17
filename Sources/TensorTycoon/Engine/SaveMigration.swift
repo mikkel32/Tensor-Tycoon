@@ -48,6 +48,8 @@ enum SaveMigration {
         BenchLife.refreshIndexes(&s)
         // The world outside the labs (3.4): replayed from 2016 to the save's date; your standing from your record.
         World.bootstrap(&s)
+        // 3.4: score every model and credit the milestones already reached.
+        if !s.capsReady { Capabilities.bootstrap(&s) }
     }
 
     /// Decodes a save, migrates it and plays 90 days on a copy, resolving decisions with their first option.

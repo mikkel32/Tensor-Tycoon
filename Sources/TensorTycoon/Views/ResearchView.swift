@@ -9,7 +9,7 @@ struct ResearchView: View {
     var body: some View {
         let s = store.game
         let rate = Sim.researchRate(s, store.derived.bonuses) + s.rsiRPToday + s.swarmRPToday
-        let core = ResearchCatalog.core + ResearchCatalog.lateGame
+        let core = ResearchCatalog.core + ResearchCatalog.lateGame + ResearchCatalog.capabilityTech
         let doneCount = core.filter { s.researched.contains($0.id) }.count
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
         Page(title: "Research", subtitle: "Researchers generate research points (RP); compute multiplies their output. Every technique is an experiment: in your lab it can land better or worse than the paper. Leftover points roll into the next project, and idle research feeds your signature programme, so nothing is wasted.") {
@@ -457,7 +457,7 @@ private struct UniqueCard: View {
                 }
             }
             Text(item.blurb).font(.caption).foregroundStyle(.secondary).lineLimit(5).fixedSize(horizontal: false, vertical: true)
-            ForEach(item.effects.map { (ResearchCatalog.describe($0, r: $0.isDownside ? down : up), $0.isDownside) }, id: \.0) { line in
+            ForEach(item.shownEffects.map { (ResearchCatalog.describe($0, r: $0.isDownside ? down : up), $0.isDownside) }, id: \.0) { line in
                 Label(line.0, systemImage: line.1 ? "arrow.down.right" : "arrow.up.right")
                     .font(.caption2)
                     .foregroundStyle(line.1 ? .orange : .green)
@@ -794,9 +794,9 @@ private extension ResearchEffect {
              .enterpriseDemand(let v), .agentQuality(let v), .coordination(let v), .agentSafety(let v), .insight(let v),
              .legibility(let v), .securityCost(let v), .chipDesign(let v), .distillGuard(let v):
             return v < 0
-        case .skill(_, let v):
+        case .skill(_, let v), .domain(_, let v):
             return v < 0
-        case .unlock:
+        case .unlock, .product:
             return false
         }
     }
@@ -862,7 +862,7 @@ private struct ResearchCard: View, Equatable {
                 }
                 Text(item.blurb).font(.caption).foregroundStyle(.secondary).lineLimit(5).fixedSize(horizontal: false, vertical: true)
                 let r = result ?? 1
-                ForEach(item.effects.map { (ResearchCatalog.describe($0, r: r), $0.isDownside) }, id: \.0) { line in
+                ForEach(item.shownEffects.map { (ResearchCatalog.describe($0, r: r), $0.isDownside) }, id: \.0) { line in
                     Label(line.0, systemImage: line.1 ? "arrow.down.right" : "arrow.up.right")
                         .font(.caption2)
                         .foregroundStyle(line.1 ? .orange : .green)

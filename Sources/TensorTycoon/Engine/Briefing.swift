@@ -108,7 +108,7 @@ enum Briefing {
             ("Chip sales", cur.revChips, prev.revChips, .chipSales),
             ("Licensing", cur.revLicensing, prev.revLicensing, .industry),
             ("Agent labour", cur.revLabor, prev.revLabor, .swarms),
-            ("Other", cur.revOther, prev.revOther, .finance),
+            ("Product lines", cur.revOther, prev.revOther, .products),
         ]
         let total = max(cur.revenue, prev.revenue)
         let moved = streams.map { st -> (name: String, now: Double, before: Double, screen: Screen, delta: Double) in
