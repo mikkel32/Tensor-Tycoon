@@ -124,6 +124,12 @@ extension GameState {
         }
         competitors[i].acquired = true
         competitors[i].exitNote = "Acquired by \(companyName)"
+        competitors[i].acquiredBy = "player"
+        competitors[i].exitDate = date
+        // Not everyone stays after a takeover: some of its people may found something new.
+        competitors[i].turmoil = max(competitors[i].turmoil, 0.6)
+        competitors[i].project = nil
+        pendingDeals.removeAll { $0.targetID == id }
         acquiredLabs.append(id)
         rivalStakes[id] = nil
         rivalStakeCost[id] = nil
@@ -154,9 +160,9 @@ extension GameState {
         Acquisitions.inheritModel(&self, c)
         valuation = Economy.valuation(self)
         Achievements.unlock(&self, "consolidator")
-        Sim.news(&self, "\(companyName) acquires \(c.def.name) for \(Fmt.money(price))",
-                 "\(Fmt.money(cashPart)) in cash\(stock > 0 ? " and \(Fmt.money(stock)) in stock" : ""). You inherit \(haul.techs.count) secret technique\(haul.techs.count == 1 ? "" : "s"), \(haul.researchers) researchers, \(Fmt.int(haul.chips))× \(haul.chipName), \(Fmt.count(haul.users)) chat users\(haul.model.map { " and \($0)" } ?? "").",
-                 .competitor, image: "nvidia_hq", important: true, good: true)
+        let body = "\(Fmt.money(cashPart)) in cash\(stock > 0 ? " and \(Fmt.money(stock)) in stock" : ""). You inherit \(haul.techs.count) secret technique\(haul.techs.count == 1 ? "" : "s"), \(haul.researchers) researchers, \(Fmt.int(haul.chips))× \(haul.chipName), \(Fmt.count(haul.users)) chat users\(haul.model.map { " and \($0)" } ?? "")."
+        Sim.news(&self, "\(companyName) acquires \(c.def.name) for \(Fmt.money(price))", body, .competitor, image: "nvidia_hq", important: true, good: true)
+        RivalLifecycle.record(&self, .bought, lab: id, other: "player", title: "Bought by \(companyName)", body: body, amount: price)
         return nil
     }
 }

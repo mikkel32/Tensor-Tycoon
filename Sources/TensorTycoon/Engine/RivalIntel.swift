@@ -91,7 +91,7 @@ enum RivalIntel {
         case "dragonlake": ["its Hangzhou cluster", "domestic accelerators in Guizhou", "a rented cluster in Malaysia"]
         case "sirocco": ["its Paris-area datacentre", "a nuclear-powered campus in France", "rented capacity in the Nordics"]
         case "aletheia": ["rented TPU capacity", "a quiet cluster in Tel Aviv"]
-        default: ["its main cluster"]
+        default: [CompetitorCatalog.spec(id).map { $0.site.isEmpty ? "its main cluster" : $0.site } ?? "its main cluster"]
         }
     }
 
@@ -120,6 +120,35 @@ enum RivalIntel {
             chips: max(8, chips), site: siteList[count % siteList.count], flops: flops,
             dateBias: gauss(key + "date") * 18, capBias: gauss(key + "cap") * 0.22,
             procedural: count >= def.releases.count && release.decimalYear >= RivalHistory.end)
+        sizeRun(&s, i)
+    }
+
+    // MARK: Runs sized to compute (procedural releases)
+
+    /// Training throughput per H100-equivalent relative to BF16, as low-precision training spreads.
+    static func throughput(_ y: Double) -> Double {
+        interpolate([(2026.5, 1.3), (2028, 1.6), (2030, 2.0), (2035, 2.6)], at: y)
+    }
+
+    /// Size a procedural run to the compute the lab actually has: its flagship run gets 60% of its chips, and the
+    /// FLOPs follow from the chips and the pre-training window. A lab running less than its usual share of the field's
+    /// compute ships a weaker model (on top of the funding term in its capability); one with more trains no worse than
+    /// planned. Rechecked monthly during pre-training, so a lab that raises money mid-run can still put more chips on it.
+    static func sizeRun(_ s: inout GameState, _ i: Int) {
+        guard var p = s.competitors[i].project, p.procedural else { return }
+        let c = s.competitors[i]
+        let fresh = c.runShortfallFor != p.count
+        guard fresh || s.date < p.preEnd else { return }
+        let old = fresh ? 0 : c.runShortfall
+        let preDays = Double(max(30, GameCalendar.daysBetween(p.started, p.preEnd)))
+        p.chips = max(8, c.computeH100e * 0.6)
+        p.flops = p.chips * 4e14 * throughput(p.release.decimalYear) * 86_400 * preDays
+        let share = c.computeH100e / RivalEconomy.normalCompute(c, s)
+        let shortfall = min(0.5, 0.35 * max(0, -log10(max(0.01, share))))
+        p.cAdjust += old - shortfall
+        s.competitors[i].project = p
+        s.competitors[i].runShortfall = shortfall
+        s.competitors[i].runShortfallFor = p.count
     }
 
     static func phase(_ p: RivalProject, on d: Date) -> RivalPhase {

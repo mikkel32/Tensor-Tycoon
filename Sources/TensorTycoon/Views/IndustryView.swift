@@ -1,17 +1,19 @@
 import SwiftUI
 
-/// The business behind the labs: revenue, burn, funding rounds, IPOs and failures — and your stakes in rivals.
-struct IndustryView: View {
+/// The Rivals hub's Industry tab: the money behind the labs — revenue, burn, funding rounds, listings, takeovers and
+/// failures, the market cycle — and your stakes in rivals.
+struct IndustryTab: View {
     @Environment(GameStore.self) private var store
+    let open: (String) -> Void
 
     var body: some View {
         let s = store.game
-        let live = s.competitors.filter { !$0.acquired && s.year >= $0.def.founded.decimal }
+        let live = RivalLifecycle.labsInBusiness(s)
         let rivalRevenue = live.reduce(0) { $0 + $1.revenueRun }
         let yourRevenue = store.derived.runRate
         let valuations = live.reduce(0) { $0 + $1.valuation } + s.valuation
         let multiple = s.industryMultiple
-        Page(title: "AI Industry", subtitle: "The money behind the models: revenue, compute bills, cash, funding rounds, IPOs and failures. Until October 2026 the rival labs raise the real rounds of the labs they're modelled on; after that, money follows the best models and the customers.") {
+        VStack(alignment: .leading, spacing: 18) {
             HeroBanner(image: "stock_exchange", height: 150) {
                 HStack(alignment: .bottom) {
                     VStack(alignment: .leading, spacing: 4) {
@@ -37,13 +39,18 @@ struct IndustryView: View {
                 StatTile(title: "Your stakes in rivals", value: Fmt.money(RivalEconomy.stakesValue(s)),
                          detail: "\(s.rivalStakes.count) lab\(s.rivalStakes.count == 1 ? "" : "s")", symbol: "briefcase.fill", tint: .green)
             }
-            LabFinancesCard(state: s, yourRevenue: yourRevenue)
+            LabFinancesCard(state: s, yourRevenue: yourRevenue, open: open)
+            HStack(alignment: .top, spacing: 16) {
+                ConsolidationCard(state: s, open: open)
+                MarketCycleCard(state: s)
+                    .frame(width: 440)
+            }
             HStack(alignment: .top, spacing: 16) {
                 FundingFeedCard(state: s)
                 StakesCard(state: s)
                     .frame(width: 440)
             }
-            Text("Calibrated on real figures: rounds from 2019–2026, compute costs of about $1,000–1,500 per H100-equivalent a month, and multiples of 20–40× revenue that shrink as labs grow. When the money runs out, labs are sold, rescued at a discount or go bankrupt.")
+            Text("Calibrated on real figures until October 2026: rounds from 2019–2026, compute at about $1,000–1,500 per H100-equivalent a month, multiples of 20–40× revenue that shrink as labs grow. After that every number follows the money: compute is what a lab's revenue, cash and backers pay for, staff follow revenue and compute, valuations follow revenue and how close a lab's best model is to the frontier. Researchers leave to found new labs, governments fund national ones, the rich buy the weak and the rest are rescued, wound down or go bankrupt.")
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -60,18 +67,24 @@ struct IndustryView: View {
     }
 }
 
+/// Kept for links: opens the Rivals hub on its Industry tab.
+struct IndustryView: View {
+    var body: some View { RivalsHubView(tab: .industry) }
+}
+
 // MARK: - The labs' books
 
 private struct LabFinancesCard: View {
     let state: GameState
     let yourRevenue: Double
+    let open: (String) -> Void
 
     var body: some View {
         let s = state
         let labs = s.competitors.filter { s.year >= $0.def.founded.decimal }
             .sorted { ($0.acquired ? 0 : 1, $0.revenueRun) > ($1.acquired ? 0 : 1, $1.revenueRun) }
         Card {
-            CardHeader("The labs' books", symbol: "building.columns.fill", subtitle: "Annualised revenue, what investors pay for it, and how long the cash lasts")
+            CardHeader("The labs' books", symbol: "building.columns.fill", subtitle: "Annualised revenue, what investors pay for it, how long the cash lasts. Click a lab for its profile.")
             HStack(spacing: 8) {
                 Text("Lab").frame(maxWidth: .infinity, alignment: .leading)
                 Text("Revenue").frame(width: 90, alignment: .trailing)
@@ -87,7 +100,14 @@ private struct LabFinancesCard: View {
             .font(.caption.weight(.semibold))
             .foregroundStyle(.secondary)
             YourRow(state: s, revenue: yourRevenue)
-            ForEach(labs) { c in LabRow(comp: c, state: s) }
+            ForEach(labs) { c in
+                Button {
+                    open(c.id)
+                } label: {
+                    LabRow(comp: c, state: s).contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+            }
         }
     }
 }
@@ -133,7 +153,8 @@ private struct LabRow: View {
         let c = comp
         let s = state
         let status = RivalEconomy.status(c, s)
-        let parent = RivalEconomy.parent(c, s) != nil
+        let backed = RivalEconomy.parent(c, s) != nil
+        let gone = !c.alive
         HStack(spacing: 8) {
             HStack(spacing: 8) {
                 Circle().fill(Theme.competitorColor(c.def.color)).frame(width: 10, height: 10)
@@ -147,34 +168,77 @@ private struct LabRow: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            Text(c.acquired ? "—" : Fmt.money(c.revenueRun)).frame(width: 90, alignment: .trailing)
-            Text(RivalEconomy.growth(c).map { "\($0 >= 1 ? "+" : "−")\(Int(abs($0 - 1) * 100))%" } ?? "—")
+            Text(gone ? "—" : Fmt.money(c.revenueRun)).frame(width: 90, alignment: .trailing)
+            Text(gone ? "—" : (RivalEconomy.growth(c).map { "\($0 >= 1 ? "+" : "−")\(Int(abs($0 - 1) * 100))%" } ?? "—"))
                 .foregroundStyle((RivalEconomy.growth(c) ?? 1) >= 1 ? Color.green : .red)
                 .frame(width: 64, alignment: .trailing)
-            Text(c.acquired ? "—" : Fmt.money(c.valuation)).frame(width: 90, alignment: .trailing)
-            Text(!c.acquired && c.revenueRun > 1e6 ? "\(Int(c.valuation / c.revenueRun))×" : "—").frame(width: 64, alignment: .trailing)
-            Text(parent || c.acquired ? "—" : Fmt.money(c.cash)).frame(width: 84, alignment: .trailing)
-            Text(parent ? "Parent" : (c.acquired ? "—" : (RivalEconomy.runwayMonths(c).map { "\(Int($0)) mo" } ?? "∞")))
-                .foregroundStyle((RivalEconomy.runwayMonths(c) ?? 99) < 9 && !parent && !c.acquired ? Color.orange : .primary)
+            Text(gone ? "—" : Fmt.money(c.valuation)).frame(width: 90, alignment: .trailing)
+            Text(!gone && c.revenueRun > 1e6 ? "\(Int(c.valuation / c.revenueRun))×" : "—").frame(width: 64, alignment: .trailing)
+            Text(backed || gone ? "—" : Fmt.money(c.cash)).frame(width: 84, alignment: .trailing)
+            Text(backed ? (RivalEconomy.isStateLab(c) ? "State" : "Parent") : (gone ? "—" : (RivalEconomy.runwayMonths(c).map { "\(Int($0)) mo" } ?? "∞")))
+                .foregroundStyle((RivalEconomy.runwayMonths(c) ?? 99) < 9 && !backed && !gone ? Color.orange : .primary)
                 .frame(width: 70, alignment: .trailing)
-            Text(c.acquired ? "—" : Fmt.count(c.computeH100e)).frame(width: 80, alignment: .trailing)
-            Text(c.acquired ? "—" : "\(c.headcount)").frame(width: 60, alignment: .trailing)
-            Pill(text: status, color: Self.color(status)).frame(width: 130, alignment: .trailing)
+            Text(gone ? "—" : Fmt.count(c.computeH100e)).frame(width: 80, alignment: .trailing)
+            Text(gone ? "—" : "\(c.headcount)").frame(width: 60, alignment: .trailing)
+            Pill(text: status, color: RivalsStyle.statusColor(status)).frame(width: 130, alignment: .trailing)
         }
         .font(.callout.monospacedDigit())
-        .opacity(c.acquired ? 0.6 : 1)
-        .help(c.acquired ? c.exitNote : "\(c.def.archetype). Compute bill \(Fmt.money(c.computeCostMonth))/month; total raised \(Fmt.money(c.totalRaised)).")
+        .opacity(gone ? 0.6 : 1)
+        .help(gone ? c.exitNote : "\(c.def.archetype). Compute bill \(Fmt.money(c.computeCostMonth))/month; total raised \(Fmt.money(c.totalRaised)).")
     }
+}
 
-    static func color(_ status: String) -> Color {
-        switch status {
-        case "Bankrupt": .red
-        case "Acquired": .secondary
-        case "Distressed": .orange
-        case "Public": .blue
-        case "Funded by parent": .purple
-        case "Burning cash": .yellow
-        default: .green
+// MARK: - Consolidation
+
+/// New labs, takeovers, mergers, listings and failures since the record ends — and deals still in talks.
+private struct ConsolidationCard: View {
+    let state: GameState
+    let open: (String) -> Void
+
+    var body: some View {
+        let s = state
+        let events = s.rivalEvents.filter { $0.kind != "raid" }
+        let founded = events.filter { $0.eventKind?.isFounding ?? false }.count
+        let exits = events.filter { $0.eventKind?.isExit ?? false }.count
+        let items = RivalLifecycle.feed(s, since: .distantPast, limit: 14, eventsOnly: true)
+        Card {
+            CardHeader("New labs, takeovers and failures", symbol: "arrow.triangle.merge",
+                       subtitle: founded + exits == 0 ? "The field changes after October 2026" : "\(founded) founded · \(exits) gone · \(events.filter { $0.kind == "ipo" }.count) listed")
+            ForEach(s.pendingDeals) { d in
+                Label("In talks: \(RivalLifecycle.name(d.buyerID, s)) to buy \(RivalLifecycle.name(d.targetID, s)) for about \(Fmt.money(d.price))", systemImage: "hourglass")
+                    .font(.caption.weight(.semibold)).foregroundStyle(.orange)
+            }
+            if items.isEmpty {
+                Text("No new labs or takeovers yet. After October 2026, researchers leave big labs to found their own, governments back national labs, and the rich buy the weak.")
+                    .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            ForEach(items) { item in
+                RivalFeedRow(item: item, open: open)
+                if item.id != items.last?.id { Divider() }
+            }
+        }
+    }
+}
+
+/// Where the market is in its cycle.
+private struct MarketCycleCard: View {
+    let state: GameState
+
+    var body: some View {
+        let s = state
+        Card {
+            CardHeader("Market cycle", symbol: "waveform.path.ecg", subtitle: "Froth builds, then breaks")
+            SpecRow(label: "Mood", value: IndustryTab.mood(s))
+            SpecRow(label: "Investor sentiment (hype)", value: Fmt.trim(s.market.hype, 2))
+            SpecRow(label: "Valuation ÷ revenue", value: s.industryMultiple > 0 ? "\(Int(s.industryMultiple))×" : "—")
+            if let until = s.correctionUntil, until > s.date {
+                Label("Correction until about \(until.gameMonth): smaller rounds, down rounds, cheaper GPUs", systemImage: "chart.line.downtrend.xyaxis")
+                    .font(.caption).foregroundStyle(.red)
+            } else if let last = s.lastCorrection {
+                SpecRow(label: "Last correction", value: last.gameMonth)
+            }
+            Text("Corrections come when multiples above 30× meet euphoric sentiment. Labs short of money raise at a discount or not at all; the weakest are sold, rescued or fail.")
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         }
     }
 }

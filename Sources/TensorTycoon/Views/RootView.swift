@@ -131,7 +131,8 @@ struct ScreenRouter: View {
         case .training: TrainingView()
         case .models: ModelsView()
         case .leaderboard: LeaderboardView()
-        case .rivalWatch: RivalWatchView()
+        case .rivals: RivalsHubView(tab: .overview)
+        case .rivalWatch: RivalsHubView(tab: .watch)
         case .benchmarks: BenchmarksView()
         case .rsi: RSIView()
         case .swarms: SwarmView()
@@ -146,8 +147,8 @@ struct ScreenRouter: View {
         case .team: TeamView()
         case .data: DataView()
         case .market: MarketView()
-        case .industry: IndustryView()
-        case .competitors: CompetitorsView()
+        case .industry: RivalsHubView(tab: .industry)
+        case .competitors: RivalsHubView(tab: .labs)
         case .finance: FinanceView()
         case .funding: FundingView()
         case .news: NewsView()
@@ -194,7 +195,7 @@ struct Sidebar: View {
         switch screen {
         case .news: s.unreadNews
         case .dashboard: s.decisions.filter { !Alerts.isUrgent($0) }.count + s.briefings.prefix(1).filter { !$0.seen }.count
-        case .rivalWatch: s.rumors.prefix(30).filter { $0.kind == "imminent" && GameCalendar.daysBetween($0.date, s.date) <= 10 }.count
+        case .rivals: s.rumors.prefix(30).filter { $0.kind == "imminent" && GameCalendar.daysBetween($0.date, s.date) <= 10 }.count
         case .training: s.runs.filter { $0.status == .running || $0.status == .postTraining }.count
         case .models: s.models.filter { !$0.released && !$0.retired }.count
         case .market: s.deals.filter { !$0.active }.count

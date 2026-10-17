@@ -3,6 +3,8 @@ import Foundation
 /// Brings saves from older versions up to date, and checks that a save loads and plays.
 enum SaveMigration {
     static func migrate(_ s: inout GameState) {
+        // Labs founded during the game (3.4) must resolve before anything reads their definitions.
+        CompetitorCatalog.register(s.customLabs)
         if s.agentPrice <= 0 { s.agentPrice = 100 }
         // Saves from before traits: a generalist lab with points for what it already achieved.
         if !s.traitsInitialized {

@@ -31,7 +31,8 @@ enum RivalStrategy {
         case "aletheia":
             [.race: 1.0, .talentRaid: 0.7, .efficiency: 0.3, .lobby: 0.2, .enterprise: 0, .consumer: 0, .agents: 0.1, .priceWar: 0, .openGambit: 0, .alliance: 0.5]
         default:
-            [:]
+            // Labs founded during the game carry their own character (and their founders' old habits).
+            Dictionary(uniqueKeysWithValues: (CompetitorCatalog.spec(id)?.personality ?? [:]).compactMap { k, v in RivalPlay(rawValue: k).map { ($0, v) } })
         }
     }
 
@@ -45,7 +46,7 @@ enum RivalStrategy {
         case "openweights": ["preemption", "nairr"]
         case "sirocco": ["nairr", "transparency"]
         case "aletheia": ["independent_auditors", "kill_switch"]
-        default: []
+        default: CompetitorCatalog.spec(id)?.bills ?? []
         }
     }
 
@@ -264,6 +265,8 @@ enum RivalStrategy {
                            body: "\(reason) Expect offers to your best researchers.")
         case .efficiency:
             Sim.news(&s, "\(name) tightens its belt", "\(reason) It's cutting costs and raising prices.", .competitor)
+            // Cost cuts unsettle people; some leave to start their own thing.
+            if live { s.competitors[i].turmoil += 0.25 }
         case .enterprise:
             Sim.news(&s, "\(name) launches an enterprise push", "\(reason) A bigger sales team and stronger service guarantees.", .competitor)
         case .consumer:
@@ -287,18 +290,18 @@ enum RivalStrategy {
         let c = s.competitors[i]
         switch p {
         case .race:
-            if live && !(x.runway.map { $0 < 9 } ?? false) {
-                s.competitors[i].fundingFactor = min(1.8, c.funding * 1.05)
-                if var proj = c.project, proj.procedural {
-                    proj.cAdjust = min(0.06, proj.cAdjust + 0.012)
-                    s.competitors[i].project = proj
-                }
+            // Racing spends cash faster on compute (RivalEconomy.spendHorizon); a lab with compute to spare also trains
+            // its next model longer. One that's already short of compute can't.
+            if live && !(x.runway.map { $0 < 9 } ?? false), var proj = c.project, proj.procedural,
+               c.runShortfallFor != proj.count || c.runShortfall < 0.01 {
+                proj.cAdjust = min(0.06, proj.cAdjust + 0.012)
+                s.competitors[i].project = proj
             }
         case .priceWar:
             s.competitors[i].priceCut = min(0.45, max(c.priceCut, 0.1) + 0.08)
             s.market.apiPricePressure = max(0.5, s.market.apiPricePressure - 0.01)
         case .efficiency:
-            if live { s.competitors[i].fundingFactor = max(0.6, c.funding * 0.95) }
+            // Spending less on compute comes through its budget (RivalEconomy.spendHorizon).
             s.competitors[i].priceCut = max(-0.15, c.priceCut - 0.04)
         case .consumer:
             s.competitors[i].brand = min(100, c.brand + 1.5)
@@ -356,9 +359,9 @@ enum RivalStrategy {
         // New money dilutes anyone already holding a stake, you included.
         RivalEconomy.dilute(&s, i, amount: amount, post: 0)
         s.competitors[i].rounds.append(RivalRound(date: s.date, label: "Compute alliance", amount: amount, postMoney: 0, lead: giant, kind: .strategic))
+        // The money arrives as cash its budget turns into compute over the next months.
         s.competitors[i].cash += amount
         s.competitors[i].totalRaised += amount
-        s.competitors[i].fundingFactor = min(1.8, c.funding + 0.15)
         s.competitors[i].lastAlliance = s.date
         Sim.news(&s, "\(c.def.name) signs a \(Fmt.money(amount)) alliance with \(giant)", "\(c.playReason) Most of the money comes back as compute.",
                  .finance, image: "stock_exchange", important: true)
@@ -379,6 +382,8 @@ enum RivalStrategy {
         s.competitors[i].raidCooldown = GameCalendar.addMonths(s.date, 12)
         let top = researchers.prefix(3)
         let bonus = top.reduce(0) { $0 + $1.salary } * 0.6
+        RivalLifecycle.record(&s, .raid, lab: rival.id, other: "player", title: "Went after your research team",
+                              body: "Offers to \(top.map(\.name).joined(separator: ", ")). \(rival.playReason)")
         Events.addDecision(&s, kind: "talent_raid", title: "\(rival.def.name) is raiding your research team",
                            body: "\(rival.playReason) \(top.map(\.name).joined(separator: ", ")) have offers with eight-figure packages.",
                            image: "sf_skyline",

@@ -1,152 +1,115 @@
-import Charts
 import SwiftUI
 
-struct CompetitorsView: View {
+/// The Rivals hub's Labs tab: a card per lab in business (click for its profile), the labs that left the market, and
+/// the ones not founded yet.
+struct RivalLabsTab: View {
     @Environment(GameStore.self) private var store
+    let open: (String) -> Void
 
     var body: some View {
         let s = store.game
-        let comps = s.competitors.sorted { ($0.latest?.index ?? -1) > ($1.latest?.index ?? -1) }
-        Page(title: "Competitors", subtitle: "Eight rival labs (fictional, inspired by real archetypes). They release on their own schedules and react when you pull ahead.") {
-            Card {
-                CardHeader("Compute arms race", symbol: "cpu", subtitle: "Estimated H100-equivalents")
-                let rows: [(String, Double, Color)] = comps.filter { $0.computeH100e > 0 }.map { ($0.def.name, $0.computeH100e, Theme.competitorColor($0.def.color)) }
-                    + [(s.companyName, max(0.1, store.derived.h100e), Theme.logoColor(s.logoColor))]
-                let maxV = rows.map(\.1).max() ?? 1
-                VStack(spacing: 7) {
-                    ForEach(rows.sorted { $0.1 > $1.1 }, id: \.0) { r in
-                        HStack(spacing: 10) {
-                            Text(r.0).font(.caption).frame(width: 160, alignment: .leading).lineLimit(1)
-                            GeometryReader { geo in
-                                let frac = clamp(log10(max(r.1, 0.1) * 10) / max(log10(maxV * 10), 1), 0.01, 1)
-                                Capsule().fill(r.2.gradient).frame(width: geo.size.width * frac)
-                            }
-                            .frame(height: 12)
-                            Text(Fmt.count(r.1)).font(.caption.monospacedDigit()).frame(width: 60, alignment: .trailing)
-                        }
-                    }
-                    Text("Log scale").font(.caption2).foregroundStyle(.tertiary)
+        let alive = RivalLifecycle.labsInBusiness(s).sorted { ($0.models.map(\.index).max() ?? -1) > ($1.models.map(\.index).max() ?? -1) }
+        let gone = s.competitors.filter { !$0.exitNote.isEmpty }.sorted { ($0.exitDate ?? .distantPast) > ($1.exitDate ?? .distantPast) }
+        let later = s.competitors.filter { s.year < $0.def.founded.decimal }
+        let watch = store.derived.watch
+        VStack(alignment: .leading, spacing: 18) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 380), spacing: 14)], spacing: 14) {
+                ForEach(alive) { c in
+                    LabCard(comp: c, state: s, next: watch.first { $0.id == c.id }, open: open)
                 }
             }
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 440), spacing: 14)], spacing: 14) {
-                ForEach(comps) { c in CompetitorCard(comp: c, state: s) }
+            if !gone.isEmpty {
+                GoneLabsCard(labs: gone, state: s, open: open)
+            }
+            if !later.isEmpty {
+                Text("Not founded yet: " + later.map { "\($0.def.name) (\($0.def.founded.label))" }.joined(separator: " · "))
+                    .font(.caption).foregroundStyle(.secondary)
             }
         }
     }
 }
 
-private struct CompetitorCard: View {
+/// A lab at a glance; the whole card opens its profile.
+private struct LabCard: View {
     let comp: CompetitorState
     let state: GameState
-    @State private var showAcquire = false
+    let next: RivalIntel.Row?
+    let open: (String) -> Void
 
     var body: some View {
+        Button {
+            open(comp.id)
+        } label: {
+            Card {
+                header
+                stats
+                strategy
+                footer
+            }
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .help("Open \(comp.def.name)'s profile")
+    }
+
+    private var header: some View {
         let d = comp.def
-        let s = state
-        let founded = s.year >= d.founded.decimal
-        let color = Theme.competitorColor(d.color)
-        Card {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: d.symbol).font(.title2.weight(.bold)).foregroundStyle(.white)
-                    .frame(width: 48, height: 48)
-                    .background(LinearGradient(colors: [color, color.opacity(0.6)], startPoint: .topLeading, endPoint: .bottomTrailing), in: .rect(cornerRadius: 12))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(d.name).font(.title3.weight(.bold))
-                    Text("\(d.archetype) · \(d.hq)").font(.caption).foregroundStyle(.secondary)
-                    Text("CEO \(d.ceo) · founded \(d.founded.label)").font(.caption).foregroundStyle(.tertiary)
-                }
-                Spacer()
-                if let m = comp.latest {
-                    VStack(alignment: .trailing, spacing: 0) {
-                        Text(Fmt.score(m.index)).font(.title.weight(.bold).monospacedDigit())
-                        Text(m.name).font(.caption).foregroundStyle(.secondary)
-                    }
+        let best = comp.models.max { $0.index < $1.index }
+        return HStack(alignment: .top, spacing: 12) {
+            CompanyLogo(symbol: d.symbol, color: Theme.competitorColor(d.color), size: 42)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(d.name).font(.title3.weight(.bold)).lineLimit(1)
+                Text(d.archetype).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                HStack(spacing: 5) {
+                    let status = RivalEconomy.status(comp, state)
+                    Pill(text: status, color: RivalsStyle.statusColor(status))
+                    if let spec = comp.spec { Pill(text: spec.kind.label, color: .secondary) }
                 }
             }
-            if !founded {
-                Text("Not founded yet.").font(.callout).foregroundStyle(.secondary)
-            } else {
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 5), alignment: .leading) {
-                    Mini(label: "Valuation", value: comp.valuation > 0 ? Fmt.money(comp.valuation) : "—")
-                    Mini(label: "Compute", value: "\(Fmt.count(comp.computeH100e)) H100e")
-                    Mini(label: "API share", value: Fmt.pct(comp.apiShare))
-                    Mini(label: "Chat share", value: Fmt.pct(comp.consumerShare))
-                    Mini(label: "Agent share", value: Fmt.pct(comp.agentShare))
-                }
-                let trait = Competitors.trait(comp.id)
-                Label("Signature: \(trait.signature)", systemImage: "seal.fill")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(color)
-                if let play = RivalStrategy.play(comp) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Label("Strategy: \(play.title)\(comp.playSince.map { " since \($0.gameMonth)" } ?? "")", systemImage: play.symbol)
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(play.threat >= 2 ? .red : (play.threat == 1 ? .orange : .secondary))
-                        Text("\(comp.playReason) \(play.effect)").font(.caption).foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-                let armed = Xeno.rivalC(s, comp.id, at: s.date)
-                if armed > 0.005 {
-                    Label("Running on your tech: +\(Fmt.trim(armed, 2)) capability from chips and licenses you sold them", systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.orange)
-                }
-                let techs = (s.rivalTech[comp.id] ?? []).compactMap { ResearchCatalog.byID[$0] }.filter { $0.year <= s.year + 1 }
-                if !techs.isEmpty {
-                    HStack(spacing: 6) {
-                        ForEach(techs) { item in
-                            let live = item.year <= s.year + 0.3
-                            Pill(text: "\(item.name)\(live ? "" : " (in development)")", color: live ? .purple : .secondary, symbol: "atom")
-                                .help(item.blurb)
-                        }
-                    }
-                }
-                if comp.priceCut > 0.01 {
-                    Label("Price war: API prices cut \(Fmt.pct(comp.priceCut, decimals: 0))", systemImage: "tag.slash.fill").font(.caption).foregroundStyle(.red)
-                }
-                if comp.models.count > 1 {
-                    Chart(comp.models) { m in
-                        LineMark(x: .value("Date", m.date), y: .value("Index", m.index))
-                            .foregroundStyle(color)
-                            .interpolationMethod(.monotone)
-                        PointMark(x: .value("Date", m.date), y: .value("Index", m.index))
-                            .foregroundStyle(color)
-                            .symbolSize(18)
-                    }
-                    .chartYScale(domain: 0...100)
-                    .frame(height: 110)
-                }
-                HStack(spacing: 6) {
-                    ForEach(comp.models.suffix(4).reversed()) { m in
-                        Pill(text: "\(m.name) · \(m.date.gameMonth)", color: color)
-                    }
-                }
-                if let i = s.competitors.firstIndex(where: { $0.id == comp.id }), let o = RivalIntel.outlook(s, i),
-                   o.center < GameCalendar.addDays(s.date, 150) {
-                    Label("Rumour: \(comp.project?.name ?? "next model") \(RivalIntel.windowText(o)) · forecast index \(Fmt.score(o.index))",
-                          systemImage: "binoculars.fill")
-                        .font(.caption).foregroundStyle(.orange)
-                }
-                if comp.acquired {
-                    Label(s.acquiredLabs.contains(comp.id) ? "Acquired by \(s.companyName)" : "Acquired by a big-tech giant", systemImage: "building.2.crop.circle.fill")
-                        .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                } else {
-                    HStack {
-                        Spacer()
-                        Button("Acquire \(d.name)…") { showAcquire = true }
-                    }
-                }
+            Spacer()
+            VStack(alignment: .trailing, spacing: 0) {
+                Text(best.map { Fmt.score($0.index) } ?? "—").font(.title.weight(.bold).monospacedDigit())
+                Text(best?.name ?? "No model yet").font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
         }
-        .opacity(founded ? (comp.acquired ? 0.7 : 1) : 0.6)
-        .popover(isPresented: $showAcquire) { AcquirePanel(comp: comp, state: s) }
+    }
+
+    private var stats: some View {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), alignment: .leading), count: 4), alignment: .leading, spacing: 8) {
+            LabMini(label: "Valuation", value: comp.valuation > 0 ? Fmt.money(comp.valuation) : "—")
+            LabMini(label: "Revenue / yr", value: Fmt.money(comp.revenueRun))
+            LabMini(label: "Compute", value: "\(Fmt.count(comp.computeH100e)) H100e")
+            LabMini(label: "Staff", value: Fmt.int(comp.headcount))
+        }
+    }
+
+    @ViewBuilder
+    private var strategy: some View {
+        if let play = RivalStrategy.play(comp) {
+            Label(play.title, systemImage: play.symbol)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(play.threat >= 2 ? .red : (play.threat == 1 ? .orange : .secondary))
+            Text(comp.playReason).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+        } else if comp.models.isEmpty {
+            Label("Building its first model, due around \(comp.def.firstModel.label)", systemImage: "hammer.fill")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private var footer: some View {
+        if let n = next {
+            Label("Next: \(n.project.name) · \(RivalIntel.windowText(n.outlook)) · forecast \(Fmt.score(n.outlook.index))", systemImage: "binoculars.fill")
+                .font(.caption)
+                .foregroundStyle(n.threat == .passYou ? .red : .secondary)
+        }
     }
 }
 
-private struct Mini: View {
+struct LabMini: View {
     let label: String
     let value: String
+
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
             Text(value).font(.callout.weight(.semibold).monospacedDigit()).lineLimit(1).minimumScaleFactor(0.7)
@@ -155,8 +118,39 @@ private struct Mini: View {
     }
 }
 
+/// Labs that left the market, and how.
+private struct GoneLabsCard: View {
+    let labs: [CompetitorState]
+    let state: GameState
+    let open: (String) -> Void
+
+    var body: some View {
+        Card {
+            CardHeader("Gone", symbol: "archivebox.fill", subtitle: "Bought, merged, bankrupt or wound down. Their models stay on the record.")
+            ForEach(labs) { c in
+                Button {
+                    open(c.id)
+                } label: {
+                    HStack(spacing: 10) {
+                        CompanyLogo(symbol: c.def.symbol, color: Theme.competitorColor(c.def.color).opacity(0.6), size: 24)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(c.def.name).font(.callout.weight(.semibold))
+                            Text(c.exitNote).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                        Spacer()
+                        let status = RivalEconomy.status(c, state)
+                        Pill(text: status, color: RivalsStyle.statusColor(status))
+                    }
+                    .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+}
+
 /// Price, payment mix, antitrust risk and what you'd get for buying a rival.
-private struct AcquirePanel: View {
+struct AcquirePanel: View {
     @Environment(GameStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     let comp: CompetitorState
