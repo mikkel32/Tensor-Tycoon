@@ -53,7 +53,7 @@ enum Board {
         case .rank:
             let board = Leaderboard.entries(s, includeUnreleased: false)
             guard let me = board.filter(\.isPlayer).max(by: { $0.index < $1.index }) else { return 99 }
-            return Double(board.filter { !$0.isPlayer && $0.index > me.index }.count + 1)
+            return Double(Leaderboard.labRank(index: me.index, board: board, gone: Leaderboard.goneLabs(s)))
         case .users: return s.consumerUsers
         case .valuation: return s.valuation
         case .profit: return s.history.last?.profit ?? -1
@@ -140,17 +140,18 @@ enum Board {
             detail = "Investors want proof of a business. API, chat, agents, enterprise, chips and labor all count."
             points = 2
         case .index:
-            guard !s.models.isEmpty else { return nil }
+            // Near the top of the index a few more points may not exist: ask for something else.
+            guard !s.models.isEmpty, now < 85 else { return nil }
             target = min(99, now + s.rng.range(4, 9))
             months = 12
             title = "Release a model scoring \(Fmt.score(target)) on the Intelligence Index"
             detail = "The board wants you closer to the frontier."
         case .rank:
             guard !s.releasedModels.isEmpty, now > 3 else { return nil }
-            target = now > 10 ? 10 : 3
+            target = now > 5 ? 5 : 3
             months = 15
-            title = target <= 3 ? "Hold a top-3 model on the leaderboard" : "Break into the top 10"
-            detail = "Rank among released models from every lab."
+            title = target <= 3 ? "Be a top-3 lab on the leaderboard" : "Break into the top 5 labs"
+            detail = "Rank among labs, by each lab's best released model."
             points = 2
         case .users:
             guard s.chatModelID != nil, now > 10_000 else { return nil }

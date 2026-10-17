@@ -101,7 +101,9 @@ extension BalanceHarness {
         var m = s.models[i]
         m.id = UUID()
         m.name = "Probe-2"
-        m.c += 0.5
+        // Clearly ahead of every lab's next model (rivals' skills grow after 2025, so beat their capability by a margin).
+        let rivalBest = s.competitors.indices.map { Competitors.plannedC(s, compIndex: $0, date: s.date) }.max() ?? m.c
+        m.c = max(m.c, rivalBest) + 1.2
         m.released = false
         m.index = BenchmarkCatalog.index(Leaderboard.profile(m), set: Leaderboard.indexSet(s))
         s.models.append(m)

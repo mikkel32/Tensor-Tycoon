@@ -299,6 +299,7 @@ enum PTPlay {
         sum.importantAvg = rows.isEmpty ? 0 : Double(rows.reduce(0) { $0 + $1.important }) / Double(rows.count)
 
         if mode != "quiet" { printGame(rows, sum, bot, s, mode: mode) }
+        lastState = s
         return sum
     }
 
@@ -506,6 +507,8 @@ enum PTPlay {
 
     /// Money a sensible player would put into the next run: 40% of cash, keeping six months of net burn in reserve.
     static var cautiousFlag = false
+    /// The final state of the last game played (for probes).
+    static var lastState: GameState?
 
     static func trainingBudget(_ s: GameState) -> Double {
         let rr = Economy.runRate(s)

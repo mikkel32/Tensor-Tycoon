@@ -18,6 +18,8 @@ struct Derived {
     var board: [Leaderboard.Entry] = []
     var entryByID: [String: Leaderboard.Entry] = [:]
     var rankByID: [String: Int] = [:]
+    /// Labs out of the race (acquired or bankrupt): they don't rank.
+    var gone: Set<String> = []
     var snapshot = MarketSnapshot()
     var runRate = 0.0
     var h100e = 0.0
@@ -36,6 +38,7 @@ struct Derived {
         benchmarks = s.benchmarks
         indexSet = BenchmarkCatalog.indexSet(benchmarks, date: s.date, saturated: s.benchSaturated)
         board = Leaderboard.entries(s, set: indexSet)
+        gone = Leaderboard.goneLabs(s)
         for (i, e) in board.enumerated() {
             entryByID[e.id] = e
             rankByID[e.id] = i + 1
@@ -52,7 +55,7 @@ struct Derived {
     func free(_ accelID: String) -> Int { poolByID[accelID]?.free ?? 0 }
     func rank(_ id: UUID) -> Int {
         guard let me = entryByID[id.uuidString] else { return board.count + 1 }
-        return board.filter { !$0.isPlayer && $0.released && $0.index > me.index }.count + 1
+        return Leaderboard.labRank(index: me.index, board: board, gone: gone)
     }
     func entry(_ id: UUID) -> Leaderboard.Entry? { entryByID[id.uuidString] }
 }

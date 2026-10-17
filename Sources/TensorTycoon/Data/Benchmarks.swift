@@ -47,6 +47,26 @@ enum BenchKind: String, Codable, Sendable, CaseIterable {
         default: true
         }
     }
+
+    /// The effective capability (log10 compute units) this kind of benchmark tests, or nil if the model can't attempt it.
+    func x(_ p: ModelProfile) -> Double? {
+        switch self {
+        case .knowledge: return p.c
+        case .reasoning, .science: return p.c + p.reasoning
+        case .math: return p.c + p.reasoning * 1.1
+        case .code: return p.c + p.code + 0.6 * p.reasoning
+        case .agentic: return p.agenticX
+        case .multimodal: return p.vision ? p.c + 0.2 * p.reasoning + p.vis : nil
+        case .longContext:
+            let bonus = p.contextK >= 1000 ? 0.5 : (p.contextK >= 128 ? 0.0 : (p.contextK >= 32 ? -1.0 : -3.0))
+            return p.c + bonus + p.longctx
+        case .instruction: return p.c + p.chat
+        case .multilingual: return p.c + 0.3 * p.reasoning + p.lang
+        case .safety: return 0.35 * p.c + p.safety / 12 + 0.3 * p.chat
+        case .dangerous: return p.c + 0.6 * p.reasoning + 0.3 * p.code + 0.3 * p.agent
+        case .speech: return p.audio ? p.c + 0.3 * p.reasoning + 0.5 * p.chat : nil
+        }
+    }
 }
 
 /// What a model brings to a benchmark. Everything is in "effective capability" units (log10 compute),
@@ -88,33 +108,29 @@ struct Benchmark: Identifiable, Codable, Hashable, Sendable {
     var human: String
     var generated: Bool = false
     var unit: String = "%"
+    /// Only on an Intelligence Index slot while this benchmark phases in (never in the catalogue or a save).
+    var blend: IndexBlend? = nil
 
     static func ordinal(_ n: Int) -> String {
         let suffix = (11...13).contains(n % 100) ? "th" : (n % 10 == 1 ? "st" : n % 10 == 2 ? "nd" : n % 10 == 3 ? "rd" : "th")
         return "\(n)\(suffix)"
     }
 
-    func x(_ p: ModelProfile) -> Double? {
-        switch kind {
-        case .knowledge: return p.c
-        case .reasoning, .science: return p.c + p.reasoning
-        case .math: return p.c + p.reasoning * 1.1
-        case .code: return p.c + p.code + 0.6 * p.reasoning
-        case .agentic: return p.agenticX
-        case .multimodal: return p.vision ? p.c + 0.2 * p.reasoning + p.vis : nil
-        case .longContext:
-            let bonus = p.contextK >= 1000 ? 0.5 : (p.contextK >= 128 ? 0.0 : (p.contextK >= 32 ? -1.0 : -3.0))
-            return p.c + bonus + p.longctx
-        case .instruction: return p.c + p.chat
-        case .multilingual: return p.c + 0.3 * p.reasoning + p.lang
-        case .safety: return 0.35 * p.c + p.safety / 12 + 0.3 * p.chat
-        case .dangerous: return p.c + 0.6 * p.reasoning + 0.3 * p.code + 0.3 * p.agent
-        case .speech: return p.audio ? p.c + 0.3 * p.reasoning + 0.5 * p.chat : nil
-        }
+    func x(_ p: ModelProfile) -> Double? { kind.x(p) }
+
+    /// The score as it counts toward the Intelligence Index. The same as `ownScore`, except on an index slot whose
+    /// benchmark is still phasing in: there it is blended with what the slot measured before, so the index glides
+    /// instead of jumping when its set changes. Anything that averages an index set over `score` stays consistent.
+    func score(_ p: ModelProfile, noise: Bool = true) -> Double {
+        let own = ownScore(p, noise: noise)
+        guard let bl = blend, bl.t < 1 else { return own }
+        var before = 0.0
+        for (b, w) in zip(bl.from, bl.weights) { before += w * b.ownScore(p, noise: noise) }
+        return ((before + (own - before) * max(0, bl.t)) * 10).rounded() / 10
     }
 
-    /// Deterministic score: same model + benchmark always gives the same number.
-    func score(_ p: ModelProfile, noise: Bool = true) -> Double {
+    /// This benchmark's own score. Deterministic: same model + benchmark always gives the same number.
+    func ownScore(_ p: ModelProfile, noise: Bool = true) -> Double {
         guard let x = x(p) else { return floor }
         var s = floor + (ceiling - floor) * sigmoid((x - mid) / scale)
         if noise {
@@ -138,6 +154,17 @@ struct Benchmark: Identifiable, Codable, Hashable, Sendable {
         default: "\(Fmt.score(v)) \(unit)"
         }
     }
+}
+
+/// How far a benchmark has phased into its Intelligence Index slot.
+struct IndexBlend: Codable, Hashable, Sendable {
+    /// What the slot measured before: the benchmark it replaced, or (when the index grew) a snapshot of the whole set.
+    var from: [Benchmark]
+    var weights: [Double]
+    /// Share of the incoming benchmark, 0 → 1.
+    var t: Double
+    /// When it counts fully.
+    var full: Date
 }
 
 struct BenchFamily: Sendable {
@@ -551,7 +578,8 @@ enum BenchmarkCatalog {
     static func resetCache() { cache.removeAll(keepingCapacity: true) }
 
     static func cachedScore(_ b: Benchmark, _ p: ModelProfile) -> Double {
-        let key = "\(p.key)|\(b.id)|\(b.generated ? "g" : "r")"
+        var key = "\(p.key)|\(b.id)|\(b.generated ? "g" : "r")"
+        if let bl = b.blend { key += "|\(Int((bl.t * 1000).rounded()))<\(bl.from.map(\.id).joined(separator: "+"))" }
         if let v = cache[key] { return v }
         let v = b.score(p)
         if cache.count > 200_000 { cache.removeAll(keepingCapacity: true) }
@@ -573,29 +601,227 @@ enum BenchmarkCatalog {
 
     static func arenaElo(c: Double, bonus: Double) -> Double { 760 + 90 * c + bonus }
 
-    static let indexSize = 10
+    // MARK: The Intelligence Index set
 
-    /// Like Artificial Analysis: a spread of live text benchmarks, from the hardest frontier test down to
-    /// ones close to saturation. Brand-new benchmarks join after a 4-month grace period.
+    static let indexSize = 10
+    /// A new benchmark counts toward the index only once it has been out this long (early results settle).
+    static let indexGraceMonths = 4
+    /// A benchmark joining the index phases in over this many days, while what its slot measured before phases out.
+    static let indexBlendDays = 56.0
+    /// At most one slot starts rotating this often, so benchmarks that saturate together (one big release can push several
+    /// over the line) leave one by one and a fixed model's index drifts down gently rather than in a cliff.
+    static let indexRotationDays = 28.0
+    /// Unsaturated text benchmarks (out, or launching within a quarter) to keep around for the index to rotate through.
+    static let minLiveBenchmarks = 12
+
+    /// The Intelligence Index set on `date`: ten slots that persist. A slot changes only when its benchmark saturates and a
+    /// settled, unsaturated replacement exists (until then the saturated one stays, so the set is never empty), slots rotate
+    /// one at a time, and the newcomer phases in over eight weeks (see `Benchmark.score`), so the index glides instead of
+    /// jumping.
+    /// Like the scores themselves this is a pure function of the catalogue, the date and the saturation history (replayed
+    /// week by week from 2016, and cached), so old saves, the engine and every view always agree on it.
     static func indexSet(_ all: [Benchmark], date: Date, saturated: [String: Date]) -> [Benchmark] {
-        let cutoff = GameCalendar.addMonths(date, -4).ym
-        var live = all.filter { $0.isActive(date, saturated: saturated) && $0.kind.inIndex }
-        let settled = live.filter { $0.introduced <= cutoff }
-        if settled.count >= indexSize { live = settled }
-        live.sort { $0.mid > $1.mid }
-        guard live.count > indexSize else { return live }
-        // Evenly sample by difficulty so the index stays informative across the whole range.
-        var out: [Benchmark] = []
-        for i in 0..<indexSize {
-            let j = Int((Double(i) * Double(live.count - 1) / Double(indexSize - 1)).rounded())
-            if !out.contains(where: { $0.id == live[j].id }) { out.append(live[j]) }
+        indexReplay(all, date: date, saturated: saturated).slots
+            .map { $0.benchmark(on: date) }
+            .sorted { $0.mid != $1.mid ? $0.mid > $1.mid : $0.id < $1.id }
+    }
+
+    /// One place in the index: the benchmark in it, and what the slot measured before while the newcomer phases in.
+    struct IndexSlot: Sendable {
+        var bench: Benchmark
+        var joined: Date
+        var from: [Benchmark] = []
+        var weights: [Double] = []
+
+        func progress(_ date: Date) -> Double {
+            from.isEmpty ? 1 : clamp(date.timeIntervalSince(joined) / (BenchmarkCatalog.indexBlendDays * 86_400), 0, 1)
         }
-        return out
+
+        func benchmark(on date: Date) -> Benchmark {
+            let t = progress(date)
+            guard t < 1 else { return bench }
+            var b = bench
+            b.name = "\(bench.name) (phasing in)"
+            b.blend = IndexBlend(from: from, weights: weights, t: t,
+                                 full: joined.addingTimeInterval(BenchmarkCatalog.indexBlendDays * 86_400))
+            return b
+        }
+    }
+
+    private struct ReplayKey: Equatable {
+        var count = 0
+        var saturatedCount = 0
+        var saturatedSum = 0.0
+        var generatedSum = 0.0
+
+        init(_ all: [Benchmark], _ saturated: [String: Date]) {
+            count = all.count
+            saturatedCount = saturated.count
+            for d in saturated.values { saturatedSum += d.timeIntervalSinceReferenceDate }
+            for b in all where b.generated { generatedSum += b.mid + Double(b.introduced.year * 12 + b.introduced.month) }
+        }
+    }
+
+    private struct Replay {
+        var key: ReplayKey
+        var step: Int
+        var slots: [IndexSlot]
+        var lastRotation = Date.distantPast
+    }
+
+    /// The text benchmarks the index can use, with the dates that matter to it.
+    private struct ReplayPool {
+        var benches: [Benchmark] = []
+        var intro: [Date] = []
+        var settled: [Date] = []
+        var saturatedOn: [Date?] = []
+        var saturated: [String: Date] = [:]
+
+        init(_ all: [Benchmark], _ saturated: [String: Date]) {
+            self.saturated = saturated
+            for b in all where b.kind.inIndex {
+                benches.append(b)
+                intro.append(b.introduced.date)
+                settled.append(b.introduced.adding(months: BenchmarkCatalog.indexGraceMonths).date)
+                saturatedOn.append(saturated[b.id])
+            }
+        }
+
+        func isSaturated(_ id: String, on e: Date) -> Bool { saturated[id].map { $0 <= e } ?? false }
+    }
+
+    nonisolated(unsafe) private static var replays: [Replay] = []
+    private static let replayEpoch = GameCalendar.date(2016, 6, 1)
+    private static let replayStep: TimeInterval = 7 * 86_400
+
+    private static func indexReplay(_ all: [Benchmark], date: Date, saturated: [String: Date]) -> Replay {
+        let key = ReplayKey(all, saturated)
+        let target = max(0, Int((date.timeIntervalSince(replayEpoch) / replayStep).rounded(.down)))
+        // Resume the furthest cached replay of this same history that hasn't gone past `date`.
+        var r = replays.filter { $0.key == key && $0.step <= target }.max { $0.step < $1.step } ?? Replay(key: key, step: -1, slots: [])
+        guard r.step < target else { return r }
+        let pool = ReplayPool(all, saturated)
+        for k in (r.step + 1)...target {
+            advance(&r.slots, &r.lastRotation, pool, at: replayEpoch.addingTimeInterval(Double(k) * replayStep))
+        }
+        r.step = target
+        replays.removeAll { $0.key != key }
+        replays.append(r)
+        if replays.count > 8 { replays.removeFirst(replays.count - 8) }
+        return r
+    }
+
+    /// One week of index history: rotate out the longest-saturated benchmark if a successor is ready (one at a time), then
+    /// grow to full size.
+    private static func advance(_ slots: inout [IndexSlot], _ lastRotation: inout Date, _ pool: ReplayPool, at e: Date) {
+        if e.timeIntervalSince(lastRotation) >= indexRotationDays * 86_400 {
+            let due = slots.indices.filter { pool.isSaturated(slots[$0].bench.id, on: e) && slots[$0].progress(e) >= 1 }
+            let oldest = due.min {
+                (pool.saturated[slots[$0].bench.id] ?? .distantPast, slots[$0].bench.id) < (pool.saturated[slots[$1].bench.id] ?? .distantPast, slots[$1].bench.id)
+            }
+            if let i = oldest, let next = pick(slots, pool, at: e, settledOnly: true) {
+                slots[i] = IndexSlot(bench: next, joined: e, from: [slots[i].bench], weights: [1])
+                lastRotation = e
+            }
+        }
+        let wasEmpty = slots.isEmpty
+        while slots.count < indexSize,
+              let next = pick(slots, pool, at: e, settledOnly: true) ?? pick(slots, pool, at: e, settledOnly: false) {
+            // A slot added to a running index starts out as the index itself, so adding it moves nobody's score.
+            let (from, weights) = wasEmpty ? ([], []) : snapshot(slots, at: e)
+            slots.append(IndexSlot(bench: next, joined: e, from: from, weights: weights))
+        }
+    }
+
+    /// The live benchmark that fills the widest gap in the set's spread of difficulty, preferring kinds of skill the set is
+    /// short of. Live benchmarks are ranked by difficulty, so the set keeps reaching from the hardest test down to nearly
+    /// saturated ones. Saturation and new benchmarks both follow the field, so a frontier model keeps scoring about half.
+    private static func pick(_ slots: [IndexSlot], _ pool: ReplayPool, at e: Date, settledOnly: Bool) -> Benchmark? {
+        let members = Set(slots.map(\.bench.id))
+        var live: [Int] = []
+        for i in pool.benches.indices where pool.intro[i] <= e && (!settledOnly || pool.settled[i] <= e || members.contains(pool.benches[i].id)) {
+            if let d = pool.saturatedOn[i], d <= e { continue }
+            live.append(i)
+        }
+        live.sort { pool.benches[$0].mid != pool.benches[$1].mid ? pool.benches[$0].mid < pool.benches[$1].mid : pool.benches[$0].id < pool.benches[$1].id }
+        var taken: [Int] = []
+        for (pos, i) in live.enumerated() where members.contains(pool.benches[i].id) { taken.append(pos) }
+        var kinds: [BenchKind: Int] = [:]
+        for sl in slots where !pool.isSaturated(sl.bench.id, on: e) { kinds[sl.bench.kind, default: 0] += 1 }
+        let kindPenalty = max(1, Double(live.count) / 20)
+        var best: (score: Double, pos: Int)? = nil
+        for (pos, i) in live.enumerated() where !members.contains(pool.benches[i].id) {
+            let below = taken.last { $0 < pos }
+            let above = taken.first { $0 > pos }
+            let room: Int
+            switch (below, above) {
+            case let (b?, a?): room = min(pos - b, a - pos)
+            case let (b?, nil): room = pos - b
+            case let (nil, a?): room = a - pos
+            case (nil, nil): room = live.count
+            }
+            let score = Double(room) - kindPenalty * Double(kinds[pool.benches[i].kind] ?? 0)
+            if let cur = best, score < cur.score - 1e-9 { continue }   // ties go to the harder benchmark
+            best = (score, pos)
+        }
+        return best.map { pool.benches[live[$0.pos]] }
+    }
+
+    /// The current set as a weighted mix of pure benchmarks: what a newly added slot starts out measuring.
+    private static func snapshot(_ slots: [IndexSlot], at e: Date) -> ([Benchmark], [Double]) {
+        var order: [String] = []
+        var parts: [String: (Benchmark, Double)] = [:]
+        func add(_ b: Benchmark, _ w: Double) {
+            guard w > 0 else { return }
+            if let p = parts[b.id] { parts[b.id] = (p.0, p.1 + w) } else { parts[b.id] = (b, w); order.append(b.id) }
+        }
+        let n = Double(max(1, slots.count))
+        for sl in slots {
+            let t = sl.progress(e)
+            for (b, w) in zip(sl.from, sl.weights) { add(b, w * (1 - t) / n) }
+            add(sl.bench, t / n)
+        }
+        return (order.map { parts[$0]!.0 }, order.map { parts[$0]!.1 })
     }
 
     static func index(_ p: ModelProfile, set: [Benchmark]) -> Double {
         guard !set.isEmpty else { return 0 }
         return set.reduce(0) { $0 + cachedScore($1, p) } / Double(set.count)
+    }
+
+    // MARK: Capability (a fixed yardstick)
+
+    /// Ability on the eight kinds of text skill the index covers, in log10 effective-compute units (the same x the
+    /// benchmark curves use), weighted equally whatever today's index happens to contain. Benchmark tuning doesn't count.
+    static func ability(_ p: ModelProfile) -> Double {
+        var sum = 0.0, n = 0
+        for k in indexKinds {
+            if let x = k.x(p) { sum += x; n += 1 }
+        }
+        return n == 0 ? p.c : sum / Double(n)
+    }
+
+    private static let indexKinds = BenchKind.allCases.filter(\.inIndex)
+
+    /// GPT-4 (March 2023) as the game models it: the anchor of the capability scale.
+    static let capabilityAnchor = ModelProfile(key: "anchor-gpt4", c: 5.04, reasoning: 0.1, code: 0, agent: 0, vision: true, contextK: 32,
+                                               tuning: 0, chat: 0.8, safety: 55, lang: 0.15)
+    private static let anchorAbility = ability(capabilityAnchor)
+
+    /// Capability on a fixed scale: GPT-4 = 100, and every +10 is ten times the effective compute. Unlike the Intelligence
+    /// Index it never re-bases or saturates, so the same model reads the same in 2019 and in 2035.
+    static func capability(_ p: ModelProfile) -> Double { 100 + 10 * (ability(p) - anchorAbility) }
+
+    /// How many times the effective compute a capability gap is worth (+10 = ×10).
+    static func computeMultiple(capabilityGap g: Double) -> Double { pow(10, g / 10) }
+
+    static func formatMultiple(_ m: Double) -> String {
+        switch m {
+        case ..<1.95: return "\(Fmt.trim(m, 1))×"
+        case ..<20: return "\(Int(m.rounded()))×"
+        case ..<1000: return "\(Int((m / 10).rounded()) * 10)×"
+        default: return "\(Fmt.count(m, decimals: 0))×"
+        }
     }
 
     /// METR-style 50% task horizon in minutes (GPT-4 ≈ 5 min, late-2025 frontier ≈ 3–5 h).
@@ -616,15 +842,20 @@ enum BenchmarkCatalog {
 
     // MARK: Successors
 
-    static func makeSuccessor(of sat: Benchmark, family members: [Benchmark], worldBestX: Double, date: Date) -> Benchmark? {
-        guard let fam = families[sat.family], fam.regenerates else { return nil }
+    /// A harder successor, pitched at the field (the best rival model, or the world frontier if rivals lag it) rather than
+    /// at whoever leads: the field starts around 10%, so one runaway lab can't make every new test impossible for the rest.
+    /// `force` commissions one even for a family that doesn't usually regenerate (when the live pool runs dry).
+    static func makeSuccessor(of sat: Benchmark, family members: [Benchmark], fieldX: Double, date: Date, force: Bool = false) -> Benchmark? {
+        guard let fam = families[sat.family], fam.regenerates || force else { return nil }
         let n = members.count + 1
         let last = members.max { $0.mid < $1.mid } ?? sat
-        let mid = max(worldBestX + 1.05, last.mid + 0.7)
+        // Sharper than a sprawling predecessor (BALROG, LongBench…), so it lasts years rather than decades.
+        let scale = clamp(last.scale, 0.4, 1.0)
+        let mid = max(fieldX + 2.2 * scale, last.mid + 0.7)
         let intro = GameCalendar.addDays(date, 45)
         let name = fam.successor(n)
         return Benchmark(id: "gen_\(sat.family)_\(n)", name: name, family: sat.family, kind: sat.kind, introduced: intro.ym,
-                         floor: 0, ceiling: 100, mid: mid, scale: max(0.4, last.scale), saturation: 90,
+                         floor: 0, ceiling: 100, mid: mid, scale: scale, saturation: 90,
                          about: "Built after \(sat.name) saturated: harder, longer and contamination-proof \(fam.name.lowercased()) tasks.",
                          human: "—", generated: true, unit: sat.unit)
     }

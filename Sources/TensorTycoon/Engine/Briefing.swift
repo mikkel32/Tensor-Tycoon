@@ -38,8 +38,7 @@ enum Briefing {
         let board = Leaderboard.entries(s, includeUnreleased: false)
         if let me = board.filter(\.isPlayer).max(by: { $0.index < $1.index }) {
             // Rank among labs, not models: one lab's back catalogue shouldn't push you down.
-            let gone = Set(s.competitors.filter { $0.acquired || $0.bankrupt }.map(\.id))
-            r.rank = Set(board.filter { !$0.isPlayer && !gone.contains($0.labID) && $0.index > me.index }.map(\.labID)).count + 1
+            r.rank = Leaderboard.labRank(index: me.index, board: board, gone: Leaderboard.goneLabs(s))
             r.myIndex = me.index
         }
         let api = live.filter { $0.api && $0.demandTokensDay > 0 }

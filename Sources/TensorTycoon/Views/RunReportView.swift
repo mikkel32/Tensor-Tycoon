@@ -28,7 +28,7 @@ struct RunReportSheet: View {
         let index = profile.map { BenchmarkCatalog.index($0, set: d.indexSet) } ?? 0
         let released = d.board.filter(\.released)
         let rivals = released.filter { !$0.isPlayer }
-        let rank = rivals.filter { $0.index > index }.count + 1
+        let rank = Leaderboard.labRank(index: index, board: released, gone: d.gone)
         let top = rivals.max { $0.index < $1.index }
         let prevBest = s.models.filter { $0.id != model?.id }.map(\.index).max() ?? 0
         let days = max(1, GameCalendar.daysBetween(run.started, run.finished ?? s.date))

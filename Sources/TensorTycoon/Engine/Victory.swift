@@ -105,7 +105,7 @@ enum Victory {
         s.monthsAtTop = top?.isPlayer == true ? s.monthsAtTop + 1 : 0
         s.apiShareNow = Market.snapshot(s).api.filter(\.isPlayer).reduce(0) { $0 + $1.share }
         let myBest = board.filter(\.isPlayer).max { $0.index < $1.index }
-        let rank = myBest.map { me in board.filter { !$0.isPlayer && $0.index > me.index }.count + 1 } ?? 99
+        let rank = myBest.map { Leaderboard.labRank(index: $0.index, board: board, gone: Leaderboard.goneLabs(s)) } ?? 99
         s.monthsGuardian = (s.safetyScore >= 95 && rank <= 3) ? s.monthsGuardian + 1 : 0
 
         for v in VictoryPath.allCases where !s.victories.contains(v.rawValue) && achieved(v, s) {

@@ -70,7 +70,8 @@ private struct ModelCard: View {
                 Spacer()
                 VStack(alignment: .trailing, spacing: 0) {
                     Text(Fmt.score(entry?.index ?? BenchmarkCatalog.index(p, set: d.indexSet))).font(.system(size: 34, weight: .bold).monospacedDigit())
-                    Text("Index · #\(rank) worldwide").font(.caption).foregroundStyle(.secondary)
+                    Text("Index · #\(rank) lab worldwide").font(.caption).foregroundStyle(.secondary)
+                    Text("Capability \(Int(BenchmarkCatalog.capability(p).rounded())) (GPT-4 = 100)").font(.caption).foregroundStyle(.secondary)
                     Text("Task horizon \(BenchmarkCatalog.formatHorizon(BenchmarkCatalog.taskHorizonMinutes(p)))").font(.caption2).foregroundStyle(.secondary)
                 }
             }
