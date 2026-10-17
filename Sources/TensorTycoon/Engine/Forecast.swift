@@ -285,6 +285,17 @@ enum ForecastEngine {
         case .stem: reasoning += 0.08; code += 0.02
         default: break
         }
+        // Mid-training mix shift for the second half (chosen in the Model Lab; needs the data curriculum).
+        let shift = b.has(.curriculum) && d.mode != .finetune ? d.mixShift : .keep
+        switch shift {
+        case .code: code += 0.06
+        case .stem: reasoning += 0.06
+        case .keep, .multilingual: break
+        }
+        if shift != .keep {
+            drivers.append(ForecastDriver(name: "Mid-training: \(shift.rawValue.lowercased())", value: shift == .multilingual ? 0.18 : 0.06, kind: .skill,
+                                          detail: shift.detail))
+        }
         if d.reasoning && b.has(.reasoning) {
             let level = d.effectiveRL
             let scale = log2(1 + level.share / 0.01) / log2(1 + 0.05 / 0.01)
@@ -314,12 +325,14 @@ enum ForecastEngine {
         }
         chat += dataArena / 90
         if d.dataMix == .conversational { chat += 0.1 }
+        if shift == .code { chat -= 0.03 }
         if d.rlhf && !dataSources.contains("human_feedback") {
             chat -= 0.2
             f.penalties.append("RLHF without a human-preference data vendor is weak (Training Data page)")
         }
         var lang = 0.05 + b.skill(.lang)
         if d.dataMix == .multilingual { lang += 0.3 }
+        if shift == .multilingual { lang += 0.18 }
         var longctx = b.skill(.longctx)
         if d.mixer == .hybrid { longctx += 0.1 }
         let vis = d.vision ? b.skill(.vis) : 0
