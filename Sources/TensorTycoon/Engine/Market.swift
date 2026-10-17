@@ -131,7 +131,7 @@ enum Market {
             let ref = Macro.referencePrice(c: p.c, y: y) * s.market.apiPricePressure
             p.attraction = attraction(c: p.c, price: p.price, refPrice: ref, tps: p.tps, brand: p.brand, frontier: frontier, elasticity: 1.4,
                                       floor: p.isPlayer ? priceFloorFactor : 0)
-            if p.isPlayer { p.attraction *= (1 + b.apiDemand) * s.reliability * max(0.3, 1 + s.traits.api) }
+            if p.isPlayer { p.attraction *= (1 + b.apiDemand) * s.reliability * max(0.3, 1 + s.traits.api) * Stakeholders.demandFactor(s, .api) }
             if p.open { p.attraction *= 1.15 }
             snap.api[i] = p
             totalA += p.attraction
@@ -154,7 +154,7 @@ enum Market {
             // pay (paidConversion), not how many use it.
             p.attraction = attraction(c: p.c, price: p.price, refPrice: 20, tps: p.tps, brand: p.brand, frontier: frontier, elasticity: 0)
             if p.isPlayer && !s.freeTier { p.attraction *= 0.3 }
-            if p.isPlayer { p.attraction *= max(0.3, 1 + s.traits.consumer) }
+            if p.isPlayer { p.attraction *= max(0.3, 1 + s.traits.consumer) * Stakeholders.demandFactor(s, .consumer) }
             snap.consumer[i] = p
             totalC += p.attraction
         }
@@ -170,7 +170,7 @@ enum Market {
             // (agentWTP), rivals' fixed list prices against a frontier agent's worth (their skill is in `quality`).
             let worth = p.isPlayer ? agentWTP(x: p.c, y: y) : frontierSeat
             p.attraction = quality * wtpDemand(p.price / worth) * pow(max(p.tps, 1) / 60, 0.2) * pow(max(p.brand, 3) / 50, 0.6)
-            if p.isPlayer { p.attraction *= s.reliability * max(0.3, 1 + s.traits.agentSeats) }
+            if p.isPlayer { p.attraction *= s.reliability * max(0.3, 1 + s.traits.agentSeats) * Stakeholders.demandFactor(s, .agents) }
             snap.agents[i] = p
             totalG += p.attraction
         }

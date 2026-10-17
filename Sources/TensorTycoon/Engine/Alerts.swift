@@ -7,6 +7,7 @@ enum AlertKind: String, Codable, CaseIterable, Identifiable, Sendable {
     case cashNegative, bankruptcySoon, termSheet, offerExpiring, runPaused, rivalPassed, rivalLaunch
     case boardGoalDue, billVote, slaBreach, overCapacity, swarmAlignment, priceWar, rentalExpiring
     case inbox, milestone, briefing
+    case world   // 3.4: world and stakeholders
 
     var id: String { rawValue }
 
@@ -29,6 +30,7 @@ enum AlertKind: String, Codable, CaseIterable, Identifiable, Sendable {
         case .inbox: "A new offer lands in your inbox"
         case .milestone: "Milestones and achievements"
         case .briefing: "The monthly briefing is ready"
+        case .world: "The world reacts: protests, regulators, grid emergencies"
         }
     }
 
@@ -48,6 +50,7 @@ enum AlertKind: String, Codable, CaseIterable, Identifiable, Sendable {
         case .inbox: "tray.full.fill"
         case .milestone: "star.circle.fill"
         case .briefing: "doc.text.fill"
+        case .world: "globe.americas.fill"
         }
     }
 
@@ -178,6 +181,7 @@ enum Alerts {
     static let inboxDefaults: [String: Int] = [
         "rival_round": 2, "partner_offer": 2, "policy_bill": 2, "sovereign_deal": 1, "exclusive_supply": 1,
         "spinoff": 2, "poach": 1, "merger_offer": 1, "defense": 1, "moonshot": 2, "fire_sale": 1,
+        "world_summons": 1, "world_inquiry": 1, "world_partnership": 1,   // 3.4: world and stakeholders
     ]
 
     static func isUrgent(_ d: Decision) -> Bool { inboxDefaults[d.kind] == nil }

@@ -1143,6 +1143,11 @@ struct GameState: Codable {
     /// Keys the lifecycle's hashed rolls to this game (set once, from the RNG's state, without drawing from it).
     @D var lifecycleSalt: String = ""
 
+    // 3.4: world and stakeholders
+    /// The world outside the labs (AI adoption, jobs, public mood, energy, regulation by region) and your standing with
+    /// the public, researchers, developers and governments, with why each moved (World, Stakeholders, Consequences).
+    @D var world: WorldState = WorldState()
+
     var totalShares: Double {
         founderShares + employeePoolShares + publicShares + holdings.reduce(0) { $0 + $1.shares }
     }

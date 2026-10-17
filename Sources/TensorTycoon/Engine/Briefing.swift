@@ -217,6 +217,8 @@ enum Briefing {
         if waiting > 0 {
             risks.append(BriefingLine(text: "\(waiting) offer\(waiting == 1 ? "" : "s") waiting in your inbox.", good: nil, screen: Screen.dashboard.rawValue))
         }
+        // 3.4: world and stakeholders — at most two lines, only when something moved a lot.
+        for line in World.briefingLines(s) { if line.good == true { drivers.append(line) } else { risks.insert(line, at: min(1, risks.count)) } }
 
         // What to do: the Chief of Staff's top fixes.
         let actions = Advisor.items(s, pools: Economy.pools(s), set: set)

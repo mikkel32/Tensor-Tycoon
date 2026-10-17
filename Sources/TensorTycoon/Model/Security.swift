@@ -163,6 +163,12 @@ enum PolicyCatalog {
              summary: "Labs must be able to halt any deployed model within an hour and report loss-of-control incidents within 24 hours, following California's Sep 2026 kill-switch order.",
              basePass: 0.4, ifPasses: "A one-time $50M kill-switch build for frontier labs; escaped models and swarms are contained 25% more often.", ifFails: "Shutdown stays voluntary.",
              popularity: 0.6, safetyBill: true, earliest: 2026.7),
+        // 3.4: world and stakeholders — only introduced when AI job losses pass a threshold (Consequences), never at random.
+        Bill(id: "robot_tax", title: "Automation Dividend Act",
+             summary: "A \"robot tax\": a levy on revenue from AI agents and automated labour, paid into retraining and a monthly dividend, after protests over AI job losses.",
+             basePass: 0.4, ifPasses: "Agent-seat and agent-labour revenue pays a 4% levy; people who lost work to AI find new jobs faster and public mood improves.",
+             ifFails: "No levy. The debate comes back if job losses keep rising.",
+             popularity: 0.5, safetyBill: false, earliest: 9_999),
     ]
 
     static let byID: [String: Bill] = Dictionary(uniqueKeysWithValues: all.map { ($0.id, $0) })
