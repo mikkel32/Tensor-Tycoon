@@ -206,6 +206,7 @@ private struct NewRSIRun: View {
 private struct RSIRunCard: View {
     @Environment(GameStore.self) private var store
     let run: RSIRun
+    @State private var confirmHalt = false
     @State private var autonomy = 1
     @State private var oversight = 0.2
     @State private var every = 2
@@ -243,7 +244,13 @@ private struct RSIRunCard: View {
                     if run.status != .halted {
                         Button("Deep audit", systemImage: "magnifyingglass") { store.act("Audit complete") { $0.auditRSI(run.id) } }
                             .help("Expensive but accurate alignment measurement; also catches eval gaming.")
-                        Button("Halt", systemImage: "stop.fill", role: .destructive) { store.act { $0.setRSIStatus(run.id, .halted) } }
+                        Button("Halt…", systemImage: "stop.fill", role: .destructive) { confirmHalt = true }
+                            .confirmationDialog("Halt \(run.name) for good?", isPresented: $confirmHalt, titleVisibility: .visible) {
+                                Button("Halt the run", role: .destructive) { store.act { $0.setRSIStatus(run.id, .halted) } }
+                                Button("Cancel", role: .cancel) {}
+                            } message: {
+                                Text("A halted self-improvement run can't be resumed. Its checkpoints stay, and you can still promote them to models. Pause it instead if you only need its chips.")
+                            }
                     }
                 }
             }
