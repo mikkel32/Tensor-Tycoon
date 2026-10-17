@@ -72,7 +72,8 @@ enum SafetyFramework {
         guard t >= .high else { return }
         if m.safety >= t.requiredSafety {
             s.models[i].safeguards = true
-            s.models[i].efficiencyBoost -= t == .critical ? 0.15 : 0.08
+            // Alignment Keel mastery: safeguards are built into the model, not bolted on.
+            if !s.signatureAt(.keel, 5) { s.models[i].efficiencyBoost -= t == .critical ? 0.15 : 0.08 }
             s.brand = min(100, s.brand + 1)
             Sim.news(&s, "\(m.name) ships under \(t == .critical ? "ASL-4" : "ASL-3")-class safeguards",
                      "Misuse classifiers, hardened weights security and staged rollout. Serving costs a little more, but regulators and enterprise buyers are reassured.",

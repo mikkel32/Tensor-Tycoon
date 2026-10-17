@@ -25,11 +25,17 @@ enum Swarms {
 
     /// How well big swarms coordinate (output grows as agents^coordination).
     static func coordination(_ b: ResearchBonuses, _ s: GameState) -> Double {
-        min(0.95, 0.78 + (b.has(.agents) ? 0.04 : 0) + (b.has(.autoResearch) ? 0.04 : 0) + (b.has(.rsi) ? 0.04 : 0) + s.traits.coordination + b.coordination)
+        min(s.signatureAt(.atlas, 5) ? 0.98 : 0.95, 0.78 + (b.has(.agents) ? 0.04 : 0) + (b.has(.autoResearch) ? 0.04 : 0) + (b.has(.rsi) ? 0.04 : 0)
+            + s.traits.coordination + b.coordination + (s.signatureAt(.atlas, 5) ? 0.1 : 0))
     }
 
     /// Only near-frontier agents find anything genuinely new.
     static func xenoGate(_ m: AIModel) -> Double { sigmoid((agenticX(m) - 8.3) / 0.3) }
+
+    /// Xeno Resonance level 3 lets a model a step below the frontier search too.
+    static func xenoGate(_ m: AIModel, _ s: GameState) -> Double {
+        sigmoid((agenticX(m) - (s.signatureAt(.antenna, 3) ? 7.9 : 8.3)) / 0.3)
+    }
 
     static func usesAlien(_ m: AIModel) -> Bool { m.design.mixer == .alien }
 
@@ -37,7 +43,8 @@ enum Swarms {
     static func capacityAgents(_ m: AIModel, accelID: String, chips: Int, _ s: GameState, _ b: ResearchBonuses) -> Double {
         guard chips > 0 else { return 0 }
         let cap = Physics.capacity(m, deployment: Deployment(accelID: accelID, chips: chips), bonuses: b)
-        return cap / tokensPerAgentDay(s.year)
+        // Cognitive Scaffold level 3: agents need 40% fewer tokens.
+        return cap / (tokensPerAgentDay(s.year) * (s.signatureAt(.atlas, 3) ? 0.6 : 1))
     }
 
     /// Chips needed for `agents` agents (rounded up to whole replicas).
@@ -76,7 +83,7 @@ enum Swarms {
             * (0.5 + 0.25 * log10(max(10, Double(sw.agents))))
         if let m, usesAlien(m) { d *= 1 + (1 - Xeno.bestLegibility(s)) }
         if sw.mission != .alignment { d *= 1 - 0.5 * s.swarmSafety }
-        return d * s.traits.driftKeep * (1 - min(0.6, b.agentSafety))
+        return d * s.traits.driftKeep * (1 - min(0.6, b.agentSafety)) * (s.signatureAt(.keel, 3) ? 0.7 : 1)
     }
 
     static func detection(_ sw: AgentSwarm, _ s: GameState, _ b: ResearchBonuses) -> Double {
@@ -120,7 +127,7 @@ enum Swarms {
             if !b.has(.agents) {
                 out = "Needs Agentic RL research"
             } else {
-                let i = (insight((others + w) * xenoGate(m)) - insight(others * xenoGate(m))) * (1 + s.traits.insight + s.bonuses.insight)
+                let i = (insight((others + w) * xenoGate(m, s)) - insight(others * xenoGate(m, s))) * (1 + s.traits.insight + s.bonuses.insight)
                 let left = max(0, Xeno.insightNeeded(s) - s.xenoInsight)
                 out = i > 0.01 ? "+\(Fmt.trim(i, 1)) insight/day · ~\(Fmt.days(left / max(0.01, i + s.xenoInsightToday)))" : "Model too weak to find anything"
             }
@@ -176,7 +183,7 @@ enum Swarms {
             effAgents[sw.mission, default: 0] += eff
             let q = quality(m, s)
             qualitySum[sw.mission, default: 0] += eff * q
-            gateSum[sw.mission, default: 0] += eff * q * xenoGate(m)
+            gateSum[sw.mission, default: 0] += eff * q * xenoGate(m, s)
             shares[i] = eff * q
             if active >= 1_000 { Achievements.unlock(&s, "swarm_1k") }
             if active >= 1_000_000 { Achievements.unlock(&s, "swarm_1m") }

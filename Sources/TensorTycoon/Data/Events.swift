@@ -276,7 +276,7 @@ enum AchievementCatalog {
         Achievement(id: "first_contact", title: "First Contact", detail: "Discover an alien architecture.", symbol: "atom"),
         Achievement(id: "xeno_chip", title: "Not Made by Humans", detail: "Put a chip designed by your agents into production.", symbol: "memorychip.fill"),
         Achievement(id: "merchant", title: "Arms Dealer", detail: "Sell $1B of your chips to other companies.", symbol: "shippingbox.fill"),
-        Achievement(id: "licensor", title: "Blueprint Baron", detail: "License an alien architecture to a big player.", symbol: "doc.text.fill"),
+        Achievement(id: "licensor", title: "Blueprint Baron", detail: "License alien tech or a unique breakthrough to a big player.", symbol: "doc.text.fill"),
         Achievement(id: "landlord", title: "Neocloud", detail: "Lease 10,000 accelerators to other companies.", symbol: "cloud.fill"),
         Achievement(id: "liquid_billionaire", title: "Liquid Billionaire", detail: "Cash out $1B of your own shares.", symbol: "dollarsign.circle.fill"),
         Achievement(id: "consolidator", title: "Consolidator", detail: "Acquire a rival AI lab.", symbol: "building.2.crop.circle.fill"),
@@ -285,6 +285,12 @@ enum AchievementCatalog {
         Achievement(id: "fort_knox", title: "Fort Knox", detail: "Reach security level SL4.", symbol: "lock.shield.fill"),
         Achievement(id: "kingmaker", title: "Kingmaker", detail: "Back the winning side on three AI bills.", symbol: "building.columns.fill"),
         Achievement(id: "victory", title: "Victory", detail: "Achieve one of the five victory paths.", symbol: "flag.checkered.2.crossed"),
+        Achievement(id: "signature_master", title: "Crown Jewel", detail: "Take your signature secret to level 5.", symbol: "crown.fill"),
+        Achievement(id: "mastery", title: "Grandmaster", detail: "Refine a unique breakthrough to mastery III.", symbol: "star.square.on.square.fill"),
+        Achievement(id: "fusion", title: "Two Halves of One Idea", detail: "Complete both halves of a fusion.", symbol: "link.circle.fill"),
+        Achievement(id: "eureka", title: "Shower Thoughts", detail: "Have ten eureka moments.", symbol: "lightbulb.fill"),
+        Achievement(id: "xenologist", title: "Xenologist", detail: "Discover three different kinds of alien technology.", symbol: "allergens.fill"),
+        Achievement(id: "megaproject", title: "Wonder of the World", detail: "Complete an alien mega-project.", symbol: "building.columns.circle.fill"),
     ]
 
     static let byID: [String: Achievement] = Dictionary(uniqueKeysWithValues: all.map { ($0.id, $0) })

@@ -391,7 +391,9 @@ enum Training {
         let name = s.runs[i].stages[s.runs[i].stageIndex].name
         let b = s.bonuses
         runLog(&s, i, "\(name) started.")
-        if (name == "RLHF" || name == "DPO") && !s.runs[i].decided.contains("sycophancy") {
+        // A Dense Reward Oracle at level 3 can't be flattered or gamed.
+        let honestRewards = s.signatureAt(.lodestar, 3)
+        if (name == "RLHF" || name == "DPO") && !s.runs[i].decided.contains("sycophancy") && !honestRewards {
             let p = s.researched.contains("anti_sycophancy") ? 0.06 : 0.3
             if s.rng.chance(p) {
                 s.runs[i].decided.insert("sycophancy")
@@ -404,7 +406,7 @@ enum Training {
                                    ref: s.runs[i].id.uuidString)
             }
         }
-        if name == "Reasoning RL" && !s.runs[i].decided.contains("reward_hack") {
+        if name == "Reasoning RL" && !s.runs[i].decided.contains("reward_hack") && !honestRewards {
             let p = 0.32 * (s.researched.contains("cot_monitoring") ? 0.35 : 1) * (s.researched.contains("verifiers") ? 0.7 : 1)
             if s.rng.chance(p) {
                 s.runs[i].decided.insert("reward_hack")

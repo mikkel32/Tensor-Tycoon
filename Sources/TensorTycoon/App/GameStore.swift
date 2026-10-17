@@ -280,24 +280,10 @@ final class GameStore {
     /// Loads a save with this build and plays 90 days on a copy; the file itself is never written.
     /// `TensorTycoon --check-save <file>` exits 0 when the save loads and plays (used before releasing an update).
     static func checkSave(_ url: URL) -> Int32 {
-        let dec = JSONDecoder()
-        dec.dateDecodingStrategy = .secondsSince1970
         do {
-            var s = try dec.decode(GameState.self, from: Data(contentsOf: url))
-            migrate(&s)
-            BenchmarkCatalog.resetCache()
-            HardwareCatalog.register(s.customChips)
-            let start = s.date
-            for _ in 0..<90 where s.gameOver == nil {
-                for _ in 0..<10 {
-                    guard let d = s.decisions.first else { break }
-                    s.resolveDecision(d.id, option: 0)
-                }
-                Sim.advanceDay(&s)
-            }
-            print("OK \(url.lastPathComponent): \(s.companyName), \(start.gameShort) → \(s.date.gameShort), save v\(s.version), "
-                  + "cash \(Fmt.money(s.cash)), valuation \(Fmt.money(s.valuation)), \(s.models.count) models\(s.gameOver.map { " (game over: \($0))" } ?? "")")
-            return s.version >= GameState.currentVersion ? 0 : 2
+            let result = try SaveMigration.check(Data(contentsOf: url), name: url.lastPathComponent)
+            print(result.report)
+            return result.current ? 0 : 2
         } catch {
             print("FAILED \(url.lastPathComponent): \(error)")
             return 1
@@ -305,28 +291,7 @@ final class GameStore {
     }
 
     /// Bring saves from older versions up to date.
-    static func migrate(_ s: inout GameState) {
-        if s.agentPrice <= 0 { s.agentPrice = 100 }
-        // Saves from before traits: a generalist lab with points for what it already achieved.
-        if !s.traitsInitialized {
-            s.traitsInitialized = true
-            s.doctrineID = LabDoctrine.balanced.rawValue
-            s.backgroundID = FounderBackground.none.rawValue
-            s.culturePoints = 2 + s.achievements.count
-            s.boardConfidence = 60
-            Board.refill(&s)
-        }
-        // Chips added to the catalog after this save was made: treat anything older than a month as old news.
-        let cutoff = GameCalendar.addMonths(s.date, -1).ym
-        for a in HardwareCatalog.all {
-            if a.announced <= cutoff { s.announcedHardware.insert(a.id) }
-            if a.available <= cutoff { s.availableHardware.insert(a.id) }
-        }
-        Competitors.migrate(&s)
-        // Catch up benchmarks added to the catalog after this save was made (idempotent for the rest).
-        BenchLife.replayHistory(&s)
-        BenchLife.refreshIndexes(&s)
-    }
+    static func migrate(_ s: inout GameState) { SaveMigration.migrate(&s) }
 
     static func deleteSave(_ url: URL) {
         try? FileManager.default.trashItem(at: url, resultingItemURL: nil)

@@ -13,6 +13,7 @@ enum Silicon {
     static func speed(_ p: ChipProject, _ s: GameState) -> Double {
         // > 1 means slower
         p.partner.speed * (1.25 - 0.35 * designerFactor(s)) * (1 - 0.3 * s.swarmSilicon) * max(0.4, 1 - s.traits.chipDesign - s.bonuses.chipDesign)
+            * (s.signatureAt(.forge, 5) ? 0.6 : 1)
     }
 
     static func totalDays(_ p: ChipProject, _ s: GameState) -> Double {

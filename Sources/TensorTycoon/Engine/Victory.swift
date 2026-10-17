@@ -50,8 +50,10 @@ enum Victory {
         case .guardian:
             return clamp(Double(s.monthsGuardian) / 12, 0, 1)
         case .xeno:
+            // Alien Tech Mastery: discoveries, and either flooding the world with alien chips or completing Contact.
             let alienShipped = s.chipLines.filter { ChipBusiness.isAlien($0.chipID, s) }.reduce(0) { $0 + $1.shipped }
-            return clamp(Double(s.alienArchs.count) / 3, 0, 1) * 0.5 + clamp(alienShipped / 1e6, 0, 1) * 0.5
+            let reach = XenoScience.megaDone(s, "contact") ? 1 : clamp(alienShipped / 1e6, 0, 1)
+            return clamp(Double(XenoScience.discoveries(s)) / 4, 0, 1) * 0.5 + reach * 0.5
         }
     }
 

@@ -42,8 +42,15 @@ enum Advisor {
         }
 
         // Research
-        if s.researchQueue.isEmpty {
-            add("research", .warning, "lightbulb.fill", "Research queue is empty", "Your researchers are idle.", .research)
+        if s.signatureLevel == 0 {
+            add("signature", .warning, "crown.fill", "Choose your lab's signature secret", "A research programme only you have, live from day one.", .research)
+        }
+        if s.researchQueue.isEmpty && !s.autoResearch {
+            add("research", .warning, "lightbulb.fill", "Research queue is empty", "Your researchers are idle. Turn on the research director to keep it full.", .research)
+        }
+        let refinable = s.exoticOwned.filter { s.researched.contains($0) && (s.exoticMastery[$0] ?? 1) < Breakthroughs.maxMastery }
+        if !refinable.isEmpty && s.researchQueue.count <= 1 && !s.researchQueue.contains(where: { $0.hasPrefix(Breakthroughs.refinePrefix) }) {
+            add("refine", .info, "star.square.on.square.fill", "Refine a unique breakthrough", "Mastery II and III make your secret tech much stronger.", .research)
         }
 
         // Compute
@@ -80,6 +87,12 @@ enum Advisor {
         }
         if let sw = s.swarms.first(where: { !$0.paused && $0.agents > 0 && $0.active < Double($0.agents) * 0.6 }) {
             add("swarm-chips", .info, "person.3.sequence.fill", "\(sw.name) is compute-bound", "Only \(Fmt.count(sw.active)) of \(Fmt.count(Double(sw.agents))) agents can run.", .swarms)
+        }
+        if let a = s.xenoArtifacts.first(where: { $0.kind.hasVenture && $0.venture.isEmpty }) {
+            add("xeno-venture-\(a.id)", .info, "dollarsign.circle.fill", "\(a.name) could be a business", "License it or build it in-house on the Alien Tech page.", .xeno)
+        }
+        if XenoScience.hasUndeciphered(s) && s.xenoStudyShare <= 0 {
+            add("xeno-study", .info, "eye.trianglebadge.exclamationmark", "Nobody is studying your alien tech", "Put some research into decoding it: stronger effects, fewer anomalies.", .xeno)
         }
         if let a = s.alienArchs.first(where: { $0.chipID == nil && !$0.fabbing }) {
             add("xeno-fab", .info, "atom", "\(a.name) chip isn't taped out", "It costs a few percent of a GPU to make.", .xeno)

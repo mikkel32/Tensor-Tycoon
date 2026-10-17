@@ -65,9 +65,13 @@ enum Competitors {
         pool.shuffle(using: &s.rng)
         let y = s.year
         // Make sure two of yours are reachable within a few years.
-        let near = pool.filter { (ResearchCatalog.byID[$0]?.year ?? 3000) <= y + 2.5 }.prefix(2)
-        var mine = Array(near)
-        for id in pool where mine.count < 4 && !mine.contains(id) { mine.append(id) }
+        var mine = Array(pool.filter { (ResearchCatalog.byID[$0]?.year ?? 3000) <= y + 2.5 }.prefix(2))
+        // And that you hold both halves of at least one fusion.
+        if let anchor = mine.first(where: { Breakthroughs.partner(of: $0) != nil }), let partner = Breakthroughs.partner(of: anchor),
+           !mine.contains(partner) {
+            mine.append(partner)
+        }
+        for id in pool where mine.count < 5 && !mine.contains(id) { mine.append(id) }
         pool.removeAll { mine.contains($0) }
         s.exoticOwned = mine
         var rivals: [String: [String]] = [:]

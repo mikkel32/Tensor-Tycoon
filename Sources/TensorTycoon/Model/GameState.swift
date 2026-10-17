@@ -898,6 +898,31 @@ struct GameState: Codable {
     /// Rival lab ID → when it found its own alien architecture.
     @D var rivalXeno: [String: Date] = [:]
 
+    // v4.3 (3.3): signature secret, research director, unique breakthroughs, xenoscience
+    @D var signatureID: String = ""
+    @D var signatureLevel: Int = 0
+    /// Research points put toward the next signature level.
+    @D var signatureProgress: Double = 0
+    /// Share of daily research that goes to the signature programme.
+    @D var signatureShare: Double = 0
+    @D var signatureRPToday: Double = 0
+    /// The research director keeps the queue full.
+    @D var autoResearch: Bool = false
+    @D var researchFocus: String = ""
+    @D var eurekas: Int = 0
+    /// Unique breakthrough ID → mastery level (1–3).
+    @D var exoticMastery: [String: Int] = [:]
+    /// Fusions already announced.
+    @D var fusionsSeen: Set<String> = []
+    @D var exoticLicenses: [ExoticLicense] = []
+    @D var xenoArtifacts: [XenoArtifact] = []
+    /// What the next alien search looks for (XenoKind raw value; empty means architecture).
+    @D var xenoTarget: String = ""
+    /// Share of daily research spent decoding alien discoveries.
+    @D var xenoStudyShare: Double = 0
+    @D var studyRPToday: Double = 0
+    @D var megaProjects: [MegaProject] = []
+
     var totalShares: Double {
         founderShares + employeePoolShares + publicShares + holdings.reduce(0) { $0 + $1.shares }
     }
@@ -909,6 +934,12 @@ struct GameState: Codable {
     /// Doctrine + founder background + culture perks.
     var traits: TraitBonuses { CultureCatalog.bonuses(doctrine: doctrine, background: background, perks: perks) }
     var security: SecurityLevel { SecurityLevel(rawValue: max(1, securityRaw)) ?? .sl1 }
+    var signature: SignatureSecret? { signatureLevel > 0 ? SignatureSecret(rawValue: signatureID) : nil }
+    var focus: ResearchFocus { ResearchFocus(rawValue: researchFocus) ?? .balanced }
+    var xenoTargetKind: XenoKind { XenoKind(rawValue: xenoTarget) ?? .architecture }
+
+    /// Whether your signature is `secret` at `level` or higher.
+    func signatureAt(_ secret: SignatureSecret, _ level: Int) -> Bool { signature == secret && signatureLevel >= level }
 
     /// You control the board while you hold a majority of the shares.
     var founderControls: Bool { founderStake >= 0.5 }
@@ -920,7 +951,6 @@ struct GameState: Codable {
 
     static let currentVersion = 3
 
-    var bonuses: ResearchBonuses { ResearchCatalog.bonuses(researched, results: researchResults) }
 
     var releasedModels: [AIModel] { models.filter { $0.released && !$0.retired } }
 

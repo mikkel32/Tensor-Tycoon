@@ -73,7 +73,7 @@ struct XenoProgressCard: View {
         let left = max(0, needed - s.xenoInsight)
         Card {
             CardHeader(title: "Alien architecture search", symbol: "atom",
-                       subtitle: s.alienArchs.isEmpty ? "Nobody has found one. Point a swarm (or a self-improvement run) at it." : "\(s.alienArchs.count) found — each next one takes 3× the insight") {
+                       subtitle: XenoScience.discoveries(s) == 0 ? "Nobody has found one. Point a swarm (or a self-improvement run) at it." : "\(XenoScience.discoveries(s)) found — next: \(XenoScience.nextKind(s).title.lowercased()), 2.2× the insight of the last") {
                 if store.screen != .xeno {
                     Button("Alien Tech") { store.open(.xeno) }.buttonStyle(.link)
                 }
@@ -81,7 +81,7 @@ struct XenoProgressCard: View {
             HStack(spacing: 14) {
                 VStack(alignment: .leading, spacing: 4) {
                     Meter(value: s.xenoInsight / max(1, needed), tint: .purple, height: 10)
-                    Text("\(Fmt.count(s.xenoInsight)) of \(Fmt.count(needed)) insight for discovery #\(s.alienArchs.count + 1)")
+                    Text("\(Fmt.count(s.xenoInsight)) of \(Fmt.count(needed)) insight for discovery #\(XenoScience.discoveries(s) + 1)")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 VStack(alignment: .trailing, spacing: 2) {

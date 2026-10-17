@@ -161,6 +161,8 @@ enum Monthly {
         let b = s.bonuses
         Partners.monthly(&s)
         Xeno.monthly(&s)
+        XenoScience.monthly(&s)
+        ResearchLab.monthly(&s)
         SecurityOps.monthly(&s)
         Policy.monthly(&s)
         if s.publication == .secret { s.brand = max(0, s.brand - 0.25) }

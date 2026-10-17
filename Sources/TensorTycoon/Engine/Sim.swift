@@ -22,7 +22,8 @@ enum Sim {
         Silicon.daily(&s)
         Xeno.daily(&s, b)
         SecurityOps.daily(&s)
-        research(&s, b)
+        ResearchLab.daily(&s, b)
+        XenoScience.daily(&s)
         Treasury.autoPrice(&s)
         dailyMarket(&s, b)
         ChipBusiness.daily(&s)
@@ -243,53 +244,13 @@ enum Sim {
     }
 
     static func researchCost(_ item: ResearchItem, year: Double) -> Double {
-        // Published techniques are cheaper to reproduce; a lab's own secret breakthroughs never are.
-        if year >= item.year && !item.isExotic { return item.cost * 0.5 }
-        return item.cost * (1 + 0.3 * max(0, item.year - year))
-    }
-
-    static func research(_ s: inout GameState, _ b: ResearchBonuses) {
-        let rate = researchRate(s, b) + s.rsiRPToday + s.swarmRPToday
-        s.rpToday = rate
-        guard let current = s.researchQueue.first, let item = ResearchCatalog.byID[current] else { return }
-        if s.researched.contains(current) || (item.isExotic && !s.exoticOwned.contains(current))
-            || (current.hasPrefix("xeno_") && s.alienArchs.isEmpty) { s.researchQueue.removeFirst(); return }
-        let missing = item.prereqs.filter { !s.researched.contains($0) }
-        if !missing.isEmpty {
-            // Auto-queue prerequisites ahead of this item.
-            s.researchQueue.removeAll { missing.contains($0) }
-            s.researchQueue.insert(contentsOf: missing, at: 0)
-            return
-        }
-        s.researchProgress[current, default: 0] += rate * (item.category == .frontier ? 1 + s.traits.frontierRP : 1)
-        if s.researchProgress[current, default: 0] >= researchCost(item, year: s.year) {
-            // How well did it work in *your* lab? Better teams and more experiment compute land better results.
-            let researchers = s.employees.filter { $0.role == .researcher }
-            let quality = researchers.isEmpty ? 0.5 : researchers.reduce(0) { $0 + $1.skill } / Double(researchers.count) / 100
-            let computeBoost = min(0.08, Double(s.researchChips.values.reduce(0, +)) / 20_000)
-            let spread = item.isExotic ? 0.32 : 0.18
-            let r = clamp(1 + 0.25 * (quality - 0.5) + computeBoost + s.rng.gaussian() * spread, item.isExotic ? 0.35 : 0.55, item.isExotic ? 1.8 : 1.5)
-            s.researchResults[current] = (r * 100).rounded() / 100
-            s.researched.insert(current)
-            s.researchQueue.removeFirst()
-            s.researchProgress[current] = nil
-            let verdict: String
-            switch r {
-            case ..<0.8: verdict = "Results came in below expectations (\(Fmt.trim(r, 2))×)."
-            case ..<1.12: verdict = "Results matched the paper (\(Fmt.trim(r, 2))×)."
-            default: verdict = "Your implementation beat the paper (\(Fmt.trim(r, 2))×)!"
-            }
-            let effects = item.effectSummary(result: r).prefix(3).joined(separator: " · ")
-            news(&s, "\(item.isExotic ? "Unique breakthrough" : "Research complete"): \(item.name)", "\(verdict) \(effects).", .research, image: "wafer_closeup", important: true, good: r >= 0.8)
-            if s.publication == .open && item.year > s.year - 0.2 { s.brand = min(100, s.brand + 1.5) }
-            if item.isExotic {
-                Achievements.unlock(&s, "unique_tech")
-                if s.publication == .open {
-                    s.publishedTech[current] = s.date
-                    news(&s, "Your \(item.name) paper goes viral", "Open science wins you fans — and every rival lab will have reproduced it within about six months.", .research, good: true)
-                }
-            }
-        }
+        // A lab's own secret breakthroughs never get cheaper, and ideas ahead of their time cost more.
+        if item.isExotic { return item.cost * (1 + 0.15 * min(10, max(0, item.year - year))) }
+        guard year >= item.year else { return item.cost * (1 + 0.3 * (item.year - year)) }
+        // Published techniques get cheaper as code, tutorials and open checkpoints pile up.
+        let age = year - item.year
+        let discount: Double = age >= 3 ? 0.15 : (age >= 1 ? 0.3 : 0.5)
+        return item.cost * discount
     }
 
     // MARK: - Market & revenue
@@ -445,7 +406,7 @@ enum Sim {
             let draw = Economy.chipKW(a) * Double(bt.count) * (0.3 + 0.65 * util)
             power += draw * site.pue * 24 * site.powerPrice
         }
-        power *= max(0.5, 1 - s.traits.power)
+        power *= max(0.5, 1 - s.traits.power) * XenoScience.powerFactor(s)
         let sites = s.sites.reduce(0) { $0 + $1.monthlyFee } / 30.4
         let office = Economy.officeLevels[min(s.officeLevel, Economy.officeLevels.count - 1)].monthly / 30.4
         let payroll = Economy.payrollYear(s) / 365

@@ -114,7 +114,7 @@ extension GameState {
     }
 
     func buildMonths(mw: Double, loc: Location, power: PowerDeal) -> Double {
-        var m = (7 + min(22, mw * 0.025)) / loc.buildSpeed * market.buildDelay * Policy.buildFactor(self)
+        var m = (7 + min(22, mw * 0.025)) / loc.buildSpeed * market.buildDelay * Policy.buildFactor(self) * XenoScience.buildFactor(self)
         if power == .gas { m *= 0.7 }
         return m
     }
@@ -367,7 +367,7 @@ extension GameState {
     mutating func queueResearch(_ id: String) {
         guard !researched.contains(id), !researchQueue.contains(id), let item = ResearchCatalog.byID[id] else { return }
         if item.isExotic && !exoticOwned.contains(id) { return }
-        if id.hasPrefix("xeno_") && alienArchs.isEmpty { return }
+        if !XenoScience.researchUnlocked(id, self) { return }
         researchQueue.append(id)
     }
 

@@ -53,8 +53,9 @@ enum RSI {
         var days = clamp(14 / pow(max(pf, 1) / 1000, 0.35), 1, 60) / autonomySpeed[autonomy]
         if accelID == "tpu8t" { days *= 0.85 }
         let maxGain = maxGainFor(pf: pf, s, b)
-        let gain = 0.03 * autonomyGain[autonomy] * (target == .capabilities ? 1 : 0.15)
+        let gain = 0.03 * autonomyGain[autonomy] * (target == .capabilities ? 1 : 0.15) * (s.signatureAt(.lodestar, 5) ? 1.3 : 1)
         let drift = 1.1 * autonomyDrift[autonomy] * max(0.05, 1 - 1.6 * oversight) * (1 - safetyFactor(s, b)) * (b.has(.aiControl) ? 0.65 : 1) * s.traits.driftKeep
+            * (s.signatureAt(.keel, 3) ? 0.7 : 1)
         let rp = target == .research ? researchRP(pf: pf, c: c, autonomy: autonomy, s) : 0
         var probe = RSIRun(name: "", baseModelID: UUID(), design: ModelDesign(), started: s.date, target: target, autonomy: autonomy,
                            oversight: oversight, checkpointEvery: 1, accelID: accelID, chips: chips, cStart: c, c: c, cMeasured: c,
@@ -123,7 +124,7 @@ enum RSI {
         let p = run.c - run.cStart
         let maxGain = maxGainFor(pf: pf, s, b)
         let ceiling = max(0.03, 1 - pow(max(0, p) / maxGain, 2))
-        var dc = 0.03 * autonomyGain[run.autonomy] * (1 + 1.5 * max(0, p)) * ceiling * (1 + s.traits.rsi)
+        var dc = 0.03 * autonomyGain[run.autonomy] * (1 + 1.5 * max(0, p)) * ceiling * (1 + s.traits.rsi) * (s.signatureAt(.lodestar, 5) ? 1.3 : 1)
         if p > maxGain { dc = 0.004 }
         if run.target != .capabilities { dc *= 0.15 }
 
@@ -131,7 +132,7 @@ enum RSI {
         var drift = s.rng.range(0.4, 1.8) * autonomyDrift[run.autonomy] * max(0.05, 1 - 1.6 * run.oversight)
             * (1 - safetyFactor(s, b)) * (1 + 0.6 * max(0, p))
         if b.has(.aiControl) { drift *= 0.65 }
-        drift *= s.traits.driftKeep
+        drift *= s.traits.driftKeep * (s.signatureAt(.keel, 3) ? 0.7 : 1)
         run.alignment -= drift
         if run.oversight >= 0.25 { run.alignment += 0.4 }
         run.alignment = clamp(run.alignment, 0, 100)

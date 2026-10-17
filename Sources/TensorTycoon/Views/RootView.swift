@@ -141,12 +141,12 @@ struct Sidebar: View {
         case .models: s.models.filter { !$0.released && !$0.retired }.count
         case .market: s.deals.filter { !$0.active }.count
         case .funding: s.raiseOffers.count
-        case .research: s.researchQueue.isEmpty ? 1 : 0
+        case .research: (s.researchQueue.isEmpty && !s.autoResearch) || s.signatureLevel == 0 ? 1 : 0
         case .rsi: s.rsiRuns.filter { $0.status == .running }.count
         case .swarms: s.swarms.filter { !$0.paused }.count
         case .strategy: s.culturePoints
         case .security: s.bills.filter { $0.stance == 0 }.count
-        case .xeno: s.alienArchs.reduce(0) { $0 + $1.offers.count }
+        case .xeno: s.alienArchs.reduce(0) { $0 + $1.offers.count } + s.decisions.filter { $0.kind == "xeno_anomaly" }.count
         case .silicon: s.chipProjects.filter { !$0.done }.count
         case .partners: s.partnerships.count
         default: 0
