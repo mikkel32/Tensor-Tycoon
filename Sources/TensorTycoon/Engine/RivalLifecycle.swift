@@ -3,7 +3,7 @@ import Foundation
 /// Something that happened to a rival lab, for the Rivals hub's history.
 struct RivalEvent: Codable, Hashable, Identifiable {
     enum Kind: String, CaseIterable, Sendable {
-        case founded, spinout, sovereign, acquired, merged, bankrupt, rescued, ipo, shutdown, raid, bought
+        case founded, spinout, sovereign, acquired, merged, bankrupt, rescued, ipo, shutdown, raid, bought, blocked
 
         var label: String {
             switch self {
@@ -18,6 +18,7 @@ struct RivalEvent: Codable, Hashable, Identifiable {
             case .shutdown: "Wound down"
             case .raid: "Talent raid"
             case .bought: "Bought by you"
+            case .blocked: "Bid blocked"
             }
         }
 
@@ -34,6 +35,7 @@ struct RivalEvent: Codable, Hashable, Identifiable {
             case .shutdown: "power"
             case .raid: "person.2.badge.key.fill"
             case .bought: "signature"
+            case .blocked: "hand.raised.fill"
             }
         }
 
@@ -514,6 +516,15 @@ enum RivalLifecycle {
             guard roll(s, "takeover|\(c.id)|\(m)") < odds else { continue }
             let price = max(2e8, c.valuation) * (1.1 + 0.25 * roll(s, "premium|\(c.id)|\(m)"))
             guard let b = buyer(s, for: t, price: price) else { continue }
+            // Paris guards its national champion: half the bids for Sirocco are blocked.
+            if c.id == "sirocco", roll(s, "veto|\(c.id)|\(m)") < 0.5 {
+                let bidder = s.competitors[b].def.name
+                let body = "The French government blocked \(bidder)'s \(Fmt.money(price)) bid for \(c.def.name), citing European AI sovereignty. "
+                    + "The lab stays independent — for now."
+                Sim.news(&s, "France blocks \(bidder)'s bid for \(c.def.name)", body, .competitor)
+                record(&s, .blocked, lab: c.id, other: s.competitors[b].id, title: "\(bidder)'s bid blocked by France", body: body, amount: price)
+                return true
+            }
             propose(&s, buyer: b, target: t, price: price)
             return true
         }

@@ -223,7 +223,12 @@ enum RivalEconomy {
         let y = s.year
         let live = y >= RivalHistory.end
         let c = s.competitors[i]
-        let rev = monthlyRevenue(c, snap)
+        var rev = monthlyRevenue(c, snap)
+        if live, let last = c.revenueHistory.last {
+            // Customers come only as fast as a lab can sign and serve them: booked revenue grows at most 25% a month
+            // (a hit model still makes a young lab ten times bigger within a year).
+            rev = min(rev, max(last * 1.25, 1.5e7))
+        }
         s.competitors[i].revenueHistory.append(rev)
         if s.competitors[i].revenueHistory.count > 36 { s.competitors[i].revenueHistory.removeFirst() }
         s.competitors[i].revenueRun = rev * 12
