@@ -64,6 +64,83 @@ enum Training {
         runLogDirect(&run, s.date, "Forecast: index \(Fmt.score(band.mean)) (80%: \(Fmt.score(band.low))–\(Fmt.score(band.high))) — \(run.forecast?.tier ?? "").")
     }
 
+    // MARK: Ops coverage
+
+    static func isLive(_ r: TrainingRun) -> Bool { r.status == .running || r.status == .postTraining }
+
+    /// Researcher-equivalents of training-ops agents watching this run: swarms pinned to it, plus its share
+    /// (by chips) of the swarms that watch every run.
+    static func opsAgents(_ s: GameState, _ run: TrainingRun) -> Double {
+        var pinned = 0.0, shared = 0.0
+        for sw in s.swarms where !sw.paused && sw.mission == .trainingOps {
+            if let t = sw.targetRunID, s.runs.contains(where: { $0.id == t && isLive($0) }) {
+                if t == run.id { pinned += sw.workforce }
+            } else {
+                shared += sw.workforce
+            }
+        }
+        let total = s.runs.filter { isLive($0) && $0.kind == .full }.reduce(0) { $0 + $1.design.chips }
+        return pinned + (total > 0 ? shared * Double(run.design.chips) / Double(total) : 0)
+    }
+
+    /// Coverage a new run of `chips` would get from the training-ops swarms that watch every run.
+    static func plannedCoverage(_ s: GameState, chips: Int) -> Double {
+        var shared = 0.0
+        for sw in s.swarms where !sw.paused && sw.mission == .trainingOps {
+            if let t = sw.targetRunID, s.runs.contains(where: { $0.id == t && isLive($0) }) { continue }
+            shared += sw.workforce
+        }
+        let busy = s.runs.filter { isLive($0) && $0.kind == .full }.reduce(0) { $0 + $1.design.chips }
+        let share = shared * Double(chips) / Double(max(1, busy + chips))
+        return clamp(share / opsNeeded(chips: chips), 0, 1)
+    }
+
+    /// Engineer-equivalents a run needs for full coverage: one per 600 chips.
+    static func opsNeeded(chips: Int) -> Double { max(0.5, Double(chips) / 600) }
+
+    /// Share of a run's chips that agents watch (0–1).
+    static func coverage(_ s: GameState, _ run: TrainingRun) -> Double {
+        clamp(opsAgents(s, run) / opsNeeded(chips: run.design.chips), 0, 1)
+    }
+
+    /// What full coverage buys: failures predicted and drained before they crash the job, restarts from
+    /// in-memory snapshots in seconds, silent corruption caught, stragglers evicted.
+    struct OpsEffect {
+        var prevented: Double
+        var recovery: Double
+        var sdcCaught: Double
+        var stragglers: Double
+        var spikes: Double
+    }
+
+    static func opsEffect(_ cov: Double, _ s: GameState) -> OpsEffect {
+        OpsEffect(prevented: 0.75 * cov, recovery: 0.85 * cov,
+                  sdcCaught: min(0.98, 0.3 + (s.researched.contains("sdc_detection") ? 0.2 : 0) + 0.6 * cov),
+                  stragglers: 0.7 * cov, spikes: 0.4 * cov)
+    }
+
+    /// Silent data corruption: about 1.4% of hardware faults don't crash anything — they quietly poison gradients.
+    static let sdcShare = 0.014
+    /// Capability lost per corruption nobody catches (log10 effective compute).
+    static let sdcPenalty = 0.0012
+
+    /// Expected share of wall-clock time that makes progress on a run of `chips` with ops coverage `cov`.
+    static func goodput(chips: Int, coverage cov: Double, state s: GameState, bonuses b: ResearchBonuses) -> Double {
+        let e = opsEffect(cov, s)
+        let failures = Double(chips) * failuresPerChipDay * (1 - e.prevented)
+        let lost = failures * Physics.hoursLostPerFailure(state: s, bonuses: b) * (1 - e.recovery) / 24
+        let strag = 1 - (1 - Physics.stragglerFactor(chips: chips, bonuses: b)) * (1 - e.stragglers)
+        return clamp((1 - lost) * strag, 0, 0.998)
+    }
+
+    /// Agents a swarm of model `m` needs for full coverage of `chips` (no oversight, semi-autonomous).
+    static func agentsForCoverage(_ m: AIModel, chips: Int, _ s: GameState, _ b: ResearchBonuses) -> Int {
+        let q = Swarms.quality(m, s, mission: .trainingOps)
+        guard q > 0 else { return Swarms.maxAgents }
+        let eff = pow(opsNeeded(chips: chips) / q, 1 / Swarms.coordination(b, s))
+        return min(Swarms.maxAgents, max(1, Int((eff / Swarms.autonomyOutput[1]).rounded(.up))))
+    }
+
     // MARK: Daily
 
     static func daily(_ s: inout GameState, _ b: ResearchBonuses) {
@@ -71,37 +148,63 @@ enum Training {
             let d = s.runs[i].design
             guard let accel = HardwareCatalog.get(d.accelID) else { continue }
             let schedule = s.runs[i].schedule
-            var mfu = Physics.mfu(accel: accel, chips: d.chips, state: s, bonuses: b)
+            let cov = s.runs[i].kind == .full ? coverage(s, s.runs[i]) : 0
+            let ops = opsEffect(cov, s)
+            var mfu = Physics.mfu(accel: accel, chips: d.chips, state: s, bonuses: b) + 0.02 * cov
             if d.optimizer == .shampoo { mfu -= 0.02 }
             var perDay = Double(d.chips) * accel.trainTFLOPS(d.precision) * 1e12 * max(0.05, mfu) * 86_400 * schedule.speed
-            perDay *= Sim.checkpointOverhead(s.runs[i].interval) * Physics.stragglerFactor(chips: d.chips, bonuses: b)
+            let straggle = 1 - (1 - Physics.stragglerFactor(chips: d.chips, bonuses: b)) * (1 - ops.stragglers)
+            perDay *= Sim.checkpointOverhead(s.runs[i].interval) * straggle
             if s.runs[i].kind == .proxy { perDay *= 0.33 }
             s.runs[i].cost += Economy.chipDailyCost(accel, count: d.chips, state: s)
+            s.runs[i].opsCoverage = cov
 
             // Hardware failures (Llama 3 rates): each one costs the restart time plus work since the last save.
-            let lambda = Double(d.chips) * failuresPerChipDay
+            // Ops agents drain failing nodes before they crash and restart the job from in-memory snapshots.
+            var uptime = 1.0
+            let lambda = Double(d.chips) * failuresPerChipDay * (1 - ops.prevented)
+            if ops.prevented > 0 { s.runs[i].prevented += Double(d.chips) * failuresPerChipDay * ops.prevented }
             let k = poisson(lambda, &s.rng)
             if k > 0 {
-                let hours = Double(k) * Physics.hoursLostPerFailure(state: s, bonuses: b)
+                let hours = Double(k) * Physics.hoursLostPerFailure(state: s, bonuses: b) * (1 - ops.recovery)
                 s.runs[i].interruptions += k
                 s.runs[i].failures += k
                 s.runs[i].lostHours += hours
                 perDay *= max(0, 1 - hours / 24)
+                uptime = max(0, 1 - hours / 24)
                 if hours >= 2 || (k > 0 && s.rng.chance(0.15)) {
                     let what = s.rng.pick(["GPU fell off the bus", "HBM uncorrectable ECC error", "NVLink/fabric link flap", "GPU SRAM fault",
                                            "host kernel panic", "optical transceiver failure", "straggler node evicted"])
                     runLog(&s, i, "\(k) interruption\(k == 1 ? "" : "s") (\(what)\(k > 1 ? " and more" : "")) — lost \(Fmt.trim(hours, 1)) h, auto-restarted from the last save.")
                 }
             }
-            if s.runs[i].kind == .full && d.chips >= 4_000 && !s.runs[i].decided.contains("fault_storm") && s.rng.chance(0.0025) {
+            // Silent data corruption: invisible, and at 100K+ chips it adds up. Agents and checksums catch most of it.
+            let sdc = Double(d.chips) * failuresPerChipDay * sdcShare * uptime
+            if d.chips >= 20_000 && s.runs[i].kind == .full && sdc > 0 {
+                let before = Int(s.runs[i].sdcCaught)
+                s.runs[i].sdcCaught += sdc * ops.sdcCaught
+                s.runs[i].sdcMissed += sdc * (1 - ops.sdcCaught)
+                s.runs[i].qualityPenalty += sdc * (1 - ops.sdcCaught) * sdcPenalty
+                if cov > 0.2 && Int(s.runs[i].sdcCaught) / 10 > before / 10 {
+                    runLog(&s, i, "Ops agents have quarantined \(Int(s.runs[i].sdcCaught)) nodes that were silently corrupting gradients.")
+                }
+            }
+            if s.runs[i].kind == .full && d.chips >= 4_000 && !s.runs[i].decided.contains("fault_storm") && s.rng.chance(0.0025 * (1 - 0.6 * cov)) {
                 faultStorm(&s, i)
                 continue
             }
 
             if s.runs[i].status == .running {
-                if s.runs[i].kind == .full && s.runs[i].progress > 0.03 && s.rng.chance(spikeChance(s.runs[i], state: s, bonuses: b)) {
-                    lossSpike(&s, i)
-                    continue
+                if s.runs[i].kind == .full && s.runs[i].progress > 0.03 && s.rng.chance(spikeChance(s.runs[i], state: s, bonuses: b) * (1 - ops.spikes)) {
+                    // With most of the run covered, agents catch the spike within steps and rewind a few minutes.
+                    if cov >= 0.5 {
+                        s.runs[i].spikes += 1
+                        s.runs[i].flopsDone = max(0, s.runs[i].flopsDone - perDay * 0.02)
+                        runLog(&s, i, "Loss spike caught by ops agents: rewound to a snapshot from minutes earlier and skipped the bad batch.")
+                    } else {
+                        lossSpike(&s, i)
+                        continue
+                    }
                 }
                 s.runs[i].flopsDone += perDay
                 s.lifetimeFLOPs += perDay
@@ -268,7 +371,7 @@ enum Training {
         // A silent bug can be caught once its signature shows up in evals.
         if run.bugPenalty > 0 && !run.bugFound && f > run.bugOnset + 0.04 && !s.runs[i].decided.contains("train_bug") {
             let engineers = s.employees.filter { $0.role == .mlEngineer }.reduce(0.0) { $0 + $1.weight }
-            let p = clamp(0.3 * (1 + engineers / 4) * (1 + s.swarmOps) / max(0.3, s.bonuses.bugKeep), 0.15, 0.95)
+            let p = clamp(0.3 * (1 + engineers / 4) * (1 + s.swarmOps) * (1 + run.opsCoverage) / max(0.3, s.bonuses.bugKeep), 0.15, 0.95)
             if s.rng.chance(p) { trainingBug(&s, i) }
         }
     }
@@ -602,6 +705,10 @@ enum Training {
         news(&s, "\(d.name) finished training", "Intelligence Index \(Fmt.score(model.index)) — #\(rank) worldwide, \(verdict). \(model.tier).",
              important: true, good: delta > -3)
         if delta >= 5 { Achievements.unlock(&s, "genius") }
+        if d.chips >= 500_000 { Achievements.unlock(&s, "gigawatt_run") }
+        if run.sdcMissed >= 1 || run.prevented >= 10 {
+            runLog(&s, i, "Ops report: \(Int(run.prevented)) failures prevented, \(Int(run.sdcCaught)) corrupt nodes caught, \(Int(run.sdcMissed)) slipped through.")
+        }
     }
 
     // MARK: Helpers

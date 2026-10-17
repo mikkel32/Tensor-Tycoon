@@ -81,7 +81,7 @@ enum SecurityOps {
                     Sim.news(&s, "Attack on your weights foiled", "\(t.who) tried to steal your model weights. Your \(s.security.title) defences held.",
                              .company, image: "network", good: true)
                 }
-            } else if s.rng.chance(0.75) {
+            } else if s.rng.chance(0.75 * (1 - 0.6 * s.swarmSecurity)) {
                 theft(&s, tier: t.tier, who: t.who)
                 return
             }

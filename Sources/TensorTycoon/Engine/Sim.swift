@@ -147,12 +147,15 @@ enum Sim {
             }
             if let ready = s.sites[i].expansionReady, ready <= s.date {
                 s.sites[i].capacityKW += s.sites[i].expanding
-                news(&s, "\(s.sites[i].name) expansion complete", "+\(Fmt.watts(s.sites[i].expanding * 1000)) of capacity is live.",
+                let more = s.sites[i].plannedKW > 0 ? " \(Fmt.watts(s.sites[i].plannedKW * 1000)) more to come." : ""
+                news(&s, "\(s.sites[i].name): +\(Fmt.watts(s.sites[i].expanding * 1000)) online",
+                     "The campus now runs \(Fmt.watts(s.sites[i].capacityKW * 1000)) of IT capacity.\(more)",
                      .company, image: "dc_construction", good: true)
                 s.sites[i].expanding = 0
                 s.sites[i].expansionReady = nil
             }
         }
+        Campus.daily(&s)
     }
 
     /// If allocations exceed what we have (rental ended, chips died), recall leases, shrink research and swarms,

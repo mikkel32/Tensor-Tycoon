@@ -69,6 +69,8 @@ enum PowerDeal: String, Codable, CaseIterable, Identifiable, Sendable {
     case wind = "Wind PPA"
     case gas = "On-site gas turbines"
     case nuclear = "Nuclear PPA"
+    case smr = "Small modular reactors"
+    case fusion = "Fusion power"
 
     var id: String { rawValue }
 
@@ -79,13 +81,15 @@ enum PowerDeal: String, Codable, CaseIterable, Identifiable, Sendable {
         case .wind: 0.88
         case .gas: 1.12
         case .nuclear: 1.05
+        case .smr: 1.08
+        case .fusion: 0.55
         }
     }
 
     var green: Double {
         switch self {
         case .grid: 0.4
-        case .solar, .wind, .nuclear: 1.0
+        case .solar, .wind, .nuclear, .smr, .fusion: 1.0
         case .gas: 0.0
         }
     }
@@ -93,8 +97,16 @@ enum PowerDeal: String, Codable, CaseIterable, Identifiable, Sendable {
     var availableFrom: Double {
         switch self {
         case .nuclear: 2024.7
+        case .smr: 2030.0
+        case .fusion: 2034.5
         default: 2010
         }
+    }
+
+    /// Whether this deal is open to you (the Superconducting Grid mega-project brings fusion forward).
+    func available(_ s: GameState) -> Bool {
+        if self == .fusion && XenoScience.megaDone(s, "supergrid") && s.year >= 2029 { return true }
+        return s.year >= availableFrom
     }
 
     var image: String {
@@ -104,6 +116,8 @@ enum PowerDeal: String, Codable, CaseIterable, Identifiable, Sendable {
         case .wind: "substation"
         case .gas: "generator"
         case .nuclear: "nuclear"
+        case .smr: "nuclear"
+        case .fusion: "substation"
         }
     }
 
@@ -114,6 +128,19 @@ enum PowerDeal: String, Codable, CaseIterable, Identifiable, Sendable {
         case .wind: "Wind power purchase agreement: cheap, green, a little less predictable."
         case .gas: "Behind-the-meter turbines: build faster without waiting for the grid, pricier and dirty."
         case .nuclear: "24/7 carbon-free power from a restarted or uprated reactor. Great for your brand."
+        case .smr: "A fleet of factory-built reactors on your own land: tens of gigawatts with no grid queue."
+        case .fusion: "Commercial fusion plants feeding the campus directly: cheap, clean and practically unlimited."
+        }
+    }
+
+    /// The most one site can draw on this kind of power, before the location's grid comes into it.
+    var siteCapMW: Double {
+        switch self {
+        case .grid, .solar, .wind: 0
+        case .gas: 10_000
+        case .nuclear: 3_000
+        case .smr: 25_000
+        case .fusion: 100_000
         }
     }
 }
@@ -129,6 +156,11 @@ struct Location: Identifiable, Sendable {
     let coloFee: Double      // $/kW-month for space + cooling
     let image: String
     let blurb: String
+
+    /// Grid capacity for one site in year `y`: utilities keep building transmission as AI demand grows.
+    func gridCap(_ y: Double) -> Double {
+        gridCapMW * interpolate([(2016, 0.6), (2024, 1.0), (2027, 1.3), (2030, 2.0), (2035, 4.0)], at: y)
+    }
 }
 
 enum LocationCatalog {

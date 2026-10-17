@@ -69,10 +69,11 @@ enum Physics {
     }
 
     /// Fraction of wall-clock time that makes forward progress (hardware failures at Llama 3 rates, stragglers).
-    static func goodput(chips: Int, state s: GameState, bonuses b: ResearchBonuses) -> Double {
-        let failuresPerDay = Double(chips) * Training.failuresPerChipDay
-        let lost = failuresPerDay * hoursLostPerFailure(state: s, bonuses: b) / 24
-        return clamp((1 - lost) * stragglerFactor(chips: chips, bonuses: b), 0.2, 0.998)
+    /// `coverage` is the share of the run watched by ops agents; by default, what your unpinned training-ops
+    /// swarms would give a new run of this size. Past ~100K chips, a run without agents barely moves.
+    static func goodput(chips: Int, state s: GameState, bonuses b: ResearchBonuses, coverage: Double? = nil) -> Double {
+        let cov = coverage ?? Training.plannedCoverage(s, chips: chips)
+        return max(0.01, Training.goodput(chips: chips, coverage: cov, state: s, bonuses: b))
     }
 
     static func pretrainFLOPs(_ d: ModelDesign) -> Double {

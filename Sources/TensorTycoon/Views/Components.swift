@@ -368,7 +368,7 @@ struct ToastView: View {
 struct QuantityPicker: View {
     @Binding var value: Int
     var range: ClosedRange<Int>
-    var presets: [Int] = [1, 8, 64, 512, 4096]
+    var presets: [Int] = [1, 8, 64, 512, 4096, 32_768, 262_144, 1_048_576]
 
     var body: some View {
         HStack(spacing: 6) {
@@ -376,7 +376,7 @@ struct QuantityPicker: View {
                 .buttonStyle(.bordered)
             TextField("Qty", value: $value, format: .number)
                 .textFieldStyle(.roundedBorder)
-                .frame(width: 90)
+                .frame(width: 110)
                 .multilineTextAlignment(.center)
                 .onChange(of: value) { _, new in value = clamp(new, range.lowerBound, max(range.lowerBound, range.upperBound)) }
             Button { value = min(range.upperBound, max(1, value * 2)) } label: { Image(systemName: "plus") }

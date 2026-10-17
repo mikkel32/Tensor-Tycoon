@@ -100,18 +100,22 @@ enum Economy {
     static func allocationLimit(_ a: Accelerator, _ s: GameState) -> Int {
         let age = ageYears(a, s)
         if a.cls == .consumer || a.cls == .workstation { return 2_000 }
-        if a.vendor == .custom { return 2_000_000 }
+        if a.vendor == .custom { return 20_000_000 }
         let divisor = age < 0.5 ? 700_000.0 : (age < 1.5 ? 400_000 : 100_000)
         let deal = (hasDeal(a, s) ? 4.0 : 1.0) * Partners.allocationMult(a, s) * (1 + s.traits.allocation)
-        return Int(clamp(s.valuation / divisor * deal, Double(max(64, a.minOrder * 2)), 2_000_000))
+        return Int(clamp(s.valuation / divisor * deal * scaleBoost(s), Double(max(64, a.minOrder * 2)), 20_000_000))
     }
+
+    /// Vendors treat the biggest buyers differently: past a $10B valuation, allocations grow faster than
+    /// valuation (√ of the excess), so a trillion-dollar lab can order millions of chips at once.
+    static func scaleBoost(_ s: GameState) -> Double { max(1, (s.valuation / 1e10).squareRoot()) }
 
     static func rentalLimit(_ a: Accelerator, _ s: GameState) -> Int {
         let age = ageYears(a, s)
         if a.cls == .consumer || a.cls == .workstation { return 2_000 }
         let divisor = age < 0.5 ? 600_000.0 : (age < 1.5 ? 350_000 : 100_000)
         let deal = (hasDeal(a, s) ? 4.0 : 1.0) * Partners.allocationMult(a, s) * (1 + s.traits.allocation)
-        return Int(clamp(s.valuation / divisor * deal, 32, 2_000_000))
+        return Int(clamp(s.valuation / divisor * deal * scaleBoost(s), 32, 20_000_000))
     }
 
     /// Server overhead included (CPU, NICs, fans).

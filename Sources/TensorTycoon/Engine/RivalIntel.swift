@@ -41,7 +41,9 @@ enum RivalIntel {
         q += 0.5 * log10(1 + s.intelBudget / 2.5e5) / log10(1 + 5e7 / 2.5e5)
         q += osint(s)
         q += min(0.08, Double(s.acquiredLabs.count) * 0.03)
-        return clamp(q, 0.05, 0.92)
+        // A competitive-intelligence swarm reading every filing and paper.
+        q += 0.2 * s.swarmIntel
+        return clamp(q, 0.05, 0.95)
     }
 
     /// Your best model reading job posts, papers, import records and power filings (up to +0.25).
@@ -151,8 +153,10 @@ enum RivalIntel {
         let m = CompetitorModel(name: "", date: date, c: c, reasoning: y >= Competitors.reasoningStart(def.id), scores: [:], index: 0,
                                 price: 0, open: def.openWeights, tps: 0, paramsB: 0)
         var p = Leaderboard.profile(m, def: def, boost: Competitors.boost(s, def.id, at: y))
-        p.key = "watch|\(def.id)|\(comp.releaseCount)|\(dayIndex(date))|\(Int((c * 200).rounded()))"
-        return BenchmarkCatalog.index(p, set: set)
+        p.key = "watch|\(def.id)|\(comp.releaseCount)"
+        // Scored directly, not through the shared score cache: forecasts must never change when it gets flushed.
+        guard !set.isEmpty else { return 0 }
+        return set.reduce(0) { $0 + $1.score(p) } / Double(set.count)
     }
 
     /// What the rumour mill says about a lab's next model today.

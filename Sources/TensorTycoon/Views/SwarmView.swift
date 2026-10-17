@@ -9,56 +9,76 @@ struct SwarmView: View {
         let running = s.swarms.filter { !$0.paused }
         let active = running.reduce(0) { $0 + $1.active }
         let workforce = running.reduce(0) { $0 + $1.workforce }
-        Page(title: "Agent Swarms", subtitle: "Run a hundred, a thousand or ten million copies of one of your models and point them at a single mission. Every agent needs inference chips — and big swarms drift out of alignment faster.") {
+        let best = s.models.filter { !$0.retired }.max { Swarms.quality($0, s) < Swarms.quality($1, s) }
+        Page(title: "Agent Swarms", subtitle: "Run a hundred, a thousand or a billion copies of one of your models and point them at a single mission. What each agent is worth depends on how smart the model is — and every agent needs inference chips. Big swarms drift out of alignment faster.") {
             HeroBanner(image: "dc_rows", height: 160) {
                 HStack(alignment: .bottom) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Your digital workforce").font(.title.weight(.bold))
-                        Text(b.has(.toolUse) ? "\(Fmt.count(active)) agents running · worth \(Fmt.count(workforce)) human researchers"
-                                             : "Locked — research Tool Use & Function Calling to run agents.")
+                        Text(active > 0 ? "\(Fmt.count(active)) agents running · worth \(Fmt.count(workforce)) human researchers"
+                                        : "Your own models, put to work. No agents running yet.")
                             .font(.callout).opacity(0.9)
                     }
                     Spacer()
+                    if let best {
+                        VStack(alignment: .trailing, spacing: 2) {
+                            Text("Best agent: \(best.name)").font(.caption).opacity(0.8)
+                            Text(Swarms.tier(Swarms.quality(best, s))).font(.system(size: 22, weight: .bold))
+                            Text("works \(Swarms.horizon(best)) on its own").font(.caption).opacity(0.8)
+                        }
+                    }
                 }
+            }
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 190), spacing: 12)], spacing: 12) {
+                StatTile(title: "Agents running", value: Fmt.count(active), detail: "\(s.swarms.count) of \(Swarms.maxSwarms) swarms", symbol: "person.3.sequence.fill", tint: .indigo)
+                StatTile(title: "Researcher-equivalents", value: Fmt.count(workforce), detail: "Pooled per mission", symbol: "brain.head.profile", tint: .purple)
+                StatTile(title: "Swarm research", value: "\(Fmt.count(s.swarmRPToday)) RP/day", detail: "Added to your research queue", symbol: "lightbulb.max.fill", tint: .pink)
+                StatTile(title: "Digital workforce", value: "\(Fmt.money(s.laborToday * 365))/yr", detail: "Cap \(Fmt.money(Swarms.laborCap(s) * 365))/yr at your brand", symbol: "briefcase.fill", tint: .green)
+                StatTile(title: "Mission levels", value: "\(Int(s.swarmOps * 100))% · \(Int(s.swarmSilicon * 100))% · \(Int(s.swarmSafety * 100))%",
+                         detail: "Training ops · chip design · alignment", symbol: "dial.medium.fill", tint: .teal)
+                StatTile(title: "Security · intel", value: "\(Int(s.swarmSecurity * 100))% · \(Int(s.swarmIntel * 100))%",
+                         detail: "Weight protection · Rival Watch", symbol: "lock.shield.fill", tint: .orange)
             }
             if !b.has(.toolUse) {
-                LockedSwarms(state: s)
-            } else {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 190), spacing: 12)], spacing: 12) {
-                    StatTile(title: "Agents running", value: Fmt.count(active), detail: "\(s.swarms.count) of \(Swarms.maxSwarms) swarms", symbol: "person.3.sequence.fill", tint: .indigo)
-                    StatTile(title: "Researcher-equivalents", value: Fmt.count(workforce), detail: "Pooled per mission", symbol: "brain.head.profile", tint: .purple)
-                    StatTile(title: "Swarm research", value: "\(Fmt.count(s.swarmRPToday)) RP/day", detail: "Added to your research queue", symbol: "lightbulb.max.fill", tint: .pink)
-                    StatTile(title: "Digital workforce", value: "\(Fmt.money(s.laborToday * 365))/yr", detail: "Cap \(Fmt.money(Swarms.laborCap(s) * 365))/yr at your brand", symbol: "briefcase.fill", tint: .green)
-                    StatTile(title: "Mission levels", value: "\(Int(s.swarmOps * 100))% · \(Int(s.swarmSilicon * 100))% · \(Int(s.swarmSafety * 100))%",
-                             detail: "Training ops · chip design · alignment", symbol: "dial.medium.fill", tint: .teal)
-                }
-                XenoProgressCard(state: s)
-                NewSwarmCard(state: s)
-                ForEach(s.swarms) { sw in SwarmCard(swarm: sw, state: s) }
+                Label("No tool-use research yet: agents run through a prompt-only scaffold at about 60% of their output. Research Tool Use & Function Calling and train it into a model to unlock their full value.",
+                      systemImage: "info.circle.fill")
+                    .font(.callout).foregroundStyle(.secondary)
             }
+            XenoProgressCard(state: s)
+            NewSwarmCard(state: s)
+            ForEach(s.swarms) { sw in SwarmCard(swarm: sw, state: s) }
         }
     }
 }
 
-private struct LockedSwarms: View {
-    @Environment(GameStore.self) private var store
+/// What one agent of a model is like: tier, horizon and value on each mission.
+private struct AgentProfile: View {
+    let model: AIModel
     let state: GameState
+    let mission: SwarmMission
 
     var body: some View {
-        Card {
-            CardHeader("Locked", symbol: "lock.fill")
-            Text("Agents need a model that can call tools. Research **Tool Use & Function Calling**, then train or fine-tune a model with tool use. **Agentic RL** unlocks alien-architecture search.")
-            HStack {
-                let queued = state.researchQueue.contains("tool_use")
-                Button(queued ? "Queued" : "Queue Tool Use") {
-                    store.mutate { $0.queueResearch("tool_use") }
-                    store.show("Queued Tool Use & Function Calling")
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(queued)
-                Button("Open Research") { store.open(.research) }
+        let s = state
+        let q = Swarms.quality(model, s, mission: mission)
+        let fit = Swarms.fit(model, mission)
+        HStack(spacing: 14) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(Swarms.tier(Swarms.quality(model, s))).font(.headline)
+                Text("Works \(Swarms.horizon(model)) on its own").font(.caption).foregroundStyle(.secondary)
+            }
+            Divider().frame(height: 30)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("\(Fmt.trim(q, q < 0.1 ? 3 : 2)) researcher-eq per agent").font(.callout.weight(.semibold).monospacedDigit())
+                Text(abs(fit - 1) < 0.05 ? "A typical fit for this mission" : (fit > 1 ? "Its strengths suit this mission (\(Fmt.trim(fit, 2))×)" : "Not its strong suit (\(Fmt.trim(fit, 2))×)"))
+                    .font(.caption).foregroundStyle(fit >= 1 ? .green : .orange)
+            }
+            Spacer()
+            if !model.design.toolUse {
+                Pill(text: "No tool use: 60%", color: .orange, symbol: "wrench.adjustable")
             }
         }
+        .padding(10)
+        .background(.quaternary.opacity(0.3), in: .rect(cornerRadius: 10))
     }
 }
 
@@ -105,6 +125,7 @@ private struct NewSwarmCard: View {
     @State private var chips = 1
     @State private var autonomy = 1
     @State private var oversight = 0.1
+    @State private var targetRunID: UUID? = nil
 
     private var agents: Int { Int(pow(10, agentsLog).rounded()) }
 
@@ -128,21 +149,26 @@ private struct NewSwarmCard: View {
                             Picker("Model", selection: $modelID) {
                                 Text("Choose…").tag(UUID?.none)
                                 ForEach(models) { m in
-                                    Text("\(m.name) · \(Fmt.trim(Swarms.quality(m, s), 2)) researcher/agent").tag(UUID?.some(m.id))
+                                    Text("\(m.name) · \(Swarms.tier(Swarms.quality(m, s))) · \(Fmt.trim(Swarms.quality(m, s), 2)) researcher/agent").tag(UUID?.some(m.id))
                                 }
                             }
                         }
-                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
+                        if let m = models.first(where: { $0.id == modelID }) {
+                            AgentProfile(model: m, state: s, mission: mission)
+                        }
+                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
                             ForEach(SwarmMission.allCases) { m in
-                                let locked = m == .xeno && !b.has(.agents)
+                                let value = models.first(where: { $0.id == modelID }).map { Swarms.quality($0, s, mission: m) }
                                 Button { mission = m } label: {
                                     VStack(alignment: .leading, spacing: 4) {
                                         HStack {
                                             Image(systemName: m.symbol).foregroundStyle(mission == m ? Color.accentColor : .secondary)
                                             Text(m.rawValue).font(.callout.weight(.semibold)).lineLimit(1)
-                                            if locked { Image(systemName: "lock.fill").font(.caption2) }
                                         }
                                         Text(m.blurb).font(.caption2).foregroundStyle(.secondary).lineLimit(3, reservesSpace: true)
+                                        if let value {
+                                            Text("\(Fmt.trim(value, value < 0.1 ? 3 : 2)) per agent").font(.caption2.weight(.semibold).monospacedDigit()).foregroundStyle(.secondary)
+                                        }
                                     }
                                     .padding(10)
                                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -151,17 +177,23 @@ private struct NewSwarmCard: View {
                                     .contentShape(.rect)
                                 }
                                 .buttonStyle(.plain)
-                                .disabled(locked)
-                                .opacity(locked ? 0.5 : 1)
+                            }
+                        }
+                        if mission == .trainingOps {
+                            Picker("Watch", selection: $targetRunID) {
+                                Text("Every running job").tag(UUID?.none)
+                                ForEach(s.runs.filter { Training.isLive($0) && $0.kind == .full }) { r in
+                                    Text("\(r.design.name) — \(Fmt.int(r.design.chips)) chips, \(Fmt.pct(r.opsCoverage, decimals: 0)) covered").tag(UUID?.some(r.id))
+                                }
                             }
                         }
                         HStack {
                             Text("Agents")
-                            Slider(value: $agentsLog, in: 1...7.7)
-                            Text(Fmt.int(agents)).font(.callout.monospacedDigit().weight(.semibold)).frame(width: 100, alignment: .trailing)
+                            Slider(value: $agentsLog, in: 1...9)
+                            Text(Fmt.int(agents)).font(.callout.monospacedDigit().weight(.semibold)).frame(width: 120, alignment: .trailing)
                         }
                         HStack(spacing: 6) {
-                            ForEach([2.0, 3.0, 4.0, 5.0, 6.0, 7.0], id: \.self) { v in
+                            ForEach([2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0], id: \.self) { v in
                                 Button(Fmt.count(pow(10, v), decimals: 0)) { agentsLog = v }
                                     .buttonStyle(.bordered)
                                     .controlSize(.small)
@@ -174,12 +206,17 @@ private struct NewSwarmCard: View {
                             }
                             QuantityPicker(value: $chips, range: 1...max(1, d.free(accelID)))
                         }
+                        let autonomousOK = models.first(where: { $0.id == modelID }).map { Swarms.canRunAutonomous($0, s, b) } ?? false
                         Picker("Autonomy", selection: $autonomy) {
                             ForEach(0..<3) { i in
-                                Text(AgentSwarm.autonomyNames[i]).tag(i).disabled(i == 2 && !b.has(.autoResearch) && !b.has(.rsi))
+                                Text(AgentSwarm.autonomyNames[i]).tag(i).disabled(i == 2 && !autonomousOK)
                             }
                         }
                         .pickerStyle(.segmented)
+                        if !autonomousOK {
+                            Text("Full autonomy opens with an engineer-level model (0.6 researcher-equivalents per agent) or Automated AI Research.")
+                                .font(.caption2).foregroundStyle(.secondary)
+                        }
                         HStack {
                             Text("Oversight")
                             Slider(value: $oversight, in: 0...0.5, step: 0.05)
@@ -235,7 +272,8 @@ private struct NewSwarmCard: View {
             Button {
                 guard let id = modelID else { store.show("Pick a model", error: true); return }
                 store.act("Swarm online") {
-                    $0.startSwarm(name: name, modelID: id, agents: agents, mission: mission, accelID: accelID, chips: chips, autonomy: autonomy, oversight: oversight)
+                    $0.startSwarm(name: name, modelID: id, agents: agents, mission: mission, accelID: accelID, chips: chips, autonomy: autonomy, oversight: oversight,
+                                  targetRunID: mission == .trainingOps ? targetRunID : nil)
                 }
             } label: {
                 Label("Launch \(Fmt.int(agents)) agents", systemImage: "person.3.sequence.fill").frame(maxWidth: .infinity)
@@ -277,6 +315,11 @@ private struct SwarmCard: View {
                         Pill(text: sw.paused ? "Paused" : "Running", color: sw.paused ? .orange : .green)
                         Pill(text: sw.mission.rawValue, color: .purple)
                         Pill(text: AgentSwarm.autonomyNames[sw.autonomy], color: sw.autonomy == 2 ? .red : .secondary)
+                        if sw.experience > 1.01 { Pill(text: "Experience +\(Int((sw.experience - 1) * 100))%", color: .teal, symbol: "graduationcap.fill") }
+                        if sw.mission == .trainingOps {
+                            let target = sw.targetRunID.flatMap { t in s.runs.first { $0.id == t && Training.isLive($0) } }
+                            Pill(text: target.map { "Watching \($0.design.name)" } ?? "Watching every run", color: .indigo, symbol: "eye.fill")
+                        }
                         if sw.incidents > 0 { Pill(text: "\(sw.incidents) incident\(sw.incidents == 1 ? "" : "s")", color: .red, symbol: "exclamationmark.triangle.fill") }
                     }
                     Text("\(model?.name ?? "?") · \(Fmt.int(sw.chips))× \(accel?.name ?? "?") · oversight \(Int(sw.oversight * 100))% · since \(sw.started.gameShort)")
@@ -323,8 +366,8 @@ private struct SwarmCard: View {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack {
                         Text("Agents")
-                        Slider(value: $agentsLog, in: 1...7.7)
-                        Text(Fmt.int(Int(pow(10, agentsLog).rounded()))).font(.callout.monospacedDigit()).frame(width: 100, alignment: .trailing)
+                        Slider(value: $agentsLog, in: 1...9)
+                        Text(Fmt.int(Int(pow(10, agentsLog).rounded()))).font(.callout.monospacedDigit()).frame(width: 120, alignment: .trailing)
                         Text("Chips")
                         QuantityPicker(value: $chips, range: 1...max(1, store.derived.free(sw.accelID) + (sw.paused ? 0 : sw.chips)))
                     }
@@ -354,6 +397,15 @@ private struct SwarmCard: View {
                         let need = Swarms.chipsNeeded(m, accelID: sw.accelID, agents: Int(pow(10, agentsLog).rounded()), s, store.derived.bonuses)
                         Text("\(Fmt.int(need)) chips run \(Fmt.int(Int(pow(10, agentsLog).rounded()))) agents of \(m.name).").font(.caption).foregroundStyle(.secondary)
                     }
+                    if sw.mission == .trainingOps {
+                        Picker("Watch", selection: Binding(get: { sw.targetRunID }, set: { v in store.act("Swarm reassigned") { $0.setSwarmTarget(sw.id, runID: v) } })) {
+                            Text("Every running job").tag(UUID?.none)
+                            ForEach(s.runs.filter { Training.isLive($0) && $0.kind == .full }) { r in
+                                Text("\(r.design.name) — \(Fmt.int(r.design.chips)) chips").tag(UUID?.some(r.id))
+                            }
+                        }
+                        .frame(width: 420)
+                    }
                 }
             }
             if !sw.log.isEmpty {
@@ -374,10 +426,16 @@ private struct SwarmCard: View {
         switch sw.mission {
         case .research: return "\(Fmt.count(sw.output)) RP"
         case .xeno: return "\(Fmt.trim(sw.output, 1)) insight"
-        case .trainingOps: return "Ops level \(Int(s.swarmOps * 100))%"
+        case .trainingOps:
+            if let t = sw.targetRunID, let r = s.runs.first(where: { $0.id == t && Training.isLive($0) }) {
+                return "\(Fmt.pct(r.opsCoverage, decimals: 0)) of \(r.design.name)"
+            }
+            return "Ops level \(Int(s.swarmOps * 100))%"
         case .silicon: return "Design level \(Int(s.swarmSilicon * 100))%"
         case .alignment: return "Safety level \(Int(s.swarmSafety * 100))%"
         case .workforce: return Fmt.money(sw.output)
+        case .security: return "Security level \(Int(s.swarmSecurity * 100))%"
+        case .intel: return "Intel level \(Int(s.swarmIntel * 100))%"
         }
     }
 
@@ -386,7 +444,7 @@ private struct SwarmCard: View {
         case .research: return "\(Fmt.count(sw.totalOutput)) RP"
         case .xeno: return "\(Fmt.count(sw.totalOutput)) insight"
         case .workforce: return Fmt.money(sw.revenue)
-        case .trainingOps, .silicon, .alignment: return "\(Fmt.count(sw.totalOutput)) worker-days"
+        case .trainingOps, .silicon, .alignment, .security, .intel: return "\(Fmt.count(sw.totalOutput)) worker-days"
         }
     }
 }

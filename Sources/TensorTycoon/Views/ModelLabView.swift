@@ -670,6 +670,12 @@ struct ForecastPanel: View {
                     if let c = Regulation.note(flops: est.flops, state: s) {
                         Label(c, systemImage: "building.columns").font(.caption).foregroundStyle(.purple)
                     }
+                    let fullOps = Training.goodput(chips: design.chips, coverage: 1, state: s, bonuses: b)
+                    if fullOps - est.goodput > 0.1 {
+                        Label("At \(Fmt.int(design.chips)) chips something fails every \(Int((1_440 / max(1e-9, Double(design.chips) * Training.failuresPerChipDay)).rounded())) minutes: goodput \(Fmt.pct(est.goodput, decimals: 0)) without agents watching. Point a training-ops swarm at the run (Training Runs → Assign agents) to reach \(Fmt.pct(fullOps, decimals: 0)).",
+                              systemImage: "wrench.and.screwdriver.fill")
+                            .font(.caption).foregroundStyle(.orange)
+                    }
                 }
 
                 StagePlan(design: design, est: est, days: days, bonuses: b)

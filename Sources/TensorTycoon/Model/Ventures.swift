@@ -10,6 +10,8 @@ enum SwarmMission: String, Codable, CaseIterable, Identifiable {
     case silicon = "Chip design"
     case alignment = "Alignment research"
     case workforce = "Digital workforce"
+    case security = "Security operations"
+    case intel = "Competitive intelligence"
 
     var id: String { rawValue }
 
@@ -21,6 +23,8 @@ enum SwarmMission: String, Codable, CaseIterable, Identifiable {
         case .silicon: "memorychip.fill"
         case .alignment: "checkmark.shield.fill"
         case .workforce: "briefcase.fill"
+        case .security: "lock.shield.fill"
+        case .intel: "binoculars.fill"
         }
     }
 
@@ -28,10 +32,27 @@ enum SwarmMission: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .research: "Agents read papers, write code and run ablations around the clock. Adds research points every day."
         case .xeno: "Agents search design spaces no human would try. Enough insight yields an alien architecture: a chip and a model design nobody else has."
-        case .trainingOps: "Agents babysit your clusters: tune kernels, catch bad nodes and silent bugs. Higher MFU, fewer loss spikes, less time lost to failures."
+        case .trainingOps: "Agents babysit your clusters: predict failing GPUs, restart in seconds, catch silent corruption and loss spikes. Point a swarm at one run — past 100K chips, coverage is what keeps it alive."
         case .silicon: "Agents write RTL and run verification. Chip programs and alien tape-outs finish faster, with better silicon."
         case .alignment: "Agents red-team and audit other models. Raises your safety score and slows alignment drift in self-improvement runs and swarms."
         case .workforce: "Rent your agents to companies as a digital workforce: support, coding, back office. Paid per worker-day."
+        case .security: "Agents hunt intruders, review every commit and watch the weights 24/7. Attacks that get past your defences succeed less often."
+        case .intel: "Agents read every paper, job post, import record and power filing. Sharper Rival Watch forecasts: launch dates, compute and capability."
+        }
+    }
+
+    /// The skills this mission leans on, as weights on reasoning, code and agentic skill (they sum to 3, so 1 each is
+    /// the average agentic task), plus chat and safety for the missions that need them.
+    var skillMix: (reasoning: Double, code: Double, agent: Double, chat: Double, safety: Double) {
+        switch self {
+        case .research: (1.3, 0.9, 0.8, 0, 0)
+        case .xeno: (1.5, 0.6, 0.9, 0, 0)
+        case .trainingOps: (0.5, 1.2, 1.3, 0, 0)
+        case .silicon: (0.9, 1.4, 0.7, 0, 0)
+        case .alignment: (1.4, 0.6, 1.0, 0, 0.006)
+        case .workforce: (0.6, 1.0, 1.4, 0.25, 0)
+        case .security: (0.7, 1.3, 1.0, 0, 0.003)
+        case .intel: (1.4, 0.4, 1.2, 0.15, 0)
         }
     }
 }
@@ -61,8 +82,15 @@ struct AgentSwarm: Codable, Identifiable, Hashable {
     var incidents = 0
     var log: [String] = []
     var lastDecision: Date? = nil
+    /// 3.3: a training-ops swarm can watch one run (nil = spread over all runs).
+    @D var targetRunID: UUID? = nil
+    /// Days on the current mission: agents get better at a job they keep doing.
+    @D var missionDays: Double = 0
 
     static let autonomyNames = ["Supervised", "Semi-autonomous", "Fully autonomous"]
+
+    /// Up to +25% from experience on the same mission (half of it in about three months).
+    var experience: Double { 1 + 0.25 * (1 - exp(-missionDays / 120)) }
 }
 
 // MARK: - Alien architectures

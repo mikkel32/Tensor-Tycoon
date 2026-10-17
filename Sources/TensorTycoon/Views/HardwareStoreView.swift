@@ -359,7 +359,8 @@ struct AcceleratorDetail: View {
                 Text("Quantity")
                 Spacer()
                 QuantityPicker(value: $qty, range: 1...max(1, max(Economy.allocationLimit(a, s), Economy.rentalLimit(a, s))),
-                               presets: a.minOrder > 1 ? [a.minOrder, a.minOrder * 4, a.minOrder * 16, a.minOrder * 64] : [1, 8, 64, 512, 4096])
+                               presets: a.minOrder > 1 ? [a.minOrder, a.minOrder * 16, a.minOrder * 256, a.minOrder * 4096, a.minOrder * 32_768]
+                                                       : [1, 8, 64, 512, 4096, 32_768, 262_144, 1_048_576])
             }
             if a.minOrder > 1 && buy != nil && qty % a.minOrder != 0 {
                 Label("Purchases ship in full racks of \(a.minOrder) (rentals can be any size).", systemImage: "square.stack.3d.up").font(.caption).foregroundStyle(.orange)
@@ -372,6 +373,17 @@ struct AcceleratorDetail: View {
                         ForEach(sites) { site in
                             let free = site.capacityKW - Economy.siteLoadKW(s, site.id)
                             Text("\(site.name) — \(Fmt.watts(max(0, free) * 1000)) free\(site.isReady(s.date) ? "" : " (under construction)")").tag(UUID?.some(site.id))
+                        }
+                    }
+                    if let siteID, let site = s.sites.first(where: { $0.id == siteID }) {
+                        let best = Campus.maxOrder(a, site: site, s)
+                        HStack {
+                            Text("Most you can order for \(site.name): \(Fmt.int(best)) (allocation, cash and power)")
+                                .font(.caption).foregroundStyle(.secondary)
+                            Spacer()
+                            Button("Use max") { qty = max(1, best) }
+                                .buttonStyle(.borderless).font(.caption)
+                                .disabled(best < 1)
                         }
                     }
                     let total = buy * Double(qty)

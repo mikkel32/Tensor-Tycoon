@@ -83,11 +83,13 @@ extension GameState {
         guard let loc = LocationCatalog.byID[locationID] else { return "Pick a location." }
         let b = bonuses
         if cooling == .immersion && !b.has(.immersion) { return "Research Immersion Cooling first." }
-        if power == .nuclear && year < PowerDeal.nuclear.availableFrom { return "Nuclear PPAs aren't available yet." }
+        if !power.available(self) { return "\(power.rawValue) isn't available yet." }
         switch kind {
         case .garage, .office:
             return "You already have that."
         case .colo:
+            if capacityKW / 1000 > Campus.coloCapMW { return "Colocation providers lease at most \(Int(Campus.coloCapMW)) MW to one tenant. Build your own campus for more." }
+            if power == .gas || power == .smr || power == .fusion { return "A colocation provider picks grid power or a PPA, not on-site generation." }
             let setup = loc.coloFee * capacityKW * (cooling == .air ? 1 : 1.35)
             if setup > cash { return "The first month's fee of \(Fmt.money(setup)) is more than your cash." }
             cash -= setup
@@ -98,16 +100,26 @@ extension GameState {
                      .company, image: loc.image)
         case .datacenter:
             let mw = capacityKW / 1000
-            let capex = mw * cooling.capexPerMW * (year > 2024 ? 1.15 : 1)
-            if capex > cash { return "Building this costs \(Fmt.money(capex)); you have \(Fmt.money(cash))." }
-            if mw > loc.gridCapMW { return "\(loc.name)'s grid can only supply \(Int(loc.gridCapMW)) MW to one site." }
-            let months = buildMonths(mw: mw, loc: loc, power: power)
+            let cap = Campus.siteCapMW(loc, power, self)
+            if mw > cap + 0.01 {
+                return "\(loc.name) can supply at most \(Fmt.watts(cap * 1e6)) to one site on \(power.rawValue.lowercased()). On-site gas, reactors or another location go bigger."
+            }
+            // Big campuses come online a phase at a time; each phase is paid for when it starts.
+            let n = Campus.phases(mw: mw)
+            let phaseMW = mw / Double(n)
+            let capex = phaseMW * Campus.capexPerMW(cooling, self)
+            if capex > cash { return n > 1 ? "The first phase costs \(Fmt.money(capex)); you have \(Fmt.money(cash))." : "Building this costs \(Fmt.money(capex)); you have \(Fmt.money(cash))." }
+            let months = buildMonths(mw: phaseMW, loc: loc, power: power)
             cash -= capex
             month.capex += capex
             let ready = GameCalendar.addDays(date, Int(months * 30.4))
-            sites.append(Site(name: name, kind: .datacenter, locationID: locationID, capacityKW: capacityKW, cooling: cooling, powerDeal: power,
-                              opened: date, ready: ready, capex: capex, monthlyFee: 0))
-            Sim.news(&self, "Breaking ground: \(name)", "\(Fmt.trim(mw, 1)) MW \(cooling.rawValue.lowercased())-cooled campus in \(loc.name). \(Fmt.money(capex)), online \(ready.gameMonth).",
+            var site = Site(name: name, kind: .datacenter, locationID: locationID, capacityKW: phaseMW * 1000, cooling: cooling, powerDeal: power,
+                            opened: date, ready: ready, capex: capex, monthlyFee: 0)
+            site.plannedKW = (mw - phaseMW) * 1000
+            site.phaseKW = phaseMW * 1000
+            sites.append(site)
+            let phasesNote = n > 1 ? " Built in \(n) phases of \(Fmt.watts(phaseMW * 1e6)); the first is energised \(ready.gameMonth), about \(Fmt.money(mw * Campus.capexPerMW(cooling, self))) in all." : " \(Fmt.money(capex)), online \(ready.gameMonth)."
+            Sim.news(&self, "Breaking ground: \(name)", "\(Fmt.watts(mw * 1e6)) \(cooling.rawValue.lowercased())-cooled campus in \(loc.name) on \(power.rawValue.lowercased()).\(phasesNote)",
                      .company, image: "dc_construction", important: true)
         }
         return nil
@@ -115,7 +127,9 @@ extension GameState {
 
     func buildMonths(mw: Double, loc: Location, power: PowerDeal) -> Double {
         var m = (7 + min(22, mw * 0.025)) / loc.buildSpeed * market.buildDelay * Policy.buildFactor(self) * XenoScience.buildFactor(self)
+        m /= Campus.speedup(year)
         if power == .gas { m *= 0.7 }
+        if power == .smr || power == .fusion { m *= 0.85 }
         return m
     }
 
@@ -127,29 +141,41 @@ extension GameState {
         case .garage, .office:
             return "Upgrade your office from the Team page instead."
         case .colo:
+            if (site.capacityKW + addKW) / 1000 > Campus.coloCapMW { return "Colocation providers lease at most \(Int(Campus.coloCapMW)) MW to one tenant. Build your own campus for more." }
             let fee = site.location.coloFee * addKW * (site.cooling == .air ? 1 : 1.35)
             sites[i].capacityKW += addKW
             sites[i].monthlyFee += fee
         case .datacenter:
-            let mw = addKW / 1000
-            if (site.capacityKW + addKW) / 1000 > site.location.gridCapMW { return "The local grid can't supply that much." }
-            let capex = mw * site.cooling.capexPerMW * (year > 2024 ? 1.15 : 1)
-            if capex > cash { return "This expansion costs \(Fmt.money(capex))." }
-            cash -= capex
-            month.capex += capex
-            sites[i].capex += capex
-            sites[i].expanding = addKW
-            sites[i].expansionReady = GameCalendar.addDays(date, Int(buildMonths(mw: mw, loc: site.location, power: site.powerDeal) * 0.7 * 30.4))
+            let cap = Campus.siteCapMW(site.location, site.powerDeal, self)
+            if (Campus.plannedTotalKW(site) + addKW) / 1000 > cap + 0.01 {
+                return "\(site.location.name) can supply at most \(Fmt.watts(cap * 1e6)) to one site on \(site.powerDeal.rawValue.lowercased()). Switch to a bigger power source or build another site."
+            }
+            // Expansions queue up as phases, each paid for when construction starts.
+            let n = Campus.phases(mw: addKW / 1000)
+            let phase = addKW / Double(n)
+            let first = min(addKW, phase)
+            if site.expanding == 0 && site.plannedKW == 0 && site.isReady(date) {
+                let capex = first / 1000 * Campus.capexPerMW(site.cooling, self)
+                if capex > cash { return n > 1 ? "The first phase costs \(Fmt.money(capex))." : "This expansion costs \(Fmt.money(capex))." }
+            }
+            sites[i].plannedKW += addKW
+            sites[i].phaseKW = phase
+            if site.isReady(date) && site.expanding == 0 { Campus.startNextPhase(&self, i, factor: 0.6) }
         }
         return nil
     }
 
     mutating func setPowerDeal(_ id: UUID, _ deal: PowerDeal) -> String? {
         guard let i = sites.firstIndex(where: { $0.id == id }) else { return "Not found." }
-        if year < deal.availableFrom { return "Not available yet." }
+        if !deal.available(self) { return "Not available yet." }
         if sites[i].kind == .garage || sites[i].kind == .office { return "Your landlord picks the power for you." }
+        if sites[i].kind == .colo && (deal == .gas || deal == .smr || deal == .fusion) { return "A colocation provider can't run on-site generation for you." }
+        let cap = Campus.siteCapMW(sites[i].location, deal, self)
+        if Campus.plannedTotalKW(sites[i]) / 1000 > cap + 0.01 {
+            return "\(deal.rawValue) can only supply \(Fmt.watts(cap * 1e6)) here; this campus is planned for \(Fmt.watts(Campus.plannedTotalKW(sites[i]) * 1000))."
+        }
         sites[i].powerDeal = deal
-        if deal == .nuclear || deal == .solar || deal == .wind { brand = min(100, brand + 1) }
+        if deal.green >= 1 { brand = min(100, brand + 1) }
         return nil
     }
 

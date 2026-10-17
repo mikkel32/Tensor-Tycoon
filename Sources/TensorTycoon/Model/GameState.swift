@@ -152,6 +152,12 @@ struct Site: Codable, Identifiable, Hashable {
     var monthlyFee: Double
     var expanding: Double = 0       // extra kW under construction
     var expansionReady: Date? = nil
+    /// 3.3: capacity of later phases of a phased campus, not started yet (paid for as each phase starts).
+    @D var plannedKW: Double = 0
+    /// Size of each construction phase.
+    @D var phaseKW: Double = 0
+    /// The next phase is waiting for cash.
+    @D var phaseBlocked: Bool = false
 
     var location: Location { LocationCatalog.byID[locationID] ?? LocationCatalog.all[0] }
 
@@ -400,6 +406,14 @@ struct TrainingRun: Codable, Identifiable, Hashable {
     var decided: Set<String> = []
     var emerged: Set<String> = []
     var proxyCompute: Double = 0
+    // 3.3: ops agents watching the run
+    /// Share of the run's chips watched by ops agents (refreshed daily).
+    @D var opsCoverage: Double = 0
+    /// Failures drained before they crashed the job.
+    @D var prevented: Double = 0
+    /// Nodes caught (and missed) silently corrupting gradients.
+    @D var sdcCaught: Double = 0
+    @D var sdcMissed: Double = 0
 
     var schedule: LRSchedule { LRSchedule(rawValue: lr) ?? .standard }
     var interval: Double { checkpointEvery > 0 ? checkpointEvery : 0.1 }
@@ -978,6 +992,9 @@ struct GameState: Codable {
     @D var lastCorrection: Date? = nil
     /// Industry valuation ÷ revenue run-rate (independent labs), for the bubble meter.
     @D var industryMultiple: Double = 0
+    // 3.3: agent missions
+    @D var swarmSecurity: Double = 0
+    @D var swarmIntel: Double = 0
     // 3.3: Rival Watch
     /// Monthly spend on competitive intelligence.
     @D var intelBudget: Double = 0
