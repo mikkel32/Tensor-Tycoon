@@ -148,7 +148,7 @@ enum Region: String, Codable, CaseIterable, Identifiable, Sendable {
         case .china: "in China"
         case .gulf: "in the Gulf"
         case .india: "in India"
-        case .japanKorea: "in Japan or Korea"
+        case .japanKorea: "in Japan and Korea"
         }
     }
 
@@ -164,6 +164,9 @@ enum Region: String, Codable, CaseIterable, Identifiable, Sendable {
         case .japanKorea: "Regulators in Tokyo and Seoul"
         }
     }
+
+    /// Whether `regulator` takes a plural verb ("Gulf regulators propose …").
+    var regulatorIsPlural: Bool { self == .gulf || self == .japanKorea }
 
     /// How strict the rules would be with no incidents (0–100): the real laws to 2026, a gentle drift after.
     func baseline(_ y: Double) -> Double {

@@ -171,7 +171,7 @@ enum World {
         let past = impacts.compactMap { (id, impact) -> (String, Date, Impact)? in
             guard s.firedEvents.contains(id), let e = scripted[id], e.date <= s.date, happened(e, s) else { return nil }
             return (id, e.date, impact)
-        }.sorted { $0.1 < $1.1 }
+        }.sorted { ($0.1, $0.0) < ($1.1, $1.0) }
         let now = s.year
         let chat = s.chatMoment
         var next = 0
@@ -371,7 +371,7 @@ enum World {
     /// marked fired before its date didn't happen (you started the chat boom yourself, say).
     static func applyScripted(_ s: inout GameState) {
         let due = impacts.keys.filter { s.firedEvents.contains($0) && !s.world.applied.contains($0) }
-            .compactMap { id in scripted[id].map { (id, $0) } }.sorted { $0.1.date < $1.1.date }
+            .compactMap { id in scripted[id].map { (id, $0) } }.sorted { ($0.1.date, $0.0) < ($1.1.date, $1.0) }
         guard !due.isEmpty else { return }
         for (id, e) in due {
             s.world.applied.insert(id)

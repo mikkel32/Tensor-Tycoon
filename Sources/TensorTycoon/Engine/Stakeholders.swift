@@ -323,7 +323,7 @@ enum Stakeholders {
             var place = ""
             if let r {
                 dd[r.rawValue] = 6
-                place = " " + r.inPlace
+                place = " (\(r.title))"
             }
             move(&s, dd, "Signed a sovereign AI deal" + place)
         case ("sovereign_deal", _):
@@ -466,7 +466,7 @@ enum Stakeholders {
         // Benchmark contamination found.
         var tuned: Set<String> = []
         for m in s.models where m.tuned { tuned.insert("t|" + m.id.uuidString) }
-        for key in s.world.seen where key.hasPrefix("t|") && !tuned.contains(key) {
+        for key in s.world.seen.filter({ $0.hasPrefix("t|") && !tuned.contains($0) }).sorted() {
             s.world.seen.remove(key)
             if let m = s.models.first(where: { "t|" + $0.id.uuidString == key }), m.released {
                 move(&s, ["researchers": -6, "developers": -3, "public": -2], "Test questions found in \(World.possessive(m.name)) training data")

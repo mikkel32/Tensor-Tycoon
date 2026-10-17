@@ -81,12 +81,13 @@ enum Consequences {
         setStrictness(&s, r, plus: 6)
         let times = s.world.levels["regulator.\(r.rawValue)", default: 0]
         s.world.levels["regulator.\(r.rawValue)"] = times + 1
-        let verbs = ["proposes emergency AI rules", "tightens its AI rules", "orders new safety checks on frontier models"]
+        let verbs = r.regulatorIsPlural ? ["propose emergency AI rules", "tighten their AI rules", "order new safety checks on frontier models"]
+                                        : ["proposes emergency AI rules", "tightens its AI rules", "orders new safety checks on frontier models"]
         happen(&s, "regulator", "\(r.regulator) \(verbs[times % verbs.count]) after \(cause)",
-               "Concern about AI safety is at \(Int(w.concern))/100. Rules in \(r.short) tighten to \(Int(s.world.strictness(r)))/100 (\(World.strictnessLabel(s.world.strictness(r)).lowercased())).")
+               "Concern about AI safety is at \(Int(w.concern))/100. Rules \(r.inPlace) tighten to \(Int(s.world.strictness(r)))/100 (\(World.strictnessLabel(s.world.strictness(r)).lowercased())).")
         if yours && s.world.government(r) < 50 && Policy.isFrontierDeveloper(s) {
             let cost = max(1e6, Economy.runRate(s) * 0.002)
-            Events.addDecision(&s, kind: "world_inquiry", title: "\(r.regulator) opens an inquiry into \(s.companyName)",
+            Events.addDecision(&s, kind: "world_inquiry", title: "\(r.regulator) \(r.regulatorIsPlural ? "open" : "opens") an inquiry into \(s.companyName)",
                                body: "After \(cause), officials \(r.inPlace) want your safety evaluations, incident logs and red-team reports. Your standing there is \(Int(s.world.government(r)))/100.",
                                image: "stock_exchange",
                                options: [DecisionOption(label: "Cooperate fully (\(Fmt.money(cost)))", detail: "Standing \(r.inPlace) +6, public trust +1, safety +1."),
@@ -341,7 +342,7 @@ enum Consequences {
                 let fine = max(5e6, Economy.runRate(s) * 0.01) * Policy.fineFactor(s)
                 s.cash -= fine
                 s.month.costOther += fine
-                Sim.news(&s, "\(r.short) fines \(s.companyName) \(Fmt.money(fine))", "Regulators made an example of a lab that refused their inquiry.", .policy, important: true, good: false)
+                Sim.news(&s, "Regulators \(r.inPlace) fine \(s.companyName) \(Fmt.money(fine))", "They made an example of a lab that refused their inquiry.", .policy, important: true, good: false)
             }
         case ("world_partnership", 0):
             if d.ref == "institute" {
