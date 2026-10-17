@@ -251,6 +251,11 @@ enum RivalStrategy {
         case .priceWar:
             Sim.news(&s, "\(name) starts a price war", "\(reason) It is cutting API prices sharply; expect token prices across the market to fall.",
                      .competitor, important: true, good: false)
+            if s.models.contains(where: { $0.released && !$0.retired && $0.api }) {
+                Alerts.raise(&s, .priceWar, key: def.id, title: "\(name) starts a price war",
+                             body: "Its API prices fall up to 45%. Match on your most exposed model, hold and lean on quality, or move upmarket to enterprise.",
+                             screen: .market, cooldown: 90)
+            }
         case .race:
             Sim.news(&s, "\(name) goes all-in on its next model", "\(reason) It's committing far more compute to its next runs.", .competitor)
         case .talentRaid:

@@ -255,7 +255,16 @@ enum Events {
 
     static func addDecision(_ s: inout GameState, kind: String, title: String, body: String, image: String?,
                             options: [DecisionOption], amount: Double = 0, ref: String = "") {
-        s.decisions.append(Decision(kind: kind, title: title, body: body, image: image, options: options, date: s.date, amount: amount, ref: ref))
+        var d = Decision(kind: kind, title: title, body: body, image: image, options: options, date: s.date, amount: amount, ref: ref)
+        // Low-stakes offers wait in the inbox with a deadline instead of stopping the clock.
+        if !Alerts.isUrgent(d) {
+            d.deadline = GameCalendar.addDays(s.date, Alerts.inboxDays(kind))
+            let fallback = options.indices.contains(Alerts.inboxDefaults[kind] ?? 0) ? options[Alerts.inboxDefaults[kind] ?? 0].label : options.last?.label ?? "nothing"
+            Alerts.raise(&s, .inbox, key: d.id.uuidString, title: title,
+                         body: "Waiting in your inbox for \(Alerts.inboxDays(kind)) days. If you don't answer: \"\(fallback)\".",
+                         screen: .dashboard, cooldown: 0)
+        }
+        s.decisions.append(d)
     }
 
     static func resolve(_ s: inout GameState, _ id: UUID, option: Int) {
@@ -347,6 +356,7 @@ enum Achievements {
         s.achievements.insert(id)
         s.culturePoints += 1
         Sim.news(&s, "🏆 Achievement: \(a.title)", a.detail, .company, important: true, good: true)
+        Alerts.raise(&s, .milestone, key: id, title: a.title, body: a.detail, screen: .achievements, celebrate: true, cooldown: 0)
     }
 
     static func check(_ s: inout GameState) {

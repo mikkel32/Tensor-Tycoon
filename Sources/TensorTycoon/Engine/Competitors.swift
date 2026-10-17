@@ -205,6 +205,14 @@ enum Competitors {
                      "Intelligence Index \(Fmt.score(idx))\(details.isEmpty ? "" : " · " + details.joined(separator: " · ")). API price \(Fmt.price(model.price))/M tokens.\(openNote)",
                      .competitor, image: nil, important: isTop)
             RivalIntel.released(&s, i, model: model, index: idx, outlook: call)
+            // Tell the player when this release puts the lab ahead of their best model.
+            let labBefore = s.competitors[i].models.dropLast().map(\.index).max() ?? 0
+            if let mine = s.models.filter({ $0.released && !$0.retired }).max(by: { $0.index < $1.index }),
+               model.index > mine.index, labBefore <= mine.index {
+                Alerts.raise(&s, .rivalPassed, key: def.id, title: "\(def.name)'s \(model.name) beats \(mine.name)",
+                             body: "Index \(Fmt.score(model.index)) vs your \(Fmt.score(mine.index)). Users and API customers drift to it until you ship something better.",
+                             screen: .rivalWatch, cooldown: 30)
+            }
         }
     }
 

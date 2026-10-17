@@ -18,6 +18,14 @@ enum SaveMigration {
             s.researchFocus = ResearchFocus.balanced.rawValue
             s.autoResearch = true
         }
+        // Saves from before alerts (3.4): pause on the important ones; waiting offers get a deadline.
+        if !s.pauseConfigured {
+            s.pauseConfigured = true
+            s.pauseKinds = Alerts.defaultPauseKinds
+        }
+        for i in s.decisions.indices where !Alerts.isUrgent(s.decisions[i]) && s.decisions[i].deadline == nil {
+            s.decisions[i].deadline = GameCalendar.addDays(s.date, Alerts.inboxDays(s.decisions[i].kind))
+        }
         // Unique breakthroughs researched before mastery existed start at mastery I.
         for id in s.exoticOwned where s.researched.contains(id) && s.exoticMastery[id] == nil { s.exoticMastery[id] = 1 }
         // Old labs choose their signature secret on the Research page (signatureLevel stays 0 until they do).

@@ -8,7 +8,7 @@ struct RivalWatchView: View {
     var body: some View {
         let s = store.game
         let set = store.derived.indexSet
-        let rows = RivalIntel.rows(s, set: set)
+        let rows = store.derived.watch
         let mine = RivalIntel.playerBest(s, set: set)
         let next = RivalIntel.playerNext(s)
         let q = RivalIntel.quality(s)
@@ -679,7 +679,7 @@ struct RivalWatchMiniCard: View {
     let state: GameState
 
     var body: some View {
-        let rows = Array(RivalIntel.rows(state, set: store.derived.indexSet).prefix(4))
+        let rows = Array(store.derived.watch.prefix(4))
         Card {
             CardHeader(title: "Rival Watch", symbol: "binoculars.fill", subtitle: "Next launches, as the rumour mill sees them") {
                 Button("Open") { store.open(.rivalWatch) }.buttonStyle(.link)

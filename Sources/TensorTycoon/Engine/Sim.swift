@@ -15,6 +15,7 @@ enum Sim {
         rentalExpiry(&s)
         siteConstruction(&s)
         rebalance(&s, Economy.pools(s))
+        Operations.daily(&s, b)
         s.xenoInsightToday = 0
         Training.daily(&s, b)
         RSI.daily(&s, b)
@@ -38,6 +39,8 @@ enum Sim {
         if s.date.ym != oldMonth { Monthly.close(&s) }
         Achievements.check(&s)
         checkSolvency(&s)
+        Alerts.daily(&s)
+        Alerts.expireInbox(&s)
     }
 
     // MARK: - News helper
@@ -210,6 +213,9 @@ enum Sim {
                     s.runs[ri].note = "Paused: not enough \(pool.accel.name) chips."
                     excess -= s.runs[ri].design.chips
                     news(&s, "Training paused: \(s.runs[ri].design.name)", "You no longer have enough \(pool.accel.name) chips for this run.", .company, important: true, good: false)
+                    Alerts.raise(&s, .runPaused, key: s.runs[ri].id.uuidString, title: "\(s.runs[ri].design.name) stalled",
+                                 body: "Not enough \(pool.accel.name) chips: something else took them, or a rental ended. Free chips up or shrink the run, then resume.",
+                                 screen: .training, critical: true, cooldown: 7)
                 }
             }
         }

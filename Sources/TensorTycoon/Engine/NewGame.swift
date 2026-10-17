@@ -44,6 +44,8 @@ enum NewGame {
         s.signatureShare = SignatureSecret.defaultShare
         s.autoResearch = true
         s.researchFocus = ResearchFocus.balanced.rawValue
+        s.pauseConfigured = true
+        s.pauseKinds = Alerts.defaultPauseKinds
 
         // Public research is already known.
         for r in ResearchCatalog.core where r.year <= y - 0.05 && r.category != .frontier {

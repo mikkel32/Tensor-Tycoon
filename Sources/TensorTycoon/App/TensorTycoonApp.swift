@@ -51,6 +51,10 @@ struct TensorTycoonApp: App {
             BalanceHarness.research(era: i + 1 < args.count ? args[i + 1] : "2022")
             exit(0)
         }
+        if let i = args.firstIndex(of: "--experience") {
+            BalanceHarness.experience(era: i + 1 < args.count ? args[i + 1] : "2024")
+            exit(0)
+        }
         if let i = args.firstIndex(of: "--ventures") {
             BalanceHarness.ventures(era: i + 1 < args.count ? args[i + 1] : "2026")
             exit(0)
@@ -93,7 +97,7 @@ struct TensorTycoonApp: App {
                     .disabled(store.state == nil)
             }
             CommandMenu("Game") {
-                Button("Save Game") { store.save(); store.show("Game saved") }
+                Button("Save Game") { store.save(force: true); store.show("Game saved") }
                     .keyboardShortcut("s")
                     .disabled(store.state == nil)
                 Divider()

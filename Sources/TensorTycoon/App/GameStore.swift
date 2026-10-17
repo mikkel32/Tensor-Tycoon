@@ -23,6 +23,9 @@ struct Derived {
     var h100e = 0.0
     var totalChips = 0
     var frontier = 0.0
+    /// Rival Watch rows and the Chief of Staff's list, computed once per tick for every view that shows them.
+    var watch: [RivalIntel.Row] = []
+    var advice: [AdvisorItem] = []
 
     init() {}
 
@@ -42,6 +45,8 @@ struct Derived {
         h100e = pools.reduce(0) { $0 + Double($1.total) * $1.accel.bf16 / HardwareCatalog.h100.bf16 }
         totalChips = Economy.totalChips(s)
         frontier = Macro.frontier(s.year)
+        watch = RivalIntel.rows(s, set: indexSet)
+        advice = Advisor.items(s, pools: pools, watch: watch, set: indexSet)
     }
 
     func free(_ accelID: String) -> Int { poolByID[accelID]?.free ?? 0 }
@@ -63,6 +68,12 @@ final class GameStore {
     var focusAccelID: String?
     /// A finished training run whose report sheet should be shown.
     var reportRunID: UUID?
+    /// An inbox decision the player opened.
+    var openDecisionID: UUID?
+    /// A monthly briefing the player opened.
+    var briefingID: UUID?
+    /// Why the clock last stopped on its own.
+    var pauseReason: String?
     var showRunReports = UserDefaults.standard.object(forKey: "showRunReports") as? Bool ?? true {
         didSet { UserDefaults.standard.set(showRunReports, forKey: "showRunReports") }
     }
@@ -75,6 +86,7 @@ final class GameStore {
     @ObservationIgnored private var dayDebt = 0.0
     @ObservationIgnored private var lastSave = Date.distantPast
     @ObservationIgnored private var lastCustomChipCount = -1
+    @ObservationIgnored private var lastAutosave = Date.distantPast
 
     /// Simulated days per real second.
     static let speeds: [(label: String, daysPerSecond: Double)] = [
@@ -114,6 +126,7 @@ final class GameStore {
 
     func setSpeed(_ s: Int) {
         speed = s
+        if s > 0 { pauseReason = nil }
         timer?.invalidate()
         timer = nil
         dayDebt = 0
@@ -144,21 +157,64 @@ final class GameStore {
                 finished = done.id
                 break
             }
-            if s.gameOver != nil || !s.decisions.isEmpty { break }
+            // Only urgent decisions stop the clock; offers wait in the inbox.
+            if s.gameOver != nil || s.pauseRequested || s.decisions.contains(where: Alerts.isUrgent) { break }
         }
-        let stop = s.gameOver != nil || !s.decisions.isEmpty || finished != nil
+        var reason: String? = nil
+        if s.pauseRequested {
+            s.pauseRequested = false
+            reason = s.alerts.first(where: { !$0.seen && s.pauseKinds.contains($0.kind) })?.title ?? "Something needs you"
+        }
+        let urgent = s.decisions.contains(where: Alerts.isUrgent)
+        let stop = s.gameOver != nil || urgent || reason != nil || finished != nil
         state = s
         refreshDerived()
         if let finished { reportRunID = finished }
-        if stop { setSpeed(0) }
-        if s.date.ym != startMonth { save() }
+        if stop {
+            setSpeed(0)
+            pauseReason = reason ?? (urgent ? "A decision needs you" : nil)
+        }
+        if s.date.ym != startMonth {
+            save()
+            autosaveIfDue(s)
+        }
     }
 
     /// Advance exactly one day (for the "step" button).
     func step() {
         guard state != nil else { return }
         Sim.advanceDay(&state!)
+        state!.pauseRequested = false
         refreshDerived()
+    }
+
+    // MARK: Chief of Staff, inbox, alerts
+
+    /// Carry out a Chief of Staff fix, or open what it points at.
+    func applyFix(_ item: AdvisorItem) {
+        guard let fix = item.fix else { open(item.screen); return }
+        if case .openDecision(let id) = fix {
+            openDecisionID = id
+            return
+        }
+        act("Done: \(item.fixLabel.isEmpty ? item.title : item.fixLabel)") { Advisor.apply(&$0, fix) }
+    }
+
+    func snooze(_ item: AdvisorItem, days: Int) {
+        mutate { $0.snoozeAdvice(item.id, days: days) }
+        show("Hidden for \(days) days")
+    }
+
+    /// Follow an alert's link.
+    func follow(_ alert: GameAlert) {
+        mutate { $0.dismissAlert(alert.id) }
+        if alert.alertKind == .briefing, let b = state?.briefings.first {
+            briefingID = b.id
+        } else if alert.alertKind == .inbox, let d = state?.decisions.first(where: { !Alerts.isUrgent($0) && alert.title == $0.title }) {
+            openDecisionID = d.id
+        } else if let target = alert.target {
+            open(target)
+        }
     }
 
     // MARK: Actions
@@ -191,6 +247,11 @@ final class GameStore {
     }
 
     func open(_ s: Screen) { screen = s }
+
+    func openBriefing(_ id: UUID) {
+        briefingID = id
+        mutate { $0.markBriefingSeen(id) }
+    }
 
     // MARK: Persistence
 
@@ -235,6 +296,60 @@ final class GameStore {
         }
     }
 
+    // MARK: Autosaves (rewind)
+
+    nonisolated static var autosaveRoot: URL { saveDirectory.appendingPathComponent("Autosaves", isDirectory: true) }
+
+    nonisolated static func autosaveFolder(company file: String) -> URL {
+        let dir = autosaveRoot.appendingPathComponent(file.replacingOccurrences(of: ".json", with: ""), isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    /// A rolling autosave at the start of each quarter (the last eight are kept), so a bad call can be undone.
+    private func autosaveIfDue(_ s: GameState) {
+        let ym = s.date.ym
+        guard ym.month % 3 == 1, Date().timeIntervalSince(lastAutosave) > 20 else { return }
+        lastAutosave = Date()
+        let dir = Self.autosaveFolder(company: Self.fileName(for: s))
+        let url = dir.appendingPathComponent(String(format: "%04d-%02d.json", ym.year, ym.month))
+        Self.saveQueue.async {
+            Self.write(s, to: url)
+            let files = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil))?
+                .filter { $0.pathExtension == "json" }.sorted { $0.lastPathComponent > $1.lastPathComponent } ?? []
+            for old in files.dropFirst(8) { try? FileManager.default.removeItem(at: old) }
+        }
+    }
+
+    struct AutosaveInfo: Identifiable {
+        var id: URL { url }
+        let url: URL
+        let year: Int
+        let month: Int
+        var label: String { GameCalendar.date(year, month, 1).gameMonth }
+    }
+
+    /// The current game's autosaves, newest first (read from the file names, so it's instant).
+    func autosaves() -> [AutosaveInfo] {
+        guard let s = state else { return [] }
+        let dir = Self.autosaveFolder(company: Self.fileName(for: s))
+        let files = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
+        return files.compactMap { url -> AutosaveInfo? in
+            let parts = url.deletingPathExtension().lastPathComponent.split(separator: "-").compactMap { Int($0) }
+            guard url.pathExtension == "json", parts.count == 2 else { return nil }
+            return AutosaveInfo(url: url, year: parts[0], month: parts[1])
+        }
+        .filter { GameCalendar.date($0.year, $0.month, 1) < s.date }
+        .sorted { ($0.year, $0.month) > ($1.year, $1.month) }
+    }
+
+    /// Go back to an autosave. The game in progress is replaced.
+    func rewind(_ a: AutosaveInfo) {
+        load(a.url)
+        save(force: true)
+        show("Rewound to \(a.label)")
+    }
+
     struct SaveInfo: Identifiable {
         var id: URL { url }
         let url: URL
@@ -246,7 +361,12 @@ final class GameStore {
         let over: Bool
     }
 
-    static func listSaves() -> [SaveInfo] {
+    /// Reads the save list off the main thread (each save is decoded to show its summary).
+    nonisolated static func loadSaveList() async -> [SaveInfo] {
+        await Task.detached(priority: .userInitiated) { GameStore.listSaves() }.value
+    }
+
+    nonisolated static func listSaves() -> [SaveInfo] {
         let fm = FileManager.default
         guard let files = try? fm.contentsOfDirectory(at: saveDirectory, includingPropertiesForKeys: [.contentModificationDateKey]) else { return [] }
         let dec = JSONDecoder()
@@ -260,6 +380,9 @@ final class GameStore {
     }
 
     func load(_ url: URL) {
+        openDecisionID = nil
+        briefingID = nil
+        pauseReason = nil
         let dec = JSONDecoder()
         dec.dateDecodingStrategy = .secondsSince1970
         do {
@@ -295,5 +418,8 @@ final class GameStore {
 
     static func deleteSave(_ url: URL) {
         try? FileManager.default.trashItem(at: url, resultingItemURL: nil)
+        // Its autosaves go with it.
+        let dir = autosaveRoot.appendingPathComponent(url.deletingPathExtension().lastPathComponent, isDirectory: true)
+        try? FileManager.default.trashItem(at: dir, resultingItemURL: nil)
     }
 }

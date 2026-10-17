@@ -58,7 +58,11 @@ struct DashboardView: View {
                 StatTile(title: "Treasury yield", value: "\(Fmt.trim(Treasury.yieldRate(s), 2))%", detail: "\(Fmt.money(s.month.interestIncome)) interest this month", symbol: "percent", tint: .mint)
             }
 
-            ChiefOfStaffCard(items: Advisor.items(s, pools: d.pools))
+            ChiefOfStaffCard(items: d.advice)
+
+            if let b = s.briefings.first, GameCalendar.daysBetween(b.month, s.date) <= 62 {
+                BriefingCard(briefing: b)
+            }
 
             HStack(alignment: .top, spacing: 16) {
                 Card {
@@ -177,38 +181,71 @@ struct ChiefOfStaffCard: View {
     @State private var expanded = false
 
     var body: some View {
+        let fixable = items.filter { $0.fix != nil }.count
         Card {
             CardHeader(title: "Chief of Staff", symbol: "person.crop.circle.badge.checkmark",
-                       subtitle: items.isEmpty ? "Nothing needs you right now." : "\(items.count) thing\(items.count == 1 ? "" : "s") need\(items.count == 1 ? "s" : "") your attention") {
-                if items.count > 4 {
-                    Button(expanded ? "Show less" : "Show all") { expanded.toggle() }.buttonStyle(.link)
+                       subtitle: items.isEmpty ? "Nothing needs you right now."
+                           : "\(items.count) thing\(items.count == 1 ? "" : "s") need\(items.count == 1 ? "s" : "") you · \(fixable) with a one-click fix") {
+                HStack(spacing: 12) {
+                    Button("Delegates") { store.open(.operations) }.buttonStyle(.link)
+                    if items.count > 4 {
+                        Button(expanded ? "Show less" : "Show all \(items.count)") { expanded.toggle() }.buttonStyle(.link)
+                    }
                 }
             }
             if !items.isEmpty {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 300), spacing: 10)], spacing: 8) {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 10)], spacing: 8) {
                     ForEach(expanded ? items : Array(items.prefix(4))) { item in
-                        Button { store.open(item.screen) } label: {
-                            HStack(alignment: .top, spacing: 10) {
-                                Image(systemName: item.symbol)
-                                    .foregroundStyle(color(item.level))
-                                    .frame(width: 22)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(item.title).font(.callout.weight(.semibold)).lineLimit(1)
-                                    Text(item.detail).font(.caption).foregroundStyle(.secondary).lineLimit(2)
-                                }
-                                Spacer(minLength: 0)
-                                Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
-                            }
-                            .padding(10)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(color(item.level).opacity(0.08), in: .rect(cornerRadius: 10))
-                            .contentShape(.rect)
-                        }
-                        .buttonStyle(.plain)
+                        AdviceRow(item: item)
                     }
                 }
             }
         }
+    }
+}
+
+struct AdviceRow: View {
+    @Environment(GameStore.self) private var store
+    let item: AdvisorItem
+
+    var body: some View {
+        let tint = color(item.level)
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: item.symbol)
+                .foregroundStyle(tint)
+                .frame(width: 22)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(item.title).font(.callout.weight(.semibold)).lineLimit(1)
+                Text(item.detail).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                HStack(spacing: 10) {
+                    if item.fix != nil {
+                        Button(item.fixLabel.isEmpty ? "Fix it" : item.fixLabel) { store.applyFix(item) }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.small)
+                            .tint(tint)
+                    }
+                    Button("Open \(item.screen.title)") { store.open(item.screen) }
+                        .buttonStyle(.link)
+                        .font(.caption)
+                    Spacer(minLength: 0)
+                    Menu {
+                        Button("Hide for a week") { store.snooze(item, days: 7) }
+                        Button("Hide for a month") { store.snooze(item, days: 30) }
+                        Button("Hide for a year") { store.snooze(item, days: 365) }
+                    } label: {
+                        Image(systemName: "bell.slash")
+                    }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
+                    .help("Hide this for a while")
+                }
+                .padding(.top, 2)
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(tint.opacity(0.08), in: .rect(cornerRadius: 10))
     }
 
     private func color(_ l: AdvisorItem.Level) -> Color {
@@ -217,123 +254,6 @@ struct ChiefOfStaffCard: View {
         case .warning: .orange
         case .info: .blue
         }
-    }
-}
-
-struct SwarmStatusCard: View {
-    @Environment(GameStore.self) private var store
-    let state: GameState
-
-    var body: some View {
-        let s = state
-        Card {
-            CardHeader(title: "Agent swarms", symbol: "person.3.sequence.fill") {
-                Button("Swarms") { store.open(.swarms) }.buttonStyle(.link)
-            }
-            ForEach(s.swarms) { sw in
-                HStack {
-                    Image(systemName: sw.mission.symbol).foregroundStyle(.secondary).frame(width: 18)
-                    Text(sw.name).font(.callout.weight(.semibold)).lineLimit(1)
-                    Text("\(Fmt.count(sw.active)) agents").font(.caption).foregroundStyle(.secondary)
-                    Spacer()
-                    let a = sw.alignmentMeasured
-                    Label("\(Int(a))", systemImage: "shield.lefthalf.filled").font(.caption)
-                        .foregroundStyle(a >= 70 ? .green : (a >= 45 ? .yellow : .red))
-                }
-            }
-            if s.xenoInsightToday > 0 || s.xenoInsight > 0 {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Alien architecture #\(s.alienArchs.count + 1): \(Fmt.pct(s.xenoInsight / Xeno.insightNeeded(s), decimals: 0))").font(.caption.weight(.semibold))
-                    Meter(value: s.xenoInsight / Xeno.insightNeeded(s), tint: .purple, height: 6)
-                }
-            }
-        }
-    }
-}
-
-struct RevenueChart: View {
-    let history: [MonthRecord]
-
-    struct Bar: Identifiable {
-        let id = UUID()
-        let month: Date
-        let kind: String
-        let value: Double
-    }
-
-    var body: some View {
-        let bars = history.flatMap { m -> [Bar] in
-            [Bar(month: m.month, kind: "API", value: m.revAPI),
-             Bar(month: m.month, kind: "Consumer", value: m.revConsumer),
-             Bar(month: m.month, kind: "Enterprise", value: m.revEnterprise + m.revOther),
-             Bar(month: m.month, kind: "Agents", value: m.revAgents),
-             Bar(month: m.month, kind: "Compute & chips", value: m.revCloud + m.revChips),
-             Bar(month: m.month, kind: "Labor & licensing", value: m.revLabor + m.revLicensing)]
-        }
-        if history.allSatisfy({ $0.revenue == 0 && $0.opex == 0 }) {
-            EmptyStateView(symbol: "chart.bar", title: "No numbers yet", message: "Revenue and costs appear here as months close.")
-        } else {
-            Chart {
-                ForEach(bars) { b in
-                    BarMark(x: .value("Month", b.month, unit: .month), y: .value("Revenue", b.value))
-                        .foregroundStyle(by: .value("Segment", b.kind))
-                }
-                ForEach(history) { m in
-                    LineMark(x: .value("Month", m.month, unit: .month), y: .value("Costs", m.opex + m.costInterest))
-                        .foregroundStyle(.red)
-                        .lineStyle(StrokeStyle(lineWidth: 2, dash: [4, 3]))
-                        .interpolationMethod(.monotone)
-                }
-            }
-            .chartForegroundStyleScale(["API": Color.teal, "Consumer": Color.pink, "Enterprise": Color.indigo, "Agents": Color.orange,
-                                        "Compute & chips": Color.green, "Labor & licensing": Color.purple])
-            .chartYAxis { AxisMarks { v in AxisGridLine(); AxisValueLabel { if let d = v.as(Double.self) { Text(Fmt.money(d, decimals: 0)) } } } }
-            .chartLegend(position: .bottom, alignment: .leading)
-        }
-    }
-}
-
-struct FrontierChart: View, Equatable {
-    struct Point: Identifiable, Equatable {
-        let id: Int
-        let date: Date
-        let lab: String
-        let index: Double
-    }
-    let points: [Point]
-
-    var body: some View {
-        Chart(points) { p in
-            LineMark(x: .value("Date", p.date), y: .value("Index", p.index))
-                .foregroundStyle(by: .value("Lab", p.lab))
-                .interpolationMethod(.stepEnd)
-        }
-        .chartYScale(domain: 0...100)
-        .chartLegend(position: .bottom, alignment: .leading)
-    }
-
-    static func points(_ s: GameState) -> [Point] {
-        let from = GameCalendar.addMonths(s.startDate, -18)
-        var pts: [Point] = []
-        func add(_ d: Date, _ lab: String, _ v: Double) { pts.append(Point(id: pts.count, date: d, lab: lab, index: v)) }
-        let labs = s.competitors.filter { !$0.models.isEmpty }
-            .sorted { ($0.models.map(\.index).max() ?? 0) > ($1.models.map(\.index).max() ?? 0) }.prefix(3)
-        for comp in labs {
-            var best = 0.0
-            for m in comp.models.sorted(by: { $0.date < $1.date }) {
-                best = max(best, m.index)
-                if m.date >= from { add(m.date, comp.def.name, best) }
-            }
-            add(s.date, comp.def.name, best)
-        }
-        var best = 0.0
-        add(s.startDate, s.companyName, 0)
-        for m in s.models.sorted(by: { $0.created < $1.created }) where m.released || !m.preview {
-            best = max(best, m.index)
-            add(m.created, s.companyName, best)
-        }
-        add(s.date, s.companyName, best)
-        return pts
     }
 }
 

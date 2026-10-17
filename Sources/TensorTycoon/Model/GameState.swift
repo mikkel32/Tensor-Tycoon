@@ -635,6 +635,8 @@ struct Decision: Codable, Identifiable, Hashable {
     var date: Date
     var amount: Double = 0
     var ref: String = ""
+    /// Inbox decisions resolve with their default answer on this date.
+    var deadline: Date? = nil
 }
 
 struct CompetitorModel: Codable, Identifiable, Hashable {
@@ -765,6 +767,19 @@ struct MonthRecord: Codable, Identifiable, Hashable {
     var apiTokensDay = 0.0
     var bestIndex = 0.0
     var chips = 0.0
+    // 3.4: market position at month end, for the briefing
+    @D var apiShare: Double = 0
+    @D var consumerShare: Double = 0
+    @D var agentShare: Double = 0
+    /// World rank of your best released model (0 = none).
+    @D var rank: Int = 0
+    @D var myIndex: Double = 0
+    /// Demand-weighted average API price.
+    @D var apiPrice: Double = 0
+    /// Share of demand you served.
+    @D var served: Double = 0
+    @D var contracts: Int = 0
+    @D var headcount: Int = 0
 
     var revenue: Double { revAPI + revConsumer + revEnterprise + revOther + revAgents + revCloud + revChips + revLicensing + revLabor }
     /// Selling hardware and leasing compute: valued like a hardware business, not a software one.
@@ -1016,6 +1031,24 @@ struct GameState: Codable {
     @D var rumors: [RivalRumor] = []
     /// How past rumour-mill forecasts compared with what shipped, newest first.
     @D var watchRecord: [WatchCall] = []
+    // 3.4: the experience layer
+    /// Banners for things that need you, newest first.
+    @D var alerts: [GameAlert] = []
+    /// Alert kind + key → when it was last raised (for cooldowns).
+    @D var alertKeys: [String: Date] = [:]
+    /// Alert kinds that pause the game.
+    @D var pauseKinds: Set<String> = []
+    /// Whether the player has set pause-on preferences (old saves get the defaults once).
+    @D var pauseConfigured: Bool = false
+    /// Set by the engine when an alert that pauses fires; the clock stops and clears it.
+    @D var pauseRequested: Bool = false
+    /// Chief of Staff item ID → hidden until.
+    @D var snoozed: [String: Date] = [:]
+    /// The delegates and what they've done, newest first.
+    @D var ops: OpsPolicy = OpsPolicy()
+    @D var opsLog: [String] = []
+    /// What changed each month and why, newest first.
+    @D var briefings: [MonthlyBriefing] = []
 
     var totalShares: Double {
         founderShares + employeePoolShares + publicShares + holdings.reduce(0) { $0 + $1.shares }

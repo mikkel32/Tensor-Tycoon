@@ -5,6 +5,7 @@ struct MainMenuView: View {
     @Environment(Updater.self) private var updater
     @State private var settings = NewGameSettings()
     @State private var saves: [GameStore.SaveInfo] = []
+    @State private var deleting: GameStore.SaveInfo?
 
     var body: some View {
         ZStack {
@@ -30,7 +31,20 @@ struct MainMenuView: View {
                 .frame(maxWidth: .infinity)
             }
         }
-        .onAppear { saves = GameStore.listSaves() }
+        .task { saves = await GameStore.loadSaveList() }
+        .confirmationDialog("Move \(deleting?.company ?? "this save") to the Trash?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
+                            titleVisibility: .visible) {
+            Button("Move to Trash", role: .destructive) {
+                if let d = deleting {
+                    GameStore.deleteSave(d.url)
+                    saves.removeAll { $0.url == d.url }
+                }
+                deleting = nil
+            }
+            Button("Cancel", role: .cancel) { deleting = nil }
+        } message: {
+            Text("Its autosaves go too. You can restore the file from the Trash.")
+        }
         .animation(.spring(duration: 0.4), value: updater.updateAvailable)
     }
 
@@ -169,8 +183,7 @@ struct MainMenuView: View {
                     }
                     .buttonStyle(.bordered)
                     Button {
-                        GameStore.deleteSave(save.url)
-                        saves = GameStore.listSaves()
+                        deleting = save
                     } label: {
                         Image(systemName: "trash")
                     }

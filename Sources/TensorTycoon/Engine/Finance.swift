@@ -58,6 +58,8 @@ enum Finance {
         Sim.news(&s, "Term sheet: \(investor)",
                  "\(Fmt.money(amount)) at \(Fmt.money(pre)) pre-money (\(Fmt.pct(amount / (pre + amount), decimals: 1)) dilution)\(strategic ? ", 40% paid as cloud credits" : ""). Expires in 14 days.",
                  .finance, image: "sf_skyline", important: true, good: true)
+        Alerts.raise(&s, .termSheet, key: offer.id.uuidString, title: "Term sheet from \(investor)",
+                     body: "\(Fmt.money(amount)) at \(Fmt.money(pre)) pre-money. It expires in 14 days.", screen: .funding, cooldown: 0)
     }
 
     /// Largest private round the market can absorb in a given year (OpenAI's $40B in 2025 was a record).
@@ -242,6 +244,10 @@ enum Monthly {
         s.month.valuation = s.valuation
         s.month.bestIndex = s.models.map(\.index).max() ?? 0
         s.month.chips = Double(Economy.totalChips(s))
+        var record = s.month
+        Briefing.snapshot(s, &record)
+        s.month = record
+        Briefing.build(&s, record)
         s.history.append(s.month)
         if s.history.count > 480 { s.history.removeFirst() }
         s.month = MonthRecord(month: GameCalendar.date(s.date.ym.year, s.date.ym.month, 1))

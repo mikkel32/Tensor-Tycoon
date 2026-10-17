@@ -25,6 +25,8 @@ jobs:
         run: .build/release/TensorTycoon --industry 2017 | tail -40
       - name: Rival Watch check (rival runs, rumour mill, forecasts, code reds)
         run: .build/release/TensorTycoon --watch 2026 | grep -v "^    [A-Z]"
+      - name: Experience check (delegates, alerts, inbox, monthly briefings, Chief of Staff fixes)
+        run: .build/release/TensorTycoon --experience 2024
       - name: Scale check (100 GW campuses, 500K-GPU runs with ops agents, agent intelligence)
         run: .build/release/TensorTycoon --scale
       - name: Ventures check (swarms, alien tech, chip sales, money)
