@@ -16,15 +16,15 @@ struct WorldView: View {
                 EmptyStateView(symbol: "globe.americas", title: "The world updates at month end", message: "Come back after the first month closes.")
             } else {
                 WorldHeadline(state: s)
-                StandingCard(state: s)
-                RegulationCard(state: s)
+                WorldStandingCard(state: s)
+                WorldRegulationCard(state: s)
                 HStack(alignment: .top, spacing: 16) {
                     Card {
                         CardHeader("AI adoption by sector", symbol: "chart.line.uptrend.xyaxis", subtitle: "Share of each sector's organisations using AI regularly")
                         WorldHistoryChart(kind: .adoption, history: w.history)
                             .equatable()
                             .frame(height: 230)
-                        AdoptionList(world: w)
+                        WorldAdoptionList(world: w)
                     }
                     Card {
                         CardHeader("Public mood and safety concern", symbol: "waveform.path.ecg", subtitle: "0–100. Mood above 50 is warm; concern rises with incidents and fades slowly")
@@ -36,12 +36,12 @@ struct WorldView: View {
                     }
                 }
                 HStack(alignment: .top, spacing: 16) {
-                    JobsCard(state: s)
-                    EnergyCard(state: s, mine: store.derived.h100e)
+                    WorldJobsCard(state: s)
+                    WorldEnergyCard(state: s, mine: store.derived.h100e)
                 }
                 HStack(alignment: .top, spacing: 16) {
-                    ConsequencesCard(world: w)
-                    LabTrustCard(state: s)
+                    WorldConsequencesCard(world: w)
+                    WorldLabTrustCard(state: s)
                 }
             }
         }
@@ -71,7 +71,7 @@ private struct WorldHeadline: View {
 
 // MARK: Your standing
 
-private struct StandingCard: View {
+private struct WorldStandingCard: View {
     let state: GameState
 
     var body: some View {
@@ -79,14 +79,14 @@ private struct StandingCard: View {
             CardHeader("Your standing", symbol: "person.crop.circle.badge.checkmark",
                        subtitle: "Each settles where your record puts it and jumps when you do something people notice. 50 is neutral.")
             ForEach(Stakeholder.allCases) { who in
-                StandingRow(state: state, who: who)
+                WorldStandingRow(state: state, who: who)
                 if who != .governments { Divider() }
             }
         }
     }
 }
 
-private struct StandingRow: View {
+private struct WorldStandingRow: View {
     let state: GameState
     let who: Stakeholder
 
@@ -112,7 +112,7 @@ private struct StandingRow: View {
             Text(Stakeholders.effect(s, who)).font(.caption).foregroundStyle(.secondary)
             Text(heading(target)).font(.caption2).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
             ForEach(Array(notes.enumerated()), id: \.offset) { _, n in
-                NoteLine(note: n, who: who)
+                WorldNoteLine(note: n, who: who)
             }
         }
     }
@@ -130,7 +130,7 @@ private struct StandingRow: View {
 }
 
 /// One remembered cause: date, what happened, and how much it moved this stakeholder.
-private struct NoteLine: View {
+private struct WorldNoteLine: View {
     let note: WorldNote
     let who: Stakeholder
 
@@ -157,7 +157,7 @@ private struct NoteLine: View {
 
 // MARK: Rules by region
 
-private struct RegulationCard: View {
+private struct WorldRegulationCard: View {
     let state: GameState
 
     var body: some View {
@@ -175,7 +175,7 @@ private struct RegulationCard: View {
             }
             .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
             ForEach(Region.allCases) { r in
-                RegionRow(state: state, region: r, before: past.flatMap { $0.strictness.indices.contains(r.index) ? $0.strictness[r.index] : nil })
+                WorldRegionRow(state: state, region: r, before: past.flatMap { $0.strictness.indices.contains(r.index) ? $0.strictness[r.index] : nil })
             }
             Text("Each region follows its real course to 2026. Fear of AI and a sour public tighten the rules; in the US, the laws that pass and the industry's lobbying move them too. Strict rules slow adoption in healthcare, finance and government. Low standing makes regulators more likely to come after you when something goes wrong.")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -183,7 +183,7 @@ private struct RegulationCard: View {
     }
 }
 
-private struct RegionRow: View {
+private struct WorldRegionRow: View {
     let state: GameState
     let region: Region
     let before: Double?
@@ -220,7 +220,7 @@ private struct RegionRow: View {
 
 // MARK: Adoption, jobs, energy
 
-private struct AdoptionList: View {
+private struct WorldAdoptionList: View {
     let world: WorldState
 
     var body: some View {
@@ -237,7 +237,7 @@ private struct AdoptionList: View {
     }
 }
 
-private struct JobsCard: View {
+private struct WorldJobsCard: View {
     let state: GameState
 
     var body: some View {
@@ -246,10 +246,10 @@ private struct JobsCard: View {
         Card {
             CardHeader("Jobs", symbol: "person.2.badge.gearshape.fill", subtitle: "Workers whose jobs AI can reach: about \(Int(Sector.totalWorkforce / 1_000)) billion worldwide")
             HStack(spacing: 10) {
-                JobFigure(label: "Work done by AI", value: Fmt.pct(w.tasks, decimals: 1))
-                JobFigure(label: "Jobs lost to AI", value: "\(Fmt.trim(w.displaced, 0))M")
-                JobFigure(label: "Jobs AI created", value: "\(Fmt.trim(w.newJobs, 0))M")
-                JobFigure(label: "Still looking", value: "\(Fmt.trim(w.looking, 1))M")
+                WorldJobFigure(label: "Work done by AI", value: Fmt.pct(w.tasks, decimals: 1))
+                WorldJobFigure(label: "Jobs lost to AI", value: "\(Fmt.trim(w.displaced, 0))M")
+                WorldJobFigure(label: "Jobs AI created", value: "\(Fmt.trim(w.newJobs, 0))M")
+                WorldJobFigure(label: "Still looking", value: "\(Fmt.trim(w.looking, 1))M")
             }
             WorldHistoryChart(kind: .work, history: w.history)
                 .equatable()
@@ -273,7 +273,7 @@ private struct JobsCard: View {
     }
 }
 
-private struct JobFigure: View {
+private struct WorldJobFigure: View {
     let label: String
     let value: String
 
@@ -286,7 +286,7 @@ private struct JobFigure: View {
     }
 }
 
-private struct EnergyCard: View {
+private struct WorldEnergyCard: View {
     let state: GameState
     let mine: Double
 
@@ -296,10 +296,10 @@ private struct EnergyCard: View {
         Card {
             CardHeader("Energy and compute", symbol: "bolt.fill", subtitle: "The world's AI fleet and what it draws from the grid")
             HStack(spacing: 10) {
-                JobFigure(label: "AI power draw", value: "\(Fmt.trim(w.powerGW, w.powerGW < 10 ? 1 : 0)) GW")
-                JobFigure(label: "Of world electricity", value: Fmt.pct(w.aiShare, decimals: 1))
-                JobFigure(label: "World AI compute", value: "\(Fmt.count(w.computeH100e)) H100e")
-                JobFigure(label: "Yours", value: Fmt.pct(myShare, decimals: myShare < 0.1 ? 1 : 0))
+                WorldJobFigure(label: "AI power draw", value: "\(Fmt.trim(w.powerGW, w.powerGW < 10 ? 1 : 0)) GW")
+                WorldJobFigure(label: "Of world electricity", value: Fmt.pct(w.aiShare, decimals: 1))
+                WorldJobFigure(label: "World AI compute", value: "\(Fmt.count(w.computeH100e)) H100e")
+                WorldJobFigure(label: "Yours", value: Fmt.pct(myShare, decimals: myShare < 0.1 ? 1 : 0))
             }
             WorldHistoryChart(kind: .power, history: w.history)
                 .equatable()
@@ -317,7 +317,7 @@ private struct EnergyCard: View {
 
 // MARK: What happened
 
-private struct ConsequencesCard: View {
+private struct WorldConsequencesCard: View {
     let world: WorldState
 
     var body: some View {
@@ -350,7 +350,7 @@ private struct ConsequencesCard: View {
     }
 }
 
-private struct LabTrustCard: View {
+private struct WorldLabTrustCard: View {
     let state: GameState
 
     var body: some View {
