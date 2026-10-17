@@ -24,10 +24,12 @@ struct OpsPolicy: Codable, Hashable {
     @D var autoRaises: Bool = false
     /// Accept enterprise leads you can serve.
     @D var autoLeads: Bool = false
+    /// Plan and start the next frontier run on idle chips when it would beat your best model.
+    @D var autoTrain: Bool = false
 
     var target: Double { targetUtil > 0 ? targetUtil : 0.8 }
     var reserveShare: Double { reserve > 0 ? reserve : 0.15 }
-    var anyOn: Bool { autoscale || autoLaunch || autoRenew || leaseIdle || autoHire || autoRaises || autoLeads }
+    var anyOn: Bool { autoscale || autoLaunch || autoRenew || leaseIdle || autoHire || autoRaises || autoLeads || autoTrain }
 }
 
 extension OpsPolicy: DefaultValue {
@@ -81,6 +83,8 @@ enum Operations {
         guard day % comp.everyDays == 0 else { return }
         if s.ops.autoLaunch { autoLaunch(&s) }
         if s.ops.autoscale { autoscale(&s, b, precision: comp.precision) }
+        // Training before leasing: your next model gets first call on idle chips.
+        if s.ops.autoTrain { autoTrain(&s, precision: comp.precision) }
         if s.ops.autoRenew { autoRenew(&s) }
         if s.ops.leaseIdle { leaseIdle(&s) }
         if s.ops.autoLeads { autoLeads(&s) }

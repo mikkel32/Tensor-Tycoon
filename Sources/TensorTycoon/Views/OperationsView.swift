@@ -70,6 +70,9 @@ struct OperationsView: View {
                 }
                 .padding(.leading, 34)
             }
+            DelegateRow(title: "Training", symbol: "flask.fill",
+                        detail: "When no frontier run is going and chips sit idle, plans the best run your research allows on them and starts it — only if its forecast beats your best model.",
+                        isOn: flag(\.autoTrain))
             DelegateRow(title: "Launches", symbol: "shippingbox.fill",
                         detail: "Ships finished models that beat your best, gives them servers, moves chat, agents and contracts onto them, and retires models nobody uses.",
                         isOn: flag(\.autoLaunch))
@@ -109,7 +112,7 @@ struct OperationsView: View {
                     store.mutate {
                         $0.updateOps { o in
                             o.autoscale = true; o.autoLaunch = true; o.autoRenew = true; o.leaseIdle = true
-                            o.autoHire = true; o.autoRaises = true; o.autoLeads = true
+                            o.autoHire = true; o.autoRaises = true; o.autoLeads = true; o.autoTrain = true
                         }
                     }
                 }
@@ -117,7 +120,7 @@ struct OperationsView: View {
                     store.mutate {
                         $0.updateOps { o in
                             o.autoscale = false; o.autoLaunch = false; o.autoRenew = false; o.leaseIdle = false
-                            o.autoHire = false; o.autoRaises = false; o.autoLeads = false
+                            o.autoHire = false; o.autoRaises = false; o.autoLeads = false; o.autoTrain = false
                         }
                     }
                 }
