@@ -576,6 +576,20 @@ struct FundingRound: Codable, Identifiable, Hashable {
     var percent: Double
 }
 
+/// New shares a public company sold in a secondary offering.
+struct ShareIssue: Codable, Hashable {
+    var date: Date
+    var shares: Double
+}
+
+/// A rival lab's trade-secret suit that will land on `due`.
+struct PendingSuit: Codable, Hashable {
+    var lab: String
+    var tech: String
+    var due: Date
+    var amount: Double
+}
+
 struct RaiseOffer: Codable, Identifiable, Hashable {
     var id = UUID()
     var investor: String
@@ -850,6 +864,8 @@ struct GameState: Codable {
     var sharePrice: Double = 0
     var publicShares: Double = 0
     var stock: [StockPoint] = []
+    /// Secondary offerings in the last few years (for the cooldown and the 20%-a-year cap).
+    @D var shareIssues: [ShareIssue] = []
     var valuation: Double = 0
     var creditScore: Double = 600
 
@@ -898,6 +914,8 @@ struct GameState: Codable {
     var partnerships: [Partnership] = []
     var partnerContacted: [String: Date] = [:]
     @D var lastHeadhunt: Date? = nil
+    /// Trade-secret suits from researchers you poached, waiting to be filed.
+    @D var pendingSuits: [PendingSuit] = []
     /// Your unique breakthroughs you published under an open-science policy (rivals adopt them ~6 months later).
     @D var publishedTech: [String: Date] = [:]
 
@@ -930,6 +948,10 @@ struct GameState: Codable {
     @D var objectivesFailed: Int = 0
     @D var boardConfidence: Double = 0
     @D var lastBoardThreat: Date? = nil
+    /// When you last asked the board for a different goal (60-day cooldown).
+    @D var lastObjectiveReroll: Date? = nil
+    /// When a keynote last moved market hype (once per 90 days).
+    @D var lastKeynoteHype: Date? = nil
     @D var acquiredLabs: [String] = []
     @D var lastAntitrustBlock: Date? = nil
     @D var exclusiveSupplyUntil: Date? = nil

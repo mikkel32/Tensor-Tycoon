@@ -58,19 +58,25 @@ enum Board {
         case .safety: return s.safetyScore
         case .research: return Double(s.researched.count)
         case .agents: return s.swarms.filter { !$0.paused }.reduce(0) { $0 + $1.active }
-        case .release: return Double(s.models.filter(\.released).count)
+        // Your best released model's Intelligence Index: a release goal asks you to beat it.
+        case .release: return s.models.filter(\.released).map(\.index).max() ?? 0
         case .chipSales: return s.chipLines.reduce(0) { $0 + $1.revenue } + s.history.suffix(1200).reduce(0) { $0 + $1.revCloud }
         }
     }
 
     static func lowerIsBetter(_ k: ObjectiveKind) -> Bool { k == .rank }
 
+    /// Release goals from older saves (no bar) still count releases.
+    static func isLegacyRelease(_ o: Objective) -> Bool { o.kind == .release && o.bar <= 0 }
+
     static func met(_ o: Objective, _ s: GameState) -> Bool {
+        if isLegacyRelease(o) { return Double(s.models.filter(\.released).count) >= o.target }
         let v = value(o.kind, s)
         return lowerIsBetter(o.kind) ? v <= o.target : v >= o.target
     }
 
     static func progress(_ o: Objective, _ s: GameState) -> Double {
+        if isLegacyRelease(o) { return met(o, s) ? 1 : 0 }
         let v = value(o.kind, s)
         if lowerIsBetter(o.kind) {
             guard o.start > o.target else { return 1 }
@@ -84,6 +90,30 @@ enum Board {
     static func tranche(_ s: GameState) -> Double {
         let last = s.rounds.last(where: { $0.name != "IPO" })?.amount ?? 1e6
         return clamp(last * 0.08, 1e5, 4e9)
+    }
+
+    /// How hard a goal is (0.25–1.5): how far it asks you to move against a typical ask of its kind.
+    /// Tranches scale with it, so goals you'd hit anyway pay less.
+    static func difficulty(_ k: ObjectiveKind, start: Double, target: Double) -> Double {
+        // Growth goals: how many "typical" multiples the target is above where you are.
+        func growth(_ typical: Double) -> Double {
+            log(max(target, 1e-9) / max(start, target / 20, 1e-9)) / log(typical)
+        }
+        let d: Double
+        switch k {
+        case .revenue: d = growth(1.9)
+        case .users, .valuation: d = growth(2.1)
+        case .compute: d = 0.7 * growth(2.8)            // money buys it
+        case .agents: d = 0.6 * growth(5)
+        case .index: d = (target - start) / 6.5
+        case .safety: d = 0.8 * (target - start) / 11
+        case .research: d = 0.5 * (target - start) / 5.5
+        case .release: d = 0.5 * (target - start) / 2
+        case .rank: d = target <= 3 ? 1.3 : 1.0
+        case .profit: d = 1
+        case .chipSales: d = 0.8
+        }
+        return clamp(d, 0.25, 1.5)
     }
 
     /// A fresh goal the board would plausibly set right now.
@@ -160,10 +190,12 @@ enum Board {
             title = "Run \(Fmt.count(target)) agents at once"
             detail = "Agent swarms are the story investors want to hear."
         case .release:
-            target = now + 1
+            // A real step forward: beat your best released model by 2+ index points (as scored today).
+            target = now + 2
             months = 6
-            title = "Ship a new model"
-            detail = "Release something — a preview, a fine-tune or a frontier run."
+            title = now > 0 ? "Ship a model scoring \(Fmt.score(target)) on the Intelligence Index" : "Ship your first model"
+            detail = now > 0 ? "Beat your best released model by at least 2 points — a preview or a small fine-tune won't do."
+                             : "Put a model in front of customers."
         case .chipSales:
             guard !s.customChips.isEmpty || s.owned.reduce(0, { $0 + $1.count }) > 500 else { return nil }
             target = now + max(5e6, Economy.runRate(s) * 0.3)
@@ -171,9 +203,12 @@ enum Board {
             title = "Earn \(Fmt.money(target - now)) selling compute"
             detail = "Lease idle chips or sell your own silicon."
         }
-        return Objective(kind: k, title: title, detail: detail, start: now, target: target, issued: s.date,
-                         deadline: GameCalendar.addMonths(s.date, months), rewardCash: tranche(s), rewardPoints: points,
-                         rewardConfidence: 8 + Double(points) * 3)
+        var o = Objective(kind: k, title: title, detail: detail, start: now, target: target, issued: s.date,
+                          deadline: GameCalendar.addMonths(s.date, months),
+                          rewardCash: min(4e9, tranche(s) * difficulty(k, start: now, target: target)), rewardPoints: points,
+                          rewardConfidence: 8 + Double(points) * 3)
+        if k == .release { o.bar = target }
+        return o
     }
 
     /// Keep three goals on the table.
@@ -268,12 +303,23 @@ extension GameState {
         return nil
     }
 
-    /// Ask the board for a different goal. Costs a little confidence.
+    static let rerollCooldownDays = 60
+
+    /// When the board will next agree to swap a goal (nil if it would today).
+    var rerollReadyOn: Date? {
+        guard let last = lastObjectiveReroll else { return nil }
+        let ready = GameCalendar.addDays(last, GameState.rerollCooldownDays)
+        return ready > date ? ready : nil
+    }
+
+    /// Ask the board for a different goal. Costs a little confidence, and the board agrees once every 60 days.
     mutating func rerollObjective(_ id: UUID) -> String? {
         guard let i = objectives.firstIndex(where: { $0.id == id && !$0.done && !$0.failed }) else { return "Not found." }
+        if let ready = rerollReadyOn { return "The board just rewrote a goal for you — ask again after \(ready.gameShort)." }
         if boardConfidence < 10 { return "The board won't renegotiate right now." }
         objectives.remove(at: i)
         boardConfidence = max(0, boardConfidence - 4)
+        lastObjectiveReroll = date
         Board.refill(&self)
         return nil
     }

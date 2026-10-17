@@ -37,4 +37,7 @@ struct Objective: Codable, Identifiable, Hashable {
     var done = false
     var failed = false
     var progress: Double = 0
+    /// Release goals: the Intelligence Index a newly released model must reach (0 in goals from older saves,
+    /// which still count any new release).
+    @D var bar: Double = 0
 }

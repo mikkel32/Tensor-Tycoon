@@ -22,10 +22,11 @@ extension GameState {
         cash -= total
         month.capex += total
         if let di = supplyDeals.firstIndex(where: { $0.vendor == a.vendor.rawValue }) { supplyDeals[di].spentThisYear += total }
-        Partners.recordSpend(&self, accel: a, amount: total, purchase: true)
+        // Warrant rebates lower what the chips cost you (and what they'll resell for).
+        let rebate = Partners.recordSpend(&self, accel: a, amount: total, purchase: true)
         if a.cls == .tpu { Achievements.unlock(&self, "tpu_owner") }
         let days = Economy.leadTimeDays(a, self)
-        orders.append(HardwareOrder(accelID: accelID, count: count, siteID: siteID, unitCost: unit, ordered: date,
+        orders.append(HardwareOrder(accelID: accelID, count: count, siteID: siteID, unitCost: unit - rebate / Double(count), ordered: date,
                                     arrives: GameCalendar.addDays(date, days)))
         Sim.news(&self, "Ordered \(Fmt.int(count))× \(a.name)", "\(Fmt.money(total)) paid. Delivery in about \(days) days to \(site.name).", .company, image: a.image)
         return nil
@@ -310,9 +311,17 @@ extension GameState {
         guard let i = models.firstIndex(where: { $0.id == id }) else { return "Not found." }
         if !models[i].released {
             if launch == .keynote && GameState.keynoteCost(self) > cash { return "A keynote costs \(Fmt.money(GameState.keynoteCost(self)))." }
+            // What this launch adds over your best model so far, and how soon after your last one it comes.
+            let earlier = models.filter { $0.released && $0.id != id }
+            let previousBest = earlier.map(\.index).max()
+            let lastLaunch = earlier.compactMap(\.releaseDate).max()
             models[i].released = true
             models[i].releaseDate = date
-            var gain = max(1, 6 + 4 * (models[i].c - Macro.frontier(year)))
+            let quality = max(0, 6 + 4 * (models[i].c - Macro.frontier(year)))
+            // Brand follows progress: nothing for a model that doesn't beat your best, the full effect at +5 index points.
+            // Only your first release always makes a little noise.
+            var gain = previousBest.map { quality * clamp((models[i].index - $0) / 5, 0, 1.5) } ?? max(1, quality)
+            let rank = Leaderboard.rank(of: id, in: self)
             switch launch {
             case .standard: break
             case .keynote:
@@ -320,17 +329,21 @@ extension GameState {
                 cash -= cost
                 month.costMarketing += cost
                 gain *= 1.6
-                market.hype += 0.02
+                // A keynote moves the whole market only for a top-3 model, and at most once a quarter.
+                if rank <= 3 && (lastKeynoteHype.map { GameCalendar.daysBetween($0, date) >= 90 } ?? true) {
+                    market.hype += 0.02
+                    lastKeynoteHype = date
+                }
             case .blitz:
-                let rank = Leaderboard.rank(of: id, in: self)
-                gain += rank == 1 ? 8 : (rank <= 3 ? 2 : -7)
+                gain += rank == 1 ? (gain > 0 ? 8 : 0) : (rank <= 3 ? (gain > 0 ? 2 : 0) : -7)
             case .staged:
                 gain *= 0.5
                 models[i].safety = min(100, models[i].safety + 4)
                 safetyScore = min(100, safetyScore + 2)
             }
+            // A second launch within 90 days of the last gets half the attention.
+            if gain > 0, let last = lastLaunch, GameCalendar.daysBetween(last, date) < 90 { gain *= 0.5 }
             brand = clamp(brand + gain, 0, 100)
-            let rank = Leaderboard.rank(of: id, in: self)
             Sim.news(&self, "\(companyName) releases \(models[i].name)", "Intelligence Index \(Fmt.score(models[i].index)) — #\(rank) on the leaderboard.",
                      .company, image: "sf_skyline", important: true, good: true)
             SafetyFramework.onRelease(&self, i)
@@ -338,10 +351,17 @@ extension GameState {
         }
         models[i].api = api
         if openWeights && !models[i].openWeights {
+            let bestOpenBefore = models.filter { $0.openWeights && $0.id != id }.map(\.c).max()
             models[i].openWeights = true
-            let gain = 8 * (1 + traits.openBrand)
+            // Near-frontier weights are big news; older ones barely register, and weights no better than ones
+            // you've already published don't register at all.
+            var gain = models[i].c >= Macro.frontier(year) - 0.5 ? 8 * (1 + traits.openBrand) : 2
+            if let b = bestOpenBefore, models[i].c <= b { gain = 0 }
             brand = min(100, brand + gain)
-            Sim.news(&self, "\(models[i].name) weights released", "Developers worldwide are downloading your model. Brand +\(Int(gain)), but rivals can build on it too.", .company, good: true)
+            Sim.news(&self, "\(models[i].name) weights released",
+                     gain > 0 ? "Developers worldwide are downloading your model. Brand +\(Int(gain)), but rivals can build on it too."
+                              : "You've already published better weights, so few developers notice. Rivals can build on it too.",
+                     .company, good: gain > 0)
         }
         return nil
     }
@@ -361,10 +381,18 @@ extension GameState {
         models[i].servingPrecision = p
     }
 
-    mutating func setAPIPrice(_ id: UUID, _ price: Double) {
-        guard let i = models.firstIndex(where: { $0.id == id }) else { return }
-        models[i].apiPrice = max(0.001, price)
+    /// Set an API price by hand (turns auto-pricing off). You can't sell below what serving the tokens costs you:
+    /// a lower price is raised to that floor and the reason returned.
+    @discardableResult
+    mutating func setAPIPrice(_ id: UUID, _ price: Double) -> String? {
+        guard let i = models.firstIndex(where: { $0.id == id }) else { return "Not found." }
+        let floor = Treasury.minPrice(models[i], self)
+        models[i].apiPrice = max(floor, price)
         models[i].autoPrice = false
+        if price < floor {
+            return "\(models[i].name) costs \(Fmt.price(floor)) per 1M tokens to serve — priced at that floor instead."
+        }
+        return nil
     }
 
     mutating func retire(_ id: UUID) {
@@ -372,13 +400,15 @@ extension GameState {
         models[i].retired = true
         models[i].deployments = []
         if chatModelID == id { chatModelID = nil }
-        for d in deals.indices where deals[d].modelID == id { deals[d].modelID = nil }
+        // Its contracts move to your best model that qualifies, or start breaching.
+        Business.rehomeDeals(&self, from: id)
     }
 
     // MARK: Enterprise
 
     mutating func acceptDeal(_ id: UUID, modelID: UUID) -> String? {
         guard let i = deals.firstIndex(where: { $0.id == id }), let m = models.first(where: { $0.id == modelID }) else { return "Not found." }
+        if !m.released || m.retired { return "Release \(m.name) before you sell it to enterprises." }
         if m.index + 0.01 < deals[i].minIndex { return "\(deals[i].client) needs an Intelligence Index of \(Fmt.score(deals[i].minIndex))." }
         if safetyScore < deals[i].minSafety { return "\(deals[i].client) requires a safety score of \(Int(deals[i].minSafety))." }
         deals[i].active = true
@@ -388,6 +418,18 @@ extension GameState {
     }
 
     mutating func declineDeal(_ id: UUID) { deals.removeAll { $0.id == id } }
+
+    /// Move a signed contract to another released model that meets the client's bar.
+    mutating func reassignDeal(_ dealID: UUID, modelID: UUID) -> String? {
+        guard let i = deals.firstIndex(where: { $0.id == dealID }), let m = models.first(where: { $0.id == modelID }) else { return "Not found." }
+        if !deals[i].active { return "Sign the contract first." }
+        if !m.released || m.retired { return "\(m.name) isn't serving customers." }
+        if m.index + 0.01 < deals[i].minIndex { return "\(deals[i].client) needs an Intelligence Index of \(Fmt.score(deals[i].minIndex))." }
+        if deals[i].modelID == modelID { return nil }
+        deals[i].modelID = modelID
+        Sim.news(&self, "\(deals[i].client) moved to \(m.name)", "Their \(Fmt.count(deals[i].tokensPerDay)) tokens a day now run on \(m.name). Make sure it has the capacity.", .company)
+        return nil
+    }
 
     // MARK: Research & data
 
@@ -609,14 +651,57 @@ extension GameState {
         return nil
     }
 
-    mutating func secondaryOffering(fraction: Double) -> String? {
+    static let offeringCooldownDays = 90
+    /// New shares sold in any 365 days, as a share of the shares outstanding before them.
+    static let offeringYearCap = 0.2
+
+    /// Shares sold in secondary offerings over the last 365 days.
+    var sharesIssuedThisYear: Double {
+        shareIssues.filter { GameCalendar.daysBetween($0.date, date) < 365 }.reduce(0) { $0 + $1.shares }
+    }
+
+    /// The largest secondary offering allowed right now, as a fraction of today's shares (0 when blocked).
+    var maxOfferingFraction: Double {
+        guard isPublic, offeringBlocker == nil else { return 0 }
+        let issued = sharesIssuedThisYear
+        let room = GameState.offeringYearCap * (totalShares - issued) - issued
+        return max(0, room / max(1, totalShares))
+    }
+
+    /// Why a secondary offering isn't possible today (nil if it is).
+    var offeringBlocker: String? {
         guard isPublic else { return "Go public first." }
+        if let last = shareIssues.map(\.date).max(), GameCalendar.daysBetween(last, date) < GameState.offeringCooldownDays {
+            return "Investors need 90 days between offerings — next window \(GameCalendar.addDays(last, GameState.offeringCooldownDays).gameShort)."
+        }
+        let issued = sharesIssuedThisYear
+        if issued >= GameState.offeringYearCap * (totalShares - issued) - 1 {
+            let window = shareIssues.filter { GameCalendar.daysBetween($0.date, date) < 365 }.map(\.date).min() ?? date
+            return "You've sold 20% new shares in the last 12 months — next window \(GameCalendar.addDays(window, 365).gameShort)."
+        }
+        return nil
+    }
+
+    /// Sell new shares at a 5% discount. The market cap grows by exactly the cash raised: no value is created.
+    mutating func secondaryOffering(fraction: Double) -> String? {
+        if let why = offeringBlocker { return why }
+        guard fraction > 0 else { return "Pick how many shares to sell." }
+        let cap = maxOfferingFraction
+        if fraction > cap + 1e-9 {
+            return "Shareholders cap new shares at 20% a year — you can sell up to \(Fmt.pct(cap, decimals: 1)) of the company now."
+        }
         let newShares = totalShares * fraction
-        let raised = newShares * sharePrice * 0.95
+        let price = sharePrice * 0.95
+        let raised = newShares * price
+        let capBefore = sharePrice * totalShares
         publicShares += newShares
         cash += raised
-        sharePrice *= (1 - fraction * 0.5)
-        Sim.news(&self, "Secondary offering raises \(Fmt.money(raised))", "Issued \(Fmt.count(newShares)) new shares.", .finance)
+        sharePrice = (capBefore + raised) / max(1, totalShares)
+        valuation = sharePrice * totalShares
+        let today = date
+        shareIssues.append(ShareIssue(date: today, shares: newShares))
+        shareIssues.removeAll { GameCalendar.daysBetween($0.date, today) > 730 }
+        Sim.news(&self, "Secondary offering raises \(Fmt.money(raised))", "Issued \(Fmt.count(newShares)) new shares at \(Fmt.price(price)), a 5% discount. The stock now trades at \(Fmt.price(sharePrice)).", .finance)
         return nil
     }
 

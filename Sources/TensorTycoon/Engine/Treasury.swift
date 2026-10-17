@@ -12,18 +12,58 @@ enum Treasury {
         s.month.interestIncome += interest
     }
 
-    /// The price auto-priced models move toward: just under the market rate for their capability.
-    static func targetPrice(_ m: AIModel, _ s: GameState) -> Double {
+    /// The going API rate for this model's quality ($/1M tokens), after the price cuts rivals are running.
+    static func marketPrice(_ m: AIModel, _ s: GameState) -> Double {
         let c = m.c - Physics.servingPenalty(m.servingPrecision)
-        return max(0.001, Macro.referencePrice(c: c, y: s.year) * s.market.apiPricePressure * 0.85)
+        return Macro.referencePrice(c: c, y: s.year) * s.market.apiPricePressure * (1 - rivalPriceCut(s))
     }
 
-    static func autoPrice(_ s: inout GameState) {
+    /// The average API price cut across live rival labs (negative when distressed labs raise prices).
+    static func rivalPriceCut(_ s: GameState) -> Double {
+        let live = s.competitors.filter { !$0.acquired && !$0.models.isEmpty }
+        guard !live.isEmpty else { return 0 }
+        return clamp(live.reduce(0) { $0 + $1.priceCut } / Double(live.count), -0.2, 0.45)
+    }
+
+    /// The lowest API price you can set: what serving a million tokens of the model costs you.
+    static func minPrice(_ m: AIModel, _ s: GameState, bonuses: ResearchBonuses? = nil) -> Double {
+        max(0.001, (Economy.servingCostPerM(m, s, bonuses: bonuses) * 1000).rounded(.up) / 1000)
+    }
+
+    /// Where a new model's price starts: just under the going rate for its capability, never below cost.
+    static func targetPrice(_ m: AIModel, _ s: GameState) -> Double {
+        max(minPrice(m, s), tidy(marketPrice(m, s) * 0.85))
+    }
+
+    /// Auto-pricing keeps a model's serving chips 80–90% busy: it raises the price a few percent a day while
+    /// demand outruns capacity and cuts it while chips sit idle, within 0.5–2× the going rate (which follows
+    /// rivals' price cuts) and never above 2.5× the frontier rate, and never below serving cost.
+    static func autoPrice(_ s: inout GameState, _ bonuses: ResearchBonuses? = nil) {
         for i in s.models.indices where s.models[i].autoPrice && !s.models[i].retired {
-            let target = targetPrice(s.models[i], s)
-            let p = s.models[i].apiPrice + (target - s.models[i].apiPrice) * 0.05
-            s.models[i].apiPrice = max(0.001, (p * 1000).rounded() / 1000)
+            let m = s.models[i]
+            let market = marketPrice(m, s)
+            var p = max(m.apiPrice, 0.001)
+            if m.capacityTokensDay > 0 && m.released && m.api {
+                let load = m.demandTokensDay / m.capacityTokensDay
+                if load > 0.9 { p *= min(1.04, pow(load / 0.9, 0.25)) }
+                if load < 0.8 { p *= max(0.96, pow(max(load, 0.01) / 0.8, 0.25)) }
+            } else {
+                // Not selling yet: drift toward the going rate.
+                p += (market * 0.85 - p) * 0.05
+            }
+            // Never more than 2.5× what a frontier model charges, however far ahead the model is.
+            let ceiling = min(market * 2, Macro.frontierPrice(s.year) * s.market.apiPricePressure * 2.5)
+            p = clamp(p, min(market * 0.5, ceiling), ceiling)
+            if !m.deployments.isEmpty { p = max(p, minPrice(m, s, bonuses: bonuses)) }
+            s.models[i].apiPrice = max(0.001, tidy(p))
         }
+    }
+
+    /// Four significant figures: tidy on screen, fine enough that a small daily step isn't rounded away.
+    static func tidy(_ p: Double) -> Double {
+        guard p > 0 else { return 0 }
+        let unit = pow(10, floor(log10(p)) - 3)
+        return (p / unit).rounded() * unit
     }
 
     /// Months of runway at last month's burn (nil when profitable).
