@@ -52,6 +52,8 @@ enum SaveMigration {
         World.bootstrap(&s)
         // 3.4: score every model and credit the milestones already reached.
         if !s.capsReady { Capabilities.bootstrap(&s) }
+        // 3.5: alien programs in progress get unstuck and existing alien chips get their fab line.
+        AlienFab.migrate(&s)
     }
 
     /// Decodes a save, migrates it and plays 90 days on a copy, resolving decisions with their first option.

@@ -24,6 +24,7 @@ struct XenoView: View {
                     }
                 }
             }
+            AlienPathCard(state: s)   // 3.5: the whole path, with ETAs and blockers
             XenoSearchCard(state: s)
             if n == 0 {
                 Card {
@@ -33,6 +34,7 @@ struct XenoView: View {
                 }
             } else {
                 XenoStudyCard(state: s)
+                if s.alienFab.exists { AlienFabCard(state: s) }
                 ForEach(s.alienArchs.reversed()) { a in AlienArchCard(arch: a, state: s) }
                 ForEach(s.xenoArtifacts.reversed()) { a in ArtifactCard(artifact: a, state: s) }
                 MegaProjectsCard(state: s)
@@ -70,6 +72,9 @@ private struct XenoSearchCard: View {
                     Text(rate > 0 ? "~\(Fmt.days(left / rate)) to go" : "No search running").font(.caption).foregroundStyle(.secondary)
                 }
                 .frame(width: 150, alignment: .trailing)
+            }
+            if let why = AlienPath.searchBlocker(s) {
+                Label(why, systemImage: "hand.raised.fill").font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
             }
             if XenoScience.discoveries(s) > 0 {
                 Text("Search target").font(.caption.weight(.semibold))
@@ -316,6 +321,7 @@ private struct AlienArchCard: View {
 
             Divider()
             chipSection(a, chip: chip, s)
+            if a.chipVersion >= 1 { AlienChipGenerations(arch: a, state: s) }
             Divider()
 
             Text("What do you do with it?").font(.headline)
@@ -365,8 +371,17 @@ private struct AlienArchCard: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button("Order for yourself") { store.open(.hardware) }
-                    .buttonStyle(.borderedProminent)
+                let n = AlienFabCard.suggestedOrder(chip.id, s)
+                if n > 0 {
+                    Button("Order \(Fmt.count(Double(n)))") { store.act("Order queued on your fab line") { $0.orderOwnChips(chip.id, count: n) } }
+                        .buttonStyle(.borderedProminent)
+                        .help("Arrives in about \(AlienFab.leadDays(s, count: n)) days from your alien fab line.")
+                } else {
+                    Button("Lease a cage") { store.act("Cage leased — ready in 30 days") { $0.leaseAlienCage(for: chip.id, chips: max(4_000, AlienFabCard.suggestedOrder(chip.id, s, ignoringSites: true))) } }
+                        .help("No site has free power for these chips. Lease a colocation cage sized for them (ready in 30 days).")
+                }
+                Button("In the store") { store.focusAccelID = chip.id; store.open(.hardware) }
+                    .buttonStyle(.link)
             }
         } else if a.fabbing {
             VStack(alignment: .leading, spacing: 4) {
@@ -376,18 +391,20 @@ private struct AlienArchCard: View {
                     Spacer()
                     Text("~\(Int(a.fabDaysLeft / 30) + 1) months left").font(.caption.monospacedDigit())
                 }
-                Meter(value: 1 - a.fabDaysLeft / max(1, Xeno.fabDays(s, store.derived.bonuses)), tint: .purple, height: 8)
+                Meter(value: 1 - a.fabDaysLeft / max(1, a.fabTotal > 0 ? a.fabTotal : Xeno.fabDays(s, store.derived.bonuses)), tint: .purple, height: 8)
             }
         } else {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("The chip exists only as RTL").font(.callout.weight(.semibold))
-                    Text("Tape it out for \(Fmt.money(Xeno.fabCost(s))) — about \(Int(Xeno.fabDays(s, store.derived.bonuses) / 30) + 1) months. A chip-design swarm makes it faster.")
+                    Text("Tape it out for \(Fmt.money(Xeno.fabCost(s))) — about \(Int(Xeno.fabDays(s, store.derived.bonuses) / 30) + 1) months. A chip-design swarm makes it faster; the better you understand it, the fewer respins.\(s.alienFab.exists ? "" : " Your first alien chip opens your own fab line.")")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
                 Button("Tape out") { store.act("Tape-out started") { $0.fabAlienChip(a.id) } }
                     .buttonStyle(.borderedProminent)
+                    .disabled(Xeno.fabCost(s) > s.cash)
+                    .help(Xeno.fabCost(s) > s.cash ? "Needs \(Fmt.money(Xeno.fabCost(s))) in cash." : "Send the swarm's RTL to the foundry.")
             }
         }
     }

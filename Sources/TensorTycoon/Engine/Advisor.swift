@@ -231,8 +231,16 @@ enum Advisor {
         if offers > 0 {
             add("xeno-offers", .warning, "doc.text.fill", "\(offers) license offer\(offers == 1 ? "" : "s")", "Big players want your blueprint.", .xeno)
         }
-        if let l = s.chipLines.first(where: { $0.active && $0.demandToday > $0.capacityMonth / 30.4 * 1.5 && $0.pendingCapacity == 0 }) {
+        if let l = s.chipLines.first(where: { l in
+            let alien = AlienFab.isAlienChip(l.chipID)
+            return l.active && l.demandToday > (alien ? AlienFab.merchantPerLine(s) : l.capacityMonth / 30.4) * 1.5
+                && (alien ? s.alienFab.pendingCapacity : l.pendingCapacity) == 0
+        }) {
             add("fab-\(l.chipID)", .info, "shippingbox.fill", "Chip demand outstrips your foundry", "Buyers want \(Fmt.count(l.demandToday * 30.4))/month.", .chipSales)
+        }
+        // 3.5: the alien path's first blocked step (chips with nowhere to go, a stalled run on alien silicon).
+        if !s.alienArchs.isEmpty, let st = AlienPath.stages(s).first(where: { $0.status == .blocked && $0.id != "search" && $0.id != "tapeout" && $0.id != "nextgen" }) {
+            add("xeno-path-\(st.id)", .warning, st.symbol, "Alien tech: \(st.title.lowercased()) is blocked", st.blocker ?? st.detail, .xeno)
         }
 
         // Security & policy

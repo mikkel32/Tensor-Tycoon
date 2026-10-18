@@ -392,7 +392,10 @@ struct AcceleratorDetail: View {
                     HStack {
                         VStack(alignment: .leading, spacing: 1) {
                             Text("\(Fmt.money(total)) total").font(.headline.monospacedDigit())
-                            Text("\(Fmt.watts(Economy.chipKW(a) * Double(qty) * 1000)) incl. servers · ships in ~\(Economy.leadTimeDays(a, s)) days · \(Fmt.int(Economy.allocationLimit(a, s))) available to you this quarter of \(Fmt.count(Economy.quarterlyProduction(a, s))) made")
+                            Text(AlienFab.isAlienChip(a.id)
+                                 ? "\(Fmt.watts(Economy.chipKW(a) * Double(qty) * 1000)) incl. servers · from your alien fab line (\(Fmt.count(s.alienFab.capacityMonth))/month): ships in ~\(AlienFab.leadDays(s, count: qty)) days"
+                                 : a.vendor == .custom ? "\(Fmt.watts(Economy.chipKW(a) * Double(qty) * 1000)) incl. servers · ships in ~\(Economy.leadTimeDays(a, s)) days · your own chip: no allocation limit"
+                                 : "\(Fmt.watts(Economy.chipKW(a) * Double(qty) * 1000)) incl. servers · ships in ~\(Economy.leadTimeDays(a, s)) days · \(Fmt.int(Economy.allocationLimit(a, s))) available to you this quarter of \(Fmt.count(Economy.quarterlyProduction(a, s))) made")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()

@@ -89,7 +89,7 @@ enum Economy {
 
     static func leadTimeDays(_ a: Accelerator, _ s: GameState) -> Int {
         if a.cls == .consumer || a.cls == .workstation { return 4 }
-        if a.vendor == .custom { return 45 }
+        if a.vendor == .custom { return AlienFab.isAlienChip(a.id) ? AlienFab.leadDays(s, count: 0) : 45 }
         var d = s.market.leadTimeDays
         if hasDeal(a, s) { d *= 0.5 }
         if Partners.covering(a, s) != nil { d *= 0.6 }
@@ -213,7 +213,8 @@ enum Economy {
     }
 
     /// Server overhead included (CPU, NICs, fans).
-    static func chipKW(_ a: Accelerator) -> Double { a.tdpW * 1.25 / 1000 }
+    /// Alien chips (3.5) need far less around them: the swarm folded the host and network logic into the package.
+    static func chipKW(_ a: Accelerator) -> Double { a.tdpW * (AlienFab.isAlienChip(a.id) ? 1.1 : 1.25) / 1000 }
 
     // MARK: Compute pools
 
