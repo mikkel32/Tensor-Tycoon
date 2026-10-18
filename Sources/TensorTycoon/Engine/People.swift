@@ -378,6 +378,8 @@ enum Events {
         case ("moonshot", _): Moonshots.resolve(&s, d, option: option)   // 3.4: late game
         case ("fun_cfp", _), ("fun_keynote", _): Fun.resolve(&s, d, option: option)   // 3.5: fun systems
         case (AdvancedProjects.secrecyKind, _): AdvancedProjects.resolveSecrecy(&s, d, option: option)   // 3.5
+        case ("corp_funding", _), ("corp_covenant", _), ("corp_downgrade", _), ("corp_audit", _):   // 3.5: corporate
+            Corporate.resolve(&s, d, option: option)
         case ("board_ouster", _), ("exclusive_supply", _), ("swarm_audit", _), ("merger_offer", _), ("spinoff", _), ("sovereign_deal", _), ("talent_raid", _),
              ("distill_campaign", _), ("eval_escape", _), ("insider_caught", _):
             StrategyEvents.resolve(&s, d, option: option)

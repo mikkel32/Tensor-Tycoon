@@ -336,7 +336,7 @@ enum Economy {
         s.sites.filter { $0.kind == .datacenter }.reduce(0) { $0 + $1.capex * 0.8 }
     }
 
-    static func debt(_ s: GameState) -> Double { s.loans.reduce(0) { $0 + $1.balance } }
+    static func debt(_ s: GameState) -> Double { s.loans.reduce(0) { $0 + $1.balance } + s.corp.debts.reduce(0) { $0 + $1.balance } }
 
     static func payrollYear(_ s: GameState) -> Double { s.employees.reduce(0) { $0 + $1.salary } * max(0.5, 1 + s.traits.payroll) * HQ.payrollFactor(s) }
 
@@ -388,7 +388,8 @@ enum Economy {
         let talent = s.employees.reduce(0.0) { $0 + ($1.role == .researcher ? $1.skill * 40_000 : $1.skill * 10_000) } * (y > 2023 ? 3 : 1)
         let seed = Macro.seedValuation(y) * min(1.5, 0.6 + Double(s.employees.count) * 0.1)
         let assets = max(0, hardwareValue(s) + siteValue(s) - debt(s))
-        return max(max(revVal, hypeVal, seed, talent) + assets * 0.6 + Xeno.moatValue(s) + RivalEconomy.stakesValue(s) * 0.9, roundFloor(s))
+        return max(max(revVal, hypeVal, seed, talent) + assets * 0.6 + Xeno.moatValue(s) + RivalEconomy.stakesValue(s) * 0.9
+                   + Corporate.stakesValue(s) * 0.9, roundFloor(s))   // 3.5: subsidiaries
     }
 
     /// The last round's post-money, written down 30% a year (to at most 40% off): a private mark rarely falls faster.

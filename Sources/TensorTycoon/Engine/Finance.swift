@@ -189,6 +189,7 @@ enum Monthly {
         }
         Business.generateDeals(&s, b)
 
+        Corporate.monthly(&s)   // 3.5: corporate — subsidiaries trade, corporate debt is serviced, dividends paid
         Finance.payLoans(&s)
         Finance.monthlyRate(&s)
         Finance.settleSupplyDeals(&s)
@@ -246,6 +247,7 @@ enum Monthly {
             s.valuation = mark
         }
         Finance.updateCreditScore(&s)
+        Corporate.closeBooks(&s)   // 3.5: corporate — rating, covenants, audits and the statements snapshot
         s.month.cashEnd = s.cash
         s.month.valuation = s.valuation
         s.month.bestIndex = s.models.map(\.index).max() ?? 0
@@ -274,6 +276,7 @@ enum Business {
         if s.lawsPassed.contains("liability") { p *= clamp(1 + (s.safetyScore - 50) / 150, 0.6, 1.4) }
         // Rivals running enterprise pushes win some of the deals that would have come to you.
         p *= RivalStrategy.playerDealFactor(s)
+        p *= Corporate.dealFactor(s)   // 3.5: a consulting arm brings leads (exactly 1 without one)
         let n = s.rng.chance(p) ? (s.rng.chance(p * 0.5) ? 2 : 1) : 0
         for _ in 0..<n {
             let size = Macro.marketSize(s.year) * Macro.segmentSplit(s.year, chatMoment: s.chatMoment != nil).enterprise
