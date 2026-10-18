@@ -312,6 +312,12 @@ struct ModelDesign: Codable, Hashable {
     var useDPO = false
     /// 3.4: mid-training data-mix shift for the second half of pre-training (was a mid-run popup).
     @D var mixShift: MixShift = .keep
+    // 3.5: training experience — the model's identity. The objective is applied through the knobs above (data mix,
+    // mid-training shift, post-training stages, sparsity) when picked in the Model Lab; it adds nothing on its own.
+    @D var objective: ModelObjective = .general
+    @D var family: String = ""
+    @D var generation: Int = 0
+    @D var blurb: String = ""
 
     var activeParamsB: Double { paramsB * activeFraction }
     var isMoE: Bool { activeFraction < 0.999 }
@@ -442,6 +448,11 @@ struct TrainingRun: Codable, Identifiable, Hashable {
     @D var toy: Bool = false
     /// Consecutive days the run has made next to no progress (hardware failures eating the whole day).
     @D var stalledDays: Int = 0
+    // 3.5: training experience
+    /// What the Model Lab's estimate promised at launch (nil for scaling ladders and runs started before 3.5).
+    @D var plan: RunPlan? = nil
+    /// Where the cluster's peak compute actually went, day by day (TrainingExperience).
+    @D var ledger: RunLedger = RunLedger()
 
     var schedule: LRSchedule { LRSchedule(rawValue: lr) ?? .standard }
     var interval: Double { checkpointEvery > 0 ? checkpointEvery : 0.1 }
@@ -1175,6 +1186,10 @@ struct GameState: Codable {
     @D var voiceRecent: [String: [String]] = [:]
     /// Keys the people layer's hashed rolls to this game (set once, from the RNG's state, without drawing from it).
     @D var peopleSalt: String = ""
+
+    // 3.5: training experience
+    /// Your lab's training firsts (first 100B model, first 100K-chip run, …), oldest first (TrainingExperience).
+    @D var trainingFirsts: [TrainingFirst] = []
 
     var totalShares: Double {
         founderShares + employeePoolShares + publicShares + holdings.reduce(0) { $0 + $1.shares }

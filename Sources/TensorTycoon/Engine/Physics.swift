@@ -46,13 +46,16 @@ enum Physics {
         // Agent swarms on training operations tune kernels and route around bad nodes.
         base += 0.04 * s.swarmOps + s.traits.mfu
         if engineers < 0.5 && chips > 64 { base -= 0.05 }
-        var mult = 1.0
-        if chips > accel.scaleUp {
-            let decades = log10(Double(chips) / Double(max(1, accel.scaleUp)))
-            let perDecade = (accel.scaleUp <= 2 ? 0.13 : 0.06) * (1 - b.scaleOut)
-            mult = max(0.35, 1 - decades * perDecade)
-        }
-        return clamp(base * mult, 0.05, 0.7)
+        return clamp(base * scaleOutFactor(accel: accel, chips: chips, bonuses: b), 0.05, 0.7)
+    }
+
+    /// Share of MFU kept once a run spans more chips than one scale-up domain (NVLink/ICI): cross-node communication
+    /// costs a fixed share per decade of scale-out. 1 inside one domain.
+    static func scaleOutFactor(accel: Accelerator, chips: Int, bonuses b: ResearchBonuses) -> Double {
+        guard chips > accel.scaleUp else { return 1 }
+        let decades = log10(Double(chips) / Double(max(1, accel.scaleUp)))
+        let perDecade = (accel.scaleUp <= 2 ? 0.13 : 0.06) * (1 - b.scaleOut)
+        return max(0.35, 1 - decades * perDecade)
     }
 
     /// Infra engineers on the team, weighted by skill (a skill-50 engineer counts as one).
