@@ -84,6 +84,13 @@ final class GameStore {
     var showRunReports = UserDefaults.standard.object(forKey: "showRunReports") as? Bool ?? true {
         didSet { UserDefaults.standard.set(showRunReports, forKey: "showRunReports") }
     }
+    /// 3.5: a major run that just launched; the Training screen plays its launch sequence once (presentation only).
+    var launchRunID: UUID?
+    /// 3.5: the run the Training screen's command centre shows.
+    var focusRunID: UUID?
+    var showLaunchSequence = UserDefaults.standard.object(forKey: "showLaunchSequence") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(showLaunchSequence, forKey: "showLaunchSequence") }
+    }
     private(set) var derived = Derived()
     /// Last non-nil state, so views being torn down after "quit to menu" never see a missing game.
     @ObservationIgnored private var lastState: GameState?
@@ -414,6 +421,8 @@ final class GameStore {
         openDecisionID = nil
         briefingID = nil
         pauseReason = nil
+        launchRunID = nil
+        focusRunID = nil
         let dec = JSONDecoder()
         dec.dateDecodingStrategy = .secondsSince1970
         do {
