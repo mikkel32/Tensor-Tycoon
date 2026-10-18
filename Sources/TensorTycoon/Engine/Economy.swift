@@ -352,7 +352,7 @@ enum Economy {
     static func officeCapacity(_ s: GameState) -> Int { officeLevels[min(s.officeLevel, officeLevels.count - 1)].capacity }
 
     static func dataMonthlyCost(_ s: GameState) -> Double {
-        s.dataSources.compactMap { DataCatalog.byID[$0] }.reduce(0) { $0 + $1.monthly }
+        s.dataSources.compactMap { DataCatalog.byID[$0] }.reduce(0) { $0 + $1.monthly } + DataEconomy.monthlyCost(s)   // 3.6: data economy
     }
 
     // MARK: Revenue & valuation

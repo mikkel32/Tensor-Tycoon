@@ -405,7 +405,7 @@ struct ModelLabView: View {
                                 .font(.caption).foregroundStyle(.orange)
                         }
                     }
-                    let avail = Physics.availableTokensT(Array(s.dataSources), y: s.year, bonuses: b) * (design.syntheticShare > 0 && b.has(.syntheticData) ? 1 + design.syntheticShare * 3 : 1)
+                    let avail = Physics.uniqueTokensT(design, state: s)   // 3.6: includes held datasets
                     Text("Unique data available: \(Fmt.tokens(avail)) — more on the Training Data page").font(.caption)
                         .foregroundStyle(design.tokensT > avail * 4 && design.mode == .scratch ? .orange : .secondary)
                     LabeledPicker(title: "Mixture", selection: $design.dataMix, options: DataMix.allCases, enabled: { _ in true })
@@ -424,6 +424,7 @@ struct ModelLabView: View {
                                 .foregroundStyle(design.syntheticShare > 0.3 ? .orange : .primary)
                         }
                     }
+                    DataPlanPanel(design: design, state: s)   // 3.6: data economy
                 }
 
                 if !advanced {

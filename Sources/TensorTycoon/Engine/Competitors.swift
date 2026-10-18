@@ -180,6 +180,7 @@ enum Competitors {
         c += 0.2 * log10(max(0.3, comp.funding))
         // Whatever you sold or licensed them — or they stole.
         c += Xeno.rivalC(s, def.id, at: date)
+        c += DataEconomy.rivalC(s, def.id)   // 3.6: your exclusive datasets, and rare data they won
         if def.id == "dragonlake" {
             if s.lawsPassed.contains("chip_security") { c -= 0.1 }
             if s.lawsFailed.contains("chip_security") { c += 0.05 }

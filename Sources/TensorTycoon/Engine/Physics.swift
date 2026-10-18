@@ -199,7 +199,7 @@ enum Physics {
     static func uniqueTokensT(_ d: ModelDesign, state s: GameState) -> Double {
         let b = s.bonuses
         let raw = availableTokensT(Array(s.dataSources), y: s.year, bonuses: b)
-        return raw * (d.syntheticShare > 0 && b.has(.syntheticData) ? 1 + d.syntheticShare * 3 : 1)
+        return raw * (d.syntheticShare > 0 && b.has(.syntheticData) ? 1 + d.syntheticShare * 3 : 1) + DataEconomy.extraUniqueT(s)   // 3.6
     }
 
     /// Passes over the unique data worth planning: past this a repeated token is worth well under half a fresh one.

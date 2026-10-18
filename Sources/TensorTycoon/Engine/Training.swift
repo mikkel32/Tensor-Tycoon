@@ -45,7 +45,7 @@ enum Training {
     static func prepare(_ run: inout TrainingRun, state s: inout GameState) {
         let b = s.bonuses
         let d = run.design
-        let f = ForecastEngine.forecast(d, state: s, dataSources: Array(s.dataSources))
+        let f = ForecastEngine.forecast(d, state: s, dataSources: run.dataSnapshot.isEmpty ? Array(s.dataSources) : run.dataSnapshot)   // 3.6: the run's own data
         let set = Leaderboard.indexSet(s)
         let band = ForecastEngine.indexBand(f, design: d, set: set)
         let released = Leaderboard.entries(s, set: set, includeUnreleased: false)
@@ -740,7 +740,7 @@ enum Training {
         let b = s.bonuses
         // Benchmark contamination
         if frac > 0.3 && frac < 0.75 && !s.runs[i].decided.contains("contamination") {
-            if s.rng.chance(0.012 * b.contaminationKeep * (s.runs[i].toy ? 0 : 1)) {
+            if s.rng.chance(0.012 * b.contaminationKeep * DataEconomy.contaminationFactor(s, run: s.runs[i]) * (s.runs[i].toy ? 0 : 1)) {
                 s.runs[i].decided.insert("contamination")
                 Events.addDecision(&s, kind: "contamination", title: "Benchmark contamination in \(s.runs[i].design.name)",
                                    body: "An audit found test questions from popular benchmarks scattered through your web crawl. Your scores will be inflated — and someone will notice.",

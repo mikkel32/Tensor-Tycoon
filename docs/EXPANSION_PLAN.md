@@ -11,7 +11,7 @@ checks pass (`--forecast-check` identical, save fixtures load, playtests sane) a
 | 4 | Progression stages with new powers | Partly (founding kit merged: 39 cards, genius starts, RL lab, starter quests; late-game systems exist) | No |
 | 5 | Countries: Romania, Italy, France, Denmark; premium selection; real effects; photos | Merged (12 cities, real economics, 13 licensed Commons photos with credits) | No |
 | 6 | Advanced Projects: government contracts, classified facilities, programmes, secrecy | Merged (14 agencies, 23 programme templates, 4 contract types, clearances, secrecy choices) | No |
-| 7 | Data economy: types, quality dimensions, licensing, processing, contamination | In progress (wave 2) | No |
+| 7 | Data economy: types, quality dimensions, licensing, processing, contamination | Merged (17 data types, 11 quality dimensions, market, pipeline, annotation, synthetic data, auctions, Model Lab data plan) | No |
 | 8 | Science labs and experiments | In progress (wave 2; builds on XenoScience/moonshots) | No |
 | 9 | Semiconductor industry (fab, yields, packaging, sales) | Alien fab line merged (pilot line, v2/v3 generations, yields, errata); full industry wave 3 | No |
 | 10 | Autonomous agent organisations | In progress (wave 2; builds on swarms) | No |
