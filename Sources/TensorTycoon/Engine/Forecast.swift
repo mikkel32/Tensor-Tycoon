@@ -105,6 +105,7 @@ enum ForecastEngine {
         var f = Forecast()
         let sources = dataSources.compactMap { DataCatalog.byID[$0] }
         var drivers: [ForecastDriver] = []
+        let plan = DataEconomy.plan(d, state: s, sources: dataSources)   // 3.6: data economy (all zero without new data)
 
         let pre = Physics.pretrainFLOPs(d)
         f.rawC = log10(max(pre, 1e12)) - 21
@@ -114,6 +115,7 @@ enum ForecastEngine {
         // Data available & repetition
         var unique = Physics.availableTokensT(dataSources, y: y, bonuses: b)
         if d.syntheticShare > 0 && b.has(.syntheticData) { unique *= 1 + d.syntheticShare * 3 }
+        if plan.active { unique += plan.extraUniqueT }
         f.tokensPerParam = d.tokensT * 1000 / max(d.activeParamsB, 0.001)
         f.optimalTokensPerParam = d.tokensT > 0 ? (pre / 6 / (optimalParamsB(flops: pre) * 1e9)) / (optimalParamsB(flops: pre) * 1e9) : 20
 
@@ -244,6 +246,10 @@ enum ForecastEngine {
                     f.penalties.append("\(Int(d.syntheticShare * 100))% synthetic data: risk of model collapse (×\(Fmt.trim(pow(10, collapse), 2)))")
                 }
             }
+            if plan.active {
+                data += plan.dData
+                if plan.collapse < 0 { f.penalties.append("\(Int(plan.syntheticShare * 100))% of the corpus is generated: model collapse (×\(Fmt.trim(pow(10, plan.collapse), 2)))") }
+            }
             f.data = data
             if abs(data) > 0.005 { drivers.append(ForecastDriver(name: "Data quality", value: data, kind: data >= 0 ? .gain : .penalty, detail: "Sources, filtering and your data team")) }
             if teamGain > 0.005 { drivers.append(ForecastDriver(name: "Hyperparameter tuning (team)", value: teamGain, kind: .gain)) }
@@ -254,7 +260,7 @@ enum ForecastEngine {
         case .finetune:
             let base = Physics.openModelC(d.baseModelRef, state: s) ?? (f.rawC + b.algo)
             let ftGain = 0.12 * min(1, d.tokensT / 0.05)
-            let dataQ = sources.reduce(0) { $0 + $1.quality } * 0.3
+            let dataQ = (sources.reduce(0) { $0 + $1.quality } + plan.dData) * 0.3
             c = base - 0.06 + ftGain + dataQ
             drivers = [ForecastDriver(name: "Open-weights base model", value: base, kind: .base),
                        ForecastDriver(name: "Your fine-tune", value: ftGain - 0.06 + dataQ, kind: .gain)]
@@ -326,7 +332,17 @@ enum ForecastEngine {
         chat += dataArena / 90
         if d.dataMix == .conversational { chat += 0.1 }
         if shift == .code { chat -= 0.03 }
-        if d.rlhf && !dataSources.contains("human_feedback") {
+        if plan.active {
+            reasoning += plan.dReasoning
+            code += plan.dCode
+            agent += plan.dAgent
+            chat += plan.dChat
+            let skills = plan.dReasoning + plan.dCode + plan.dAgent + plan.dChat
+            if abs(skills) > 0.005 {
+                drivers.append(ForecastDriver(name: "Data plan", value: skills, kind: .skill, detail: "Your datasets' domain-relevant, quality-weighted tokens (Training Data page)"))
+            }
+        }
+        if d.rlhf && !dataSources.contains("human_feedback") && !plan.hasPreferences {
             chat -= 0.2
             f.penalties.append("RLHF without a human-preference data vendor is weak (Training Data page)")
         }
@@ -335,7 +351,8 @@ enum ForecastEngine {
         if shift == .multilingual { lang += 0.18 }
         var longctx = b.skill(.longctx)
         if d.mixer == .hybrid { longctx += 0.1 }
-        let vis = d.vision ? b.skill(.vis) : 0
+        var vis = d.vision ? b.skill(.vis) : 0
+        if plan.active { lang += plan.dLang; longctx += plan.dLongctx; vis += plan.dVis }
         var safety = 25 + b.safety + (d.safetyTraining ? 15 : 0) + (d.rlhf ? 5 : 0)
         let safetyTeam = s.employees.filter { $0.role == .safety }.reduce(0.0) { $0 + $1.weight }
         safety += 20 * min(1, safetyTeam / 4)

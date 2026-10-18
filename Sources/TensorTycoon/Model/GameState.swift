@@ -1254,6 +1254,11 @@ struct GameState: Codable {
     /// Grants, offers and incentives from home so far (HQ).
     @D var hq: HQState = HQState()
 
+    // 3.6: data economy
+    /// Datasets bought, licensed, won or generated; processing, annotation and synthetic jobs; contamination detection;
+    /// rare auctions and rivals' wins (DataEconomy). Older saves decode empty: their `dataSources` are the inventory.
+    @D var dataEco: DataEcoState = DataEcoState()
+
     var totalShares: Double {
         founderShares + employeePoolShares + publicShares + holdings.reduce(0) { $0 + $1.shares }
     }

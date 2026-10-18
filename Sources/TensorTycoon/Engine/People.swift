@@ -359,6 +359,8 @@ enum Events {
             }
         case ("hq_grant", _), ("hq_partner", _), ("hq_contract", _):   // 3.5: headquarters
             HQ.resolve(&s, d, option: option)
+        case ("data_auction", _), ("data_collection", _), ("data_lawsuit", _):   // 3.6: data economy
+            DataEconomy.resolve(&s, d, option: option)
         case ("rsi_resource", _), ("rsi_exfil", _):
             RSI.resolve(&s, kind: d.kind, option: option, ref: d.ref)
         case ("swarm_collusion", _), ("swarm_escape", _):

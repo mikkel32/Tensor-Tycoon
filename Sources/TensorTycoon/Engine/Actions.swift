@@ -227,7 +227,7 @@ extension GameState {
         if d.agentRL && !b.has(.agents) { return "Research agentic RL first." }
         if d.syntheticShare > 0 && !b.has(.syntheticData) { return "Research synthetic data pipelines first." }
         let pre = Physics.pretrainFLOPs(d)
-        var run = TrainingRun(design: d, started: date, flopsTotal: pre, dataSnapshot: Array(dataSources))
+        var run = TrainingRun(design: d, started: date, flopsTotal: pre, dataSnapshot: DataEconomy.snapshot(&self))   // 3.6
         run.lr = lr.rawValue
         run.checkpointEvery = checkpointEvery
         run.autoRollback = autoRollback
