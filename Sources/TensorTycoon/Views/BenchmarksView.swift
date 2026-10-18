@@ -23,27 +23,38 @@ struct BenchmarksView: View {
         let families = Dictionary(grouping: visible, by: \.family)
             .sorted { ($0.value.map(\.mid).max() ?? 0) > ($1.value.map(\.mid).max() ?? 0) }
         let active = all.filter { $0.isActive(s.date, saturated: s.benchSaturated) }
-        Page(title: "Benchmarks", subtitle: "Real benchmarks from SQuAD to ARC-AGI-3 — knowledge, math, code, agents, vision, speech, long context, instruction following, safety and dangerous capabilities. When the best model passes a benchmark's saturation line, it retires and a harder successor appears.") {
+        Page(title: "Benchmarks", subtitle: "Real benchmarks from SQuAD to ARC-AGI-3 — knowledge, math, code, agents, vision, speech, long context, instruction following, safety and dangerous capabilities. When models from two labs pass a benchmark's saturation line it retires, and a harder successor pitched at the field appears.") {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 190), spacing: 12)], spacing: 12) {
                 StatTile(title: "Benchmarks tracked", value: "\(all.count)", detail: "\(all.filter(\.generated).count) created during your game", symbol: "checklist", tint: .blue)
                 StatTile(title: "Live", value: "\(active.count)", detail: "Not yet saturated", symbol: "flame.fill", tint: .orange)
-                StatTile(title: "Saturated", value: "\(s.benchSaturated.count)", detail: "Retired from the index", symbol: "checkmark.seal.fill", tint: .green)
+                StatTile(title: "Saturated", value: "\(s.benchSaturated.count)", detail: "Rotate out of the index as successors arrive", symbol: "checkmark.seal.fill", tint: .green)
                 StatTile(title: "Upcoming", value: "\(all.filter { $0.introduced > s.date.ym }.count)", detail: "Announced, not released", symbol: "calendar.badge.clock", tint: .purple)
             }
 
             HStack(alignment: .top, spacing: 16) {
                 Card {
-                    CardHeader("Intelligence Index — current composition", symbol: "function", subtitle: "10 live text benchmarks spread from hardest to nearly saturated")
+                    CardHeader("Intelligence Index — current composition", symbol: "function",
+                               subtitle: "10 text benchmarks from the hardest to nearly saturated. A saturated one stays until a successor is ready; slots rotate one at a time and a newcomer phases in over eight weeks.")
                     ForEach(d.indexSet) { b in
                         let sota = best(b, in: released)
                         let you = best(b, in: mine)
-                        Button { selected = b } label: {
+                        let retiring = s.benchSaturated[b.id] != nil
+                        Button { selected = all.first { $0.id == b.id } ?? b } label: {
                             HStack(spacing: 10) {
                                 Image(systemName: b.kind.symbol).foregroundStyle(b.kind.color).frame(width: 18)
                                 Text(b.name).font(.callout.weight(.medium)).lineLimit(1).frame(width: 190, alignment: .leading)
                                 Meter(value: ((sota?.1 ?? 0) - b.floor) / max(1, b.ceiling - b.floor), tint: .orange, height: 8)
                                 Text("SOTA \(b.format(sota?.1 ?? 0))").font(.caption.monospacedDigit()).frame(width: 84, alignment: .trailing)
                                 Text("You \(you.map { b.format($0.1) } ?? "—")").font(.caption.monospacedDigit()).foregroundStyle(Color.accentColor).frame(width: 74, alignment: .trailing)
+                                if let bl = b.blend {
+                                    Text(verbatim: "\(Int((bl.t * 100).rounded()))% in").font(.caption2).foregroundStyle(.purple).frame(width: 62, alignment: .trailing)
+                                        .help("Phasing in until \(bl.full.gameShort): its slot still partly scores \(bl.from.map(\.name).joined(separator: ", ")). Scores here are the blend.")
+                                } else if retiring {
+                                    Text("Saturated").font(.caption2).foregroundStyle(.green).frame(width: 62, alignment: .trailing)
+                                        .help("Saturated: it leaves the index when a successor is ready.")
+                                } else {
+                                    Text("Live").font(.caption2).foregroundStyle(.secondary).frame(width: 62, alignment: .trailing)
+                                }
                             }
                             .contentShape(.rect)
                         }
@@ -149,7 +160,7 @@ private struct FrontierSafetyCard: View {
         let yours = mine.max { SafetyFramework.dangerX($0.profile) < SafetyFramework.dangerX($1.profile) }
         let yourModel = yours.flatMap { e in state.models.first { $0.id.uuidString == e.profile.key } }
         Card {
-            CardHeader("Frontier safety thresholds", symbol: "exclamationmark.shield.fill", subtitle: "Dangerous-capability evals (WMDP, Cybench, VCT…) decide what a release needs")
+            CardHeader(title: "Frontier safety thresholds", symbol: "exclamationmark.shield.fill", subtitle: "Dangerous-capability evals (WMDP, Cybench, VCT…) decide what a release needs") { HelpButton(term: .safetyThresholds) }
             DangerGauge(world: world.map { SafetyFramework.dangerX($0.profile) }, yours: yours.map { SafetyFramework.dangerX($0.profile) })
                 .frame(height: 64)
             if let world {

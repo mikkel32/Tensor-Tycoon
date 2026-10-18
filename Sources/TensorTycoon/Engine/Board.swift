@@ -4,6 +4,9 @@ import Foundation
 /// Below 50% ownership a board that has lost confidence can move to replace you.
 enum Board {
     static let activeTarget = 3
+    /// 3.4: from this year goals scale with the lab's share of its market, so a 2030s giant isn't asked to double
+    /// a market it already dominates. Earlier goals are exactly as before.
+    static let lateYear = 2027.0
 
     // MARK: Confidence
 
@@ -50,27 +53,33 @@ enum Board {
         case .rank:
             let board = Leaderboard.entries(s, includeUnreleased: false)
             guard let me = board.filter(\.isPlayer).max(by: { $0.index < $1.index }) else { return 99 }
-            return Double(board.filter { !$0.isPlayer && $0.index > me.index }.count + 1)
+            return Double(Leaderboard.labRank(index: me.index, board: board, gone: Leaderboard.goneLabs(s)))
         case .users: return s.consumerUsers
         case .valuation: return s.valuation
         case .profit: return s.history.last?.profit ?? -1
         case .compute: return Economy.h100e(s)
         case .safety: return s.safetyScore
-        case .research: return Double(s.researched.count)
+        case .research: return Double(s.researched.count + s.programLevelsTotal)
         case .agents: return s.swarms.filter { !$0.paused }.reduce(0) { $0 + $1.active }
-        case .release: return Double(s.models.filter(\.released).count)
+        // Your best released model's Intelligence Index: a release goal asks you to beat it.
+        case .release: return s.models.filter(\.released).map(\.index).max() ?? 0
         case .chipSales: return s.chipLines.reduce(0) { $0 + $1.revenue } + s.history.suffix(1200).reduce(0) { $0 + $1.revCloud }
         }
     }
 
     static func lowerIsBetter(_ k: ObjectiveKind) -> Bool { k == .rank }
 
+    /// Release goals from older saves (no bar) still count releases.
+    static func isLegacyRelease(_ o: Objective) -> Bool { o.kind == .release && o.bar <= 0 }
+
     static func met(_ o: Objective, _ s: GameState) -> Bool {
+        if isLegacyRelease(o) { return Double(s.models.filter(\.released).count) >= o.target }
         let v = value(o.kind, s)
         return lowerIsBetter(o.kind) ? v <= o.target : v >= o.target
     }
 
     static func progress(_ o: Objective, _ s: GameState) -> Double {
+        if isLegacyRelease(o) { return met(o, s) ? 1 : 0 }
         let v = value(o.kind, s)
         if lowerIsBetter(o.kind) {
             guard o.start > o.target else { return 1 }
@@ -86,6 +95,30 @@ enum Board {
         return clamp(last * 0.08, 1e5, 4e9)
     }
 
+    /// How hard a goal is (0.25–1.5): how far it asks you to move against a typical ask of its kind.
+    /// Tranches scale with it, so goals you'd hit anyway pay less.
+    static func difficulty(_ k: ObjectiveKind, start: Double, target: Double) -> Double {
+        // Growth goals: how many "typical" multiples the target is above where you are.
+        func growth(_ typical: Double) -> Double {
+            log(max(target, 1e-9) / max(start, target / 20, 1e-9)) / log(typical)
+        }
+        let d: Double
+        switch k {
+        case .revenue: d = growth(1.9)
+        case .users, .valuation: d = growth(2.1)
+        case .compute: d = 0.7 * growth(2.8)            // money buys it
+        case .agents: d = 0.6 * growth(5)
+        case .index: d = (target - start) / 6.5
+        case .safety: d = 0.8 * (target - start) / 11
+        case .research: d = 0.5 * (target - start) / 5.5
+        case .release: d = 0.5 * (target - start) / 2
+        case .rank: d = target <= 3 ? 1.3 : 1.0
+        case .profit: d = 1
+        case .chipSales: d = 0.8
+        }
+        return clamp(d, 0.25, 1.5)
+    }
+
     /// A fresh goal the board would plausibly set right now.
     static func make(_ k: ObjectiveKind, _ s: inout GameState) -> Objective? {
         let y = s.year
@@ -99,33 +132,40 @@ enum Board {
         case .revenue:
             // Scale the floor to the company: a seed-stage lab isn't asked for a frontier lab's revenue.
             let stage = clamp(s.valuation / Macro.frontierValuation(y) * 10, 0.05, 1)
-            target = max(now * s.rng.range(1.6, 2.2), Macro.marketSize(y) * 0.0008 * stage)
+            var mult = s.rng.range(1.6, 2.2)
+            if y >= lateYear { mult = 1 + (mult - 1) * clamp((0.5 - now / max(1, Macro.marketSize(y))) / 0.4, 0.2, 1) }
+            target = max(now * mult, Macro.marketSize(y) * 0.0008 * stage)
             months = 12
             title = "Reach a \(Fmt.money(target)) revenue run-rate"
             detail = "Investors want proof of a business. API, chat, agents, enterprise, chips and labor all count."
             points = 2
         case .index:
-            guard !s.models.isEmpty else { return nil }
+            // Near the top of the index a few more points may not exist: ask for something else.
+            guard !s.models.isEmpty, now < 85 else { return nil }
             target = min(99, now + s.rng.range(4, 9))
             months = 12
             title = "Release a model scoring \(Fmt.score(target)) on the Intelligence Index"
             detail = "The board wants you closer to the frontier."
         case .rank:
             guard !s.releasedModels.isEmpty, now > 3 else { return nil }
-            target = now > 10 ? 10 : 3
+            target = now > 5 ? 5 : 3
             months = 15
-            title = target <= 3 ? "Hold a top-3 model on the leaderboard" : "Break into the top 10"
-            detail = "Rank among released models from every lab."
+            title = target <= 3 ? "Be a top-3 lab on the leaderboard" : "Break into the top 5 labs"
+            detail = "Rank among labs, by each lab's best released model."
             points = 2
         case .users:
             guard s.chatModelID != nil, now > 10_000 else { return nil }
-            target = now * s.rng.range(1.8, 2.5)
+            var mult = s.rng.range(1.8, 2.5)
+            if y >= lateYear { mult = 1 + (mult - 1) * clamp((0.6 - now / max(1, Macro.chatUsers(y, chatMoment: s.chatMoment))) / 0.5, 0.15, 1) }
+            target = now * mult
             months = 12
             title = "Grow chat to \(Fmt.count(target)) users"
             detail = "Consumer momentum drives the next round."
         case .valuation:
             guard s.valuation > 0 else { return nil }
-            target = s.valuation * s.rng.range(1.8, 2.4)
+            var mult = s.rng.range(1.8, 2.4)
+            if y >= lateYear { mult = 1 + (mult - 1) * clamp(2 * Macro.frontierValuation(y) / s.valuation, 0.25, 1) }
+            target = s.valuation * mult
             months = 18
             title = "Be worth \(Fmt.money(target))"
             detail = "Double the company's value."
@@ -138,7 +178,9 @@ enum Board {
             detail = "Show the board the model works without fresh capital."
             points = 2
         case .compute:
-            target = max(now * s.rng.range(2.2, 3.5), 50)
+            var mult = s.rng.range(2.2, 3.5)
+            if y >= lateYear { mult = 1 + (mult - 1) * clamp((0.3 - now / max(1, CompetitorCatalog.industryCompute(y))) / 0.25, 0.15, 1) }
+            target = max(now * mult, 50)
             months = 12
             title = "Control \(Fmt.count(target)) H100-equivalents"
             detail = "Owned or rented. Compute is the moat."
@@ -152,28 +194,33 @@ enum Board {
             target = now + Double(s.rng.int(4, 7))
             months = 8
             title = "Complete \(Int(target - now)) more research projects"
-            detail = "Keep the research engine running."
+            detail = y >= lateYear ? "Keep the research engine running. New techniques and frontier-programme levels both count." : "Keep the research engine running."
         case .agents:
             guard s.bonuses.has(.toolUse), !s.models.isEmpty else { return nil }
-            target = max(1_000, now * 5)
+            target = max(1_000, now * (y >= lateYear && now > 1e6 ? 2.5 : 5))
             months = 9
             title = "Run \(Fmt.count(target)) agents at once"
             detail = "Agent swarms are the story investors want to hear."
         case .release:
-            target = now + 1
+            // A real step forward: beat your best released model by 2+ index points (as scored today).
+            target = now + 2
             months = 6
-            title = "Ship a new model"
-            detail = "Release something — a preview, a fine-tune or a frontier run."
+            title = now > 0 ? "Ship a model scoring \(Fmt.score(target)) on the Intelligence Index" : "Ship your first model"
+            detail = now > 0 ? "Beat your best released model by at least 2 points — a preview or a small fine-tune won't do."
+                             : "Put a model in front of customers."
         case .chipSales:
             guard !s.customChips.isEmpty || s.owned.reduce(0, { $0 + $1.count }) > 500 else { return nil }
-            target = now + max(5e6, Economy.runRate(s) * 0.3)
+            target = now + max(5e6, y >= lateYear ? max(Economy.hardwareRunRate(s) * 1.5, Economy.runRate(s) * 0.08) : Economy.runRate(s) * 0.3)
             months = 12
             title = "Earn \(Fmt.money(target - now)) selling compute"
             detail = "Lease idle chips or sell your own silicon."
         }
-        return Objective(kind: k, title: title, detail: detail, start: now, target: target, issued: s.date,
-                         deadline: GameCalendar.addMonths(s.date, months), rewardCash: tranche(s), rewardPoints: points,
-                         rewardConfidence: 8 + Double(points) * 3)
+        var o = Objective(kind: k, title: title, detail: detail, start: now, target: target, issued: s.date,
+                          deadline: GameCalendar.addMonths(s.date, months),
+                          rewardCash: min(4e9, tranche(s) * difficulty(k, start: now, target: target)), rewardPoints: points,
+                          rewardConfidence: 8 + Double(points) * 3)
+        if k == .release { o.bar = target }
+        return o
     }
 
     /// Keep three goals on the table.
@@ -268,12 +315,23 @@ extension GameState {
         return nil
     }
 
-    /// Ask the board for a different goal. Costs a little confidence.
+    static let rerollCooldownDays = 60
+
+    /// When the board will next agree to swap a goal (nil if it would today).
+    var rerollReadyOn: Date? {
+        guard let last = lastObjectiveReroll else { return nil }
+        let ready = GameCalendar.addDays(last, GameState.rerollCooldownDays)
+        return ready > date ? ready : nil
+    }
+
+    /// Ask the board for a different goal. Costs a little confidence, and the board agrees once every 60 days.
     mutating func rerollObjective(_ id: UUID) -> String? {
         guard let i = objectives.firstIndex(where: { $0.id == id && !$0.done && !$0.failed }) else { return "Not found." }
+        if let ready = rerollReadyOn { return "The board just rewrote a goal for you — ask again after \(ready.gameShort)." }
         if boardConfidence < 10 { return "The board won't renegotiate right now." }
         objectives.remove(at: i)
         boardConfidence = max(0, boardConfidence - 4)
+        lastObjectiveReroll = date
         Board.refill(&self)
         return nil
     }

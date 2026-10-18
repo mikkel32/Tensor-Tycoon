@@ -7,8 +7,8 @@ enum Xeno {
     static let names = ["Xenolattice", "Hollow Spiral", "Mycelial Mesh", "Tesseract Fabric", "Glass Choir", "Silent Braid",
                         "Fractal Reef", "Möbius Engine", "Obsidian Bloom", "Echo Lattice", "Quiet Storm", "Paper Moon"]
 
-    /// Insight needed for the next discovery (each one is three times harder).
-    static func insightNeeded(_ s: GameState) -> Double { 6_000 * pow(3, Double(s.alienArchs.count)) }
+    /// Insight needed for the next discovery of any kind.
+    static func insightNeeded(_ s: GameState) -> Double { XenoScience.insightNeeded(s) }
 
     static func best(_ s: GameState) -> AlienArch? { s.alienArchs.max { $0.computeGain < $1.computeGain } }
     static func bestGain(_ s: GameState) -> Double { best(s)?.computeGain ?? 0 }
@@ -21,7 +21,8 @@ enum Xeno {
     static func fabCost(_ s: GameState) -> Double { 2.5e8 }
 
     static func fabDays(_ s: GameState, _ b: ResearchBonuses) -> Double {
-        150 * (1 - 0.35 * s.swarmSilicon) * (b.has(.customSilicon) ? 1 : 1.3) * max(0.4, 1 - s.traits.chipDesign)
+        150 * (1 - 0.35 * s.swarmSilicon) * (b.has(.customSilicon) ? 1 : 1.3) * max(0.4, 1 - s.traits.chipDesign - b.chipDesign)
+            * (s.signatureAt(.forge, 5) ? 0.6 : 1) * (XenoScience.megaDone(s, "xeno_foundry") ? 0.5 : 1)
     }
 
     // MARK: Daily
@@ -29,7 +30,7 @@ enum Xeno {
     static func daily(_ s: inout GameState, _ b: ResearchBonuses) {
         if s.xenoInsightToday > 0 {
             s.xenoInsight += s.xenoInsightToday
-            if s.xenoInsight >= insightNeeded(s) { discover(&s, b) }
+            if s.xenoInsight >= insightNeeded(s) { XenoScience.discover(&s, b) }
         }
         for i in s.alienArchs.indices where s.alienArchs[i].fabbing {
             s.alienArchs[i].fabDaysLeft -= 1
@@ -49,11 +50,13 @@ enum Xeno {
 
     static func discover(_ s: inout GameState, _ b: ResearchBonuses) {
         let needed = insightNeeded(s)
-        let g = s.alienArchs.count + 1
+        // Xeno Resonance mastery: every discovery arrives a generation stronger.
+        let g = s.alienArchs.count + 1 + (s.signatureAt(.antenna, 5) ? 1 : 0)
         let luck = s.rng.gaussian()
-        var legibility = 0.45 - 0.1 * Double(g - 1) + 0.1 * s.rng.gaussian() + 0.15 * s.swarmSafety
+        var legibility = 0.45 - 0.1 * Double(s.alienArchs.count) + 0.1 * s.rng.gaussian() + 0.15 * s.swarmSafety
         if s.researched.contains("interpretability") { legibility += 0.08 }
         if b.has(.aiControl) { legibility += 0.05 }
+        if XenoScience.megaDone(s, "babel") { legibility += 0.15 }
         let used = Set(s.alienArchs.map(\.name))
         let name = names.first { !used.contains($0) } ?? "Xeno-\(g)"
         let arch = AlienArch(name: name, generation: g, discovered: s.date,
@@ -82,7 +85,7 @@ enum Xeno {
             memoryGB: (ref.memoryGB * 1.5 / 8).rounded() * 8, memoryType: "Stacked SRAM + \(ref.memoryType)",
             bandwidthTBs: ref.bandwidthTBs * max(1.5, perf * 0.8),
             bf16: ref.bf16 * perf, fp8: max(ref.fp8, ref.bf16 * 2) * perf, fp4: (ref.fp4 > 0 ? ref.fp4 : ref.bf16 * 4) * perf,
-            tdpW: ref.tdpW * arch.powerFactor, unitCost: max(300, refPrice * arch.costFactor),
+            tdpW: ref.tdpW * arch.powerFactor, unitCost: max(300, refPrice * arch.costFactor * XenoScience.alienChipCostFactor(s)),
             decodeEff: 0.85, scaleUp: 1_024, generation: arch.generation, alien: true)
         s.customChips.append(chip)
         HardwareCatalog.register(s.customChips)

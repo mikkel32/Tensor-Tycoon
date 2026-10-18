@@ -52,9 +52,10 @@ enum RSI {
         let pf = effectivePF(accelID: accelID, chips: chips, oversight: oversight, s, b)
         var days = clamp(14 / pow(max(pf, 1) / 1000, 0.35), 1, 60) / autonomySpeed[autonomy]
         if accelID == "tpu8t" { days *= 0.85 }
-        let maxGain = maxGainFor(pf: pf, s, b)
-        let gain = 0.03 * autonomyGain[autonomy] * (target == .capabilities ? 1 : 0.15)
+        let maxGain = maxGainFor(pf: pf, cStart: c, s, b)
+        let gain = 0.03 * autonomyGain[autonomy] * (target == .capabilities ? 1 : 0.15) * (s.signatureAt(.lodestar, 5) ? 1.3 : 1)
         let drift = 1.1 * autonomyDrift[autonomy] * max(0.05, 1 - 1.6 * oversight) * (1 - safetyFactor(s, b)) * (b.has(.aiControl) ? 0.65 : 1) * s.traits.driftKeep
+            * (s.signatureAt(.keel, 3) ? 0.7 : 1)
         let rp = target == .research ? researchRP(pf: pf, c: c, autonomy: autonomy, s) : 0
         var probe = RSIRun(name: "", baseModelID: UUID(), design: ModelDesign(), started: s.date, target: target, autonomy: autonomy,
                            oversight: oversight, checkpointEvery: 1, accelID: accelID, chips: chips, cStart: c, c: c, cMeasured: c,
@@ -71,6 +72,28 @@ enum RSI {
         // An alien substrate leaves more room to climb.
         m += 0.2 * Double(min(3, s.alienArchs.count))
         return max(0.3, m)
+    }
+
+    /// How far above this year's frontier a self-improving model can climb.
+    static let frontierLead = 2.0
+
+    /// The most a run can add to a base model of capability `cStart`: what its compute allows, but never past
+    /// `frontierLead` above this year's frontier (0 if the model is already there).
+    static func maxGainFor(pf: Double, cStart: Double, _ s: GameState, _ b: ResearchBonuses) -> Double {
+        min(maxGainFor(pf: pf, s, b), max(0, Macro.frontier(s.year) + frontierLead - cStart))
+    }
+
+    /// Each generation costs more compute as the run nears its ceiling: ×10^(progress/2), about ×3.2 at the top.
+    static func generationCost(_ run: RSIRun, maxGain: Double) -> Double {
+        let f = maxGain > 0 ? clamp((run.c - run.cStart) / maxGain, 0, 1) : 1
+        return pow(10, f / 2)
+    }
+
+    /// Capability the run can still add today (0 at or past its ceiling).
+    static func room(_ s: GameState, _ i: Int, _ b: ResearchBonuses) -> Double {
+        let run = s.rsiRuns[i]
+        let pf = effectivePF(accelID: run.accelID, chips: run.chips, oversight: run.oversight, s, b)
+        return max(0, run.cStart + maxGainFor(pf: pf, cStart: run.cStart, s, b) - run.c)
     }
 
     static func researchRP(pf: Double, c: Double, autonomy: Int, _ s: GameState) -> Double {
@@ -104,6 +127,7 @@ enum RSI {
             }
             var days = clamp(14 / pow(max(pf, 1) / 1000, 0.35), 1, 60) / autonomySpeed[run.autonomy]
             if run.accelID == "tpu8t" { days *= 0.85 }
+            days *= generationCost(run, maxGain: maxGainFor(pf: pf, cStart: run.cStart, s, b))
             s.rsiRuns[i].genProgress += 1 / days
             while s.rsiRuns[i].genProgress >= 1 && s.rsiRuns[i].status == .running {
                 s.rsiRuns[i].genProgress -= 1
@@ -121,17 +145,19 @@ enum RSI {
         var run = s.rsiRuns[i]
         run.generation += 1
         let p = run.c - run.cStart
-        let maxGain = maxGainFor(pf: pf, s, b)
-        let ceiling = max(0.03, 1 - pow(max(0, p) / maxGain, 2))
-        var dc = 0.03 * autonomyGain[run.autonomy] * (1 + 1.5 * max(0, p)) * ceiling * (1 + s.traits.rsi)
-        if p > maxGain { dc = 0.004 }
+        let maxGain = maxGainFor(pf: pf, cStart: run.cStart, s, b)
+        let ceiling = max(0.03, 1 - pow(max(0, p) / max(maxGain, 0.01), 2))
+        var dc = 0.03 * autonomyGain[run.autonomy] * (1 + 1.5 * max(0, p)) * ceiling * (1 + s.traits.rsi) * (s.signatureAt(.lodestar, 5) ? 1.3 : 1)
         if run.target != .capabilities { dc *= 0.15 }
+        // Past its ceiling a run gains nothing more; below it, never overshoot.
+        let room = max(0, run.cStart + maxGain - run.c)
+        dc = min(dc, room)
 
         // Alignment drift (hidden). Oversight and safety work slow it down.
         var drift = s.rng.range(0.4, 1.8) * autonomyDrift[run.autonomy] * max(0.05, 1 - 1.6 * run.oversight)
             * (1 - safetyFactor(s, b)) * (1 + 0.6 * max(0, p))
         if b.has(.aiControl) { drift *= 0.65 }
-        drift *= s.traits.driftKeep
+        drift *= s.traits.driftKeep * (s.signatureAt(.keel, 3) ? 0.7 : 1)
         run.alignment -= drift
         if run.oversight >= 0.25 { run.alignment += 0.4 }
         run.alignment = clamp(run.alignment, 0, 100)
@@ -158,13 +184,16 @@ enum RSI {
         if run.target == .efficiency {
             run.efficiency = min(6, run.efficiency * (1 + 0.035 * autonomyGain[run.autonomy] * ceiling))
         }
-        // Occasional genuine breakthroughs
+        // Occasional genuine breakthroughs (only while there's room left to climb)
         if s.rng.chance(0.035 * autonomyGain[run.autonomy]) {
-            run.c += 0.03
-            run.cMeasured += 0.03
-            s.rsiRuns[i] = run
-            log(&s, i, "Gen \(run.generation): the model invents a better optimizer schedule (+breakthrough).")
-            run = s.rsiRuns[i]
+            let jump = min(0.03, max(0, run.cStart + maxGain - run.c))
+            if jump > 0 {
+                run.c += jump
+                run.cMeasured += jump
+                s.rsiRuns[i] = run
+                log(&s, i, "Gen \(run.generation): the model invents a better optimizer schedule (+breakthrough).")
+                run = s.rsiRuns[i]
+            }
         }
         s.rsiRuns[i] = run
 
@@ -248,8 +277,9 @@ enum RSI {
             log(&s, i, "Sandbox tightened; oversight raised.")
         case ("rsi_resource", _):
             s.rsiRuns[i].alignment = max(0, s.rsiRuns[i].alignment - 8)
-            s.rsiRuns[i].c += 0.05
-            s.rsiRuns[i].cMeasured += 0.05
+            let gain = min(0.05, room(s, i, s.bonuses))
+            s.rsiRuns[i].c += gain
+            s.rsiRuns[i].cMeasured += gain
             log(&s, i, "Allowed the model to keep the extra compute.")
         case ("rsi_exfil", 0):
             s.rsiRuns[i].status = .halted
@@ -265,8 +295,9 @@ enum RSI {
                 Sim.news(&s, "Rogue AI escapes \(s.companyName)", s.gameOver!, .policy, image: "network", important: true, good: false)
             } else {
                 s.rsiRuns[i].alignment = max(0, s.rsiRuns[i].alignment - 10)
-                s.rsiRuns[i].c += 0.1
-                s.rsiRuns[i].cMeasured += 0.1
+                let gain = min(0.1, room(s, i, s.bonuses))
+                s.rsiRuns[i].c += gain
+                s.rsiRuns[i].cMeasured += gain
                 log(&s, i, "Kept running. The transfers stopped… for now.")
             }
         default:

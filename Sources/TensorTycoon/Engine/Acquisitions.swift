@@ -5,7 +5,8 @@ import Foundation
 enum Acquisitions {
     static let premium = 1.35
 
-    static func price(_ c: CompetitorState, _ s: GameState) -> Double { max(c.valuation, 2e8) * premium }
+    /// What it costs to buy the part of the lab you don't already own.
+    static func price(_ c: CompetitorState, _ s: GameState) -> Double { max(c.valuation, 2e8) * premium * (1 - (s.rivalStakes[c.id] ?? 0)) }
 
     static func blocker(_ c: CompetitorState, _ s: GameState) -> String? {
         if c.acquired { return "\(c.def.name) has already been acquired." }
@@ -122,7 +123,16 @@ extension GameState {
             holdings.append(Holding(name: "Former \(c.def.name) shareholders", shares: stock / max(perShare, 0.01)))
         }
         competitors[i].acquired = true
+        competitors[i].exitNote = "Acquired by \(companyName)"
+        competitors[i].acquiredBy = "player"
+        competitors[i].exitDate = date
+        // Not everyone stays after a takeover: some of its people may found something new.
+        competitors[i].turmoil = max(competitors[i].turmoil, 0.6)
+        competitors[i].project = nil
+        pendingDeals.removeAll { $0.targetID == id }
         acquiredLabs.append(id)
+        rivalStakes[id] = nil
+        rivalStakeCost[id] = nil
         // Their secret techniques: you get the code and the people who wrote it.
         for tech in haul.techs {
             researched.insert(tech)
@@ -150,9 +160,10 @@ extension GameState {
         Acquisitions.inheritModel(&self, c)
         valuation = Economy.valuation(self)
         Achievements.unlock(&self, "consolidator")
-        Sim.news(&self, "\(companyName) acquires \(c.def.name) for \(Fmt.money(price))",
-                 "\(Fmt.money(cashPart)) in cash\(stock > 0 ? " and \(Fmt.money(stock)) in stock" : ""). You inherit \(haul.techs.count) secret technique\(haul.techs.count == 1 ? "" : "s"), \(haul.researchers) researchers, \(Fmt.int(haul.chips))× \(haul.chipName), \(Fmt.count(haul.users)) chat users\(haul.model.map { " and \($0)" } ?? "").",
-                 .competitor, image: "nvidia_hq", important: true, good: true)
+        Cast.labClosed(&self, id)   // 3.4: its people join you or move on
+        let body = "\(Fmt.money(cashPart)) in cash\(stock > 0 ? " and \(Fmt.money(stock)) in stock" : ""). You inherit \(haul.techs.count) secret technique\(haul.techs.count == 1 ? "" : "s"), \(haul.researchers) researchers, \(Fmt.int(haul.chips))× \(haul.chipName), \(Fmt.count(haul.users)) chat users\(haul.model.map { " and \($0)" } ?? "")."
+        Sim.news(&self, "\(companyName) acquires \(c.def.name) for \(Fmt.money(price))", body, .competitor, image: "nvidia_hq", important: true, good: true)
+        RivalLifecycle.record(&self, .bought, lab: id, other: "player", title: "Bought by \(companyName)", body: body, amount: price)
         return nil
     }
 }

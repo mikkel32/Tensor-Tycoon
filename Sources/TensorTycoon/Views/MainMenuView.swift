@@ -5,6 +5,7 @@ struct MainMenuView: View {
     @Environment(Updater.self) private var updater
     @State private var settings = NewGameSettings()
     @State private var saves: [GameStore.SaveInfo] = []
+    @State private var deleting: GameStore.SaveInfo?
 
     var body: some View {
         ZStack {
@@ -30,7 +31,20 @@ struct MainMenuView: View {
                 .frame(maxWidth: .infinity)
             }
         }
-        .onAppear { saves = GameStore.listSaves() }
+        .task { saves = await GameStore.loadSaveList() }
+        .confirmationDialog("Move \(deleting?.company ?? "this save") to the Trash?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
+                            titleVisibility: .visible) {
+            Button("Move to Trash", role: .destructive) {
+                if let d = deleting {
+                    GameStore.deleteSave(d.url)
+                    saves.removeAll { $0.url == d.url }
+                }
+                deleting = nil
+            }
+            Button("Cancel", role: .cancel) { deleting = nil }
+        } message: {
+            Text("Its autosaves go too. You can restore the file from the Trash.")
+        }
         .animation(.spring(duration: 0.4), value: updater.updateAvailable)
     }
 
@@ -97,6 +111,8 @@ struct MainMenuView: View {
             }
 
             TraitPicker(doctrine: $settings.doctrine, background: $settings.background)
+
+            SignaturePicker(signature: $settings.signature)
 
             VStack(alignment: .leading, spacing: 8) {
                 Text("Logo").font(.subheadline.weight(.semibold))
@@ -167,13 +183,13 @@ struct MainMenuView: View {
                     }
                     .buttonStyle(.bordered)
                     Button {
-                        GameStore.deleteSave(save.url)
-                        saves = GameStore.listSaves()
+                        deleting = save
                     } label: {
                         Image(systemName: "trash")
                     }
                     .buttonStyle(.borderless)
                     .help("Move save to Trash")
+                    .accessibilityLabel("Move save to Trash")
                 }
             }
         }
@@ -264,6 +280,58 @@ private struct TraitPicker: View {
             .labelsHidden()
             .frame(maxWidth: 320)
             TraitSummary(title: background.title, blurb: background.blurb, pros: background.perks, cons: [])
+        }
+    }
+}
+
+/// Choose the lab's signature secret: a research programme only you have, live from day one.
+private struct SignaturePicker: View {
+    @Binding var signature: SignatureSecret
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Signature secret").font(.subheadline.weight(.semibold))
+                Text("A research programme only your lab has, working from day one in any era.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 8)], spacing: 8) {
+                ForEach(SignatureSecret.allCases) { sig in
+                    Button { signature = sig } label: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Image(systemName: sig.symbol).font(.title3).foregroundStyle(signature == sig ? Color.purple : .secondary)
+                            Text(sig.title).font(.callout.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.75)
+                            Text(sig.codename).font(.caption2.monospaced()).foregroundStyle(.secondary)
+                        }
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(signature == sig ? Color.purple.opacity(0.2) : Color.white.opacity(0.05), in: .rect(cornerRadius: 10))
+                        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(signature == sig ? Color.purple : .clear, lineWidth: 1.5))
+                        .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                Text(signature.tagline).font(.callout.weight(.semibold))
+                Text(signature.blurb).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                HStack(alignment: .top, spacing: 18) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Every level (1–5)").font(.caption.weight(.semibold))
+                        ForEach(signature.perLevel.map { ResearchCatalog.describe($0) }, id: \.self) { line in
+                            Label(line, systemImage: "plus.circle.fill").font(.caption).foregroundStyle(.green)
+                        }
+                    }
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Capstones").font(.caption.weight(.semibold))
+                        Label("Level 3: \(signature.capstone3Text)", systemImage: "3.circle.fill").font(.caption).foregroundStyle(.purple)
+                        Label("Level 5: \(signature.capstone5Text)", systemImage: "5.circle.fill").font(.caption).foregroundStyle(.purple)
+                    }
+                }
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.white.opacity(0.04), in: .rect(cornerRadius: 10))
         }
     }
 }

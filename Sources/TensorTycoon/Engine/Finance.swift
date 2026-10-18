@@ -41,12 +41,11 @@ enum Finance {
     static func makeOffer(_ s: inout GameState) {
         let v = privateValue(s)
         let strategic = s.rng.chance(s.year > 2019 ? 0.3 : 0.1)
-        // Lab identity and how much the board believes in you move the price.
-        var pre = v * s.rng.range(0.85, 1.2) * (strategic ? 1.15 : 1) * max(0.6, 1 + s.traits.valuation) * Board.valuationFactor(s)
+        // Investors price off where the company is marked (which moves slowly) and where its fundamentals say
+        // it's heading. Lab identity and how much the board believes in you move the price.
+        let anchor = s.valuation > 0 && !s.isPublic ? (s.valuation * v).squareRoot() : v
+        var pre = anchor * s.rng.range(0.85, 1.2) * (strategic ? 1.15 : 1) * max(0.6, 1 + s.traits.valuation) * Board.valuationFactor(s)
         pre = max(pre, 2_000_000)
-        if let last = s.rounds.last, GameCalendar.daysBetween(last.date, s.date) < 400 {
-            pre = min(pre, (last.preMoney + last.amount) * 3.5)
-        }
         let f = s.raiseFraction
         let cap = maxRaise(s.year) * s.rng.range(0.5, 1.0)
         let amount = min(pre * f / (1 - f), cap)
@@ -58,6 +57,8 @@ enum Finance {
         Sim.news(&s, "Term sheet: \(investor)",
                  "\(Fmt.money(amount)) at \(Fmt.money(pre)) pre-money (\(Fmt.pct(amount / (pre + amount), decimals: 1)) dilution)\(strategic ? ", 40% paid as cloud credits" : ""). Expires in 14 days.",
                  .finance, image: "sf_skyline", important: true, good: true)
+        Alerts.raise(&s, .termSheet, key: offer.id.uuidString, title: "Term sheet from \(investor)",
+                     body: "\(Fmt.money(amount)) at \(Fmt.money(pre)) pre-money. It expires in 14 days.", screen: .funding, cooldown: 0)
     }
 
     /// Largest private round the market can absorb in a given year (OpenAI's $40B in 2025 was a record).
@@ -161,8 +162,12 @@ enum Monthly {
         let b = s.bonuses
         Partners.monthly(&s)
         Xeno.monthly(&s)
+        XenoScience.monthly(&s)
+        ResearchLab.monthly(&s)
+        Moonshots.monthly(&s)   // 3.4: late game
         SecurityOps.monthly(&s)
         Policy.monthly(&s)
+        RivalIntel.monthly(&s)
         if s.publication == .secret { s.brand = max(0, s.brand - 0.25) }
         // Enterprise contracts tick
         for i in s.deals.indices where s.deals[i].active {
@@ -229,16 +234,28 @@ enum Monthly {
         Events.monthly(&s)
         Board.monthly(&s)
         StrategyEvents.monthly(&s)
+        Cast.monthly(&s)   // 3.4: careers
         Victory.monthly(&s)
         Xeno.rivalDiscovery(&s)
+        World.monthly(&s)   // 3.4: world and stakeholders
 
-        // Valuation and records
-        s.valuation = Economy.valuation(s)
+        // Valuation and records. A private company's mark moves halfway (in log terms) toward its new level each
+        // month, so one launch or one bad month doesn't swing it 40× or wipe out two thirds of it overnight.
+        let mark = Economy.valuation(s)
+        if !s.isPublic && s.valuation > 0 && mark > 0 {
+            s.valuation = max((s.valuation * mark).squareRoot(), Economy.roundFloor(s))
+        } else {
+            s.valuation = mark
+        }
         Finance.updateCreditScore(&s)
         s.month.cashEnd = s.cash
         s.month.valuation = s.valuation
         s.month.bestIndex = s.models.map(\.index).max() ?? 0
         s.month.chips = Double(Economy.totalChips(s))
+        var record = s.month
+        Briefing.snapshot(s, &record)
+        s.month = record
+        Briefing.build(&s, record)
         s.history.append(s.month)
         if s.history.count > 480 { s.history.removeFirst() }
         s.month = MonthRecord(month: GameCalendar.date(s.date.ym.year, s.date.ym.month, 1))
@@ -257,6 +274,8 @@ enum Business {
         let quality = exp(1.2 * (best.c - frontier))
         var p = clamp(0.15 + sales * 0.12 + s.brand / 300, 0, 0.9) * (1 + b.enterpriseDemand) * max(0.3, 1 + s.traits.enterprise)
         if s.lawsPassed.contains("liability") { p *= clamp(1 + (s.safetyScore - 50) / 150, 0.6, 1.4) }
+        // Rivals running enterprise pushes win some of the deals that would have come to you.
+        p *= RivalStrategy.playerDealFactor(s)
         let n = s.rng.chance(p) ? (s.rng.chance(p * 0.5) ? 2 : 1) : 0
         for _ in 0..<n {
             let size = Macro.marketSize(s.year) * Macro.segmentSplit(s.year, chatMoment: s.chatMoment != nil).enterprise
@@ -264,18 +283,57 @@ enum Business {
             var monthly = size / 12 * s.rng.range(0.00002, 0.0004) * quality * (1 + sales * 0.05)
             monthly = max(monthly, 8_000)
             let months = [6, 12, 12, 24, 36][s.rng.int(0, 4)]
-            let price = max(best.apiPrice, 0.05)
+            // Clients size their token needs at the market rate for a near-frontier model, not at your price.
+            let price = max(0.05, Macro.referencePrice(c: frontier - 0.3, y: s.year) * s.market.apiPricePressure)
             let tokens = monthly / 30.4 / price * 1e6 * s.rng.range(0.4, 0.9)
             let titles = s.year < 2022 ? ["custom NLP model", "document classification", "translation pipeline", "search ranking", "chatbot pilot"]
                                        : ["customer-support agents", "coding assistant rollout", "document intelligence", "internal copilot",
                                           "research assistant", "claims automation", "contract review", "voice agents"]
+            // The bar is set by what the market offers (85–100% of the best rival flagship), so some leads
+            // need a better model than you have.
             let deal = EnterpriseDeal(client: s.rng.pick(NameBank.clients), title: s.rng.pick(titles), monthly: monthly,
                                       tokensPerDay: tokens, months: months, monthsLeft: months,
-                                      minIndex: max(0, best.index - s.rng.range(0, 12)),
+                                      minIndex: marketBar(s, fallback: best.index) * s.rng.range(0.85, 1.0),
                                       minSafety: s.rng.range(20, 70), expires: GameCalendar.addDays(s.date, 30))
             s.deals.append(deal)
             Sim.news(&s, "Enterprise lead: \(deal.client)", "\(Fmt.money(monthly))/month for \(deal.title), \(months) months. Review it in Market.",
                      .market, important: false, good: true)
+        }
+    }
+
+    /// The Intelligence Index of the best rival flagship on the market (`fallback` if there is none).
+    static func marketBar(_ s: GameState, fallback: Double) -> Double {
+        s.competitors.filter { !$0.acquired }.compactMap { $0.latest?.index }.max() ?? fallback
+    }
+
+    /// Your best released model that meets a contract's bar (nil if none does).
+    static func qualifyingModel(_ d: EnterpriseDeal, _ s: GameState) -> AIModel? {
+        s.releasedModels.filter { $0.index + 0.01 >= d.minIndex }.max { $0.index < $1.index }
+    }
+
+    /// Contracts whose model is gone (retired, or never set) move to your best model that meets their bar.
+    /// If none does, they stay unserved and breach their SLA every day until the client walks.
+    static func rehomeDeals(_ s: inout GameState, from retired: UUID? = nil) {
+        var moved: [String] = [], stranded: [String] = []
+        for i in s.deals.indices where s.deals[i].active && s.deals[i].tokensPerDay > 0 {
+            let current = s.deals[i].modelID
+            let gone = current == nil || current == retired || !s.releasedModels.contains { $0.id == current }
+            guard gone else { continue }
+            if let m = qualifyingModel(s.deals[i], s) {
+                s.deals[i].modelID = m.id
+                moved.append("\(s.deals[i].client) → \(m.name)")
+            } else {
+                s.deals[i].modelID = nil
+                stranded.append(s.deals[i].client)
+            }
+        }
+        if !moved.isEmpty {
+            Sim.news(&s, "Contracts moved to another model", "\(moved.joined(separator: ", ")). Make sure it has the capacity.", .company)
+        }
+        if !stranded.isEmpty {
+            Sim.news(&s, "\(stranded.count) contract\(stranded.count == 1 ? " has" : "s have") no model good enough",
+                     "\(stranded.joined(separator: ", ")) need\(stranded.count == 1 ? "s" : "") a better model than you have released. They'll breach their SLA every day until you assign one in Market.",
+                     .company, important: true, good: false)
         }
     }
 }

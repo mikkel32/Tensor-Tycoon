@@ -70,6 +70,7 @@ struct ModelLabView: View {
         let d = store.derived
         let b = d.bonuses
         Page(title: "Model Lab", subtitle: "Design a training run. Every choice moves the forecast — and the forecast is honest about how sure it is.") {
+            ScreenHint(.lab)
             if d.pools.isEmpty {
                 EmptyStateView(symbol: "cpu", title: "No compute", message: "You need accelerators to train. Buy some or rent cloud capacity.",
                                actionTitle: "Hardware Store") { store.open(.hardware) }
@@ -88,7 +89,8 @@ struct ModelLabView: View {
                                       },
                                       ladder: {
                                           if store.act("Scaling ladder started", { $0.startLadder(design) }) { store.open(.training) }
-                                      })
+                                      },
+                                      resize: { n in design.chips = max(1, n) })
                         TargetPlanner(design: $design, target: $targetIndex, state: s, derived: d)
                     }
                 }
@@ -153,32 +155,35 @@ struct ModelLabView: View {
         design.rlhf = b.has(.rlhf)
         design.syntheticShare = 0
         design.dataMix = .balanced
+        design.mixShift = .keep
+        if design.precision == .bf16 { fixPrecision(s) }
+        var note: String? = nil
         switch r {
         case .quick:
             design.chips = max(1, store.derived.free(design.accelID) / 10)
-            autoSize(s, days: 7, overtrain: 1)
             lr = .aggressive
             interval = 0.25
+            note = autoSize(s, days: 7, overtrain: 1)
         case .optimal:
             design.chips = max(1, store.derived.free(design.accelID))
             bestRecipe(b)
             design.mtp = false
-            autoSize(s, days: 30, overtrain: 1)
             lr = .standard
             interval = 0.1
+            note = autoSize(s, days: 30, overtrain: 1)
         case .overtrained:
             design.chips = max(1, store.derived.free(design.accelID))
             bestRecipe(b)
-            autoSize(s, days: 30, overtrain: 8)
             lr = .standard
             interval = 0.1
+            note = autoSize(s, days: 30, overtrain: 8)
         case .moe:
             design.chips = max(1, store.derived.free(design.accelID))
             bestRecipe(b)
             design.activeFraction = b.has(.fineMoE) ? 1.0 / 32 : 1.0 / 16
-            autoSize(s, days: 30, overtrain: 2)
             lr = .standard
             interval = 0.05
+            note = autoSize(s, days: 30, overtrain: 2)
         case .reasoning:
             design.chips = max(1, store.derived.free(design.accelID))
             bestRecipe(b)
@@ -190,9 +195,10 @@ struct ModelLabView: View {
             design.rlhf = b.has(.rlhf)
             if b.has(.moe) { design.activeFraction = 1.0 / 8 }
             design.dataMix = .stem
-            autoSize(s, days: 35, overtrain: 2)
+            design.mixShift = b.has(.curriculum) ? .stem : .keep
             lr = .standard
             interval = 0.05
+            note = autoSize(s, days: 35, overtrain: 2)
         case .finetune:
             design.chips = max(1, store.derived.free(design.accelID))
             guard pickFinetuneBase(s) else {
@@ -202,8 +208,7 @@ struct ModelLabView: View {
             lr = .conservative
             interval = 0.25
         }
-        if design.precision == .bf16 { fixPrecision(s) }
-        store.show("Recipe applied: \(r.rawValue)")
+        store.show("Recipe applied: \(r.rawValue)" + (note.map { ". \($0)" } ?? ""))
     }
 
     // MARK: Form
@@ -264,14 +269,19 @@ struct ModelLabView: View {
                         .pickerStyle(.segmented)
                     }
                     VStack(alignment: .leading, spacing: 4) {
+                        let paramCap = Physics.maxParamsB(s)
                         HStack {
                             Text("Total parameters")
                             Spacer()
                             Text(Fmt.params(design.paramsB)).font(.body.monospacedDigit().weight(.semibold))
                         }
-                        LogSlider(value: $design.paramsB, range: 0.05...20_000)
+                        LogSlider(value: $design.paramsB, range: 0.05...paramCap)
                         if design.isMoE {
                             Text("\(Fmt.params(design.activeParamsB)) active per token").font(.caption).foregroundStyle(.secondary)
+                        }
+                        if design.paramsB >= paramCap * 0.98 {
+                            Text("At the \(Fmt.params(paramCap)) limit of your training stack. \(Physics.paramCapLifts(s))")
+                                .font(.caption).foregroundStyle(.orange)
                         }
                     }
                     LabeledPicker(title: "Attention", selection: $design.attention, options: AttentionKind.allCases,
@@ -297,23 +307,28 @@ struct ModelLabView: View {
                 Card {
                     CardHeader("Data", symbol: "externaldrive")
                     VStack(alignment: .leading, spacing: 4) {
+                        let tokenCap = Physics.maxTokensT(design, state: s)
                         HStack {
                             Text(design.mode == .scratch ? "Training tokens" : "Student tokens")
                             Spacer()
                             Text(Fmt.tokens(design.tokensT)).font(.body.monospacedDigit().weight(.semibold))
                         }
-                        LogSlider(value: $design.tokensT, range: 0.0005...150)
+                        LogSlider(value: $design.tokensT, range: 0.0005...tokenCap)
                         HStack {
                             let ratio = design.tokensT * 1000 / max(design.activeParamsB, 0.001)
                             Text(verbatim: "\(Int(ratio)) tokens per parameter").font(.caption).foregroundStyle(.secondary)
                             Spacer()
                             if design.mode == .scratch && b.has(.scalingLaws) {
                                 Button(b.researchedChinchilla ? "Compute-optimal" : "Kaplan rule") {
-                                    LabMath.reshape(&design, overtrain: 1, bonuses: b, accel: HardwareCatalog.get(design.accelID))
+                                    if let note = LabMath.reshape(&design, overtrain: 1, accel: HardwareCatalog.get(design.accelID), state: s) { store.show(note) }
                                 }
                                 .buttonStyle(.link).font(.caption)
                                 .help(b.researchedChinchilla ? "Re-split the same compute between parameters and tokens optimally" : "Kaplan-style sizing: big and under-trained. Research Chinchilla to do better.")
                             }
+                        }
+                        if design.tokensT >= tokenCap * 0.98 {
+                            Text("At the \(Fmt.tokens(tokenCap)) token limit. \(Physics.tokenCapLifts(design, state: s))")
+                                .font(.caption).foregroundStyle(.orange)
                         }
                     }
                     let avail = Physics.availableTokensT(Array(s.dataSources), y: s.year, bonuses: b) * (design.syntheticShare > 0 && b.has(.syntheticData) ? 1 + design.syntheticShare * 3 : 1)
@@ -321,6 +336,10 @@ struct ModelLabView: View {
                         .foregroundStyle(design.tokensT > avail * 4 && design.mode == .scratch ? .orange : .secondary)
                     LabeledPicker(title: "Mixture", selection: $design.dataMix, options: DataMix.allCases, enabled: { _ in true })
                     Text(design.dataMix.detail).font(.caption).foregroundStyle(.secondary)
+                    LabeledPicker(title: "Mid-training shift", selection: $design.mixShift, options: MixShift.allCases,
+                                  enabled: { $0 == .keep || b.has(.curriculum) })
+                    Text(b.has(.curriculum) ? design.mixShift.detail : "Research Annealing & Data Curriculum to shift the mix mid-training.")
+                        .font(.caption).foregroundStyle(.secondary)
                     if b.has(.syntheticData) {
                         HStack {
                             Text("Synthetic share")
@@ -429,7 +448,7 @@ struct ModelLabView: View {
         design.attention = b.has(.gqa) ? .gqa : .mha
         design.anneal = b.has(.curriculum)
         fixPrecision(s)
-        autoSize(s, days: 30, overtrain: 1)
+        if let note = autoSize(s, days: 30, overtrain: 1) { store.show(note) }
         let top = d.board.filter(\.released).map(\.index).max() ?? 50
         targetIndex = clamp((top * 0.7).rounded(), 5, 95)
     }
@@ -440,21 +459,17 @@ struct ModelLabView: View {
         if b.has(.fp8Training) && a.fp8 > 0 { design.precision = .fp8 } else { design.precision = .bf16 }
     }
 
-    /// Size the run so it finishes in `days`, allocating compute the way your scaling science knows how.
-    private func autoSize(_ s: GameState, days: Double, overtrain: Double) {
-        guard let a = HardwareCatalog.get(design.accelID) else { return }
-        let b = store.derived.bonuses
-        let mfu = Physics.mfu(accel: a, chips: design.chips, state: s, bonuses: b)
-        let g = Physics.goodput(chips: design.chips, state: s, bonuses: b)
-        let perDay = Double(design.chips) * a.trainTFLOPS(design.precision) * 1e12 * mfu * g * 86_400
-        LabMath.size(&design, flops: perDay * days, overtrain: overtrain, accel: a, bonuses: b)
+    /// Size the run so it finishes in about `days`, allocating compute the way your scaling science knows how. A cluster
+    /// too big to keep running is shrunk first (never sized against a goodput floor). Returns a note for the player.
+    private func autoSize(_ s: GameState, days: Double, overtrain: Double) -> String? {
+        LabMath.autoSize(&design, days: days, overtrain: overtrain, state: s, lr: lr, interval: interval)
     }
 
     private func pickFinetuneBase(_ s: GameState) -> Bool {
         guard let a = HardwareCatalog.get(design.accelID) else { return false }
         let b = store.derived.bonuses
-        let perDay = Double(design.chips) * a.trainTFLOPS(design.precision) * 1e12
-            * Physics.mfu(accel: a, chips: design.chips, state: s, bonuses: b) * 86_400
+        design.chips = Training.healthyChips(design.chips, target: Training.goodputTarget, state: s, bonuses: b)
+        let perDay = Physics.flopsPerDay(design, state: s, lr: .conservative, interval: 0.25)
         for item in Physics.openModels(s) {
             var trial = design
             trial.mode = .finetune
@@ -486,49 +501,6 @@ struct ModelLabView: View {
             return parts.dropLast().joined(separator: "-") + "-\(n + 1)"
         }
         return name + "-2"
-    }
-}
-
-extension ResearchBonuses {
-    var researchedChinchilla: Bool { researched.contains("chinchilla") }
-}
-
-enum LabMath {
-    /// Splits a FLOP budget between parameters and tokens. Before Chinchilla research labs sized like GPT-3
-    /// (big, ~2 tokens/param); after it, compute-optimally (Epoch's corrected fit). `overtrain` multiplies tokens/param.
-    static func size(_ design: inout ModelDesign, flops: Double, overtrain: Double, accel a: Accelerator, bonuses b: ResearchBonuses) {
-        var active: Double
-        if b.researchedChinchilla {
-            active = ForecastEngine.optimalParamsB(flops: flops) / sqrt(overtrain)
-        } else {
-            active = sqrt(flops / (6 * 2 * overtrain)) / 1e9
-        }
-        let memCap = a.weightStreaming ? 1e9 : (b.has(.sharding) ? Double(design.chips) * a.memoryGB / 17.6
-            : (b.has(.modelParallel) ? Double(min(design.chips, a.scaleUp)) * a.memoryGB / 17.6 : a.memoryGB / 17.6))
-        let total = clamp(min(active / design.activeFraction, memCap * 0.9), 0.05, 20_000)
-        design.paramsB = total
-        active = total * design.activeFraction
-        design.tokensT = clamp(flops / (6 * max(active, 0.001) * 1e9) / 1e12, 0.0005, 150)
-    }
-
-    /// Keep the compute, re-split it.
-    static func reshape(_ design: inout ModelDesign, overtrain: Double, bonuses b: ResearchBonuses, accel: Accelerator?) {
-        guard let a = accel else { return }
-        size(&design, flops: Physics.pretrainFLOPs(design), overtrain: overtrain, accel: a, bonuses: b)
-    }
-
-    /// Capability needed to hit a target index (binary search).
-    static func capabilityFor(index target: Double, base: ModelProfile, set: [Benchmark]) -> Double? {
-        var lo = -4.0, hi = 16.0
-        var p = base
-        p.c = hi
-        if ForecastEngine.index(p, set: set) < target { return nil }
-        for _ in 0..<40 {
-            let mid = (lo + hi) / 2
-            p.c = mid
-            if ForecastEngine.index(p, set: set) < target { lo = mid } else { hi = mid }
-        }
-        return hi
     }
 }
 
@@ -570,11 +542,12 @@ struct ForecastPanel: View {
     let derived: Derived
     let start: () -> Void
     let ladder: () -> Void
+    let resize: (Int) -> Void
 
     var body: some View {
         let s = state
         let b = derived.bonuses
-        if let est = Physics.estimate(design, state: s) {
+        if let est = Physics.estimate(design, state: s, lr: lr, interval: interval) {
             let f = est.forecast
             let known = b.has(.scalingLaws)
             let set = derived.indexSet
@@ -583,10 +556,13 @@ struct ForecastPanel: View {
             let mine = derived.board.filter(\.isPlayer).map(\.index).max()
             let tier = ForecastEngine.tier(index: band.mean, top: top)
             let comparable = RealModels.closest(index: band.mean, set: set)
-            let days = est.days / lr.speed / Sim.checkpointOverhead(interval)
+            let days = est.days
+            let advice = Training.goodputAdvice(chips: design.chips, coverage: est.coverage, running: false, state: s, bonuses: b)
+            let blocked = advice?.blocked ?? false
             VStack(alignment: .leading, spacing: 14) {
                 Card {
                     CardHeader(title: "Forecast", symbol: "sparkles", subtitle: known ? "Scaling-law prediction · 80% interval" : "Research Neural Scaling Laws for real forecasts") {
+                        HelpButton(term: .forecast)
                         if known { Pill(text: tier, color: tierColor(tier), symbol: tier.hasPrefix("Genius") ? "crown.fill" : nil) }
                     }
                     if known {
@@ -610,10 +586,14 @@ struct ForecastPanel: View {
                         }
                         HStack(spacing: 14) {
                             Label("±\(Fmt.trim(f.sigma, 2)) uncertainty (×\(Fmt.trim(pow(10, f.sigma), 2)) effective compute)", systemImage: "plusminus.circle")
-                            Label("\(Int(f.bugRisk * 100))% chance of a silent bug", systemImage: "ladybug").foregroundStyle(f.bugRisk > 0.2 ? .orange : .secondary)
+                            if est.toy {
+                                Label("Experiment-sized: no bugs or other mid-run incidents", systemImage: "checkmark.shield").foregroundStyle(.secondary)
+                            } else {
+                                Label("\(Int(f.bugRisk * 100))% chance of a silent bug", systemImage: "ladybug").foregroundStyle(f.bugRisk > 0.2 ? .orange : .secondary)
+                            }
                         }
                         .font(.caption)
-                        if b.has(.proxyLadder) && design.mode == .scratch && !f.ladderCovered {
+                        if b.has(.proxyLadder) && design.mode == .scratch && !f.ladderCovered && est.finishes {
                             let ladderDays = days * 0.02 / 0.33
                             Button(action: ladder) {
                                 Label("Run a scaling ladder first (~\(Fmt.days(max(0.2, ladderDays))), \(Fmt.money(est.dailyCost * max(0.2, ladderDays))))", systemImage: "chart.line.uptrend.xyaxis")
@@ -647,17 +627,27 @@ struct ForecastPanel: View {
                     ForEach(f.penalties, id: \.self) { pen in
                         Label(pen, systemImage: "exclamationmark.triangle.fill").font(.caption).foregroundStyle(.orange)
                     }
+                    ForEach(Training.postTrainingRisks(design, toy: est.toy, state: s), id: \.self) { risk in
+                        Label(risk, systemImage: "exclamationmark.shield").font(.caption).foregroundStyle(.secondary)
+                    }
                 }
+                if known { DesignDomainsCard(profile: ForecastEngine.profile(adjusted(f), design: design, key: "domains"), design: design, state: s) }   // 3.4
 
                 Card {
                     CardHeader("Compute budget", symbol: "bolt.fill")
                     LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], alignment: .leading, spacing: 14) {
                         BigNumber(label: "Training compute", value: Fmt.flops(est.flops + est.postFlops), unit: "FLOPs")
-                        BigNumber(label: "Wall-clock time", value: Fmt.days(days), unit: "")
-                        BigNumber(label: "Estimated cost", value: Fmt.money(est.dailyCost * days), unit: "", tint: est.dailyCost * days > s.cash ? .red : .primary)
+                        BigNumber(label: "Wall-clock time", value: est.finishes ? Fmt.days(days) : "Never", unit: est.incidentDays >= 0.5 ? "incl. ~\(Fmt.days(est.incidentDays)) for incidents" : "",
+                                  tint: est.finishes ? .primary : .red)
+                        BigNumber(label: "Estimated cost", value: est.finishes ? Fmt.money(est.totalCost) : "—", unit: "", tint: est.totalCost > s.cash ? .red : .primary)
                         BigNumber(label: "Cluster throughput", value: Fmt.tflops(clusterTF(est)), unit: "effective")
-                        BigNumber(label: "MFU · goodput", value: "\(Fmt.pct(est.mfu, decimals: 0)) · \(Fmt.pct(est.goodput, decimals: 0))", unit: "")
-                        BigNumber(label: "Hardware failures", value: Fmt.trim(Double(design.chips) * Training.failuresPerChipDay * days, 0), unit: "expected (Llama 3 rates)")
+                        BigNumber(label: "Serving cost", value: Economy.servingCostPerM(design: design, s).map { Fmt.price($0) } ?? "—",
+                                  unit: "per 1M tokens at full load (going rate \(Fmt.price(Macro.frontierPrice(s.year))) at the frontier)")
+                        BigNumber(label: "MFU · goodput", value: "\(Fmt.pct(est.mfu, decimals: 0)) · \(Fmt.pct(est.goodput, decimals: 0))", unit: "",
+                                  tint: est.goodput < Training.goodputFloor ? .red : (est.goodput < Training.goodputTarget ? .orange : .primary))
+                        BigNumber(label: "Hardware failures", value: est.finishes ? Fmt.trim(Double(design.chips) * Training.failuresPerChipDay * days, 0)
+                                                                                  : Fmt.trim(Double(design.chips) * Training.failuresPerChipDay, 0),
+                                  unit: est.finishes ? "expected (Llama 3 rates)" : "per day (Llama 3 rates)")
                     }
                     HStack(spacing: 8) {
                         Image(systemName: est.memory.ok ? "checkmark.seal.fill" : "xmark.octagon.fill")
@@ -669,6 +659,25 @@ struct ForecastPanel: View {
                     }
                     if let c = Regulation.note(flops: est.flops, state: s) {
                         Label(c, systemImage: "building.columns").font(.caption).foregroundStyle(.purple)
+                    }
+                    if let adv = advice {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Label(adv.blocked ? "This run would stall: expected goodput \(Fmt.pct(adv.goodput, decimals: 0))"
+                                              : "Failures will slow this run: expected goodput \(Fmt.pct(adv.goodput, decimals: 0))",
+                                  systemImage: adv.blocked ? "xmark.octagon.fill" : "exclamationmark.triangle.fill")
+                                .font(.callout.weight(.semibold)).foregroundStyle(adv.blocked ? .red : .orange)
+                            Text(adv.headline).font(.caption)
+                            ForEach(adv.fixes, id: \.self) { fix in
+                                Label(fix, systemImage: "wrench.and.screwdriver").font(.caption).foregroundStyle(.secondary)
+                            }
+                            if adv.healthyChips < design.chips {
+                                Button("Use \(Fmt.int(adv.healthyChips)) chips") { resize(adv.healthyChips) }
+                                    .controlSize(.small)
+                            }
+                        }
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background((adv.blocked ? Color.red : Color.orange).opacity(0.08), in: .rect(cornerRadius: 10))
                     }
                 }
 
@@ -690,7 +699,11 @@ struct ForecastPanel: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
-                .disabled(!est.memory.ok)
+                .disabled(!est.memory.ok || blocked)
+                if blocked {
+                    Text("Hardware failures would leave this run under \(Fmt.pct(Training.goodputFloor, decimals: 0)) goodput, so it can't start. Fix it with one of the options under Compute budget.")
+                        .font(.caption).foregroundStyle(.red)
+                }
             }
             .frame(maxWidth: .infinity)
         }
@@ -842,10 +855,13 @@ private struct TargetPlanner: View {
                     Text(Fmt.score(target)).font(.title3.weight(.bold).monospacedDigit()).frame(width: 50)
                 }
                 let base = ForecastEngine.profile(est.forecast, design: design, key: "plan")
-                if let need = LabMath.capabilityFor(index: target, base: base, set: derived.indexSet) {
+                if est.goodput < Training.goodputFloor {
+                    Text("This cluster loses most of its time to hardware failures (goodput \(Fmt.pct(est.goodput, decimals: 0))). Fix that first: see Compute budget.")
+                        .font(.callout).foregroundStyle(.orange)
+                } else if let need = LabMath.capabilityFor(index: target, base: base, set: derived.indexSet) {
                     let factor = pow(10, need - base.c)
                     let flops = (est.flops + est.postFlops) * factor
-                    let perDay = Double(design.chips) * a.trainTFLOPS(design.precision) * 1e12 * est.mfu * est.goodput * 86_400
+                    let perDay = Physics.flopsPerDay(design, state: s)
                     let days = flops / max(perDay, 1)
                     let cost = est.dailyCost * days
                     HStack(spacing: 18) {
@@ -856,8 +872,8 @@ private struct TargetPlanner: View {
                     }
                     HStack {
                         Button("Size the run for this target") {
-                            LabMath.size(&design, flops: est.flops * factor, overtrain: 1, accel: a, bonuses: b)
-                            store.show("Sized for index \(Fmt.score(target)) — check memory and time")
+                            let note = LabMath.size(&design, flops: est.flops * factor, overtrain: 1, accel: a, state: s)
+                            store.show("Sized for index \(Fmt.score(target)) — check memory and time" + (note.map { ". \($0)" } ?? ""))
                         }
                         .buttonStyle(.bordered)
                         if days > 120 {

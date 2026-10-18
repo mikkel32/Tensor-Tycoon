@@ -63,7 +63,7 @@ enum StrategyEvents {
 
         // A government wants a sovereign model.
         if y >= 2024, let best = s.releasedModels.max(by: { $0.c < $1.c }), best.c > Macro.frontier(y) - 1.2,
-           !s.firedEvents.contains("sovereign_\(Int(y))"), s.rng.chance(0.05) {
+           !s.firedEvents.contains("sovereign_\(Int(y))"), s.rng.chance(0.05 * Stakeholders.sovereignFactor(s)) {   // 3.4: standing with governments
             s.firedEvents.insert("sovereign_\(Int(y))")
             let monthly = max(5e6, Economy.runRate(s) * 0.025)
             let country = s.rng.pick(["a Gulf state", "a European government", "an Asian democracy", "a Nordic consortium", "a South American alliance"])
@@ -120,8 +120,10 @@ enum StrategyEvents {
 
         // A rival raids your research team.
         let researchers = s.employees.filter { $0.role == .researcher }.sorted { $0.skill > $1.skill }
-        if researchers.count >= 6, s.rng.chance(0.03),
-           let rival = s.competitors.filter({ !$0.acquired && s.year >= $0.def.founded.decimal }).randomElement(using: &s.rng) {
+        if researchers.count >= 6, s.year < RivalStrategy.start, !RivalStrategy.raidedRecently(s), s.rng.chance(0.03),
+           let rival = s.competitors.filter({ !$0.acquired && s.year >= $0.def.founded.decimal }).randomElement(using: &s.rng),
+           let ri = s.competitors.firstIndex(where: { $0.id == rival.id }) {
+            s.competitors[ri].raidCooldown = GameCalendar.addMonths(s.date, 12)
             let top = researchers.prefix(3)
             let bonus = top.reduce(0) { $0 + $1.salary } * 0.6
             Events.addDecision(&s, kind: "talent_raid", title: "\(rival.def.name) is raiding your research team",
@@ -197,14 +199,16 @@ enum StrategyEvents {
                 s.employees[i].morale = 100
                 s.employees[i].skill = min(100, s.employees[i].skill + 2)
                 Sim.news(&s, "\(name) becomes Chief Scientist", "A 0.5% grant keeps your best mind at home.", .company, good: true)
+                Cast.promotedAtHome(&s, s.employees[i], title: "Chief scientist")   // 3.4
             } else if o == 1 {
                 s.employees[i].salary *= 1.5
                 s.employees[i].morale = min(100, s.employees[i].morale + 25)
                 Sim.news(&s, "\(name) stays", "A big raise did it — for now.", .company)
             } else {
+                Cast.leftYou(&s, s.employees[i], to: "")   // 3.4: the founder-to-be joins the cast
                 s.employees.remove(at: i)
                 s.brand = min(100, s.brand + 1)
-                Sim.news(&s, "\(name) leaves to found a startup", "Alumni of \(s.companyName) are becoming a thing. Brand +1.", .company)
+                Sim.news(&s, "\(name)\(RivalLifecycle.alumniSuffix)", "Alumni of \(s.companyName) are becoming a thing. Brand +1.", .company)
             }
         case ("sovereign_deal", 0):
             s.deals.append(EnterpriseDeal(client: "Sovereign AI programme", title: "national model", monthly: d.amount, tokensPerDay: 0,
@@ -264,8 +268,16 @@ enum StrategyEvents {
             Sim.news(&s, "Retention bonuses paid", "Your top researchers stay put.", .company, good: true)
         case ("talent_raid", _):
             let top = s.employees.filter { $0.role == .researcher }.sorted { $0.skill > $1.skill }.prefix(3).map(\.id)
+            for (k, e) in s.employees.filter({ top.contains($0.id) }).enumerated() { Cast.leftYou(&s, e, to: d.ref, why: "in a talent raid", pulse: k == 0) }   // 3.4
             s.employees.removeAll { top.contains($0.id) }
-            if let i = s.competitors.firstIndex(where: { $0.id == d.ref }) { s.competitors[i].brand = min(100, s.competitors[i].brand + 3) }
+            if let i = s.competitors.firstIndex(where: { $0.id == d.ref }) {
+                s.competitors[i].brand = min(100, s.competitors[i].brand + 3)
+                // Your people know your recipes: the raider's next model gets better.
+                if var p = s.competitors[i].project, p.procedural {
+                    p.cAdjust += 0.02
+                    s.competitors[i].project = p
+                }
+            }
             Sim.news(&s, "Three researchers defect", "Your best people left for a rival.", .company, important: true, good: false)
         default:
             break

@@ -69,6 +69,8 @@ enum PowerDeal: String, Codable, CaseIterable, Identifiable, Sendable {
     case wind = "Wind PPA"
     case gas = "On-site gas turbines"
     case nuclear = "Nuclear PPA"
+    case smr = "Small modular reactors"
+    case fusion = "Fusion power"
 
     var id: String { rawValue }
 
@@ -79,13 +81,15 @@ enum PowerDeal: String, Codable, CaseIterable, Identifiable, Sendable {
         case .wind: 0.88
         case .gas: 1.12
         case .nuclear: 1.05
+        case .smr: 1.08
+        case .fusion: 0.55
         }
     }
 
     var green: Double {
         switch self {
         case .grid: 0.4
-        case .solar, .wind, .nuclear: 1.0
+        case .solar, .wind, .nuclear, .smr, .fusion: 1.0
         case .gas: 0.0
         }
     }
@@ -93,8 +97,16 @@ enum PowerDeal: String, Codable, CaseIterable, Identifiable, Sendable {
     var availableFrom: Double {
         switch self {
         case .nuclear: 2024.7
+        case .smr: 2030.0
+        case .fusion: 2034.5
         default: 2010
         }
+    }
+
+    /// Whether this deal is open to you (the Superconducting Grid mega-project brings fusion forward).
+    func available(_ s: GameState) -> Bool {
+        if self == .fusion && XenoScience.megaDone(s, "supergrid") && s.year >= 2029 { return true }
+        return s.year >= availableFrom
     }
 
     var image: String {
@@ -104,6 +116,8 @@ enum PowerDeal: String, Codable, CaseIterable, Identifiable, Sendable {
         case .wind: "substation"
         case .gas: "generator"
         case .nuclear: "nuclear"
+        case .smr: "nuclear"
+        case .fusion: "substation"
         }
     }
 
@@ -114,6 +128,19 @@ enum PowerDeal: String, Codable, CaseIterable, Identifiable, Sendable {
         case .wind: "Wind power purchase agreement: cheap, green, a little less predictable."
         case .gas: "Behind-the-meter turbines: build faster without waiting for the grid, pricier and dirty."
         case .nuclear: "24/7 carbon-free power from a restarted or uprated reactor. Great for your brand."
+        case .smr: "A fleet of factory-built reactors on your own land: tens of gigawatts with no grid queue."
+        case .fusion: "Commercial fusion plants feeding the campus directly: cheap, clean and practically unlimited."
+        }
+    }
+
+    /// The most one site can draw on this kind of power, before the location's grid comes into it.
+    var siteCapMW: Double {
+        switch self {
+        case .grid, .solar, .wind: 0
+        case .gas: 10_000
+        case .nuclear: 3_000
+        case .smr: 25_000
+        case .fusion: 100_000
         }
     }
 }
@@ -129,6 +156,11 @@ struct Location: Identifiable, Sendable {
     let coloFee: Double      // $/kW-month for space + cooling
     let image: String
     let blurb: String
+
+    /// Grid capacity for one site in year `y`: utilities keep building transmission as AI demand grows.
+    func gridCap(_ y: Double) -> Double {
+        gridCapMW * interpolate([(2016, 0.6), (2024, 1.0), (2027, 1.3), (2030, 2.0), (2035, 4.0)], at: y)
+    }
 }
 
 enum LocationCatalog {
@@ -271,6 +303,17 @@ struct CompetitorDef: Identifiable, Sendable {
 }
 
 enum CompetitorCatalog {
+    /// Models that existed before the labs' first frontier language models — translation and research models
+    /// from 2016–18 — so an early game opens on a real leaderboard. They aren't releases: no lab's schedule moves.
+    /// `delta` is capability relative to the world frontier on that date.
+    static let incumbents: [(lab: String, date: YM, name: String, delta: Double, open: Bool)] = [
+        ("deepgrove", YM(2016, 9), "Grove NMT", -0.5, false),
+        ("prometheus", YM(2017, 4), "PRM Sentiment", -0.7, true),
+        ("openweights", YM(2017, 5), "OW ConvS2S", -0.45, true),
+        ("deepgrove", YM(2017, 6), "Grove Transformer", -0.15, true),
+        ("openweights", YM(2018, 2), "OW ELMo", -0.35, true),
+    ]
+
     static let all: [CompetitorDef] = [
         CompetitorDef(id: "prometheus", name: "Prometheus Labs", color: 0x10A37F, symbol: "flame.fill",
                       archetype: "Consumer giant", founded: YM(2015, 12), firstModel: YM(2018, 6), hq: "San Francisco",
@@ -350,13 +393,149 @@ enum CompetitorCatalog {
                       prefix: "Aletheia-", nextVersion: 2, chatProduct: "Aletheia"),
     ]
 
-    static let byID: [String: CompetitorDef] = Dictionary(uniqueKeysWithValues: all.map { ($0.id, $0) })
+    /// The eight founding labs by ID.
+    static let fixedByID: [String: CompetitorDef] = Dictionary(uniqueKeysWithValues: all.map { ($0.id, $0) })
+
+    /// Every lab by ID — the founding eight and the labs founded during the game — so `CompetitorCatalog.byID[id]`
+    /// resolves new entrants too.
+    static var byID: Directory { Directory() }
+
+    struct Directory {
+        subscript(id: String) -> CompetitorDef? { CompetitorCatalog.lookup(id) }
+    }
+
+    // MARK: Labs founded during the game
+
+    /// Labs founded during the game, registered from the save (on load and new game) and when they're founded.
+    /// Registration only adds or replaces: IDs carry a per-game hash, so labs from another game never collide.
+    nonisolated(unsafe) private static var customDefs: [String: CompetitorDef] = [:]
+    nonisolated(unsafe) private static var customSpecs: [String: CustomLabSpec] = [:]
+    private static let registryLock = NSLock()
+
+    static func register(_ specs: [CustomLabSpec]) {
+        guard !specs.isEmpty else { return }
+        registryLock.lock()
+        defer { registryLock.unlock() }
+        for spec in specs {
+            customSpecs[spec.id] = spec
+            customDefs[spec.id] = spec.def
+        }
+    }
+
+    /// The definition behind a lab ID: the founding eight first, then labs founded in the game.
+    static func lookup(_ id: String) -> CompetitorDef? {
+        if let d = fixedByID[id] { return d }
+        registryLock.lock()
+        defer { registryLock.unlock() }
+        return customDefs[id]
+    }
+
+    /// Like `lookup`, but never fails: an unknown ID (a save from a newer build) gets a neutral placeholder.
+    static func def(_ id: String) -> CompetitorDef { lookup(id) ?? placeholder(id) }
+
+    /// The saved spec of a lab founded during the game (nil for the founding eight).
+    static func spec(_ id: String) -> CustomLabSpec? {
+        guard fixedByID[id] == nil else { return nil }
+        registryLock.lock()
+        defer { registryLock.unlock() }
+        return customSpecs[id]
+    }
+
+    static func placeholder(_ id: String) -> CompetitorDef {
+        CompetitorDef(id: id, name: id, color: 0x9E9E9E, symbol: "questionmark.circle.fill", archetype: "Unknown lab", founded: YM(2016, 1),
+                      firstModel: YM(2016, 1), hq: "—", ceo: "—", offsets: [(2016, -1.0)], cadenceMonths: 8, priceMult: 1, tps: 60, brand: 10,
+                      openWeights: false, codeBonus: 0, computeShare: 0.01, releases: [], prefix: "\(id)-", nextVersion: 1, chatProduct: id)
+    }
 
     /// Total "H100-equivalent" compute of a frontier-scale industry over time.
     static func industryCompute(_ y: Double) -> Double {
         interpolateLog([(2016.5, 2_000), (2020, 30_000), (2023, 300_000), (2024, 1_000_000), (2025, 3_000_000),
                         (2026, 8_000_000), (2028, 30_000_000), (2030, 80_000_000)], at: y, extrapolate: true)
     }
+}
+
+/// A lab founded during the game — a spin-out, a national lab or a startup. Saved with the game and registered with
+/// `CompetitorCatalog`, so `CompetitorState.def` resolves it like one of the founding eight.
+struct CustomLabSpec: Codable, Hashable, Identifiable {
+    enum Kind: String, Codable, Sendable {
+        case spinout, sovereign, startup
+
+        var label: String {
+            switch self {
+            case .spinout: "Spin-out"
+            case .sovereign: "National lab"
+            case .startup: "Startup"
+            }
+        }
+    }
+
+    var id: String
+    var kind: Kind
+    var name: String
+    var color: UInt32
+    var symbol: String
+    var archetype: String
+    var hq: String
+    var ceo: String
+    var founded: YM
+    var firstModel: YM
+    /// Capability ramp: offset from the world frontier at each year (log10 effective compute).
+    var rampYears: [Double]
+    var rampOffsets: [Double]
+    var cadenceMonths: Double
+    var priceMult: Double
+    var tps: Double
+    var brand: Double
+    var openWeights: Bool
+    var codeBonus: Double
+    /// Share of industry compute the lab is built to run once it's established.
+    var computeShare: Double
+    var prefix: String
+    var nextVersion: Double
+    var chatProduct: String
+    /// The lab its founders came from ("player" for yours, empty for none).
+    @D var parentID: String = ""
+    @D var parentName: String = ""
+    /// Lead investor, or the state behind a national lab.
+    @D var backer: String = ""
+    /// The founding idea, in a few words.
+    @D var thesis: String = ""
+    @D var signature: String = ""
+    /// RivalPlay raw value → how naturally the lab runs that play (0–1).
+    @D var personality: [String: Double] = [:]
+    @D var bills: [String] = []
+    @D var reasoning: Double = 0
+    @D var agent: Double = 0
+    @D var chat: Double = 0
+    @D var lang: Double = 0
+    @D var longctx: Double = 0
+    @D var vis: Double = 0
+    @D var safety: Double = 0
+    @D var noAudio: Bool = false
+    /// Effective-compute edge from its methods (log10): how much less raw compute it needs per unit of capability.
+    @D var efficiency: Double = 0
+    /// A national lab's monthly state budget when it was founded (it grows every year).
+    @D var stateBudget: Double = 0
+    /// Headcount multiplier: below 1 for lean labs.
+    @D var culture: Double = 0
+    /// What caused it (e.g. the news item about your researcher leaving), so it's founded once.
+    @D var origin: String = ""
+    /// Where it trains, for the rumour mill.
+    @D var site: String = ""
+
+    var def: CompetitorDef {
+        CompetitorDef(id: id, name: name, color: color, symbol: symbol, archetype: archetype, founded: founded, firstModel: firstModel,
+                      hq: hq, ceo: ceo, offsets: Array(zip(rampYears, rampOffsets)), cadenceMonths: cadenceMonths, priceMult: priceMult,
+                      tps: tps, brand: brand, openWeights: openWeights, codeBonus: codeBonus, computeShare: computeShare, releases: [],
+                      prefix: prefix, nextVersion: nextVersion, chatProduct: chatProduct)
+    }
+
+    var trait: LabTrait {
+        LabTrait(signature: signature, reasoning: reasoning, agent: agent, chat: chat, lang: lang, longctx: longctx, vis: vis,
+                 safety: safety, audio: !noAudio)
+    }
+
+    var leanness: Double { culture > 0 ? culture : 1 }
 }
 
 // MARK: - Names

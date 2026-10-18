@@ -15,6 +15,7 @@ enum Sim {
         rentalExpiry(&s)
         siteConstruction(&s)
         rebalance(&s, Economy.pools(s))
+        Operations.daily(&s, b)
         s.xenoInsightToday = 0
         Training.daily(&s, b)
         RSI.daily(&s, b)
@@ -22,20 +23,28 @@ enum Sim {
         Silicon.daily(&s)
         Xeno.daily(&s, b)
         SecurityOps.daily(&s)
-        research(&s, b)
-        Treasury.autoPrice(&s)
+        ResearchLab.daily(&s, b)
+        XenoScience.daily(&s)
+        Treasury.autoPrice(&s, b)
         dailyMarket(&s, b)
         ChipBusiness.daily(&s)
         dailyCosts(&s, Economy.pools(s))
         Treasury.daily(&s)
         Competitors.daily(&s)
+        Capabilities.daily(&s)   // 3.4: domain scores, milestones, product lines
+        RivalIntel.daily(&s)
         Finance.daily(&s)
         Events.daily(&s)
         if GameCalendar.components(s.date).day % 7 == 3 { BenchLife.weekly(&s) }
+        World.daily(&s)   // 3.4: world and stakeholders
+        if GameCalendar.components(s.date).day % 7 == 5 { Pulse.weekly(&s) }   // 3.4: industry chatter and buzz
 
         if s.date.ym != oldMonth { Monthly.close(&s) }
         Achievements.check(&s)
         checkSolvency(&s)
+        Alerts.daily(&s)
+        Alerts.applyStandingAnswers(&s)
+        Alerts.expireInbox(&s)
     }
 
     // MARK: - News helper
@@ -71,8 +80,10 @@ enum Sim {
     // MARK: - Scripted history
 
     static func historicalEvents(_ s: inout GameState) {
-        for e in EventCatalog.historical where e.date <= s.date && !s.firedEvents.contains(e.id) {
+        for e in EventCatalog.historical + EventCatalog.future where e.date <= s.date && !s.firedEvents.contains(e.id) && e.date >= max(s.startDate, GameCalendar.addDays(s.date, -60)) {
             s.firedEvents.insert(e.id)
+            // History about a lab that has been bought, gone bust or left the market doesn't happen.
+            if let lab = e.lab, let c = s.competitors.first(where: { $0.id == lab }), c.acquired || c.bankrupt || !c.exitNote.isEmpty { continue }
             var important = false
             for eff in e.effects {
                 switch eff {
@@ -101,6 +112,10 @@ enum Sim {
         let arrived = s.orders.filter { $0.arrives <= s.date }
         guard !arrived.isEmpty else { return }
         s.orders.removeAll { $0.arrives <= s.date }
+        // Remember what was ordered when: vendors allocate per quarter.
+        let cutoff = GameCalendar.addDays(s.date, -120)
+        s.orderLog.removeAll { $0.ordered < cutoff }
+        s.orderLog += arrived.map { OrderStamp(accelID: $0.accelID, count: $0.count, ordered: $0.ordered) }
         for o in arrived {
             s.owned.append(OwnedBatch(accelID: o.accelID, count: o.count, siteID: o.siteID, purchased: s.date, unitCost: o.unitCost))
             let name = HardwareCatalog.get(o.accelID)?.name ?? o.accelID
@@ -145,12 +160,15 @@ enum Sim {
             }
             if let ready = s.sites[i].expansionReady, ready <= s.date {
                 s.sites[i].capacityKW += s.sites[i].expanding
-                news(&s, "\(s.sites[i].name) expansion complete", "+\(Fmt.watts(s.sites[i].expanding * 1000)) of capacity is live.",
+                let more = s.sites[i].plannedKW > 0 ? " \(Fmt.watts(s.sites[i].plannedKW * 1000)) more to come." : ""
+                news(&s, "\(s.sites[i].name): +\(Fmt.watts(s.sites[i].expanding * 1000)) online",
+                     "The campus now runs \(Fmt.watts(s.sites[i].capacityKW * 1000)) of IT capacity.\(more)",
                      .company, image: "dc_construction", good: true)
                 s.sites[i].expanding = 0
                 s.sites[i].expansionReady = nil
             }
         }
+        Campus.daily(&s)
     }
 
     /// If allocations exceed what we have (rental ended, chips died), recall leases, shrink research and swarms,
@@ -205,6 +223,9 @@ enum Sim {
                     s.runs[ri].note = "Paused: not enough \(pool.accel.name) chips."
                     excess -= s.runs[ri].design.chips
                     news(&s, "Training paused: \(s.runs[ri].design.name)", "You no longer have enough \(pool.accel.name) chips for this run.", .company, important: true, good: false)
+                    Alerts.raise(&s, .runPaused, key: s.runs[ri].id.uuidString, title: "\(s.runs[ri].design.name) stalled",
+                                 body: "Not enough \(pool.accel.name) chips: something else took them, or a rental ended. Free chips up or shrink the run, then resume.",
+                                 screen: .training, critical: true, cooldown: 7)
                 }
             }
         }
@@ -243,53 +264,13 @@ enum Sim {
     }
 
     static func researchCost(_ item: ResearchItem, year: Double) -> Double {
-        // Published techniques are cheaper to reproduce; a lab's own secret breakthroughs never are.
-        if year >= item.year && !item.isExotic { return item.cost * 0.5 }
-        return item.cost * (1 + 0.3 * max(0, item.year - year))
-    }
-
-    static func research(_ s: inout GameState, _ b: ResearchBonuses) {
-        let rate = researchRate(s, b) + s.rsiRPToday + s.swarmRPToday
-        s.rpToday = rate
-        guard let current = s.researchQueue.first, let item = ResearchCatalog.byID[current] else { return }
-        if s.researched.contains(current) || (item.isExotic && !s.exoticOwned.contains(current))
-            || (current.hasPrefix("xeno_") && s.alienArchs.isEmpty) { s.researchQueue.removeFirst(); return }
-        let missing = item.prereqs.filter { !s.researched.contains($0) }
-        if !missing.isEmpty {
-            // Auto-queue prerequisites ahead of this item.
-            s.researchQueue.removeAll { missing.contains($0) }
-            s.researchQueue.insert(contentsOf: missing, at: 0)
-            return
-        }
-        s.researchProgress[current, default: 0] += rate * (item.category == .frontier ? 1 + s.traits.frontierRP : 1)
-        if s.researchProgress[current, default: 0] >= researchCost(item, year: s.year) {
-            // How well did it work in *your* lab? Better teams and more experiment compute land better results.
-            let researchers = s.employees.filter { $0.role == .researcher }
-            let quality = researchers.isEmpty ? 0.5 : researchers.reduce(0) { $0 + $1.skill } / Double(researchers.count) / 100
-            let computeBoost = min(0.08, Double(s.researchChips.values.reduce(0, +)) / 20_000)
-            let spread = item.isExotic ? 0.32 : 0.18
-            let r = clamp(1 + 0.25 * (quality - 0.5) + computeBoost + s.rng.gaussian() * spread, item.isExotic ? 0.35 : 0.55, item.isExotic ? 1.8 : 1.5)
-            s.researchResults[current] = (r * 100).rounded() / 100
-            s.researched.insert(current)
-            s.researchQueue.removeFirst()
-            s.researchProgress[current] = nil
-            let verdict: String
-            switch r {
-            case ..<0.8: verdict = "Results came in below expectations (\(Fmt.trim(r, 2))×)."
-            case ..<1.12: verdict = "Results matched the paper (\(Fmt.trim(r, 2))×)."
-            default: verdict = "Your implementation beat the paper (\(Fmt.trim(r, 2))×)!"
-            }
-            let effects = item.effectSummary(result: r).prefix(3).joined(separator: " · ")
-            news(&s, "\(item.isExotic ? "Unique breakthrough" : "Research complete"): \(item.name)", "\(verdict) \(effects).", .research, image: "wafer_closeup", important: true, good: r >= 0.8)
-            if s.publication == .open && item.year > s.year - 0.2 { s.brand = min(100, s.brand + 1.5) }
-            if item.isExotic {
-                Achievements.unlock(&s, "unique_tech")
-                if s.publication == .open {
-                    s.publishedTech[current] = s.date
-                    news(&s, "Your \(item.name) paper goes viral", "Open science wins you fans — and every rival lab will have reproduced it within about six months.", .research, good: true)
-                }
-            }
-        }
+        // A lab's own secret breakthroughs never get cheaper, and ideas ahead of their time cost more.
+        if item.isExotic { return item.cost * (1 + 0.15 * min(10, max(0, item.year - year))) }
+        guard year >= item.year else { return item.cost * (1 + 0.3 * (item.year - year)) }
+        // Published techniques get cheaper as code, tutorials and open checkpoints pile up.
+        let age = year - item.year
+        let discount: Double = age >= 3 ? 0.15 : (age >= 1 ? 0.3 : 0.5)
+        return item.cost * discount
     }
 
     // MARK: - Market & revenue
@@ -318,15 +299,23 @@ enum Sim {
 
         // Consumer
         var chatTokens = 0.0
+        // What rival apps earn per weekly user a month (RivalEconomy's assumption).
+        let rivalChatARPU = Market.paidConversion(price: 20, freeTier: true) * 20
         if let chat = snap.consumer.first(where: { $0.isPlayer }) {
             let target = chat.share * snap.consumerUsersPool
             let speed = s.year < 2022.91 ? 0.08 : 0.04
             var users = s.consumerUsers + (target - s.consumerUsers) * speed
-            if !s.freeTier { users = min(users, target * 0.06 * (20 / max(s.chatPrice, 1))) }
+            // Paying users follow the price against what the app is worth to them (chatWTP).
+            let wtp = Market.chatWTP(s)
+            if !s.freeTier { users = min(users, target * 0.06 * Market.wtpDemand(s.chatPrice / wtp)) }
             s.consumerUsers = max(0, users)
             s.consumerShare = chat.share
-            let conv = Market.paidConversion(price: s.chatPrice, freeTier: s.freeTier)
+            let conv = Market.paidConversion(price: s.chatPrice, freeTier: s.freeTier, wtp: wtp)
+            // Consumers' subscription budget is fixed (the consumer pool): if every app's subscribers together would
+            // outspend it, fewer of yours pay — you get your share of the pool, never more than all of it.
+            let others = (1 - chat.share) * snap.consumerUsersPool * rivalChatARPU / 30.4
             s.paidUsers = s.consumerUsers * conv
+                * Market.budgetFactor(s.consumerUsers * conv * s.chatPrice / 30.4, pool: snap.consumerRevenuePool, others: others)
             let reasoningMult = chat.reasoning ? 2.2 : 1
             chatTokens = s.consumerUsers * Macro.tokensPerUserDay(y) * reasoningMult
             if let id = chat.modelID { demand[id, default: 0] += chatTokens }
@@ -343,15 +332,24 @@ enum Sim {
             }
         } else {
             s.consumerUsers *= 0.97
-            s.paidUsers = s.consumerUsers * Market.paidConversion(price: s.chatPrice, freeTier: s.freeTier)
+            let conv = Market.paidConversion(price: s.chatPrice, freeTier: s.freeTier, wtp: Market.chatWTP(s))
+            s.paidUsers = s.consumerUsers * conv * Market.budgetFactor(s.consumerUsers * conv * s.chatPrice / 30.4, pool: snap.consumerRevenuePool,
+                                                                      others: snap.consumerUsersPool * rivalChatARPU / 30.4)
             s.consumerShare = 0
         }
 
         // Coding & computer-use agents (seat subscriptions)
         var agentModelID: UUID? = nil
+        var billedSeats = 0.0
         if let ag = snap.agents.first(where: { $0.isPlayer }) {
-            let target = ag.share * snap.agentSeatsPool
+            // Seat budgets are fixed too (the agent pool): at a price that would outspend it you sell fewer seats.
+            let othersSpend = (snap.agents.filter { !$0.isPlayer }.reduce(0) { $0 + $1.share * $1.price }
+                               + max(0, 1 - snap.agents.reduce(0) { $0 + $1.share }) * snap.agentSeatBudget) * snap.agentSeatsPool / 30.4
+            let natural = ag.share * snap.agentSeatsPool * max(1, s.agentPrice) / 30.4
+            let target = ag.share * snap.agentSeatsPool * Market.budgetFactor(natural, pool: snap.agentRevenuePool, others: othersSpend)
             s.agentSeats = max(0, s.agentSeats + (target - s.agentSeats) * 0.05)
+            // Seats take weeks to sign up or wind down, but only as many as your share supports at today's price pay it.
+            billedSeats = min(s.agentSeats, target)
             s.agentShare = ag.share
             agentModelID = ag.modelID
             if let id = ag.modelID { demand[id, default: 0] += s.agentSeats * Macro.tokensPerSeatDay(y) }
@@ -359,6 +357,13 @@ enum Sim {
         } else {
             s.agentSeats *= 0.95
             s.agentShare = 0
+            billedSeats = s.agentSeats
+        }
+
+        // Contracts with no model behind them (theirs was retired): move them to one that meets their bar,
+        // or they miss their SLA every day until the client walks.
+        for di in s.deals.indices where s.deals[di].active && s.deals[di].modelID == nil && s.deals[di].tokensPerDay > 0 {
+            if let m = Business.qualifyingModel(s.deals[di], s) { s.deals[di].modelID = m.id } else { s.deals[di].breaches += 1 }
         }
 
         // Enterprise token commitments
@@ -380,7 +385,11 @@ enum Sim {
             let cap = s.models[i].deployments.reduce(0) { $0 + Physics.capacity(s.models[i], deployment: $1, bonuses: b) }
             let dem = demand[id] ?? 0
             let served = min(cap, dem)
-            let frac = dem > 0 ? served / dem : 1
+            // Contract traffic is served first (provisioned throughput): a shortage hits API, chat and agent users
+            // before it breaks an SLA.
+            let ent = entTokens[id] ?? 0
+            let entFrac = ent > 0 ? min(1, cap / ent) : 1
+            let frac = dem > ent ? min(1, max(0, cap - ent) / (dem - ent)) : 1
             let load = cap > 0 ? dem / cap : 0
             s.models[i].capacityTokensDay = cap
             s.models[i].demandTokensDay = dem
@@ -392,7 +401,7 @@ enum Sim {
             revAPI += r
             if id == s.chatModelID { chatServed = frac }
             if id == agentModelID { agentServed = frac }
-            if (entTokens[id] ?? 0) > 0 && frac < 0.95 {
+            if ent > 0 && entFrac < 0.95 {
                 for di in s.deals.indices where s.deals[di].active && s.deals[di].modelID == id {
                     s.deals[di].breaches += 1
                 }
@@ -405,8 +414,17 @@ enum Sim {
         s.reliability = clamp(s.reliability * 0.93 + overall * 0.07, 0.05, 1)
 
         let revConsumer = s.paidUsers * s.chatPrice / 30.4 * (0.5 + 0.5 * chatServed)
-        let revEnterprise = s.deals.filter(\.active).reduce(0) { $0 + $1.monthly } / 30.4
-        let revAgents = s.agentSeats * max(1, s.agentPrice) / 30.4 * (0.4 + 0.6 * agentServed)
+        // Enterprise budgets are fixed too: rivals win the enterprise pool in proportion to their API business
+        // (RivalEconomy); if your contracts plus theirs would outspend it, yours are squeezed to your share.
+        let contracts = s.deals.filter(\.active).reduce(0.0) { $0 + $1.monthly } / 30.4
+        var billedAPI = 0.0, rivalsBilled = 0.0
+        for p in snap.api {
+            billedAPI += p.share * p.price
+            if !p.isPlayer { rivalsBilled += p.share * p.price * (p.open ? 0.5 : 1) }
+        }
+        let rivalsEnterprise = billedAPI > 0 ? snap.enterprisePool / 365 * rivalsBilled / billedAPI : 0
+        let revEnterprise = contracts * Market.budgetFactor(contracts, pool: snap.enterprisePool / 365, others: rivalsEnterprise)
+        let revAgents = billedSeats * max(1, s.agentPrice) / 30.4 * (0.4 + 0.6 * agentServed)
         let total = revAPI + revConsumer + revEnterprise + revAgents
         s.month.revAgents += revAgents
         s.month.revAPI += revAPI
@@ -445,7 +463,7 @@ enum Sim {
             let draw = Economy.chipKW(a) * Double(bt.count) * (0.3 + 0.65 * util)
             power += draw * site.pue * 24 * site.powerPrice
         }
-        power *= max(0.5, 1 - s.traits.power)
+        power *= max(0.5, 1 - s.traits.power) * XenoScience.powerFactor(s)
         let sites = s.sites.reduce(0) { $0 + $1.monthlyFee } / 30.4
         let office = Economy.officeLevels[min(s.officeLevel, Economy.officeLevels.count - 1)].monthly / 30.4
         let payroll = Economy.payrollYear(s) / 365

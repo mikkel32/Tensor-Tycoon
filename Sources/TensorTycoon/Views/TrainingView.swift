@@ -9,6 +9,7 @@ struct TrainingView: View {
         let active = s.runs.filter { $0.status != .done && $0.status != .cancelled }
         let past = Array(s.runs.filter { $0.status == .done || $0.status == .cancelled }.reversed())
         Page(title: "Training Runs", subtitle: "Mission control. Watch the loss against the forecast, catch bugs, call the spikes — and find out whether you trained a genius.") {
+            ScreenHint(.training)
             if active.isEmpty {
                 Card {
                     EmptyStateView(symbol: "chart.line.downtrend.xyaxis", title: "Nothing training",
@@ -125,7 +126,7 @@ private struct RunCard: View {
         let b = store.derived.bonuses
         let a = HardwareCatalog.get(run.design.accelID)
         let mfu = a.map { Physics.mfu(accel: $0, chips: run.design.chips, state: s, bonuses: b) } ?? 0
-        let good = Physics.goodput(chips: run.design.chips, state: s, bonuses: b) * Sim.checkpointOverhead(run.interval)
+        let good = Physics.goodput(chips: run.design.chips, state: s, bonuses: b, coverage: run.opsCoverage) * Sim.checkpointOverhead(run.interval)
         let flopsPerSec = Double(run.design.chips) * (a?.trainTFLOPS(run.design.precision) ?? 0) * 1e12 * mfu * good * run.schedule.speed
         let perDay = flopsPerSec * 86_400
         let postTotal = run.postTrainFlops
@@ -146,6 +147,7 @@ private struct RunCard: View {
                     HStack {
                         Text(run.design.name).font(.title2.weight(.bold))
                         Pill(text: run.status == .paused ? "Paused" : Training.currentStageName(run), color: run.status == .paused ? .orange : (inPost ? .purple : .blue))
+                        if run.stalledDays >= 7 { Pill(text: "Stalled \(run.stalledDays) days", color: .red) }
                         if run.design.isMoE { Pill(text: "MoE", color: .teal) }
                         if run.design.reasoning { Pill(text: "RL: \(run.design.effectiveRL.label)", color: .pink) }
                         if run.design.optimizer != .adamw { Pill(text: run.design.optimizer.rawValue, color: .indigo) }
@@ -177,6 +179,8 @@ private struct RunCard: View {
                          tint: run.interruptions > 0 ? .orange : .gray)
             }
 
+            if run.kind == .full { OpsPanel(run: run, state: s) }
+
             HStack(alignment: .top, spacing: 16) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Training loss").font(.caption.weight(.semibold))
@@ -192,7 +196,7 @@ private struct RunCard: View {
                 .frame(maxWidth: .infinity)
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Cluster (\(Fmt.int(run.design.chips)) chips)").font(.caption.weight(.semibold))
-                    ClusterHeatmap(chips: run.design.chips, active: run.status != .paused, failureRate: min(0.25, Double(run.design.chips) * Training.failuresPerChipDay * 30),
+                    ClusterHeatmap(chips: run.design.chips, active: run.status != .paused && store.speed > 0, failureRate: min(0.25, Double(run.design.chips) * Training.failuresPerChipDay * 30),
                                    phase: inPost ? .post : .pre)
                         .frame(height: 118)
                         .clipShape(.rect(cornerRadius: 8))
@@ -276,6 +280,167 @@ private struct RunCard: View {
         guard let last = run.loss.last(where: { !$0.spike }), last.pred > 0 else { return run.loss.last.map { String(format: "%.3f", $0.loss) } ?? "—" }
         let d = last.loss - last.pred
         return String(format: "%.3f (%@%.3f)", last.loss, d <= 0 ? "−" : "+", abs(d))
+    }
+}
+
+/// Agents watching the run's GPUs: coverage, what it buys and a way to add more.
+private struct OpsPanel: View {
+    @Environment(GameStore.self) private var store
+    let run: TrainingRun
+    let state: GameState
+    @State private var assigning = false
+
+    var body: some View {
+        let s = state
+        let b = store.derived.bonuses
+        let chips = run.design.chips
+        let cov = run.opsCoverage
+        let now = Training.goodput(chips: chips, coverage: cov, state: s, bonuses: b)
+        let full = Training.goodput(chips: chips, coverage: 1, state: s, bonuses: b)
+        let watchers = s.swarms.filter { $0.mission == .trainingOps && !$0.paused && ($0.targetRunID == run.id || $0.targetRunID == nil) }
+        let minutes = 1_440 / max(1e-9, Double(chips) * Training.failuresPerChipDay)
+        HStack(alignment: .top, spacing: 16) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Label("Ops coverage", systemImage: "wrench.and.screwdriver.fill").font(.headline)
+                    HelpButton(term: .goodput)
+                    Spacer()
+                    Text(Fmt.pct(cov, decimals: 0)).font(.headline.monospacedDigit())
+                }
+                Meter(value: cov, tint: cov >= 0.9 ? .green : (cov >= 0.5 ? .orange : .red), height: 8)
+                Text(watchers.isEmpty ? "No agents watch this run. Human infra engineers handle restarts at human speed."
+                                      : "Watched by \(watchers.map(\.name).joined(separator: ", ")).")
+                    .font(.caption).foregroundStyle(.secondary)
+                Text("A hardware fault every \(minutes < 60 ? "\(Int(minutes.rounded())) minutes" : Fmt.days(minutes / 1_440)) at this size.")
+                    .font(.caption).foregroundStyle(.secondary)
+                if full - now > 0.15 {
+                    Label("This run loses \(Fmt.pct(1 - now, decimals: 0)) of its time to failures. Full ops coverage would get it to \(Fmt.pct(full, decimals: 0)).",
+                          systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption).foregroundStyle(.orange)
+                }
+                if let adv = Training.goodputAdvice(chips: chips, coverage: cov, running: true, state: s, bonuses: b), adv.blocked || run.stalledDays >= 7 {
+                    Text(run.stalledDays >= 7 ? "No progress in \(run.stalledDays) days. \(adv.headline)" : adv.headline)
+                        .font(.caption).foregroundStyle(.red)
+                    ForEach(adv.fixes, id: \.self) { fix in
+                        Label(fix, systemImage: "wrench.and.screwdriver").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 2), spacing: 8) {
+                LiveStat(label: "Goodput now", value: Fmt.pct(now, decimals: 0), symbol: "gauge.with.dots.needle.67percent", tint: now > 0.85 ? .green : .orange)
+                LiveStat(label: "At full coverage", value: Fmt.pct(full, decimals: 0), symbol: "checkmark.seal.fill", tint: .teal)
+                LiveStat(label: "Failures prevented", value: Fmt.count(run.prevented), symbol: "shield.checkered", tint: .indigo)
+                LiveStat(label: "Corrupt nodes caught · missed", value: "\(Int(run.sdcCaught)) · \(Int(run.sdcMissed))", symbol: "exclamationmark.octagon.fill",
+                         tint: run.sdcMissed >= 1 ? .red : .gray)
+            }
+            .frame(width: 360)
+            Button("Assign agents…", systemImage: "person.3.sequence.fill") { assigning = true }
+                .buttonStyle(.borderedProminent)
+        }
+        .padding(12)
+        .background(.quaternary.opacity(0.3), in: .rect(cornerRadius: 10))
+        .sheet(isPresented: $assigning) { OpsAssignSheet(run: run) }
+    }
+}
+
+/// Point an ops swarm at a run, or spin up a new one sized for it.
+private struct OpsAssignSheet: View {
+    @Environment(GameStore.self) private var store
+    @Environment(\.dismiss) private var dismiss
+    let run: TrainingRun
+    @State private var modelID: UUID?
+    @State private var accelID = ""
+    @State private var target = 1.0
+
+    var body: some View {
+        let s = store.game
+        let d = store.derived
+        let b = d.bonuses
+        let models = s.models.filter { !$0.retired }
+            .sorted { Swarms.quality($0, s, mission: .trainingOps) > Swarms.quality($1, s, mission: .trainingOps) }
+        let existing = s.swarms.filter { $0.mission == .trainingOps }
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Text("Ops agents for \(run.design.name)").font(.title2.weight(.bold))
+                Spacer()
+                Button("Close") { dismiss() }.keyboardShortcut(.cancelAction)
+            }
+            Text("Agents read telemetry from every GPU: they drain nodes that are about to fail, restart the job from in-memory snapshots in seconds, quarantine nodes that silently corrupt gradients and rewind loss spikes. A run needs one engineer-equivalent per 600 chips; a smarter model covers more chips per agent.")
+                .font(.callout).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if !existing.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Your ops swarms").font(.headline)
+                    ForEach(existing) { sw in
+                        HStack {
+                            Text(sw.name).font(.callout.weight(.semibold))
+                            Text("\(Fmt.count(sw.workforce)) engineer-eq · \(sw.targetRunID == run.id ? "watching this run" : (sw.targetRunID == nil ? "watching all runs" : "watching another run"))")
+                                .font(.caption).foregroundStyle(.secondary)
+                            Spacer()
+                            if sw.targetRunID == run.id {
+                                Button("Watch all runs") { store.act("Swarm reassigned") { $0.setSwarmTarget(sw.id, runID: nil) } }
+                            } else {
+                                Button("Watch this run") { store.act("Swarm reassigned") { $0.setSwarmTarget(sw.id, runID: run.id) } }
+                            }
+                        }
+                    }
+                }
+                Divider()
+            }
+            Text("New ops swarm").font(.headline)
+            if models.isEmpty {
+                Text("Train a model first: ops agents are copies of one of your models.").foregroundStyle(.secondary)
+            } else {
+                Picker("Model", selection: $modelID) {
+                    ForEach(models) { m in
+                        let q = Swarms.quality(m, s, mission: .trainingOps)
+                        Text("\(m.name) · \(Swarms.tier(q)) · \(Fmt.trim(q, 2)) engineer-eq per agent").tag(UUID?.some(m.id))
+                    }
+                }
+                Picker("Hardware", selection: $accelID) {
+                    Text("Choose…").tag("")
+                    ForEach(d.pools.filter { $0.free > 0 }) { p in Text("\(p.accel.name) — \(Fmt.int(p.free)) free").tag(p.accel.id) }
+                }
+                HStack {
+                    Text("Coverage to add")
+                    Slider(value: $target, in: 0.25...1, step: 0.05)
+                    Text(Fmt.pct(target, decimals: 0)).monospacedDigit().frame(width: 50)
+                }
+                if let m = models.first(where: { $0.id == modelID }), !accelID.isEmpty {
+                    let base = Training.agentsForCoverage(m, chips: max(1, Int(Double(run.design.chips) * target)), s, b)
+                    let need = Int((Double(base) / 0.95).rounded(.up))
+                    let chips = Swarms.chipsNeeded(m, accelID: accelID, agents: need, s, b)
+                    let free = d.free(accelID)
+                    let after = min(1, run.opsCoverage + target)
+                    SpecRow(label: "Agents needed", value: Fmt.int(need))
+                    SpecRow(label: "Inference chips", value: "\(Fmt.int(chips)) of \(Fmt.int(free)) free")
+                    SpecRow(label: "Goodput", value: "\(Fmt.pct(Training.goodput(chips: run.design.chips, coverage: run.opsCoverage, state: s, bonuses: b), decimals: 0)) → \(Fmt.pct(Training.goodput(chips: run.design.chips, coverage: after, state: s, bonuses: b), decimals: 0))")
+                    Button {
+                        let ok = store.act("Ops agents deployed") {
+                            $0.startSwarm(name: "\(run.design.name) Ops", modelID: m.id, agents: need, mission: .trainingOps, accelID: accelID,
+                                          chips: max(1, min(chips, free)), autonomy: 1, oversight: 0.05, targetRunID: run.id)
+                        }
+                        if ok { dismiss() }
+                    } label: {
+                        Label("Deploy \(Fmt.int(need)) ops agents", systemImage: "person.3.sequence.fill").frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .disabled(chips > free)
+                    if chips > free {
+                        Text("Not enough idle \(HardwareCatalog.get(accelID)?.name ?? "chips"). Pick other hardware, free some up or aim for less coverage.")
+                            .font(.caption).foregroundStyle(.orange)
+                    }
+                }
+            }
+        }
+        .padding(22)
+        .frame(width: 640)
+        .onAppear {
+            if modelID == nil { modelID = models.first?.id }
+            if accelID.isEmpty { accelID = d.pools.filter { $0.free > 0 }.max(by: { $0.free < $1.free })?.accel.id ?? "" }
+        }
     }
 }
 
@@ -535,7 +700,8 @@ struct ClusterHeatmap: View {
     let phase: Phase
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 0.35)) { ctx in
+        // Paused (game or run) → one static frame instead of redrawing every 0.35 s.
+        TimelineView(.animation(minimumInterval: 0.35, paused: !active)) { ctx in
             Canvas { g, size in
                 let cells = min(max(chips, 1), 384)
                 let cols = max(1, Int(ceil(sqrt(Double(cells) * size.width / max(size.height, 1)))))
@@ -551,7 +717,7 @@ struct ClusterHeatmap: View {
                 for i in 0..<cells {
                     let r = i / cols, c = i % cols
                     let rect = CGRect(x: ox + CGFloat(c) * w + 1, y: oy + CGFloat(r) * h + 1, width: max(1, w - 2), height: max(1, h - 2))
-                    let seed = BenchmarkCatalog.hashUnit("\(i)-\(tick)")
+                    let seed = Self.noise(i, tick)
                     var color: Color
                     if !active {
                         color = .gray.opacity(0.25)
@@ -566,5 +732,14 @@ struct ClusterHeatmap: View {
             }
         }
         .accessibilityLabel("Cluster activity map")
+    }
+
+    /// Cheap per-cell flicker in 0..<1 (integer mix, no string hashing on every frame).
+    private static func noise(_ i: Int, _ tick: Int) -> Double {
+        var h = UInt64(truncatingIfNeeded: i) &* 0x9E37_79B9_7F4A_7C15 ^ UInt64(truncatingIfNeeded: tick) &* 0xC2B2_AE3D_27D4_EB4F
+        h ^= h >> 31
+        h = h &* 0xBF58_476D_1CE4_E5B9
+        h ^= h >> 29
+        return Double(h >> 11) / Double(1 << 53)
     }
 }

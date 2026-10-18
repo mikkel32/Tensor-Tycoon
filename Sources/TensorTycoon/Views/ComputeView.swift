@@ -12,9 +12,11 @@ struct ComputeView: View {
         let rentMonth = s.rentals.reduce(0.0) { $0 + $1.hourly * 24 * 30.4 * Double($1.count) }
         let powerKW = s.owned.reduce(0.0) { acc, b in acc + (HardwareCatalog.get(b.accelID).map(Economy.chipKW) ?? 0) * Double(b.count) }
         Page(title: "Compute Fleet", subtitle: "Every accelerator you own or rent, and what it's doing right now.") {
+            ScreenHint(.compute)
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 200), spacing: 12)], spacing: 12) {
                 StatTile(title: "Accelerators", value: Fmt.int(d.totalChips), detail: "\(Fmt.int(s.owned.reduce(0) { $0 + $1.count })) owned · \(Fmt.int(s.rentals.reduce(0) { $0 + $1.count })) rented", symbol: "cpu.fill", tint: .green)
                 StatTile(title: "H100-equivalents", value: Fmt.count(d.h100e), detail: "BF16 dense", symbol: "equal.square.fill", tint: .blue)
+                    .helpBadge(.h100e)
                 StatTile(title: "Peak low-precision", value: Fmt.tflops(peakPF * 1000), detail: "Best format per chip", symbol: "bolt.fill", tint: .orange)
                 StatTile(title: "Rental bill", value: "\(Fmt.money(rentMonth))/mo", detail: s.cloudCredits > 0 ? "\(Fmt.money(s.cloudCredits)) credits left" : "Billed daily", symbol: "cloud.fill", tint: .teal)
                 StatTile(title: "Owned IT load", value: Fmt.watts(powerKW * 1000), detail: "Before PUE overhead", symbol: "powerplug.fill", tint: .yellow)
@@ -45,7 +47,7 @@ struct ComputeView: View {
             HStack(alignment: .top, spacing: 16) {
                 Card {
                     CardHeader("Cloud rentals", symbol: "cloud")
-                    if s.rentals.isEmpty { Text("Nothing rented.").font(.callout).foregroundStyle(.secondary) }
+                    if s.rentals.isEmpty { NextStep("Nothing rented. Rent cloud chips by the hour, or reserve them for a year or three at a discount.", action: "Hardware Store", screen: .hardware) }
                     ForEach(s.rentals) { r in
                         if let a = HardwareCatalog.get(r.accelID) {
                             HStack {
@@ -66,7 +68,7 @@ struct ComputeView: View {
                 }
                 Card {
                     CardHeader("Owned hardware", symbol: "shippingbox")
-                    if s.owned.isEmpty && s.orders.isEmpty { Text("You don't own any accelerators.").font(.callout).foregroundStyle(.secondary) }
+                    if s.owned.isEmpty && s.orders.isEmpty { NextStep("You don't own any accelerators. Bought chips need a site with power; renting is the quick start.", action: "Hardware Store", screen: .hardware) }
                     ForEach(s.orders) { o in
                         if let a = HardwareCatalog.get(o.accelID) {
                             HStack {

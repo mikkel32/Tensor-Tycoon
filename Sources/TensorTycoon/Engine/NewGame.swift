@@ -10,6 +10,7 @@ struct NewGameSettings {
     var logoColor = 0
     var doctrine: LabDoctrine = .balanced
     var background: FounderBackground = .researcher
+    var signature: SignatureSecret = .cortex
 
     /// First name of the Mac's user account, so the founder defaults to the player.
     static var defaultFounder: String {
@@ -37,6 +38,14 @@ enum NewGame {
         s.backgroundID = settings.background.rawValue
         s.culturePoints = 2
         s.boardConfidence = 60
+        // Your founding secret is live from day one, whatever the year.
+        s.signatureID = settings.signature.rawValue
+        s.signatureLevel = 1
+        s.signatureShare = SignatureSecret.defaultShare
+        s.autoResearch = true
+        s.researchFocus = ResearchFocus.balanced.rawValue
+        s.pauseConfigured = true
+        s.pauseKinds = Alerts.defaultPauseKinds
 
         // Public research is already known.
         for r in ResearchCatalog.core where r.year <= y - 0.05 && r.category != .frontier {
@@ -114,8 +123,11 @@ enum NewGame {
         HardwareCatalog.register([])
         s.agentPrice = 100
         Competitors.setup(&s)
+        RivalEconomy.bootstrap(&s)
+        RivalIntel.bootstrap(&s)
         BenchLife.replayHistory(&s)
         BenchLife.refreshIndexes(&s)
+        Capabilities.bootstrap(&s)   // 3.4: domain scores, milestone history, rival product lines
         s.valuation = seedPre + raised
         s.brand = 8 + (settings.background == .policy ? 5 : 0)
         if settings.doctrine == .open { s.publication = .open }
@@ -124,9 +136,14 @@ enum NewGame {
             s.researchQueue.removeAll { $0 == "custom_silicon" }
         }
         Board.refill(&s)
+        Cast.seed(&s)   // 3.4: the people of AI
         s.market.interestRate = Macro.historicalRate(y) ?? 3.4
+        World.bootstrap(&s)   // 3.4: the world as it stands on the start date
 
         // Welcome news
+        Sim.news(&s, "Project \(settings.signature.codename): your founding secret",
+                 "\(settings.signature.blurb) Level 1 is already working for you; put research into it to unlock levels 2–5.",
+                 .research, image: "wafer_closeup", important: true, good: true)
         Sim.news(&s, "Welcome to \(s.companyName)", "\(era.blurb) You have \(Fmt.money(s.cash)) from your \(s.rounds[0].name.lowercased()) round led by \(lead), a garage with \(starter.1)× \(HardwareCatalog.get(starter.0)?.name ?? "GPUs") and a tiny team. Build something people want.",
                  .company, image: era.image, important: true, good: true)
         for e in EventCatalog.historical where e.date < start && e.date > GameCalendar.addDays(start, -120) {

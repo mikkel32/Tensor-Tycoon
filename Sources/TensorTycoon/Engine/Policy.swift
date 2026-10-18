@@ -62,14 +62,27 @@ enum Policy {
             s.year >= $0.earliest && !s.lawsPassed.contains($0.id) && !s.lawsFailed.contains($0.id) && !pending.contains($0.id)
         }
         guard let bill = open.randomElement(using: &s.rng) else { return }
-        s.bills.append(PolicyBill(id: bill.id, proposed: s.date, vote: GameCalendar.addDays(s.date, 120)))
+        introduce(&s, bill)
+    }
+
+    /// Put a bill before Congress and ask where you stand. A rival lab may be behind it.
+    static func introduce(_ s: inout GameState, _ bill: PolicyCatalog.Bill, sponsor: String = "", boost: Double = 0) {
+        var pb = PolicyBill(id: bill.id, proposed: s.date, vote: GameCalendar.addDays(s.date, 120))
+        pb.sponsor = sponsor
+        pb.boost = boost
+        s.bills.append(pb)
+        let base = clamp(bill.basePass + boost, 0.05, 0.95)
+        let backer = sponsor.isEmpty ? "" : " \(sponsor)'s lobbyists wrote much of it."
         Events.addDecision(&s, kind: "policy_bill", title: "Bill introduced: \(bill.title)",
-                           body: "\(bill.summary) If it passes: \(bill.ifPasses) If it fails: \(bill.ifFails) Vote in about four months; it has a \(Int(bill.basePass * 100))% chance on its own.",
+                           body: "\(bill.summary)\(backer) If it passes: \(bill.ifPasses) If it fails: \(bill.ifFails) Vote in about four months; it has a \(Int(base * 100))% chance on its own.",
                            image: "stock_exchange",
-                           options: [DecisionOption(label: "Back it publicly", detail: "Pass chance → \(Int(passChance(bill, stance: 1, s) * 100))%. \(bill.popularity >= 0 ? "Popular" : "Unpopular") with the public\(bill.safetyBill ? "; safety advocates cheer" : "")."),
-                                     DecisionOption(label: "Lobby against it", detail: "Pass chance → \(Int(passChance(bill, stance: -1, s) * 100))%. \(bill.popularity >= 0 ? "Bad optics" : "Popular with the industry")."),
+                           options: [DecisionOption(label: "Back it publicly", detail: "Pass chance → \(Int(clamp(passChance(bill, stance: 1, s) + boost, 0.05, 0.95) * 100))%. \(bill.popularity >= 0 ? "Popular" : "Unpopular") with the public\(bill.safetyBill ? "; safety advocates cheer" : "")."),
+                                     DecisionOption(label: "Lobby against it", detail: "Pass chance → \(Int(clamp(passChance(bill, stance: -1, s) + boost, 0.05, 0.95) * 100))%. \(bill.popularity >= 0 ? "Bad optics" : "Popular with the industry")."),
                                      DecisionOption(label: "Stay out of it", detail: "No cost, no influence.")],
                            ref: bill.id)
+        if !sponsor.isEmpty {
+            Sim.news(&s, "\(sponsor) is behind the \(bill.title)", "Its lobbyists helped write the bill. \(bill.summary)", .policy, image: "stock_exchange")
+        }
     }
 
     static func resolve(_ s: inout GameState, _ d: Decision, option: Int) {
@@ -90,9 +103,34 @@ enum Policy {
         }
     }
 
+    /// Take a side on a pending bill from the policy page (or change it). Taking a side costs 5 political capital and
+    /// moves brand and safety like the decision does; stepping back costs 2; switching sides also costs 3 brand.
+    static func setStance(_ s: inout GameState, _ id: String, _ stance: Int) -> String? {
+        guard let bill = PolicyCatalog.byID[id], let i = s.bills.firstIndex(where: { $0.id == id }) else { return "That bill isn't pending." }
+        let old = s.bills[i].stance
+        let new = max(-1, min(1, stance))
+        guard new != old else { return nil }
+        if old != 0 {
+            // Undo the old side's effect on brand and safety.
+            s.brand = clamp(s.brand - Double(old) * bill.popularity * 3, 0, 100)
+            if bill.safetyBill { s.safetyScore = clamp(s.safetyScore - Double(old) * 2, 0, 100) }
+        }
+        if new != 0 {
+            s.brand = clamp(s.brand + Double(new) * bill.popularity * 3, 0, 100)
+            if bill.safetyBill { s.safetyScore = clamp(s.safetyScore + Double(new) * 2, 0, 100) }
+        }
+        s.politicalCapital = max(0, s.politicalCapital - (new == 0 ? 2 : 5))
+        if old != 0 && new != 0 { s.brand = max(0, s.brand - 3) }
+        s.bills[i].stance = new
+        // The bill's decision, if it's still waiting, is answered.
+        s.decisions.removeAll { $0.kind == "policy_bill" && $0.ref == id }
+        Stakeholders.tookSide(&s, id, stance: new, was: old)   // 3.4: world and stakeholders
+        return nil
+    }
+
     static func vote(_ s: inout GameState, _ b: PolicyBill) {
         guard let bill = PolicyCatalog.byID[b.id] else { return }
-        let passed = s.rng.chance(passChance(bill, stance: b.stance, s))
+        let passed = s.rng.chance(clamp(passChance(bill, stance: b.stance, s) + b.boost, 0.05, 0.95))
         if passed { s.lawsPassed.insert(bill.id) } else { s.lawsFailed.insert(bill.id) }
         let won = b.stance != 0 && (b.stance > 0) == passed
         if won {
@@ -115,8 +153,8 @@ enum Policy {
         default: break
         }
         let side = b.stance == 0 ? "" : (won ? " You backed the winning side." : " You were on the losing side.")
-        Sim.news(&s, "\(bill.title) \(passed ? "passes" : "fails")", "\(passed ? bill.ifPasses : bill.ifFails)\(side)",
-                 .policy, image: "stock_exchange", important: true, good: won ? true : nil)
+        Voices.billVote(&s, bill, passed: passed, sponsor: b.sponsor, title: "\(bill.title) \(passed ? "passes" : "fails")",
+                        body: "\(passed ? bill.ifPasses : bill.ifFails)\(side)", good: won ? true : nil)
     }
 }
 
