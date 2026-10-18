@@ -238,6 +238,7 @@ enum Monthly {
         Victory.monthly(&s)
         Xeno.rivalDiscovery(&s)
         World.monthly(&s)   // 3.4: world and stakeholders
+        Nations.monthly(&s)   // 3.7: national strategies and economies, rival specialisations and answers
 
         // Valuation and records. A private company's mark moves halfway (in log terms) toward its new level each
         // month, so one launch or one bad month doesn't swing it 40× or wipe out two thirds of it overnight.
@@ -278,6 +279,7 @@ enum Business {
         // Rivals running enterprise pushes win some of the deals that would have come to you.
         p *= RivalStrategy.playerDealFactor(s)
         p *= Corporate.dealFactor(s)   // 3.5: a consulting arm brings leads (exactly 1 without one)
+        p *= Nations.dealFactor(s)   // 3.7: a growing home economy buys more
         let n = s.rng.chance(p) ? (s.rng.chance(p * 0.5) ? 2 : 1) : 0
         for _ in 0..<n {
             let size = Macro.marketSize(s.year) * Macro.segmentSplit(s.year, chatMoment: s.chatMoment != nil).enterprise

@@ -23,6 +23,7 @@ struct DashboardView: View {
                     NeedsYouCard(needs: needs, stepsLeft: stepsLeft)
                     SinceLastMonthCard(state: s)
                     WorldCard()
+                    NationsCard(state: s)   // 3.7
                     RevenueCard(state: s)
                     ActiveRunsCard(state: s)
                     if !s.families.families.isEmpty || !s.families.jobs.isEmpty { ModelFamiliesCard(state: s) }   // 3.5

@@ -149,6 +149,7 @@ enum NewGame {
         Cast.seed(&s)   // 3.4: the people of AI
         s.market.interestRate = Macro.historicalRate(y) ?? 3.4
         World.bootstrap(&s)   // 3.4: the world as it stands on the start date
+        Nations.bootstrap(&s)   // 3.7: national strategies to the start year; rivals' first specialties
         FoundingKit.setup(&s, settings)   // 3.5: founding kit and starter quests
 
         // Welcome news

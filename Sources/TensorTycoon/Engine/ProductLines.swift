@@ -225,7 +225,8 @@ enum ProductLines {
             }
             for r in s.rivalProducts where r.product == p.id {
                 guard let c = s.competitors.first(where: { $0.id == r.lab }) else { continue }
-                entrants.append((r.lab, quality(p, s.labDomains[r.lab]), c.brand, reach(api: c.apiShare, consumer: c.consumerShare, agents: c.agentShare)))
+                entrants.append((r.lab, quality(p, s.labDomains[r.lab]) + Nations.productBonus(s, lab: r.lab, product: p.id),   // 3.7: specialists
+                                 c.brand, reach(api: c.apiShare, consumer: c.consumerShare, agents: c.agentShare)))
             }
             guard !entrants.isEmpty else { continue }
             let top = entrants.map(\.q).max() ?? 0
@@ -282,7 +283,7 @@ enum ProductLines {
             for c in s.competitors where c.alive && !c.models.isEmpty {
                 guard !s.rivalProducts.contains(where: { $0.lab == c.id && $0.product == p.id }),
                       let v = s.labDomains[c.id], p.needs.allSatisfy({ v[$0.0] >= $0.1 }) else { continue }
-                let keen = appetite(p, c)
+                let keen = min(1, appetite(p, c) * Nations.appetiteFactor(s, lab: c.id, product: p.id))   // 3.7: specialists launch sooner
                 guard keen > 0, RivalIntel.unit("products|\(s.lifecycleSalt)|\(c.id)|\(p.id)|\(ym.year)-\(ym.month)") < 0.3 * keen else { continue }
                 s.rivalProducts.append(RivalProduct(lab: c.id, product: p.id, launched: s.date, quality: quality(p, v)))
                 if announce {

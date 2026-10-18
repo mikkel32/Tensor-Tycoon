@@ -15,8 +15,8 @@ checks pass (`--forecast-check` identical, save fixtures load, playtests sane) a
 | 8 | Science labs and experiments | Merged (8 lab kinds in 13 cities, 41 projects in 12 fields, 10 failing stages, discoveries that move real numbers, IP portfolio, rival science, 6 licensed photos) | No |
 | 9 | Semiconductor industry (fab, yields, packaging, sales) | Merged (alien fab line; full industry: design teams, nodes to A10-class, 4 foundries, own fabs, packaging and HBM bottlenecks, yields and binning, supply shocks, sales incl. to rivals) | No |
 | 10 | Autonomous agent organisations | Merged (14 organisation kinds, teams and supervisors, verification, scaling with overhead, real cross-system effects) | No |
-| 11 | Smarter rivals | Largely done in 3.3 (strategies, lifecycle, books); specialisation response wave 2 | No |
-| 12 | National economies and AI strategies | Partly (world model, regions); national strategies wave 2 | No |
+| 11 | Smarter rivals | Merged (3.3 strategies, lifecycle, books; now specialisations chosen with a lag and explained, lagged answers to your launches) | No |
+| 12 | National economies and AI strategies | Merged (7 regions with 7 strategy dials reviewed each January with reasons, regional economies, explained effects on your costs, hiring and demand) | No |
 | 13 | Subsidiaries | Merged (7 kinds, own CEO and P&L, sell stakes, list, spin off, fold in, transfer-price audits) | No |
 | 14 | UI design system pass | Partly (Today dashboard, help); full pass wave 3 | No |
 | 15–17 | Images: reuse + licensed new photos with credits | Countries' photos in wave 1; more in later waves | No |

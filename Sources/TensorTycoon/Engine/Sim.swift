@@ -488,6 +488,7 @@ enum Sim {
             let util = utilByAccel[a.id] ?? 0
             let draw = Economy.chipKW(a) * Double(bt.count) * (0.3 + 0.65 * util)
             power += draw * site.pue * 24 * site.powerPrice * (site.kind == .colo || site.kind == .datacenter ? grid : 1)
+                * Nations.powerFactor(s, location: site.locationID)   // 3.7: energy policy where the site is
         }
         power *= max(0.5, 1 - s.traits.power) * XenoScience.powerFactor(s) * AgentOrgs.powerFactor(s) * Science.powerFactor(s)   // 3.6: infrastructure teams; energy discoveries
         let sites = s.sites.reduce(0) { $0 + $1.monthlyFee } / 30.4

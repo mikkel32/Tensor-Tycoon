@@ -489,6 +489,9 @@ enum ScreenGuide {
         case .models:
             Hint(title: "Models & Serving", text: "Release finished models, give them serving chips and set API prices. A released model without chips can't take any traffic.",
                       firstStep: "Release your best model, then deploy chips to it, or let the capacity delegate do it.", term: .servingCapacity)
+        case .nations:   // 3.7: national AI strategies
+            Hint(title: "Nations", text: "Every region runs a national AI strategy — subsidies, sovereign programmes, export controls, data and safety rules, visas, energy — and reviews it each January. The dials change what chips, power, hiring and contracts cost you.",
+                      firstStep: "Check Effects on you, then see which rival labs specialise in what you sell.", term: nil)
         case .families:   // 3.5: model families
             Hint(title: "Model Families", text: "A lineup instead of one flagship: distil cheaper tiers from your best model, upgrade models with post-training passes, and let each tier serve the traffic it's priced for.",
                       firstStep: "Distil a Spark tier from your flagship, then route the chat app's free users to it.", term: .servingCapacity)

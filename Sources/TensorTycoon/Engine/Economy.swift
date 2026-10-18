@@ -69,6 +69,7 @@ enum Economy {
         if a.cls == .consumer { mult = s.market.consumerGPUPrice }
         if a.cls == .workstation { mult = (s.market.consumerGPUPrice + s.market.hardwarePrice) / 2 }
         return base * dep * mult * (1 - dealDiscount(a, s)) * (1 - Partners.discount(a, s)) * (1 - s.traits.hardware)
+            * Nations.chipFactor(s)   // 3.7: subsidies at home, export controls aimed at you
     }
 
     static func rent(_ a: Accelerator, _ s: GameState) -> Double? {
@@ -77,7 +78,7 @@ enum Economy {
         let decayed = max(a.rentFloor, base * pow(0.78, age))
         let mult = a.cls == .consumer ? (s.market.consumerGPUPrice + s.market.rentPrice) / 2 : s.market.rentPrice
         return decayed * mult * (1 - dealDiscount(a, s)) * (1 - Partners.discount(a, s)) * (1 - s.traits.hardware)
-            * (s.lawsPassed.contains("nairr") ? 0.95 : 1)
+            * (s.lawsPassed.contains("nairr") ? 0.95 : 1) * Nations.chipFactor(s)   // 3.7
     }
 
     static func resaleValue(_ a: Accelerator, _ s: GameState, unitCost: Double, purchased: Date) -> Double {
