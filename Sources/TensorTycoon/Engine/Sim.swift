@@ -38,6 +38,7 @@ enum Sim {
         Events.daily(&s)
         if GameCalendar.components(s.date).day % 7 == 3 { BenchLife.weekly(&s) }
         World.daily(&s)   // 3.4: world and stakeholders
+        AdvancedProjects.daily(&s)   // 3.5: advanced projects
         if GameCalendar.components(s.date).day % 7 == 5 { Pulse.weekly(&s) }   // 3.4: industry chatter and buzz
 
         if s.date.ym != oldMonth { Monthly.close(&s) }
@@ -251,7 +252,7 @@ enum Sim {
     // MARK: - Research
 
     static func researchRate(_ s: GameState, _ b: ResearchBonuses) -> Double {
-        let people = s.employees.filter { $0.role == .researcher }.reduce(0.0) { $0 + pow($1.skill / 50, 1.3) * $1.traitMultiplier * (0.6 + $1.morale / 250) }
+        let people = s.employees.filter { $0.role == .researcher && !s.advanced.seconded.contains($0.id) }.reduce(0.0) { $0 + pow($1.skill / 50, 1.3) * $1.traitMultiplier * (0.6 + $1.morale / 250) }
         let t = s.traits
         let founder = 0.8 * (1 + t.founderRP)
         var computePF = 0.0

@@ -1073,6 +1073,7 @@ enum ResearchCatalog {
     static let virtual: [ResearchItem] = SignatureSecret.virtualItems + Breakthroughs.fusionItems + XenoCatalog.virtualItems
         + FrontierProgram.virtualItems + Moonshots.virtualItems   // 3.4: late game
         + FoundingKit.virtualItems   // 3.5: founding kit and RL lab
+        + AdvancedProjects.virtualItems   // 3.5: advanced projects
 
     static let virtualByID: [String: ResearchItem] = Dictionary(uniqueKeysWithValues: virtual.map { ($0.id, $0) })
 

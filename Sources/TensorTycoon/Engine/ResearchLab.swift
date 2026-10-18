@@ -448,6 +448,10 @@ extension GameState {
             ids.insert(id)
             res[id] = scale
         }
+        for (id, scale) in AdvancedProjects.bonusSources(self) {   // 3.5: delivered government programmes
+            ids.insert(id)
+            res[id] = scale
+        }
         return ResearchCatalog.bonuses(ids, results: res, mastery: exoticMastery)
     }
 }

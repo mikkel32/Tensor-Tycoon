@@ -106,6 +106,7 @@ enum Stakeholders {
         let sites = s.sites.filter { $0.kind != .garage && $0.isReady(s.date) && Region.of(location: $0.locationID) == r }.count
         if sites > 0 { add("Your datacenters there", min(6, 3 * Double(sites))) }
         if let until = s.world.ties[r.rawValue], until > s.date { add("Sovereign AI deal", 5) }
+        add("Government programmes", AdvancedProjects.standingBonus(s, r))   // 3.5
         return (clamp(50 + parts.reduce(0) { $0 + $1.value }, 5, 95), parts)
     }
 

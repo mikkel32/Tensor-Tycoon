@@ -1253,6 +1253,9 @@ struct GameState: Codable {
     @D var hqCity: String = "sf"
     /// Grants, offers and incentives from home so far (HQ).
     @D var hq: HQState = HQState()
+    // 3.5: advanced projects
+    /// Government contracts: the marketplace, your bids, programmes, classified facilities and clearances (AdvancedProjects).
+    @D var advanced: AdvancedState = AdvancedState()
 
     var totalShares: Double {
         founderShares + employeePoolShares + publicShares + holdings.reduce(0) { $0 + $1.shares }

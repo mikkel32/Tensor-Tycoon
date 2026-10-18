@@ -328,6 +328,7 @@ enum PTPlay {
         sum.importantAvg = rows.isEmpty ? 0 : Double(rows.reduce(0) { $0 + $1.important }) / Double(rows.count)
 
         if mode != "quiet" { printGame(rows, sum, bot, s, mode: mode) }
+        if flags.contains("advproj") { for line in AdvancedProjects.report(s) { print(line) } }
         lastState = s
         return sum
     }
@@ -458,6 +459,7 @@ enum PTPlay {
             // 3.4: launch product lines once they open, when the launch is small next to the cash pile.
             for p in ProductLines.catalog where ProductLines.status(p, s).ok && !s.productLines.contains(where: { $0.id == p.id })
                 && s.cash > 10 * ProductLines.launchCost(p, s.year) { _ = s.launchProduct(p.id) }
+            if bot.flags.contains("advproj") { AdvancedProjects.botAct(&s) }   // 3.5: bid on one government contract at a time
         }
     }
 
