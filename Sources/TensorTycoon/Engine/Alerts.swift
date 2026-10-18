@@ -197,6 +197,7 @@ enum Alerts {
         Semis.bugKind: 0, Semis.shockKind: 0, Semis.orderKind: 2, Semis.rivalKind: 1,   // 3.5: semiconductors
         "sci_report": 0,   // 3.6: science labs (patent and license)
         Families.decisionKind: 0,   // 3.5: model families — route free chat users to a cheaper tier
+        Nations.poachKind: 0,   // 3.7: match a rival's offer to one of your researchers
     ]
 
     static func isUrgent(_ d: Decision) -> Bool { inboxDefaults[d.kind] == nil }
@@ -214,6 +215,7 @@ enum Alerts {
         "loss_spike": "Loss spikes in training", "contamination": "Benchmark contamination", "fault_storm": "Hardware fault storms",
         "train_bug": "Bugs found mid-run", "sycophancy": "Sycophancy after RLHF", "reward_hack": "Reward hacking in RL",
         "trade_secret": "Trade-secret suits over researchers you hired",
+        Nations.poachKind: "Rival offers to one of your researchers",   // 3.7
         AdvancedProjects.secrecyKind: "Classified discoveries from government programmes",
     ]
 

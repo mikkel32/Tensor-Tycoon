@@ -66,7 +66,7 @@ enum AdvancedProjects {
         let strict = w.strictness.indices.contains(a.region.index) ? w.strictness[a.region.index] : 30
         let concernMult = 1 + a.kind.concernSensitivity * (w.concern - 25) / 50
         let rulesMult = 1 + a.kind.rulesSensitivity * (strict - 40) / 60
-        return budgetScale(s.year) * a.budget * clamp(concernMult * rulesMult, 0.5, 2.2)
+        return budgetScale(s.year) * a.budget * clamp(concernMult * rulesMult, 0.5, 2.2) * Nations.agencyFactor(s, a.region)   // 3.7: sovereign-AI programmes
     }
 
     /// Cloud price of one H100-equivalent for a month.
@@ -259,11 +259,13 @@ enum AdvancedProjects {
             case "sirocco": interest += a.region == .eu ? 0.4 : -0.1
             default: break
             }
+            let focus = Nations.bidBoost(s, lab: c.id, agency: a)   // 3.7: specialists bid for the work they specialise in
+            interest += focus.interest
             if sol.template == "seedling" { interest *= 0.35 }   // big labs rarely chase seedlings
             guard roll(s, "rival|\(sol.id)|\(c.id)") < clamp(interest, 0.02, 0.95) else { continue }
             let aggressive = c.def.priceMult < 0.8 ? 0.05 : 0
             let price = 0.84 + 0.14 * roll(s, "rivalprice|\(sol.id)|\(c.id)") - aggressive
-            bids.append(RivalBid(lab: c.id, tech: tech + (c.brand - 40) / 15, price: price))
+            bids.append(RivalBid(lab: c.id, tech: tech + (c.brand - 40) / 15 + focus.tech, price: price))
         }
         return Array(bids.sorted { $0.tech > $1.tech }.prefix(limit))
     }

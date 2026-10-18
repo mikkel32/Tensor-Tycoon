@@ -44,7 +44,7 @@ enum People {
 
     static func refreshCandidates(_ s: inout GameState) {
         s.candidates.removeAll { $0.expires < s.date }
-        let target = HQ.candidateTarget(s, 8 + min(8, s.employees.count / 20))
+        let target = Int((Double(HQ.candidateTarget(s, 8 + min(8, s.employees.count / 20))) * Nations.candidateFactor(s)).rounded())   // 3.7: talent visas
         while s.candidates.count < target { s.candidates.append(makeCandidate(&s)) }
     }
 
@@ -359,6 +359,8 @@ enum Events {
                 s.brand = max(0, s.brand - 6)
                 Sim.news(&s, "You lost the trade-secret case", "Damages of \(Fmt.money(d.amount * 2)). Brand −6.", .policy, important: true, good: false)
             }
+        case (Nations.poachKind, _):   // 3.7: a rival answers your launch by hiring
+            Nations.resolvePoach(&s, d, option: option)
         case ("hq_grant", _), ("hq_partner", _), ("hq_contract", _):   // 3.5: headquarters
             HQ.resolve(&s, d, option: option)
         case ("data_auction", _), ("data_collection", _), ("data_lawsuit", _):   // 3.6: data economy

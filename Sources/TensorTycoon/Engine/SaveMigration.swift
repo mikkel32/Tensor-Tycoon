@@ -59,6 +59,8 @@ enum SaveMigration {
         }
         // 3.5: alien programs in progress get unstuck and existing alien chips get their fab line.
         AlienFab.migrate(&s)
+        // 3.7: national strategies replayed to the save's year; rivals pick their first specialties.
+        Nations.bootstrap(&s)
     }
 
     /// Decodes a save, migrates it and plays 90 days on a copy, resolving decisions with their first option.

@@ -1304,6 +1304,11 @@ struct GameState: Codable {
     /// Model families, their tiers and the distillation / post-training jobs in progress (Families).
     @D var families: FamilyState = FamilyState()
 
+    // 3.7: nations and rivals
+    /// National AI strategies and economies by region, and rival labs' specialisations and answers to your launches
+    /// (Nations). Older saves decode empty and set up at the next month end.
+    @D var nations: NationsState = NationsState()
+
     var totalShares: Double {
         founderShares + employeePoolShares + publicShares + holdings.reduce(0) { $0 + $1.shares }
     }

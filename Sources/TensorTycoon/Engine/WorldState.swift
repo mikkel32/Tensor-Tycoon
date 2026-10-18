@@ -23,6 +23,8 @@ enum World {
         var politicalCapital: Double = 0
         /// Your own fleet (H100-equivalents).
         var playerH100e: Double = 0
+        /// 3.7: the pull of national AI strategies on adoption (Nations.adoptionPull; 0 in the replay of history).
+        var national: Double = 0
     }
 
     /// The best capability on the market: the frontier curve, or more if a released model (yours or a rival's) is ahead.
@@ -42,7 +44,8 @@ enum World {
             }
         }
         return Inputs(y: s.year, capability: c, chatMoment: s.chatMoment, pricePressure: s.market.apiPricePressure, openNearFrontier: open,
-                      passed: s.lawsPassed, failed: s.lawsFailed, politicalCapital: s.politicalCapital, playerH100e: Economy.h100e(s))
+                      passed: s.lawsPassed, failed: s.lawsFailed, politicalCapital: s.politicalCapital, playerH100e: Economy.h100e(s),
+                      national: Nations.adoptionPull(s))
     }
 
     /// Power per H100-equivalent of AI compute (kW), servers and cooling included: newer chips do more per watt.
@@ -88,7 +91,7 @@ enum World {
             let (mid, width, ceiling) = sector.curve
             let boost = w.boosts.indices.contains(k) ? w.boosts[k] : 0
             let target = min(0.98, ceiling * sigmoid((i.capability - mid) / width) * awareness * price
-                             * (1 - sector.caution * concernDrag) * (1 - sector.caution * ruleDrag) + boost)
+                             * (1 - sector.caution * concernDrag) * (1 - sector.caution * ruleDrag) * (1 + i.national) + boost)
             let a = w.adoption[k]
             w.adoption[k] = clamp(a + (target - a) * (target > a ? sector.speed : sector.speed * 0.4), 0, 0.99)
         }

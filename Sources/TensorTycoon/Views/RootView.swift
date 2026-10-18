@@ -166,6 +166,7 @@ struct ScreenRouter: View {
         case .semiconductors: SemiconductorsView()   // 3.5
         case .science: ScienceView()   // 3.6
         case .families: FamiliesView()   // 3.5: model families
+        case .nations: NationsView()   // 3.7: national AI strategies and economies
         }
     }
 }
