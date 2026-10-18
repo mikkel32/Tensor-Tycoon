@@ -152,8 +152,8 @@ enum Policy {
         default: break
         }
         let side = b.stance == 0 ? "" : (won ? " You backed the winning side." : " You were on the losing side.")
-        Sim.news(&s, "\(bill.title) \(passed ? "passes" : "fails")", "\(passed ? bill.ifPasses : bill.ifFails)\(side)",
-                 .policy, image: "stock_exchange", important: true, good: won ? true : nil)
+        Voices.billVote(&s, bill, passed: passed, sponsor: b.sponsor, title: "\(bill.title) \(passed ? "passes" : "fails")",
+                        body: "\(passed ? bill.ifPasses : bill.ifFails)\(side)", good: won ? true : nil)
     }
 }
 

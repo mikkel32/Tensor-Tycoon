@@ -300,6 +300,7 @@ enum RivalLifecycle {
         spec.efficiency = thesis.efficiency
         spec.culture = 0.6
         spec.site = "rented capacity near \(spec.hq)"
+        spec.ceo = Cast.founderName(s, key: key, hq: spec.hq)   // 3.4: a plausible name — sometimes someone the industry already knows
         var plays: [String: Double] = [:]
         let base: [RivalPlay: Double] = kind == .startup
             ? [.race: 0.4, .agents: 0.5, .enterprise: 0.5, .talentRaid: 0.3, .efficiency: 0.5, .alliance: 0.7, .consumer: 0.4, .priceWar: 0.3, .openGambit: 0.3, .lobby: 0.1]
@@ -333,6 +334,7 @@ enum RivalLifecycle {
         let thesis = pickThesis(s, key)
         let pgap = clamp((parent.models.map(\.c).max() ?? Macro.frontier(y) - 0.6) - Macro.frontier(y), -0.8, 0.1)
         var spec = baseSpec(s, kind: .spinout, key: key, thesis: thesis)
+        spec.ceo = Cast.spinoutFounder(s, from: parent.id, key: key)   // 3.4: someone who really worked there
         spec.parentID = parent.id
         spec.parentName = parent.def.name
         spec.archetype = "Spin-out of \(parent.def.name): \(thesis.line)"
@@ -354,7 +356,7 @@ enum RivalLifecycle {
         let post = Macro.frontierValuation(y) * (0.006 + 0.008 * roll(s, key + "post")) * appetite(s)
         let raised = post * (0.2 + 0.1 * roll(s, key + "raise"))
         let lead = pick(s, key + "lead", NameBank.investors)
-        let team = pick(s, key + "team", teams)
+        let team = Cast.team(s, founder: spec.ceo, parent: parent.id) ?? pick(s, key + "team", teams)
         let techs = (s.rivalTech[parent.id] ?? []).filter { ResearchCatalog.byID[$0] != nil }
         let carried = techs.isEmpty ? [] : [pick(s, key + "tech", techs)]
         // The people who leave are missed.
@@ -437,6 +439,7 @@ enum RivalLifecycle {
         var spec = baseSpec(s, kind: .sovereign, key: key, thesis: thesis)
         spec.name = n.name
         spec.hq = n.hq
+        spec.ceo = Cast.directorName(s, key: key, hq: n.hq)   // 3.4: someone from that country
         spec.symbol = n.symbol
         spec.backer = n.backer
         spec.site = n.site
@@ -491,7 +494,7 @@ enum RivalLifecycle {
             s.competitors[i].fundingFactor = RivalEconomy.fundingFactor(st.computePlan, s.competitors[i], s)
         }
         if !techs.isEmpty { s.rivalTech[spec.id] = techs }
-        Sim.news(&s, title, body, .competitor, image: spec.kind == .sovereign ? "hyperscale_campus" : "sf_skyline", important: true)
+        Voices.founded(&s, spec, event: event, title: title, body: body, image: spec.kind == .sovereign ? "hyperscale_campus" : "sf_skyline")   // 3.4: its founder joins the cast
         record(&s, event, lab: spec.id, other: spec.parentID, title: title, body: body, amount: spec.kind == .sovereign ? spec.stateBudget * 12 : cash)
         if spec.kind != .sovereign, let i = s.competitors.indices.last { RivalEconomy.offerStake(&s, i, amount: cash, post: post) }
     }
@@ -524,7 +527,7 @@ enum RivalLifecycle {
                 let bidder = s.competitors[b].def.name
                 let body = "The French government blocked \(bidder)'s \(Fmt.money(price)) bid for \(c.def.name), citing European AI sovereignty. "
                     + "The lab stays independent — for now."
-                Sim.news(&s, "France blocks \(bidder)'s bid for \(c.def.name)", body, .competitor)
+                Voices.labStory(&s, "blocked", lab: c.id, other: s.competitors[b].id, title: "France blocks \(bidder)'s bid for \(c.def.name)", body: body, .competitor)
                 record(&s, .blocked, lab: c.id, other: s.competitors[b].id, title: "\(bidder)'s bid blocked by France", body: body, amount: price)
                 return true
             }
@@ -675,7 +678,8 @@ enum RivalLifecycle {
         let body = "\(buyer.def.name) \(distressed ? "picks up the struggling lab" : "buys its smaller rival") for \(Fmt.money(price)): \(Fmt.int(Int(Double(target.headcount) * 0.6))) staff, "
             + "\(Fmt.count(target.computeH100e)) H100e of compute\(techs > 0 ? " and \(techs) secret technique\(techs == 1 ? "" : "s")" : ""). "
             + "Expect \(buyer.def.name)'s next model to benefit.\(paid > 0 ? " Your stake pays \(Fmt.money(paid))." : "")"
-        Sim.news(&s, "\(buyer.def.name) buys \(target.def.name)", body, .competitor, image: "nvidia_hq", important: true)
+        Voices.labStory(&s, "takeover", lab: target.id, other: buyer.id, title: "\(buyer.def.name) buys \(target.def.name)", body: body, .competitor,
+                        image: "nvidia_hq", important: true, vars: ["price": Fmt.money(price)])
         record(&s, .acquired, lab: target.id, other: buyer.id, title: "Bought by \(buyer.def.name)", body: body, amount: price)
     }
 
@@ -719,7 +723,8 @@ enum RivalLifecycle {
         s.competitors[a].headcount = Int(Double(s.competitors[a].headcount) * 0.9)
         let body = "Neither could keep up alone. The combined lab keeps the \(survivor.def.name) name, \(Fmt.money(max(0, s.competitors[a].cash))) in cash and "
             + "\(Fmt.count(s.competitors[a].computeH100e)) H100e of compute; about one in ten jobs goes.\(paid > 0 ? " Your stake in \(other.def.name) is bought out for \(Fmt.money(paid))." : "")"
-        Sim.news(&s, "\(survivor.def.name) and \(other.def.name) merge", body, .competitor, image: "stock_exchange", important: true)
+        Voices.labStory(&s, "merge", lab: other.id, other: survivor.id, title: "\(survivor.def.name) and \(other.def.name) merge", body: body, .competitor,
+                        image: "stock_exchange", important: true)
         record(&s, .merged, lab: other.id, other: survivor.id, title: "Merged into \(survivor.def.name)", body: body, amount: other.valuation)
     }
 
@@ -729,7 +734,7 @@ enum RivalLifecycle {
         close(&s, i, by: "", note: "Wound down \(s.date.gameShort)")
         let body = "\(c.def.name) couldn't keep up: its best model trails the frontier by over a year and too few customers pay for it. "
             + "It returns what's left of its cash to investors; its researchers are on the market.\(paid > 0 ? " Your stake gets \(Fmt.money(paid)) back." : "")"
-        Sim.news(&s, "\(c.def.name) winds down", body, .competitor, important: true)
+        Voices.labStory(&s, "winddown", lab: c.id, title: "\(c.def.name) winds down", body: body, .competitor, important: true)
         record(&s, .shutdown, lab: c.id, title: "Wound down", body: body)
     }
 
@@ -759,6 +764,7 @@ enum RivalLifecycle {
         s.competitors[t].project = nil
         s.competitors[t].play = ""
         s.pendingDeals.removeAll { $0.targetID == id }
+        Cast.labClosed(&s, id)   // 3.4: its people move on
     }
 
     // MARK: History

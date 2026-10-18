@@ -207,9 +207,8 @@ enum RivalEconomy {
             if r.post > 0 { s.competitors[i].valuation = r.post }
             let name = s.competitors[i].def.name
             if !r.quiet && r.amount > 0 {
-                Sim.news(&s, "\(name) raises \(Fmt.money(r.amount))\(r.post > 0 ? " at \(Fmt.money(r.post))" : "")",
-                         "\(r.label) led by \(r.lead). \(r.kind == .strategic ? "A strategic investor: much of the money comes back as cloud and chip purchases." : "")",
-                         .finance, image: "stock_exchange")
+                Voices.historicRound(&s, i, amount: r.amount, title: "\(name) raises \(Fmt.money(r.amount))\(r.post > 0 ? " at \(Fmt.money(r.post))" : "")",
+                                     body: "\(r.label) led by \(r.lead). \(r.kind == .strategic ? "A strategic investor: much of the money comes back as cloud and chip purchases." : "")")
             } else if !r.quiet && r.kind == .tender {
                 Sim.news(&s, "\(name) staff sell shares at \(Fmt.money(r.post))", "A secondary sale values the lab at \(Fmt.money(r.post)).", .finance, image: "stock_exchange")
             }
@@ -468,9 +467,10 @@ enum RivalEconomy {
             s.competitors[i].distressMonths = 0
             // A down round costs the lab people: options under water.
             if down { s.competitors[i].turmoil += 0.3 }
-            Sim.news(&s, "\(c.def.name) raises \(Fmt.money(amount)) at \(Fmt.money(post))\(down ? " — a down round" : "")",
-                     "\(label) led by \(lead). \(down ? "Investors marked the lab down from \(Fmt.money(c.lastRound?.postMoney ?? 0))." : burn > 0 ? "It buys about \(Int(min(99, (c.cash + amount) / burn))) months of runway." : "Most of it goes on compute.")",
-                     .finance, image: "stock_exchange", good: nil)
+            Voices.round(&s, i, amount: amount, post: post, label: label, lead: lead, down: down, prevPost: c.lastRound?.postMoney ?? 0,
+                         runway: burn > 0 ? Int(min(99, (c.cash + amount) / burn)) : nil,
+                         title: "\(c.def.name) raises \(Fmt.money(amount)) at \(Fmt.money(post))\(down ? " — a down round" : "")",
+                         body: "\(label) led by \(lead). \(down ? "Investors marked the lab down from \(Fmt.money(c.lastRound?.postMoney ?? 0))." : burn > 0 ? "It buys about \(Int(min(99, (c.cash + amount) / burn))) months of runway." : "Most of it goes on compute.")")
             offerStake(&s, i, amount: amount, post: post)
         } else if runway < 4 {
             distress(&s, i)
@@ -488,8 +488,8 @@ enum RivalEconomy {
         s.competitors[i].priceCut = max(-0.2, c.priceCut - 0.05)
         switch s.competitors[i].distressMonths {
         case 1:
-            Sim.news(&s, "\(c.def.name) struggles to raise", "Investors passed on its latest round. Layoffs and price rises follow; its runway is down to a few months.",
-                     .finance, image: "stock_exchange", important: true)
+            Voices.labStory(&s, "distress", lab: c.id, title: "\(c.def.name) struggles to raise",
+                            body: "Investors passed on its latest round. Layoffs and price rises follow; its runway is down to a few months.", .finance, image: "stock_exchange", important: true)
         case 2:
             fireSaleOffer(&s, i)
         case 4...:
@@ -517,14 +517,14 @@ enum RivalEconomy {
             RivalLifecycle.close(&s, i, by: "", note: "Acquired by \(buyer) for \(Fmt.money(price))")
             var body = "\(buyer.prefix(1).uppercased() + buyer.dropFirst()) buys the struggling lab for \(Fmt.money(price)), mostly for its people."
             if paid > 0 { body += " Your \(Fmt.pct(stake)) stake pays \(Fmt.money(paid))." }
-            Sim.news(&s, "\(c.def.name) sold to \(buyer)", body, .competitor, image: "nvidia_hq", important: true)
+            Voices.labStory(&s, "soldgiant", lab: c.id, title: "\(c.def.name) sold to \(buyer)", body: body, .competitor, image: "nvidia_hq", important: true, vars: ["giant": buyer])
             RivalLifecycle.record(&s, .acquired, lab: c.id, title: "Sold to \(buyer)", body: body, amount: price)
         } else if roll < 75 {
             let stake = (s.rivalStakes[c.id] ?? 0) > 0
             RivalLifecycle.payout(&s, i, 0)
             RivalLifecycle.close(&s, i, by: "", note: "Filed for bankruptcy on \(s.date.gameShort)", bankrupt: true)
             let body = "The lab ran out of money. Its models go offline and its researchers are on the market — a good moment to hire.\(stake ? " Your stake is worth nothing." : "")"
-            Sim.news(&s, "\(c.def.name) files for bankruptcy", body, .competitor, image: "stock_exchange", important: true, good: nil)
+            Voices.labStory(&s, "bankrupt", lab: c.id, title: "\(c.def.name) files for bankruptcy", body: body, .competitor, image: "stock_exchange", important: true)
             RivalLifecycle.record(&s, .bankrupt, lab: c.id, title: "Filed for bankruptcy", body: body)
         } else {
             let post = c.valuation * 0.4
@@ -536,7 +536,7 @@ enum RivalEconomy {
             s.competitors[i].valuation = post
             s.competitors[i].distressMonths = 0
             let body = "A rescue round led by \(lead) keeps the lab alive at 40% of its old value. Early investors are wiped out."
-            Sim.news(&s, "\(c.def.name) rescued at \(Fmt.money(post))", body, .finance, image: "stock_exchange")
+            Voices.labStory(&s, "rescue", lab: c.id, title: "\(c.def.name) rescued at \(Fmt.money(post))", body: body, .finance, image: "stock_exchange", vars: ["post": Fmt.money(post)])
             RivalLifecycle.record(&s, .rescued, lab: c.id, title: "Rescued at \(Fmt.money(post))", body: body, amount: amount)
         }
     }
@@ -557,7 +557,7 @@ enum RivalEconomy {
         s.competitors[i].rounds.append(RivalRound(date: s.date, label: "IPO", amount: raised, postMoney: value, lead: "public markets", kind: .ipo))
         s.market.hype += 0.04
         let body = "It raised \(Fmt.money(raised)) and \(pop > 1.15 ? "popped \(Int((pop - 1) * 100))% on its first day" : "traded flat"). AI stocks rally.\((s.rivalStakes[c.id] ?? 0) > 0 ? " Your stake is now liquid." : "")"
-        Sim.news(&s, "\(c.def.name) goes public at \(Fmt.money(value))", body, .finance, image: "stock_exchange", important: true)
+        Voices.ipo(&s, i, value: value, title: "\(c.def.name) goes public at \(Fmt.money(value))", body: body)
         RivalLifecycle.record(&s, .ipo, lab: c.id, title: "Went public at \(Fmt.money(value))", body: body, amount: value)
     }
 
@@ -583,9 +583,8 @@ enum RivalEconomy {
         s.market.hardwarePrice = max(0.5, s.market.hardwarePrice - 0.08)
         s.market.rentPrice = max(0.5, s.market.rentPrice - 0.08)
         for i in s.competitors.indices where !s.competitors[i].acquired { s.competitors[i].valuation *= 0.7 }
-        Sim.news(&s, "The AI correction: \(Fmt.money(before * 0.3)) wiped off AI valuations",
-                 "Investors balked at paying \(Int(s.industryMultiple))× revenue. Rounds are smaller, down rounds are back and weaker labs may not survive — but GPUs and cloud capacity just got cheaper.",
-                 .finance, image: "stock_exchange", important: true, good: false)
+        Voices.correction(&s, wiped: before * 0.3, title: "The AI correction: \(Fmt.money(before * 0.3)) wiped off AI valuations",
+                          body: "Investors balked at paying \(Int(s.industryMultiple))× revenue. Rounds are smaller, down rounds are back and weaker labs may not survive — but GPUs and cloud capacity just got cheaper.")
     }
 
     // MARK: Your stakes and compute deals

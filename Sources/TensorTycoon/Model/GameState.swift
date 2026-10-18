@@ -1142,6 +1142,17 @@ struct GameState: Codable {
     @D var pendingDeals: [RivalDeal] = []
     /// Keys the lifecycle's hashed rolls to this game (set once, from the RNG's state, without drawing from it).
     @D var lifecycleSalt: String = ""
+    // 3.4: people of AI
+    /// The industry's notable people — lab leaders, researchers, analysts, reporters, officials, critics — and yours (Cast).
+    @D var cast: [CastMember] = []
+    /// Industry chatter, newest first, capped (Pulse).
+    @D var pulse: [PulsePost] = []
+    /// Lab ID (or "player") → attention and tone over the last ~60 days, from the Pulse's weekly pass.
+    @D var buzz: [String: LabBuzz] = [:]
+    /// What was said lately and by whom — templates, quotes, posts, topics — so the same words don't come round too soon.
+    @D var voiceRecent: [String: [String]] = [:]
+    /// Keys the people layer's hashed rolls to this game (set once, from the RNG's state, without drawing from it).
+    @D var peopleSalt: String = ""
 
     var totalShares: Double {
         founderShares + employeePoolShares + publicShares + holdings.reduce(0) { $0 + $1.shares }

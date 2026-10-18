@@ -83,9 +83,8 @@ enum SafetyFramework {
             s.models[i].unsafeRelease = true
             s.brand = max(0, s.brand - (t == .critical ? 10 : 5))
             s.regulatoryFlags.insert("unsafe_release")
-            Sim.news(&s, "Safety researchers alarmed by \(m.name)",
-                     "It crossed the \(t.label) threshold but shipped with a safety score of \(Int(m.safety)) (needs \(Int(t.requiredSafety))). Expect more misuse incidents and regulatory scrutiny.",
-                     .company, important: true, good: false)
+            Voices.unsafeRelease(&s, model: m.name, title: "Safety researchers alarmed by \(m.name)",
+                                 body: "It crossed the \(t.label) threshold but shipped with a safety score of \(Int(m.safety)) (needs \(Int(t.requiredSafety))). Expect more misuse incidents and regulatory scrutiny.")
         }
     }
 }

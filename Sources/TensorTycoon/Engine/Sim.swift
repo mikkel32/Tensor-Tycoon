@@ -35,6 +35,7 @@ enum Sim {
         Finance.daily(&s)
         Events.daily(&s)
         if GameCalendar.components(s.date).day % 7 == 3 { BenchLife.weekly(&s) }
+        if GameCalendar.components(s.date).day % 7 == 5 { Pulse.weekly(&s) }   // 3.4: industry chatter and buzz
 
         if s.date.ym != oldMonth { Monthly.close(&s) }
         Achievements.check(&s)

@@ -96,8 +96,8 @@ enum SecurityOps {
             // Criminals leak or sell the weights: copies everywhere.
             s.market.apiPricePressure = max(0.4, s.market.apiPricePressure - 0.08)
             s.brand = max(0, s.brand - 8)
-            Sim.news(&s, "\(m.name) weights leaked online", "\(who) got the weights out and posted them. Free copies undercut your API; brand −8.",
-                     .company, image: "network", important: true, good: false)
+            Voices.leak(&s, model: m.name, stolen: false, title: "\(m.name) weights leaked online",
+                        body: "\(who) got the weights out and posted them. Free copies undercut your API; brand −8.", cat: .company)
         } else {
             let candidates = s.competitors.filter { !$0.acquired && s.year >= $0.def.founded.decimal }
             let lab = candidates.first { $0.id == "dragonlake" } ?? candidates.randomElement(using: &s.rng)
@@ -111,7 +111,7 @@ enum SecurityOps {
                 s.month.costOther += fine
                 body += " Losing a model above the High capability line cost \(Fmt.money(fine)) in penalties."
             }
-            Sim.news(&s, "State hackers steal \(m.name)", body, .policy, image: "network", important: true, good: false)
+            Voices.leak(&s, model: m.name, stolen: true, title: "State hackers steal \(m.name)", body: body, cat: .policy)
         }
     }
 }

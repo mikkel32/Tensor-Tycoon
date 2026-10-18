@@ -135,6 +135,7 @@ enum NewGame {
             s.researchQueue.removeAll { $0 == "custom_silicon" }
         }
         Board.refill(&s)
+        Cast.seed(&s)   // 3.4: the people of AI
         s.market.interestRate = Macro.historicalRate(y) ?? 3.4
 
         // Welcome news

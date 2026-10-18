@@ -199,11 +199,13 @@ enum StrategyEvents {
                 s.employees[i].morale = 100
                 s.employees[i].skill = min(100, s.employees[i].skill + 2)
                 Sim.news(&s, "\(name) becomes Chief Scientist", "A 0.5% grant keeps your best mind at home.", .company, good: true)
+                Cast.promotedAtHome(&s, s.employees[i], title: "Chief scientist")   // 3.4
             } else if o == 1 {
                 s.employees[i].salary *= 1.5
                 s.employees[i].morale = min(100, s.employees[i].morale + 25)
                 Sim.news(&s, "\(name) stays", "A big raise did it — for now.", .company)
             } else {
+                Cast.leftYou(&s, s.employees[i], to: "")   // 3.4: the founder-to-be joins the cast
                 s.employees.remove(at: i)
                 s.brand = min(100, s.brand + 1)
                 Sim.news(&s, "\(name)\(RivalLifecycle.alumniSuffix)", "Alumni of \(s.companyName) are becoming a thing. Brand +1.", .company)
@@ -266,6 +268,7 @@ enum StrategyEvents {
             Sim.news(&s, "Retention bonuses paid", "Your top researchers stay put.", .company, good: true)
         case ("talent_raid", _):
             let top = s.employees.filter { $0.role == .researcher }.sorted { $0.skill > $1.skill }.prefix(3).map(\.id)
+            for (k, e) in s.employees.filter({ top.contains($0.id) }).enumerated() { Cast.leftYou(&s, e, to: d.ref, why: "in a talent raid", pulse: k == 0) }   // 3.4
             s.employees.removeAll { top.contains($0.id) }
             if let i = s.competitors.firstIndex(where: { $0.id == d.ref }) {
                 s.competitors[i].brand = min(100, s.competitors[i].brand + 3)

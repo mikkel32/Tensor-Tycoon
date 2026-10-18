@@ -250,8 +250,7 @@ enum RivalStrategy {
         case .alliance where live:
             ally(&s, i)
         case .priceWar:
-            Sim.news(&s, "\(name) starts a price war", "\(reason) It is cutting API prices sharply; expect token prices across the market to fall.",
-                     .competitor, important: true, good: false)
+            Voices.priceWar(&s, i, title: "\(name) starts a price war", body: "\(reason) It is cutting API prices sharply; expect token prices across the market to fall.", monthly: false)
             if s.models.contains(where: { $0.released && !$0.retired && $0.api }) {
                 Alerts.raise(&s, .priceWar, key: def.id, title: "\(name) starts a price war",
                              body: "Its API prices fall up to 45%. Match on your most exposed model, hold and lean on quality, or move upmarket to enterprise.",
@@ -281,6 +280,7 @@ enum RivalStrategy {
             RivalIntel.add(&s, def.id, s.competitors[i].releaseCount, kind: "strategy", reliability: q > 0.45 ? .credible : .speculative,
                            title: "\(name): \(play.title.lowercased())", body: "\(reason) \(play.effect)")
         }
+        Pulse.play(&s, i)   // 3.4: the industry notices
     }
 
     /// Ongoing effects of the current play.
@@ -324,8 +324,8 @@ enum RivalStrategy {
         s.market.apiPricePressure = max(0.5, s.market.apiPricePressure - 0.06)
         if def.openWeights {
             s.competitors[i].brand = min(100, s.competitors[i].brand + 3)
-            Sim.news(&s, "\(def.name) frees \(latest.name) for any use", "\(s.competitors[i].playReason) A fully permissive licence and free hosted inference for developers. Token prices fall.",
-                     .competitor, important: true, good: false)
+            Voices.openRelease(&s, i, model: latest.name, title: "\(def.name) frees \(latest.name) for any use",
+                               body: "\(s.competitors[i].playReason) A fully permissive licence and free hosted inference for developers. Token prices fall.")
             return
         }
         var m = CompetitorModel(name: "\(latest.name) Open", date: s.date, c: latest.c - 0.15, reasoning: latest.reasoning, scores: [:], index: 0,
@@ -334,8 +334,8 @@ enum RivalStrategy {
         m.index = BenchmarkCatalog.index(Leaderboard.profile(m, def: def, boost: Competitors.boost(s, def.id, at: s.year)), set: Leaderboard.indexSet(s))
         s.competitors[i].openModels.append(m)
         if s.competitors[i].openModels.count > 4 { s.competitors[i].openModels.removeFirst() }
-        Sim.news(&s, "\(def.name) open-sources \(m.name)", "\(s.competitors[i].playReason) Anyone can now download a model only a step behind its flagship. Intelligence Index \(Fmt.score(m.index)). API prices across the industry come under pressure.",
-                 .competitor, important: true, good: false)
+        Voices.openRelease(&s, i, model: m.name, title: "\(def.name) open-sources \(m.name)",
+                           body: "\(s.competitors[i].playReason) Anyone can now download a model only a step behind its flagship. Intelligence Index \(Fmt.score(m.index)). API prices across the industry come under pressure.")
     }
 
     /// Put one of the lab's favoured bills in front of Congress. Returns whether it did.

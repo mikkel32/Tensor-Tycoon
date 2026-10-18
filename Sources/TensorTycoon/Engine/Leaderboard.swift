@@ -470,10 +470,10 @@ enum BenchLife {
             let top = ranked[0], second = ranked[1]
             s.benchSaturated[b.id] = s.date
             s.benchSaturatedBy[b.id] = "\(top.who.name) (\(top.who.lab))"
-            Sim.news(&s, "\(b.name) is saturated",
-                     "\(second.who.name) by \(second.who.lab) scored \(b.format(second.score)), joining \(top.who.name) (\(b.format(top.score))). "
-                     + "The benchmark no longer separates frontier models and rotates out of the Intelligence Index once a successor is ready.",
-                     .research, image: "wafer_closeup", important: false)
+            Voices.saturated(&s, bench: b.name, title: "\(b.name) is saturated",
+                             body: "\(second.who.name) by \(second.who.lab) scored \(b.format(second.score)), joining \(top.who.name) (\(b.format(top.score))). "
+                                 + "The benchmark no longer separates frontier models and rotates out of the Intelligence Index once a successor is ready.",
+                             labs: [top.who.lab, second.who.lab])
             if top.who.isPlayer { Achievements.unlock(&s, "bench_breaker") }
             spawnSuccessor(&s, for: b, all: s.benchmarks, fieldX: fieldX(b, pool, at: s.date), date: s.date, announce: true)
         }

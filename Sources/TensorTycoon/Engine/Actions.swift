@@ -125,8 +125,8 @@ extension GameState {
             site.phaseKW = phaseMW * 1000
             sites.append(site)
             let phasesNote = n > 1 ? " Built in \(n) phases of \(Fmt.watts(phaseMW * 1e6)); the first is energised \(ready.gameMonth), about \(Fmt.money(mw * Campus.capexPerMW(cooling, self))) in all." : " \(Fmt.money(capex)), online \(ready.gameMonth)."
-            Sim.news(&self, "Breaking ground: \(name)", "\(Fmt.watts(mw * 1e6)) \(cooling.rawValue.lowercased())-cooled campus in \(loc.name) on \(power.rawValue.lowercased()).\(phasesNote)",
-                     .company, image: "dc_construction", important: true)
+            Voices.groundbreaking(&self, site: name, mw: mw, place: loc.name, title: "Breaking ground: \(name)",
+                                  body: "\(Fmt.watts(mw * 1e6)) \(cooling.rawValue.lowercased())-cooled campus in \(loc.name) on \(power.rawValue.lowercased()).\(phasesNote)")
         }
         return nil
     }
@@ -349,8 +349,7 @@ extension GameState {
             // A second launch within 90 days of the last gets half the attention.
             if gain > 0, let last = lastLaunch, GameCalendar.daysBetween(last, date) < 90 { gain *= 0.5 }
             brand = clamp(brand + gain, 0, 100)
-            Sim.news(&self, "\(companyName) releases \(models[i].name)", "Intelligence Index \(Fmt.score(models[i].index)) — #\(rank) on the leaderboard.",
-                     .company, image: "sf_skyline", important: true, good: true)
+            Voices.playerLaunch(&self, i, rank: rank, previousBest: previousBest, style: launch)   // 3.4: told by people
             SafetyFramework.onRelease(&self, i)
             RivalIntel.playerReleased(&self, name: models[i].name, index: models[i].index)
         }
@@ -630,8 +629,8 @@ extension GameState {
         raiseOffers = []
         lastRaise = date
         valuation = post
-        Sim.news(&self, "\(o.roundName): \(Fmt.money(o.amount)) at \(Fmt.money(post)) post-money", "Led by \(o.investor). You now own \(Fmt.pct(founderStake)).",
-                 .finance, image: "sf_skyline", important: true, good: true)
+        Voices.playerRound(&self, round: o.roundName, amount: o.amount, post: post, lead: o.investor,
+                           title: "\(o.roundName): \(Fmt.money(o.amount)) at \(Fmt.money(post)) post-money", body: "Led by \(o.investor). You now own \(Fmt.pct(founderStake)).")
         return nil
     }
 
@@ -654,8 +653,8 @@ extension GameState {
         stock = [StockPoint(date: date, price: price), StockPoint(date: date, price: sharePrice)]
         valuation = sharePrice * totalShares
         rounds.append(FundingRound(name: "IPO", date: date, amount: raised, preMoney: v * 0.9, lead: "Public markets", percent: 0.12))
-        Sim.news(&self, "\(companyName) IPO raises \(Fmt.money(raised))", "Shares priced at \(Fmt.price(price)) and closed day one at \(Fmt.price(sharePrice)). Market cap \(Fmt.money(valuation)).",
-                 .finance, image: "stock_exchange", important: true, good: true)
+        Voices.playerIPO(&self, raised: raised, title: "\(companyName) IPO raises \(Fmt.money(raised))",
+                         body: "Shares priced at \(Fmt.price(price)) and closed day one at \(Fmt.price(sharePrice)). Market cap \(Fmt.money(valuation)).")
         return nil
     }
 
