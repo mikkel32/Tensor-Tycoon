@@ -220,6 +220,7 @@ enum Briefing {
         // 3.4: world and stakeholders — at most two lines, only when something moved a lot.
         for line in World.briefingLines(s) { if line.good == true { drivers.append(line) } else { risks.insert(line, at: min(1, risks.count)) } }
         for line in Corporate.briefingLines(s) { if line.good == false { risks.append(line) } else { drivers.append(line) } }   // 3.5: corporate
+        for line in Semis.briefingLines(s) { if line.good == false { risks.append(line) } else { drivers.append(line) } }   // 3.5: semiconductors
 
         // What to do: the Chief of Staff's top fixes.
         let actions = Advisor.items(s, pools: Economy.pools(s), set: set)

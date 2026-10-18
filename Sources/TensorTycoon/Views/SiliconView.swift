@@ -30,6 +30,9 @@ struct SiliconView: View {
                     }
                 }
             } else {
+                // 3.5: the full chip business (nodes, foundries, fabs, yields, sales) lives on its own page.
+                NextStep("Want to pick the process node, book foundry wafers, build a fab and sell chips to others? Run a full chip business on the Semiconductors page.",
+                         action: "Semiconductors", screen: .semiconductors)
                 let active = s.chipProjects.filter { !$0.done }
                 if active.isEmpty {
                     NewChipProgram(state: s)

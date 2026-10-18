@@ -57,9 +57,14 @@ struct ChipSalesView: View {
                                         .font(.caption).foregroundStyle(.secondary)
                                 }
                                 Spacer()
-                                Text(c.alien ? "Selling it ends exclusivity for this architecture." : "Only you can buy it today.").font(.caption).foregroundStyle(.secondary)
-                                Button("Start selling") { store.act("Sales line opened") { $0.openChipLine(c.id) } }
-                                    .buttonStyle(.borderedProminent)
+                                if Semis.isSemiChip(c.id) {   // 3.5: sold from the Semiconductors page
+                                    Text("Made and sold by your semiconductor business.").font(.caption).foregroundStyle(.secondary)
+                                    Button("Semiconductors") { store.open(.semiconductors) }
+                                } else {
+                                    Text(c.alien ? "Selling it ends exclusivity for this architecture." : "Only you can buy it today.").font(.caption).foregroundStyle(.secondary)
+                                    Button("Start selling") { store.act("Sales line opened") { $0.openChipLine(c.id) } }
+                                        .buttonStyle(.borderedProminent)
+                                }
                             }
                         }
                     }

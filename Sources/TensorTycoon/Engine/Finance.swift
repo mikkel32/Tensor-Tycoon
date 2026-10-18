@@ -166,6 +166,7 @@ enum Monthly {
         ResearchLab.monthly(&s)
         Moonshots.monthly(&s)   // 3.4: late game
         AdvancedProjects.monthly(&s)   // 3.5: advanced projects
+        Semis.monthly(&s)   // 3.5: semiconductors
         SecurityOps.monthly(&s)
         Policy.monthly(&s)
         RivalIntel.monthly(&s)

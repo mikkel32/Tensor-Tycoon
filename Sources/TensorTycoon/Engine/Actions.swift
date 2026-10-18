@@ -13,6 +13,7 @@ extension GameState {
         if a.liquid && !site.cooling.supportsLiquidChips { return "\(a.name) needs liquid cooling. \(site.name) is air-cooled." }
         if a.minOrder > 1 && count % a.minOrder != 0 { return "\(a.name) ships in racks of \(a.minOrder). Order a multiple of \(a.minOrder)." }
         let limit = Economy.allocationLimit(a, self)
+        if count > limit && Semis.isSemiChip(a.id) { return "Only \(Fmt.int(limit)) finished \(a.name) in stock. Make more on the Semiconductors page." }
         if count > limit { return "\(a.vendor.rawValue) will only allocate \(Fmt.int(limit)) units to a company your size right now. A supply agreement raises this." }
         let needKW = Economy.chipKW(a) * Double(count)
         let freeKW = site.capacityKW - Economy.siteLoadKW(self, siteID)
@@ -25,7 +26,8 @@ extension GameState {
         // Warrant rebates lower what the chips cost you (and what they'll resell for).
         let rebate = Partners.recordSpend(&self, accel: a, amount: total, purchase: true)
         if a.cls == .tpu { Achievements.unlock(&self, "tpu_owner") }
-        let days = AlienFab.isAlienChip(a.id) ? AlienFab.book(&self, count: count) : Economy.leadTimeDays(a, self)
+        let days = AlienFab.isAlienChip(a.id) ? AlienFab.book(&self, count: count)
+            : (Semis.isSemiChip(a.id) ? Semis.take(&self, a.id, count: count) : Economy.leadTimeDays(a, self))
         orders.append(HardwareOrder(accelID: accelID, count: count, siteID: siteID, unitCost: unit - rebate / Double(count), ordered: date,
                                     arrives: GameCalendar.addDays(date, days)))
         Sim.news(&self, "Ordered \(Fmt.int(count))× \(a.name)", "\(Fmt.money(total)) paid. Delivery in about \(days) days to \(site.name).", .company, image: a.image)

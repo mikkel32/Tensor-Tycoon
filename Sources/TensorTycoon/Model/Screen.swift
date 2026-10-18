@@ -13,6 +13,7 @@ enum Screen: String, CaseIterable, Identifiable, Hashable {
     case events   // 3.5: conferences, challenges, hackathons, records
     case advancedProjects   // 3.5
     case corporate   // 3.5: subsidiaries and corporate finance
+    case semiconductors   // 3.5: chip design, fabs, supply chain and sales
 
     var id: String { rawValue }
 
@@ -57,6 +58,7 @@ enum Screen: String, CaseIterable, Identifiable, Hashable {
         case .events: "Events & Records"
         case .advancedProjects: "Advanced Projects"
         case .corporate: "Corporate"
+        case .semiconductors: "Semiconductors"
         }
     }
 
@@ -101,6 +103,7 @@ enum Screen: String, CaseIterable, Identifiable, Hashable {
         case .events: "trophy.circle.fill"
         case .advancedProjects: "building.columns.circle"
         case .corporate: "building.2.crop.circle"
+        case .semiconductors: "circle.grid.cross.fill"
         }
     }
 
@@ -113,6 +116,7 @@ enum Screen: String, CaseIterable, Identifiable, Hashable {
         ("Infrastructure", [.hardware, .partners, .compute, .datacenters, .silicon]),
         ("R&D", [.research, .team, .data]),
         ("Business", [.market, .products, .advancedProjects, .chipSales, .finance, .funding, .corporate]),
+        ("Business", [.market, .products, .advancedProjects, .semiconductors, .chipSales, .finance, .funding]),
         ("More", [.help, .achievements, .credits]),
     ]
 }

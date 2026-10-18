@@ -275,6 +275,7 @@ enum Advisor {
             add("pay", .warning, "dollarsign.arrow.circlepath", "\(underpaid.count) people are paid well below market", "Morale falls and rivals poach. Give raises, or let the COO keep pay current.", .team,
                 fix: .raises, "Give raises")
         }
+        out += Semis.advisorItems(s)   // 3.5: semiconductors (nothing until you're in the business)
         let today = s.date
         return out.filter { item in s.snoozed[item.id].map { $0 <= today } ?? true }.sorted { $0.level > $1.level }
     }

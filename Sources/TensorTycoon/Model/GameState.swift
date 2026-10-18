@@ -1279,6 +1279,9 @@ struct GameState: Codable {
     @D var orgLevels: [String: Double] = [:]
     /// Techniques published by architecture research departments (each +0.3 points of training MFU).
     @D var orgTechniques: Int = 0
+    // 3.5: semiconductors
+    /// Your chip business: design teams, designs, wafer bookings, fabs, packaging and HBM, shocks, orders (Semis).
+    @D var semi: SemiState = SemiState()
 
     var totalShares: Double {
         founderShares + employeePoolShares + publicShares + holdings.reduce(0) { $0 + $1.shares }

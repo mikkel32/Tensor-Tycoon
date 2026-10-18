@@ -89,7 +89,7 @@ enum Economy {
 
     static func leadTimeDays(_ a: Accelerator, _ s: GameState) -> Int {
         if a.cls == .consumer || a.cls == .workstation { return 4 }
-        if a.vendor == .custom { return AlienFab.isAlienChip(a.id) ? AlienFab.leadDays(s, count: 0) : 45 }
+        if a.vendor == .custom { return AlienFab.isAlienChip(a.id) ? AlienFab.leadDays(s, count: 0) : (Semis.isSemiChip(a.id) ? Semis.shipDays : 45) }
         var d = s.market.leadTimeDays
         if hasDeal(a, s) { d *= 0.5 }
         if Partners.covering(a, s) != nil { d *= 0.6 }
@@ -182,7 +182,7 @@ enum Economy {
     /// Max chips you can order now: your share of the vendor's quarterly output, less what you ordered in the last 90 days.
     static func allocationLimit(_ a: Accelerator, _ s: GameState) -> Int {
         if a.cls == .consumer || a.cls == .workstation { return 2_000 }
-        if a.vendor == .custom { return 20_000_000 }
+        if a.vendor == .custom { return Semis.isSemiChip(a.id) ? Semis.available(a.id, s) : 20_000_000 }
         let cutoff = GameCalendar.addDays(s.date, -90)
         let recent = s.orders.filter { $0.accelID == a.id && $0.ordered > cutoff }.reduce(0) { $0 + $1.count }
             + s.orderLog.filter { $0.accelID == a.id && $0.ordered > cutoff }.reduce(0) { $0 + $1.count }

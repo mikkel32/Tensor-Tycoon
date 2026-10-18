@@ -194,6 +194,7 @@ enum Alerts {
         "alien_errata": 0,   // 3.5: alien fab
         "data_auction": 2, "data_collection": 1, "data_lawsuit": 0,   // 3.6: data economy
         "corp_funding": 1, "corp_covenant": 0, "corp_downgrade": 2, "corp_audit": 0,   // 3.5: corporate
+        Semis.bugKind: 0, Semis.shockKind: 0, Semis.orderKind: 2, Semis.rivalKind: 1,   // 3.5: semiconductors
     ]
 
     static func isUrgent(_ d: Decision) -> Bool { inboxDefaults[d.kind] == nil }

@@ -452,6 +452,10 @@ extension GameState {
             ids.insert(id)
             res[id] = scale
         }
+        for (id, scale) in Semis.bonusSources(self) {   // 3.5: your own chips and fabs
+            ids.insert(id)
+            res[id] = scale
+        }
         return ResearchCatalog.bonuses(ids, results: res, mastery: exoticMastery)
     }
 }
