@@ -33,6 +33,7 @@ struct DashboardView: View {
                 VStack(spacing: 16) {
                     ComingUpCard(items: upcoming, today: s.date)
                     GettingStarted(state: s)
+                    FoundingKitCard(state: s)   // 3.5
                     MilestonesCard()
                     RaceCard(labs: labs, state: s)
                     TopLabsCard(labs: labs)
@@ -929,6 +930,9 @@ struct GettingStarted: View {
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(step.title).font(.callout.weight(.semibold)).strikethrough(step.done)
                                 Text(step.detail).font(.caption).foregroundStyle(.secondary)
+                                if FoundingKit.questsActive(state), !step.done, let r = FoundingKit.questReward(step.key) {
+                                    Text("Reward: \(r.text)").font(.caption.weight(.semibold)).foregroundStyle(.green)
+                                }
                             }
                             Spacer()
                             Image(systemName: "chevron.right").foregroundStyle(.tertiary)

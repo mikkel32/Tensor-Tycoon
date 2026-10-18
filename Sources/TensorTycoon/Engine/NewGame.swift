@@ -11,6 +11,10 @@ struct NewGameSettings {
     var doctrine: LabDoctrine = .balanced
     var background: FounderBackground = .researcher
     var signature: SignatureSecret = .cortex
+    // 3.5: founding kit
+    var kit: [String] = []
+    var kitMode: KitMode = .standard
+    var starterQuests = false
 
     /// First name of the Mac's user account, so the founder defaults to the player.
     static var defaultFounder: String {
@@ -106,6 +110,7 @@ enum NewGame {
         ]
         People.refreshCandidates(&s)
 
+        FoundingKit.preSeed(&s, settings)   // 3.5: founding kit
         // Seed round that funded the starting cash
         s.founderShares = 9_000_000
         s.employeePoolShares = 1_000_000
@@ -139,6 +144,7 @@ enum NewGame {
         Cast.seed(&s)   // 3.4: the people of AI
         s.market.interestRate = Macro.historicalRate(y) ?? 3.4
         World.bootstrap(&s)   // 3.4: the world as it stands on the start date
+        FoundingKit.setup(&s, settings)   // 3.5: founding kit and starter quests
 
         // Welcome news
         Sim.news(&s, "Project \(settings.signature.codename): your founding secret",

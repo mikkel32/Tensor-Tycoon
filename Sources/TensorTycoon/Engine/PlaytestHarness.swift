@@ -185,9 +185,19 @@ enum PTPlay {
 
     // MARK: Game loop
 
+    /// 3.5: what a typical player might pick on Realistic (12 points): research, RL, compute, talent and money.
+    static let typicalKit = ["paper_mill", "rl_pioneers", "cloud_credits", "star_visionary", "banker"]
+
     static func play(era: String, seed: UInt64, years: Double, mode: String, flags: Set<String>) -> PTSummary {
         let diff: Difficulty = flags.contains("hard") ? .hard : (flags.contains("easy") ? .easy : .normal)
-        var s = NewGame.create(NewGameSettings(companyName: "Playtest Labs", founderName: "Pat", eraID: era, difficulty: diff), seed: seed)
+        var settings = NewGameSettings(companyName: "Playtest Labs", founderName: "Pat", eraID: era, difficulty: diff)
+        // 3.5: founding kit. No flag = no kit (the classic game). `kit` = a typical 12-point kit, `kit=a+b+c` = those cards,
+        // `genius` = Genius mode, `quests` = starter quests on.
+        if flags.contains("kit") { settings.kit = PTPlay.typicalKit }
+        if let k = flags.first(where: { $0.hasPrefix("kit=") }) { settings.kit = k.dropFirst(4).split(separator: "+").map(String.init) }
+        if flags.contains("genius") { settings.kitMode = .genius }
+        if flags.contains("quests") { settings.starterQuests = true }
+        var s = NewGame.create(settings, seed: seed)
         var bot = PTBot()
         bot.flags = flags
         cautiousFlag = flags.contains("cautious")
@@ -808,6 +818,8 @@ enum PTPlay {
         if rr > 2e8 { for id in ["forum_license", "code_license", "science_license", "news_license"] { add(id) } }
         if s.cash > 4e8 { add("books_license") }
         if rr > 1e9 { add("expert_data") }
+        // 3.5: a lab founded with an RL lab keeps growing it while it's cheap (never opens one: kit-less games are unchanged).
+        if s.rlLabLevel > 0, let c = FoundingKit.rlLabCost(s), c < s.cash * 0.03 { _ = s.upgradeRLLab() }
     }
 
     static func security(_ s: inout GameState, _ bot: inout PTBot) {

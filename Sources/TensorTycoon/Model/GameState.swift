@@ -1216,6 +1216,18 @@ struct GameState: Codable {
     /// Today's rent from capacity you sublease to others.
     @D var subleaseRevenueToday: Double = 0
 
+    // 3.5: founding kit
+    /// Founding cards chosen on the new-game screen (FoundingKit). Empty for older saves and kit-less games.
+    @D var kit: [String] = []
+    /// How the kit was limited (KitMode raw value; "" = no kit chosen).
+    @D var kitMode: String = ""
+    /// Your reinforcement-learning lab's level (0 = none yet).
+    @D var rlLabLevel: Int = 0
+    /// Starter quests (the opening checklist pays small rewards) are on for this game.
+    @D var questsOn: Bool = false
+    /// Starter quests already rewarded.
+    @D var questsDone: Set<String> = []
+
     var totalShares: Double {
         founderShares + employeePoolShares + publicShares + holdings.reduce(0) { $0 + $1.shares }
     }
@@ -1225,7 +1237,7 @@ struct GameState: Codable {
     var doctrine: LabDoctrine { LabDoctrine(rawValue: doctrineID) ?? .balanced }
     var background: FounderBackground { FounderBackground(rawValue: backgroundID) ?? .none }
     /// Doctrine + founder background + culture perks.
-    var traits: TraitBonuses { CultureCatalog.bonuses(doctrine: doctrine, background: background, perks: perks) }
+    var traits: TraitBonuses { CultureCatalog.bonuses(doctrine: doctrine, background: background, perks: perks, kit: kit) }
     var security: SecurityLevel { SecurityLevel(rawValue: max(1, securityRaw)) ?? .sl1 }
     var signature: SignatureSecret? { signatureLevel > 0 ? SignatureSecret(rawValue: signatureID) : nil }
     var focus: ResearchFocus { ResearchFocus(rawValue: researchFocus) ?? .balanced }

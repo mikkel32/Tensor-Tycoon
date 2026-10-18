@@ -24,6 +24,7 @@ enum Sim {
         Xeno.daily(&s, b)
         SecurityOps.daily(&s)
         ResearchLab.daily(&s, b)
+        FoundingKit.daily(&s)   // 3.5: starter quests
         XenoScience.daily(&s)
         Treasury.autoPrice(&s, b)
         dailyMarket(&s, b)
