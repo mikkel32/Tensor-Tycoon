@@ -158,16 +158,47 @@ struct Site: Codable, Identifiable, Hashable {
     @D var phaseKW: Double = 0
     /// The next phase is waiting for cash.
     @D var phaseBlocked: Bool = false
+    // 3.5: datacenters and power (DCMarket, Power)
+    /// Share of the campus you own when you bought a stake (0 = all of it); the partner runs the site.
+    @D var stake: Double = 0
+    @D var partner: String = ""
+    /// PUE better (or, if negative, worse) than the cooling and climate alone: generation upgrades, a well- or badly-built site.
+    @D var pueGain: Double = 0
+    /// Rack generation (0–3): denser racks and better electrical gear.
+    @D var generation: Int = 0
+    /// A cooling retrofit or rack upgrade under way, done on `upgradeReady`.
+    @D var coolingTo: Cooling? = nil
+    @D var upgradeReady: Date? = nil
+    @D var upgradeKW: Double = 0
+    /// Term lease (wholesale colocation): $/kW-month, when it ends, and whether you own the site at the end.
+    @D var leaseRate: Double = 0
+    @D var leaseStart: Date? = nil
+    @D var leaseEnd: Date? = nil
+    @D var leaseToOwn: Bool = false
+    /// Leased capacity still to be handed over, a tranche every quarter.
+    @D var rampKW: Double = 0
+    @D var rampStepKW: Double = 0
+    @D var nextRamp: Date? = nil
+    /// Capacity you rent to someone else, and on what terms.
+    @D var subleasedKW: Double = 0
+    @D var subleaseRate: Double = 0
+    @D var subleaseTenant: String = ""
+    @D var subleaseEnd: Date? = nil
+    /// Extra grid connection won through the interconnection queue, and power generated on site (both raise the site's ceiling).
+    @D var gridExtraKW: Double = 0
+    @D var onsiteKW: Double = 0
+    @D var batteryMWh: Double = 0
 
     var location: Location { LocationCatalog.byID[locationID] ?? LocationCatalog.all[0] }
+    var isTermLease: Bool { kind == .colo && leaseRate > 0 }
 
     func isReady(_ date: Date) -> Bool { date >= ready }
 
     var pue: Double {
         switch kind {
         case .garage, .office: 1.55
-        case .colo: cooling.basePUE + 0.07 + location.pueDelta * 0.5
-        case .datacenter: cooling.basePUE + location.pueDelta
+        case .colo: pueGain == 0 ? cooling.basePUE + 0.07 + location.pueDelta * 0.5 : max(1.03, cooling.basePUE + 0.07 + location.pueDelta * 0.5 - pueGain)
+        case .datacenter: pueGain == 0 ? cooling.basePUE + location.pueDelta : max(1.03, cooling.basePUE + location.pueDelta - pueGain)
         }
     }
 
@@ -1175,6 +1206,15 @@ struct GameState: Codable {
     @D var voiceRecent: [String: [String]] = [:]
     /// Keys the people layer's hashed rolls to this game (set once, from the RNG's state, without drawing from it).
     @D var peopleSalt: String = ""
+
+    // 3.5: datacenters and power
+    /// Power purchase agreements, on-site generation, batteries and grid-interconnection requests (Power).
+    @D var powerContracts: [PowerContract] = []
+    /// Datacenters and campuses for sale this month, and the month they were listed for (DCMarket).
+    @D var dcListings: [DCListing] = []
+    @D var dcListingsMonth: Int = 0
+    /// Today's rent from capacity you sublease to others.
+    @D var subleaseRevenueToday: Double = 0
 
     var totalShares: Double {
         founderShares + employeePoolShares + publicShares + holdings.reduce(0) { $0 + $1.shares }

@@ -457,11 +457,12 @@ enum Sim {
         var utilByAccel: [String: Double] = [:]
         for p in pools where p.total > 0 { utilByAccel[p.accel.id] = Double(p.allocated) / Double(p.total) }
         var power = 0.0
+        let grid = Power.gridMultiplier(s)   // 3.5: strained grids cost datacenters more
         for bt in s.owned {
             guard let a = HardwareCatalog.get(bt.accelID), let site = s.sites.first(where: { $0.id == bt.siteID }), site.isReady(s.date) else { continue }
             let util = utilByAccel[a.id] ?? 0
             let draw = Economy.chipKW(a) * Double(bt.count) * (0.3 + 0.65 * util)
-            power += draw * site.pue * 24 * site.powerPrice
+            power += draw * site.pue * 24 * site.powerPrice * (site.kind == .colo || site.kind == .datacenter ? grid : 1)
         }
         power *= max(0.5, 1 - s.traits.power) * XenoScience.powerFactor(s)
         let sites = s.sites.reduce(0) { $0 + $1.monthlyFee } / 30.4

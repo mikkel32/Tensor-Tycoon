@@ -179,7 +179,19 @@ enum Agenda {
             } else if let x = site.expansionReady, site.expanding > 0 {
                 add(Upcoming(id: "expand-\(site.id)", date: x, title: "\(site.name) expansion comes online",
                              detail: "+\(Fmt.watts(site.expanding * 1000)) of power", symbol: "bolt.fill", tone: .good, screen: .datacenters))
+            } else if let r = site.nextRamp, site.rampKW > 0 {
+                add(Upcoming(id: "ramp-\(site.id)", date: r, title: "\(site.name): next leased tranche",
+                             detail: "+\(Fmt.watts(min(site.rampKW, site.rampStepKW) * 1000)) handed over", symbol: "bolt.fill", tone: .good, screen: .datacenters))
             }
+            if let end = site.leaseEnd, site.isTermLease, GameCalendar.daysBetween(today, end) <= 90 {
+                add(Upcoming(id: "leaseend-\(site.id)", date: end, title: "\(site.name): lease term ends",
+                             detail: site.leaseToOwn ? "The site becomes yours" : "It rolls over for a year at the market rate", symbol: "doc.text.fill", screen: .datacenters))
+            }
+        }
+        // 3.5: power deals coming online.
+        for c in s.powerContracts where c.online > today {
+            add(Upcoming(id: "power-\(c.id)", date: c.online, title: "\(c.kind.rawValue): \(Fmt.watts(c.mw * 1e6)) online",
+                         detail: c.location.name, symbol: c.kind.symbol, tone: .good, screen: .datacenters))
         }
 
         return out.sorted { $0.date != $1.date ? $0.date < $1.date : $0.id < $1.id }
