@@ -123,6 +123,11 @@ Speed: ⌘⇧P play/pause, ⌘1–⌘5 speeds (1.5 to 90 days per second), ⌘�
 - **Leaderboard**: labs, not models: one row per lab with its flagship, capability and quarterly gain, index, gap to
   #1, price, speed and last release, expandable to every model, plus a chart of the race over four years. "#N" means
   your place among labs everywhere in the game.
+- **Capability domains and milestones**: every model, yours and every rival's, scores in eleven domains (knowledge,
+  reasoning, mathematics, science, coding, agents, long memory, vision, voice, social skill, robotics) on the capability
+  scale. 45 AI milestones, from reading better than people (2018) to household robots and Nobel-calibre discoveries,
+  are calibrated so the frontier reaches the real ones on their real dates; the first lab across each gets the
+  headlines, and the AI Milestones page shows the timeline, who's closest to the next ones and your progress.
 - **Frontier safety thresholds**: modelled on Anthropic's RSP, OpenAI's Preparedness Framework and Google DeepMind's
   Frontier Safety Framework. Models that cross the High (ASL-3-class) or Critical line need a high enough safety score
   to ship with safeguards; releasing without them costs brand and invites misuse incidents.
@@ -173,7 +178,9 @@ Speed: ⌘⇧P play/pause, ⌘1–⌘5 speeds (1.5 to 90 days per second), ⌘�
   capacity, rival launches, price wars), what rivals did and what's coming. Delegates run on your best model and get
   better with it: serving capacity (with an optional cloud budget), launches, renewals, leasing idle chips, hiring,
   pay, enterprise leads and planning the next training run. A rolling quarterly autosave lets you rewind a bad call,
-  and ⌘K jumps anywhere.
+  and ⌘K jumps anywhere. The Today dashboard puts your place in the race, cash and runway, the three things that need
+  you most and a dated "Coming up" list on one page; Help & Glossary (⌘?) explains every term, with "?" buttons next to
+  key numbers, and first-visit hints say what each main screen is for.
 - **Agent swarms**: spin up 10 to a billion copies of any of your models on your own inference chips and give them a
   mission — automated research, alien-architecture search, training operations (pin a swarm to one run to cover its
   GPUs), chip design (faster tape-outs, better silicon), alignment research (safety score, slower drift everywhere),
@@ -205,7 +212,9 @@ Speed: ⌘⇧P play/pause, ⌘1–⌘5 speeds (1.5 to 90 days per second), ⌘�
   enterprise contracts with SLAs, brand, marketing, safety, scandals, lawsuits, price wars, US EO 14110 and the EU AI Act.
   Revenue can't exceed the AI market: buyers have budgets, chat and agent demand follow what people would pay, and
   auto-pricing keeps models 80–90% busy near the going rate, never below serving cost. Contract traffic is served
-  first, so a capacity crunch hits spot users before it breaks an SLA.
+  first, so a capacity crunch hits spot users before it breaks an SLA. Eight product lines (voice assistant,
+  computer-use operator, video studio, discovery service, healthcare, tutoring, robotics brains, government and
+  defence) open as your models cross domain bars, against rivals' own products.
 - **The 2030s**: 44 world events from 2027 to 2036, accelerators through 2034, and 12 moonshots (from fusion control to
   reversing ageing) you can fund alone, with a national lab, or leave to a rival.
 - **Infrastructure**: garage → office → colocation cages → owned datacenters in 8 real regions with power
@@ -250,6 +259,16 @@ Speed: ⌘⇧P play/pause, ⌘1–⌘5 speeds (1.5 to 90 days per second), ⌘�
   or wind down, and you get first refusal when a rival moves on a struggling lab. Join their rounds, buy distressed labs
   at fire-sale prices and sign compute deals with the labs you back. Everything about the field lives on one Rivals
   page: an overview, a profile per lab (models, strategy, books, products, your dealings), Rival Watch and the industry.
+- **The people of AI**: 55 fictional lab chiefs, researchers, analysts, investors, reporters, officials and critics,
+  each with views, a voice and a dated career that moves with the game: raids, spin-outs, takeovers, promotions,
+  retirements, government posts, turning critic. The news quotes them, with lines that don't repeat for months, and the
+  Pulse carries the industry's chatter and how much each lab is talked about.
+- **A world that reacts**: AI adoption across eight industries, the work AI does and the jobs it takes and creates,
+  public mood and safety concern, AI's power draw and grid strain, and how strict the rules are in seven regions, all
+  moving monthly. The public, researchers, developers, investors and governments react to what you do, with dated
+  reasons and modest effects on demand, hiring, sovereign deals and regulators. Consequences follow from the state of
+  the world — regulators answering incidents, protests and strikes, grid emergencies, hearings, partnerships — a
+  handful a year, never stopping the clock.
 - **Rival Watch**: every lab's next frontier model has a training run behind it (cluster, compute, site, codename).
   You see it through the rumour mill: a release radar, launch windows that narrow as the date nears, capability
   forecasts against your own models, leaks and false rumours, an intel budget and a track record of past calls.
