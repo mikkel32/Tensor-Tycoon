@@ -1072,6 +1072,7 @@ enum ResearchCatalog {
     /// Items that never appear in the tree but carry effects into the bonuses: signature levels, fusions, alien artifacts.
     static let virtual: [ResearchItem] = SignatureSecret.virtualItems + Breakthroughs.fusionItems + XenoCatalog.virtualItems
         + FrontierProgram.virtualItems + Moonshots.virtualItems   // 3.4: late game
+        + FoundingKit.virtualItems   // 3.5: founding kit and RL lab
 
     static let virtualByID: [String: ResearchItem] = Dictionary(uniqueKeysWithValues: virtual.map { ($0.id, $0) })
 

@@ -9,6 +9,8 @@ enum EraGuide {
         var detail: String
         var screen: Screen
         var done: Bool
+        /// 3.5: starter-quest key (FoundingKit.questReward); rewards are paid only in games with quests on.
+        var key: String = ""
     }
 
     struct Intro {
@@ -22,6 +24,8 @@ enum EraGuide {
         var coming: [(date: Date, title: String)]
         var plan: String
         var steps: [Step]
+        /// 3.5: the founding cards you chose (empty without a kit).
+        var kit: [FoundingCard] = []
     }
 
     static func intro(_ s: GameState) -> Intro {
@@ -44,10 +48,12 @@ enum EraGuide {
         if !chips.isEmpty {
             world.append("The best accelerators you can get: " + chips.map(\.name).joined(separator: " and ") + ".")
         }
-        let soon = EventCatalog.historical.filter { $0.date > s.date && $0.date < GameCalendar.addMonths(s.date, 24) }
-            .prefix(5).map { (date: $0.date, title: $0.title) }
+        // 3.5: the time traveller's notes see twice as far ahead.
+        let foresight = s.kit.contains("time_traveller")
+        let soon = EventCatalog.historical.filter { $0.date > s.date && $0.date < GameCalendar.addMonths(s.date, foresight ? 48 : 24) }
+            .prefix(foresight ? 10 : 5).map { (date: $0.date, title: $0.title) }
         return Intro(title: era.title, date: era.subtitle, image: era.image, blurb: era.blurb, world: world, coming: Array(soon),
-                     plan: plan(era.id), steps: steps(s))
+                     plan: plan(era.id), steps: steps(s), kit: FoundingKit.cards(s.kit))
     }
 
     /// How to open in each era.
@@ -69,25 +75,36 @@ enum EraGuide {
         let y = s.year
         var out: [Step] = [
             Step(title: "Queue research", detail: "The research director keeps it full; pick a focus.",
-                 screen: .research, done: !s.researchQueue.isEmpty || s.researched.count > 15),
+                 screen: .research, done: !s.researchQueue.isEmpty || s.researched.count > 15, key: "research"),
             Step(title: "Train your first model", detail: "Design it in the Model Lab; the forecast tells you what you'll get.",
-                 screen: .lab, done: !s.runs.isEmpty),
-            Step(title: "Release & deploy it", detail: "Give it servers and an API price. Turn on the capacity delegate to keep it served.",
-                 screen: .models, done: s.models.contains { $0.released && !$0.deployments.isEmpty }),
+                 screen: .lab, done: !s.runs.isEmpty, key: "train"),
+            Step(title: "Ship an API", detail: "Release a model, give it servers and an API price. Turn on the capacity delegate to keep it served.",
+                 screen: .models, done: s.models.contains { $0.released && !$0.deployments.isEmpty }, key: "ship"),
         ]
         // A chat app only pays once people chat with AI (late 2022, or whenever you trigger it).
         if y >= 2022.6 || s.chatMoment != nil || s.bonuses.has(.chat) {
             out.append(Step(title: "Launch a chat app", detail: "Pick the model that powers your consumer product.",
-                            screen: .market, done: s.chatModelID != nil))
+                            screen: .market, done: s.chatModelID != nil, key: "chat"))
         }
         out.append(Step(title: "Hire your team", detail: "Researchers speed up research; infra engineers keep big clusters alive.",
-                        screen: .team, done: s.employees.count >= 5))
+                        screen: .team, done: s.employees.count >= 5, key: "hire"))
         out.append(Step(title: "Scale compute", detail: y < 2021 ? "Rent GPUs by the month; buy only when you're sure." : "Rent cloud capacity now; plan a datacenter for later.",
-                        screen: .hardware, done: Economy.totalChips(s) > 64))
+                        screen: .hardware, done: Economy.totalChips(s) > 64, key: "compute"))
         out.append(Step(title: "Hand off the chores", detail: "Delegates run serving, launches, renewals and hiring on your best model.",
-                        screen: .operations, done: s.ops.anyOn))
+                        screen: .operations, done: s.ops.anyOn, key: "ops"))
         out.append(Step(title: "Raise money", detail: "Sell equity or borrow to fund bigger runs.",
-                        screen: .funding, done: s.rounds.count > 1 || !s.loans.isEmpty))
+                        screen: .funding, done: s.rounds.count > 1 || !s.loans.isEmpty, key: "raise"))
+        // 3.5: starter quests add a few goals past the basics.
+        if FoundingKit.questsActive(s) {
+            out.append(Step(title: "Open an RL lab", detail: "Reinforcement learning sharpens reasoning and agents. Build it on the Research page.",
+                            screen: .research, done: s.rlLabLevel > 0, key: "rl"))
+            out.append(Step(title: "First $1M month", detail: "Earn a million dollars of revenue in one month.",
+                            screen: .finance, done: s.history.contains { $0.revenue >= 1e6 }, key: "million"))
+            out.append(Step(title: "Break into the top 10", detail: "Release a model that ranks in the world's top ten.",
+                            screen: .leaderboard, done: s.history.contains { $0.rank > 0 && $0.rank <= 10 }, key: "top10"))
+            out.append(Step(title: "First profitable month", detail: "Revenue beats running costs for a whole month.",
+                            screen: .finance, done: s.history.contains { $0.revenue > 0 && $0.revenue > $0.opex }, key: "profit"))
+        }
         return out
     }
 }

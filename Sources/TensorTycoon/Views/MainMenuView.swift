@@ -3,7 +3,11 @@ import SwiftUI
 struct MainMenuView: View {
     @Environment(GameStore.self) private var store
     @Environment(Updater.self) private var updater
-    @State private var settings = NewGameSettings()
+    @State private var settings: NewGameSettings = {
+        var s = NewGameSettings()
+        s.starterQuests = true   // 3.5: new games from the menu get starter quests
+        return s
+    }()
     @State private var saves: [GameStore.SaveInfo] = []
     @State private var deleting: GameStore.SaveInfo?
 
@@ -113,6 +117,8 @@ struct MainMenuView: View {
             TraitPicker(doctrine: $settings.doctrine, background: $settings.background)
 
             SignaturePicker(signature: $settings.signature)
+
+            FoundingKitPicker(kit: $settings.kit, mode: $settings.kitMode, difficulty: settings.difficulty)   // 3.5
 
             VStack(alignment: .leading, spacing: 8) {
                 Text("Logo").font(.subheadline.weight(.semibold))

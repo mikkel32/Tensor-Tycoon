@@ -8,13 +8,14 @@ struct ResearchView: View {
 
     var body: some View {
         let s = store.game
-        let rate = Sim.researchRate(s, store.derived.bonuses) + s.rsiRPToday + s.swarmRPToday
+        let rate = Sim.researchRate(s, store.derived.bonuses) * FoundingKit.researchMultiplier(s) + s.rsiRPToday + s.swarmRPToday
         let core = ResearchCatalog.core + ResearchCatalog.lateGame + ResearchCatalog.capabilityTech
         let doneCount = core.filter { s.researched.contains($0.id) }.count
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
         Page(title: "Research", subtitle: "Researchers generate research points (RP); compute multiplies their output. Every technique is an experiment: in your lab it can land better or worse than the paper. Leftover points roll into the next project, and idle research feeds your signature programme, so nothing is wasted.") {
             ScreenHint(.research)
             SignatureCard(state: s)
+            RLLabCard(state: s)   // 3.5
             HStack(alignment: .top, spacing: 16) {
                 QueueCard(state: s, rate: rate)
                 CapacityCard(state: s, rate: rate)

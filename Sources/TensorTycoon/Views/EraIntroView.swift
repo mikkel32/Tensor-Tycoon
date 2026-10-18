@@ -44,6 +44,12 @@ struct EraIntroSheet: View {
                             }
                         }
                     }
+                    if !intro.kit.isEmpty {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Label("Your founding kit", systemImage: "shippingbox.fill").font(.headline)
+                            KitCardList(cards: intro.kit)
+                        }
+                    }
                     VStack(alignment: .leading, spacing: 6) {
                         Label("How to open", systemImage: "flag.checkered").font(.headline)
                         Text(intro.plan).font(.callout).fixedSize(horizontal: false, vertical: true)
