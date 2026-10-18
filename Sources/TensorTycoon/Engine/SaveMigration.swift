@@ -43,6 +43,8 @@ enum SaveMigration {
         RivalEconomy.bootstrap(&s)
         // Rival Watch (3.3): the run behind each lab's next release.
         RivalIntel.bootstrap(&s)
+        // The people of AI (3.4): the cast as it stands today.
+        Cast.migrate(&s)
         // Catch up benchmarks added to the catalog after this save was made (idempotent for the rest).
         BenchLife.replayHistory(&s)
         BenchLife.refreshIndexes(&s)

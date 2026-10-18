@@ -80,6 +80,7 @@ enum People {
             let rival = s.rng.pick(s.competitors.filter { s.year >= $0.def.founded.decimal }.map { $0.def.name } + ["a big-tech lab"])
             Sim.news(&s, "\(rival) poaches \(p.name)", "Your \(p.role.title.lowercased()) (skill \(Int(p.skill))) left for a bigger package. Keep pay competitive to hold on to talent.",
                      .company, important: p.skill > 75, good: false)
+            if p.star || p.skill >= 75 { Cast.leftYou(&s, p, to: rival, why: "lured by a bigger offer") }   // 3.4
         }
         // Salaries drift with the market each January
         if GameCalendar.components(s.date).month == 1 {
@@ -393,6 +394,7 @@ enum Achievements {
         s.culturePoints += 1
         Sim.news(&s, "🏆 Achievement: \(a.title)", a.detail, .company, important: true, good: true)
         Alerts.raise(&s, .milestone, key: id, title: a.title, body: a.detail, screen: .achievements, celebrate: true, cooldown: 0)
+        Pulse.milestone(&s, id)   // 3.4: the industry notices
     }
 
     static func check(_ s: inout GameState) {

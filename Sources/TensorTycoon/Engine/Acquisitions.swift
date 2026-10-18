@@ -160,6 +160,7 @@ extension GameState {
         Acquisitions.inheritModel(&self, c)
         valuation = Economy.valuation(self)
         Achievements.unlock(&self, "consolidator")
+        Cast.labClosed(&self, id)   // 3.4: its people join you or move on
         let body = "\(Fmt.money(cashPart)) in cash\(stock > 0 ? " and \(Fmt.money(stock)) in stock" : ""). You inherit \(haul.techs.count) secret technique\(haul.techs.count == 1 ? "" : "s"), \(haul.researchers) researchers, \(Fmt.int(haul.chips))× \(haul.chipName), \(Fmt.count(haul.users)) chat users\(haul.model.map { " and \($0)" } ?? "")."
         Sim.news(&self, "\(companyName) acquires \(c.def.name) for \(Fmt.money(price))", body, .competitor, image: "nvidia_hq", important: true, good: true)
         RivalLifecycle.record(&self, .bought, lab: id, other: "player", title: "Bought by \(companyName)", body: body, amount: price)

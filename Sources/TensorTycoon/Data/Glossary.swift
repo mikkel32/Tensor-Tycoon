@@ -16,7 +16,7 @@ enum GlossaryTerm: String, CaseIterable, Identifiable, Sendable {
     // Running the company
     case chiefOfStaff, inbox, standingAnswers, delegates, cloudBudget, alerts, briefing, rewind, board, researchPoints, signatureSecret
     // Rivals
-    case forecastBand, leapfrog, codeRed, marketCorrection
+    case forecastBand, leapfrog, codeRed, marketCorrection, pulse
     // Safety and the frontier
     case safetyThresholds, securityLevels, politicalCapital, rsi, swarms, alignmentDrift, alienTech
     // The world
@@ -365,6 +365,11 @@ extension GlossaryTerm {
                           definition: "Products beyond chat, API, agents and contracts — voice assistant, computer-use operator, video studio, discovery service, healthcare, tutoring, robotics brains, government and defence — each opened by domain scores on your best released model plus one research project.",
                           detail: "Launching costs about four months of upkeep. Your share of each market follows your product's quality against rivals' products, your brand, how many customers you already reach and whether you serve the demand you have.",
                           screen: .products, aliases: ["products", "voice", "video", "robotics", "healthcare", "tutor"])
+        case .pulse:
+            GlossaryEntry(title: "The Pulse and buzz", category: .rivals,
+                          definition: "The industry's chatter: short posts from lab chiefs, researchers, analysts, reporters, officials, critics and anonymous accounts reacting to launches, rounds, rumours, votes and leaks. Buzz is how much a lab is talked about (attention, 0–100) and how kindly (tone), over the last 60 days.",
+                          detail: "The people are a cast of named characters with careers: they get poached, found startups, take over labs, retire, join governments or turn critic, and their history is on the Pulse's People tab and on lab profiles. The chatter is colour: it doesn't change the numbers.",
+                          screen: .pulse, aliases: ["buzz", "chatter", "people", "cast", "posts", "who's who"])
         case .stakeholders:
             GlossaryEntry(title: "Your standing", category: .world,
                           definition: "How five groups see you, 0–100: the public, researchers, developers, investors (the board's confidence) and governments in seven regions. Each drifts toward where your record puts it.",

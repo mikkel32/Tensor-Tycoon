@@ -234,6 +234,7 @@ enum Monthly {
         Events.monthly(&s)
         Board.monthly(&s)
         StrategyEvents.monthly(&s)
+        Cast.monthly(&s)   // 3.4: careers
         Victory.monthly(&s)
         Xeno.rivalDiscovery(&s)
         World.monthly(&s)   // 3.4: world and stakeholders

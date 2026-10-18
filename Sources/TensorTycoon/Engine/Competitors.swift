@@ -277,9 +277,7 @@ enum Competitors {
             if model.open && model.c > Macro.frontier(s.year) - 0.5 {
                 s.market.apiPricePressure = max(0.5, s.market.apiPricePressure - 0.05)
             }
-            Sim.news(&s, "\(def.name) releases \(model.name)\(isTop ? " — new #1" : "")",
-                     "Intelligence Index \(Fmt.score(idx))\(details.isEmpty ? "" : " · " + details.joined(separator: " · ")). API price \(Fmt.price(model.price))/M tokens.\(openNote)",
-                     .competitor, image: nil, important: isTop)
+            Voices.rivalLaunch(&s, i, model: model, index: idx, details: details, isTop: isTop, openNote: openNote, forecast: call)   // 3.4: told by people
             RivalIntel.released(&s, i, model: model, index: idx, outlook: call)
             // Tell the player when this release puts the lab ahead of their best model.
             let labBefore = s.competitors[i].models.dropLast().map(\.index).max() ?? 0
@@ -357,8 +355,8 @@ enum Competitors {
                 s.competitors[i].priceCut = max(0, before - 0.02)
             }
             if before < 0.15 && s.competitors[i].priceCut >= 0.15 && !s.competitors[i].models.isEmpty {
-                Sim.news(&s, "\(s.competitors[i].def.name) slashes API prices", "Your growing market share triggered a price war: \(s.competitors[i].def.name) cut prices by \(Int(s.competitors[i].priceCut * 100))%.",
-                         .market, important: true, good: false)
+                Voices.priceWar(&s, i, title: "\(s.competitors[i].def.name) slashes API prices", body: "Your growing market share triggered a price war: \(s.competitors[i].def.name) cut prices by \(Int(s.competitors[i].priceCut * 100))%.",
+                                monthly: true, cut: s.competitors[i].priceCut)
             }
         }
         // Consolidation now comes from the labs' finances: see RivalEconomy (distress, fire sales, bankruptcies).

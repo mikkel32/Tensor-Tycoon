@@ -28,6 +28,7 @@ struct LabProfileView: View {
                     }
                     .frame(width: 440)
                 }
+                LabPeopleSection(labID: labID)   // 3.4: its people and its buzz
                 LabHistoryCard(comp: c, state: s, open: open)
             }
         } else {
@@ -60,7 +61,7 @@ private struct LabProfileHeader: View {
                         if let spec = comp.spec { Pill(text: spec.kind.label, color: .secondary) }
                     }
                     Text(d.archetype).font(.callout).foregroundStyle(.secondary)
-                    Text("\(d.hq) · CEO \(d.ceo) · founded \(d.founded.label)").font(.caption).foregroundStyle(.secondary)
+                    Text("\(d.hq) · CEO \(Cast.ceoName(state, comp.id) ?? d.ceo) · founded \(d.founded.label)").font(.caption).foregroundStyle(.secondary)
                     LabLineage(comp: comp, state: state, open: open)
                 }
                 Spacer()

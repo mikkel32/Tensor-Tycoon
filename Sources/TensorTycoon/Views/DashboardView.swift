@@ -36,8 +36,7 @@ struct DashboardView: View {
                     MilestonesCard()
                     RaceCard(labs: labs, state: s)
                     TopLabsCard(labs: labs)
-                    // Slot: PulseCard() — industry chatter (another branch adds it; wire it in here at merge).
-                    EmptyView()
+                    PulseCard()
                     RivalWatchList(rows: Array(d.watch.prefix(5)))
                     BenchmarkRaceCard(set: d.indexSet, board: d.board, saturated: s.benchSaturated)
                     LatestNewsCard(news: Array(s.news.prefix(6)))
