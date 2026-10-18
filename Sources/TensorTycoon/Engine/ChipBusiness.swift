@@ -184,6 +184,7 @@ enum ChipBusiness {
 extension GameState {
     mutating func openChipLine(_ chipID: String) -> String? {
         guard customChips.contains(where: { $0.id == chipID }), HardwareCatalog.get(chipID) != nil else { return "Only chips you designed can be sold." }
+        if Semis.isSemiChip(chipID) { return "Sell this chip from the Semiconductors page (Sales)." }
         if let ai = alienArchs.firstIndex(where: { $0.chipID == chipID }), alienArchs[ai].policy != .sellChips {
             alienArchs[ai].policy = .sellChips
             alienArchs[ai].offers = []

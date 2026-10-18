@@ -519,6 +519,9 @@ enum ScreenGuide {
         case .operations:
             Hint(title: "Operations", text: "Hand recurring chores to delegates that run on your best model, choose which alerts stop the clock, and rewind a bad call.",
                       firstStep: "Turn on the serving-capacity and launch delegates first.", term: .delegates)
+        case .semiconductors:
+            Hint(title: "Semiconductors", text: "Make your own accelerators: a design team designs a chip for a process node and tapes it out, then wafers, advanced packaging and HBM turn into chips you keep or sell. Every number shows where it comes from.",
+                      firstStep: "Hire a design team on the Design tab, then start a design on a node a foundry already offers.", term: nil)
         default:
             nil
         }

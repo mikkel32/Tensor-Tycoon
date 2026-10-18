@@ -1259,6 +1259,9 @@ struct GameState: Codable {
     // 3.5: alien fab
     /// Your alien fab line: capacity, your order queue and its volume milestones (AlienFab).
     @D var alienFab: AlienFabState = AlienFabState()
+    // 3.5: semiconductors
+    /// Your chip business: design teams, designs, wafer bookings, fabs, packaging and HBM, shocks, orders (Semis).
+    @D var semi: SemiState = SemiState()
 
     var totalShares: Double {
         founderShares + employeePoolShares + publicShares + holdings.reduce(0) { $0 + $1.shares }

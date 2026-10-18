@@ -162,6 +162,7 @@ struct ScreenRouter: View {
         case .products: ProductLinesView()
         case .events: EventsView()   // 3.5
         case .advancedProjects: AdvancedProjectsView()   // 3.5
+        case .semiconductors: SemiconductorsView()   // 3.5
         }
     }
 }
@@ -217,6 +218,7 @@ struct Sidebar: View {
         case .silicon: s.chipProjects.filter { !$0.done }.count
         case .partners: s.partnerships.count
         case .advancedProjects: s.advanced.programmes.filter { $0.status == .active && $0.stage == .award }.count   // 3.5: waiting for a team
+        case .semiconductors: s.decisions.filter { Semis.kinds.contains($0.kind) }.count   // 3.5
         default: 0
         }
     }
