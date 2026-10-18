@@ -160,6 +160,7 @@ struct ScreenRouter: View {
         case .world: WorldView()   // 3.4: world and stakeholders
         case .milestones: MilestonesView()
         case .products: ProductLinesView()
+        case .advancedProjects: AdvancedProjectsView()   // 3.5
         }
     }
 }
@@ -214,6 +215,7 @@ struct Sidebar: View {
         case .xeno: s.alienArchs.reduce(0) { $0 + $1.offers.count } + s.decisions.filter { $0.kind == "xeno_anomaly" }.count
         case .silicon: s.chipProjects.filter { !$0.done }.count
         case .partners: s.partnerships.count
+        case .advancedProjects: s.advanced.programmes.filter { $0.status == .active && $0.stage == .award }.count   // 3.5: waiting for a team
         default: 0
         }
     }

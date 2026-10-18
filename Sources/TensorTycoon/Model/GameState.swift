@@ -1176,6 +1176,10 @@ struct GameState: Codable {
     /// Keys the people layer's hashed rolls to this game (set once, from the RNG's state, without drawing from it).
     @D var peopleSalt: String = ""
 
+    // 3.5: advanced projects
+    /// Government contracts: the marketplace, your bids, programmes, classified facilities and clearances (AdvancedProjects).
+    @D var advanced: AdvancedState = AdvancedState()
+
     var totalShares: Double {
         founderShares + employeePoolShares + publicShares + holdings.reduce(0) { $0 + $1.shares }
     }

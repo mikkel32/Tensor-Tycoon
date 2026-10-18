@@ -8,6 +8,7 @@ enum AlertKind: String, Codable, CaseIterable, Identifiable, Sendable {
     case boardGoalDue, billVote, slaBreach, overCapacity, swarmAlignment, priceWar, rentalExpiring
     case inbox, milestone, briefing
     case world   // 3.4: world and stakeholders
+    case advanced   // 3.5: advanced projects
 
     var id: String { rawValue }
 
@@ -31,6 +32,7 @@ enum AlertKind: String, Codable, CaseIterable, Identifiable, Sendable {
         case .milestone: "Milestones and achievements"
         case .briefing: "The monthly briefing is ready"
         case .world: "The world reacts: protests, regulators, grid emergencies"
+        case .advanced: "Government contracts: awards, deliveries and trouble"
         }
     }
 
@@ -51,6 +53,7 @@ enum AlertKind: String, Codable, CaseIterable, Identifiable, Sendable {
         case .milestone: "star.circle.fill"
         case .briefing: "doc.text.fill"
         case .world: "globe.americas.fill"
+        case .advanced: "building.columns.fill"
         }
     }
 
@@ -182,6 +185,7 @@ enum Alerts {
         "rival_round": 2, "partner_offer": 2, "policy_bill": 2, "sovereign_deal": 1, "exclusive_supply": 1,
         "spinoff": 2, "poach": 1, "merger_offer": 1, "defense": 1, "moonshot": 2, "fire_sale": 1,
         "world_summons": 1, "world_inquiry": 1, "world_partnership": 1,   // 3.4: world and stakeholders
+        AdvancedProjects.secrecyKind: 0,   // 3.5: keep a classified discovery classified
     ]
 
     static func isUrgent(_ d: Decision) -> Bool { inboxDefaults[d.kind] == nil }
@@ -199,6 +203,7 @@ enum Alerts {
         "loss_spike": "Loss spikes in training", "contamination": "Benchmark contamination", "fault_storm": "Hardware fault storms",
         "train_bug": "Bugs found mid-run", "sycophancy": "Sycophancy after RLHF", "reward_hack": "Reward hacking in RL",
         "trade_secret": "Trade-secret suits over researchers you hired",
+        AdvancedProjects.secrecyKind: "Classified discoveries from government programmes",
     ]
 
     /// Answer decisions the player has a standing answer for (end of day, before the clock checks for urgent ones).
