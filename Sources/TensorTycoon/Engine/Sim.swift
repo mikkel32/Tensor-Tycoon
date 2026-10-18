@@ -42,6 +42,7 @@ enum Sim {
         if s.date.ym != oldMonth { Monthly.close(&s) }
         Achievements.check(&s)
         checkSolvency(&s)
+        Fun.daily(&s)   // 3.5: conferences, challenges, hackathons, scenarios
         Alerts.daily(&s)
         Alerts.applyStandingAnswers(&s)
         Alerts.expireInbox(&s)

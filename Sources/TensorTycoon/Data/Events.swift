@@ -301,7 +301,7 @@ enum AchievementCatalog {
         Achievement(id: "milestone_first", title: "First Past the Post", detail: "Be the first lab to reach an AI milestone.", symbol: "signpost.right.fill"),
         Achievement(id: "milestone_historic", title: "Science Fiction, Then Fact", detail: "Be first to a historic milestone from 2027 on, like an autonomous AI scientist or a household robot.", symbol: "sparkles"),
         Achievement(id: "renaissance", title: "Renaissance Machine", detail: "Lead every rival in all eleven capability domains at once.", symbol: "circle.hexagongrid.circle.fill"),
-    ]
+    ] + FunCatalog.achievements   // 3.5: fun systems
 
     static let byID: [String: Achievement] = Dictionary(uniqueKeysWithValues: all.map { ($0.id, $0) })
 }
