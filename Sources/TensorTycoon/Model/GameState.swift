@@ -1254,6 +1254,10 @@ struct GameState: Codable {
     /// Grants, offers and incentives from home so far (HQ).
     @D var hq: HQState = HQState()
 
+    // 3.6: science labs
+    /// Laboratories, research projects, discoveries, patents and rival labs' science (Science).
+    @D var science: ScienceState = ScienceState()
+
     var totalShares: Double {
         founderShares + employeePoolShares + publicShares + holdings.reduce(0) { $0 + $1.shares }
     }

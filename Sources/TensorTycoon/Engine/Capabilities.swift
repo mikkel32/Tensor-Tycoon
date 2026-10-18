@@ -228,6 +228,7 @@ enum Capabilities {
             let q = s.researchResults[id] ?? 1
             for (d, v) in fx { e[d.index] += v * q }
         }
+        for (d, v) in Science.domainKnowHow(s) { e[d.index] += v }   // 3.6: science-lab discoveries
         return e
     }
 

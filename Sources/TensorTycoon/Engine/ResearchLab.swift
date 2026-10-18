@@ -448,6 +448,11 @@ extension GameState {
             ids.insert(id)
             res[id] = scale
         }
+        // 3.6: science-lab discoveries (nothing without discoveries).
+        for (id, scale) in Science.bonusSources(self) {
+            ids.insert(id)
+            res[id] = scale
+        }
         return ResearchCatalog.bonuses(ids, results: res, mastery: exoticMastery)
     }
 }

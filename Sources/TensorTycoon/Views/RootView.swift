@@ -161,6 +161,7 @@ struct ScreenRouter: View {
         case .milestones: MilestonesView()
         case .products: ProductLinesView()
         case .events: EventsView()   // 3.5
+        case .science: ScienceView()   // 3.6
         }
     }
 }
@@ -215,6 +216,7 @@ struct Sidebar: View {
         case .xeno: s.alienArchs.reduce(0) { $0 + $1.offers.count } + s.decisions.filter { $0.kind == "xeno_anomaly" }.count
         case .silicon: s.chipProjects.filter { !$0.done }.count
         case .partners: s.partnerships.count
+        case .science: Science.pending(s).count   // 3.6
         default: 0
         }
     }

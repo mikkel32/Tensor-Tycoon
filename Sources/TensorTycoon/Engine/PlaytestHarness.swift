@@ -328,6 +328,7 @@ enum PTPlay {
         sum.importantAvg = rows.isEmpty ? 0 : Double(rows.reduce(0) { $0 + $1.important }) / Double(rows.count)
 
         if mode != "quiet" { printGame(rows, sum, bot, s, mode: mode) }
+        if flags.contains("science") { scienceSummary(s, seed: seed) }
         lastState = s
         return sum
     }
@@ -417,6 +418,7 @@ enum PTPlay {
         case "distill_campaign", "eval_escape", "insider_caught": return 0
         case "talent_raid": return s.cash > dd.amount * 4 ? 0 : 1
         case "swarm_audit": return s.cash > dd.amount * 4 ? 0 : 1
+        case Science.decisionKind: return scienceChoice(dd, s)   // 3.6
         default: return 0
         }
     }
@@ -458,6 +460,7 @@ enum PTPlay {
             // 3.4: launch product lines once they open, when the launch is small next to the cash pile.
             for p in ProductLines.catalog where ProductLines.status(p, s).ok && !s.productLines.contains(where: { $0.id == p.id })
                 && s.cash > 10 * ProductLines.launchCost(p, s.year) { _ = s.launchProduct(p.id) }
+            if bot.flags.contains("science") { science(&s) }   // 3.6: science labs (only with the flag)
         }
     }
 

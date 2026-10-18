@@ -184,6 +184,7 @@ enum Alerts {
         "world_summons": 1, "world_inquiry": 1, "world_partnership": 1,   // 3.4: world and stakeholders
         "fun_cfp": 0, "fun_keynote": 1,   // 3.5: fun systems
         "hq_grant": 0, "hq_partner": 1, "hq_contract": 1,   // 3.5: headquarters
+        "sci_report": 0,   // 3.6: science labs (patent and license)
     ]
 
     static func isUrgent(_ d: Decision) -> Bool { inboxDefaults[d.kind] == nil }

@@ -11,6 +11,7 @@ enum Screen: String, CaseIterable, Identifiable, Hashable {
     case milestones, products   // 3.4: capabilities and milestones
     case pulse   // 3.4: the people of AI
     case events   // 3.5: conferences, challenges, hackathons, records
+    case science   // 3.6: science labs
 
     var id: String { rawValue }
 
@@ -53,6 +54,7 @@ enum Screen: String, CaseIterable, Identifiable, Hashable {
         case .milestones: "AI Milestones"
         case .products: "Product Lines"
         case .events: "Events & Records"
+        case .science: "Science Labs"
         }
     }
 
@@ -95,6 +97,7 @@ enum Screen: String, CaseIterable, Identifiable, Hashable {
         case .milestones: "signpost.right.fill"
         case .products: "square.grid.2x2.fill"
         case .events: "trophy.circle.fill"
+        case .science: "testtube.2"
         }
     }
 
@@ -105,7 +108,7 @@ enum Screen: String, CaseIterable, Identifiable, Hashable {
         ("Build AI", [.lab, .training, .models, .rsi, .swarms, .xeno]),
         ("Evaluate", [.leaderboard, .milestones, .events, .rivals, .benchmarks]),
         ("Infrastructure", [.hardware, .partners, .compute, .datacenters, .silicon]),
-        ("R&D", [.research, .team, .data]),
+        ("R&D", [.research, .science, .team, .data]),
         ("Business", [.market, .products, .chipSales, .finance, .funding]),
         ("More", [.help, .achievements, .credits]),
     ]

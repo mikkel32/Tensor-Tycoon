@@ -375,6 +375,7 @@ enum Events {
             Victory.resolve(&s, d, option: option)
         case ("moonshot", _): Moonshots.resolve(&s, d, option: option)   // 3.4: late game
         case ("fun_cfp", _), ("fun_keynote", _): Fun.resolve(&s, d, option: option)   // 3.5: fun systems
+        case ("sci_report", _): Science.resolve(&s, d, option: option)   // 3.6: science labs
         case ("board_ouster", _), ("exclusive_supply", _), ("swarm_audit", _), ("merger_offer", _), ("spinoff", _), ("sovereign_deal", _), ("talent_raid", _),
              ("distill_campaign", _), ("eval_escape", _), ("insider_caught", _):
             StrategyEvents.resolve(&s, d, option: option)

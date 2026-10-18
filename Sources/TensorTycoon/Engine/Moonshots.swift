@@ -63,7 +63,7 @@ enum Moonshots {
 
     /// Odds of success if you start now and put in the planned research.
     static func chance(_ d: MoonshotDef, _ s: GameState, partnered: Bool) -> Double {
-        clamp(d.baseChance * capabilityFactor(s) * scienceFactor(s) * safetyFactor(d, s) * (partnered ? 1.1 : 1), 0.05, 0.95)
+        clamp(d.baseChance * capabilityFactor(s) * scienceFactor(s) * safetyFactor(d, s) * (partnered ? 1.1 : 1) * Science.moonshotFactor(d.id, s), 0.05, 0.95)   // 3.6
     }
 
     static func royalty(_ d: MoonshotDef, _ s: GameState, partnered: Bool) -> Double {
