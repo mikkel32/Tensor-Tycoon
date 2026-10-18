@@ -12,6 +12,7 @@ enum Screen: String, CaseIterable, Identifiable, Hashable {
     case pulse   // 3.4: the people of AI
     case events   // 3.5: conferences, challenges, hackathons, records
     case advancedProjects   // 3.5
+    case families   // 3.5: model families
 
     var id: String { rawValue }
 
@@ -55,6 +56,7 @@ enum Screen: String, CaseIterable, Identifiable, Hashable {
         case .products: "Product Lines"
         case .events: "Events & Records"
         case .advancedProjects: "Advanced Projects"
+        case .families: "Model Families"
         }
     }
 
@@ -98,6 +100,7 @@ enum Screen: String, CaseIterable, Identifiable, Hashable {
         case .products: "square.grid.2x2.fill"
         case .events: "trophy.circle.fill"
         case .advancedProjects: "building.columns.circle"
+        case .families: "square.stack.3d.down.right.fill"
         }
     }
 
@@ -105,7 +108,7 @@ enum Screen: String, CaseIterable, Identifiable, Hashable {
     /// Industry tabs (links from alerts, briefings and the Chief of Staff still use them).
     static let sections: [(String, [Screen])] = [
         ("Company", [.dashboard, .operations, .strategy, .security, .world, .news, .pulse]),
-        ("Build AI", [.lab, .training, .models, .rsi, .swarms, .xeno]),
+        ("Build AI", [.lab, .training, .models, .families, .rsi, .swarms, .xeno]),
         ("Evaluate", [.leaderboard, .milestones, .events, .rivals, .benchmarks]),
         ("Infrastructure", [.hardware, .partners, .compute, .datacenters, .silicon]),
         ("R&D", [.research, .team, .data]),

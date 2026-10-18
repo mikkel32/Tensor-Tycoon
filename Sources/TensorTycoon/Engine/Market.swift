@@ -103,16 +103,16 @@ enum Market {
             }
         }
 
-        for m in s.models where m.released && !m.retired && m.api && m.capacityTokensDay > 0 {
+        for m in s.models where m.released && !m.retired && m.api && (m.capacityTokensDay > 0 || Families.servesToday(s, m)) {
             snap.api.append(MarketProduct(id: m.id.uuidString, lab: "player", labName: s.companyName, name: m.name,
                                           c: m.c - Physics.servingPenalty(m.servingPrecision), price: m.apiPrice,
-                                          tps: max(m.tps, 1), brand: s.brand * (0.7 + 0.3 * s.reliability) * (m.design.mode == .finetune ? 0.8 : 1), open: m.openWeights,
+                                          tps: max(m.tps, 1), brand: s.brand * (0.7 + 0.3 * s.reliability) * (m.design.mode == .finetune ? 0.8 : 1) * Families.brandMult(s, m.id), open: m.openWeights,
                                           reasoning: m.reasoning, isPlayer: true, modelID: m.id))
         }
         if chatOn || (s.year < 2022.91 && s.chatModelID != nil),
            let id = s.chatModelID, let m = s.models.first(where: { $0.id == id && $0.released && !$0.retired }) {
             snap.consumer.append(MarketProduct(id: "player-chat", lab: "player", labName: s.companyName, name: "\(s.companyName) Chat",
-                                               c: m.c, price: s.chatPrice, tps: max(m.tps, 1),
+                                               c: Families.chatQuality(s, m), price: s.chatPrice, tps: max(m.tps, 1),
                                                brand: s.brand * (0.6 + 0.4 * s.reliability) * (1 + b.consumerDemand),
                                                open: false, reasoning: m.reasoning, isPlayer: true, modelID: m.id))
         }

@@ -583,6 +583,20 @@ struct AIModel: Codable, Identifiable, Hashable {
     var forecastSigma: Double = 0
     var tier: String = ""
     var keyTech: [String] = []
+    // 3.5: model families
+    /// Extra know-how per capability domain (CapDomain order): distillation retention and post-training passes.
+    @D var domainBonus: [Double] = []
+    /// Point releases: 0 = v1.0, 1 = v1.1, 5 = v1.5, 10 = v2.0 (Families.versionLabel).
+    @D var version: Int = 0
+    /// Post-training passes applied (PostTrainPass raw values), oldest first.
+    @D var passes: [String] = []
+    /// Passes since the last merge.
+    @D var passesSinceMerge: Int = 0
+    /// What passes took away (domain know-how, chat skill), so a merge can win part of it back.
+    @D var tradeoffDomains: [Double] = []
+    @D var tradeoffChat: Double = 0
+    /// The model it was distilled from.
+    @D var teacherID: UUID? = nil
     // live stats (updated daily)
     var demandTokensDay: Double = 0
     var servedTokensDay: Double = 0
@@ -1259,6 +1273,9 @@ struct GameState: Codable {
     // 3.5: alien fab
     /// Your alien fab line: capacity, your order queue and its volume milestones (AlienFab).
     @D var alienFab: AlienFabState = AlienFabState()
+    // 3.5: model families
+    /// Model families, their tiers and the distillation / post-training jobs in progress (Families).
+    @D var families: FamilyState = FamilyState()
 
     var totalShares: Double {
         founderShares + employeePoolShares + publicShares + holdings.reduce(0) { $0 + $1.shares }

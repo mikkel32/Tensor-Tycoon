@@ -231,6 +231,7 @@ enum Economy {
         for i in s.models.indices where !s.models[i].retired {
             for d in s.models[i].deployments { inference[d.accelID, default: 0] += d.chips }
         }
+        for j in s.families.jobs where !j.paused { training[j.accelID, default: 0] += j.chips }   // 3.5: distillation and post-training
         for (id, n) in s.researchChips where n > 0 { research[id, default: 0] += n }
         for i in s.rsiRuns.indices where s.rsiRuns[i].status == .running { rsi[s.rsiRuns[i].accelID, default: 0] += s.rsiRuns[i].chips }
         for sw in s.swarms where !sw.paused { swarm[sw.accelID, default: 0] += sw.chips }

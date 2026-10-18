@@ -489,6 +489,9 @@ enum ScreenGuide {
         case .models:
             Hint(title: "Models & Serving", text: "Release finished models, give them serving chips and set API prices. A released model without chips can't take any traffic.",
                       firstStep: "Release your best model, then deploy chips to it, or let the capacity delegate do it.", term: .servingCapacity)
+        case .families:   // 3.5: model families
+            Hint(title: "Model Families", text: "A lineup instead of one flagship: distil cheaper tiers from your best model, upgrade models with post-training passes, and let each tier serve the traffic it's priced for.",
+                      firstStep: "Distil a Spark tier from your flagship, then route the chat app's free users to it.", term: .servingCapacity)
         case .leaderboard:
             Hint(title: "Leaderboard", text: "The race, lab by lab, ranked by each lab's best model on the Intelligence Index. Capability is a fixed yardstick you can compare across years.",
                       firstStep: "Click a lab to see all its models. The gap to #1 tells you how much more compute you'd need.", term: .capability)

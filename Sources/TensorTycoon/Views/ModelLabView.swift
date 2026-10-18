@@ -67,6 +67,8 @@ struct ModelLabView: View {
     /// 3.5: the pre-training review for substantial runs.
     @State private var reviewing = false
     @AppStorage("labAdvanced") private var advanced = false
+    /// 3.5: model families — distil or post-train an existing model instead of training a new one.
+    @State private var familySheet: FamilySheet?
 
     var body: some View {
         let s = store.game
@@ -79,6 +81,7 @@ struct ModelLabView: View {
                                actionTitle: "Hardware Store") { store.open(.hardware) }
             } else {
                 recipeStrip(s, b)
+                upgradeStrip(s)
                 HStack(alignment: .top, spacing: 18) {
                     designForm(s, d, b)
                         .frame(minWidth: 440, maxWidth: 540)
@@ -99,6 +102,30 @@ struct ModelLabView: View {
         .onAppear { if !prepared { prepare(s, d); prepared = true } }
         .sheet(isPresented: $reviewing) {
             RunReviewSheet(design: $design, lr: $lr, interval: $interval, launch: launch, ladder: startLadder)
+        }
+        .familySheet($familySheet)
+    }
+
+    /// 3.5: model families — a lineup without a new pre-training run: distil a cheaper tier or post-train a model you have.
+    @ViewBuilder
+    private func upgradeStrip(_ s: GameState) -> some View {
+        let mine = s.models.filter { !$0.retired && !$0.preview }.sorted { $0.index > $1.index }
+        if !mine.isEmpty {
+            HStack(spacing: 10) {
+                Image(systemName: "square.stack.3d.down.right.fill").foregroundStyle(.teal)
+                Text("Already have a strong model? Distil a cheaper tier from it or post-train it into a point release.")
+                    .font(.callout).foregroundStyle(.secondary)
+                Spacer()
+                Menu("Distil a tier") {
+                    ForEach(mine.prefix(8)) { m in Button("\(m.name) · index \(Fmt.score(m.index))") { familySheet = .distill(m.id) } }
+                }
+                .fixedSize()
+                Menu("Post-train") {
+                    ForEach(mine.prefix(8)) { m in Button("\(m.name) · index \(Fmt.score(m.index))") { familySheet = .postTrain(m.id) } }
+                }
+                .fixedSize()
+                Button("Model Families") { store.open(.families) }.buttonStyle(.link)
+            }
         }
     }
 
@@ -315,6 +342,10 @@ struct ModelLabView: View {
                         ForEach(s.models) { m in Text(m.name).tag(m.id.uuidString) }
                     }
                     Text("Train a smaller student on a big model's outputs. It can get close to the teacher.").font(.caption).foregroundStyle(.secondary)
+                    if let ref = design.baseModelRef, let id = UUID(uuidString: ref) {
+                        Button("Distil it as a family tier instead (per-domain retention, serving cost)…") { familySheet = .distill(id) }
+                            .buttonStyle(.link).font(.caption)
+                    }
                 }
             }
 
