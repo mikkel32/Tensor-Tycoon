@@ -52,6 +52,11 @@ enum SaveMigration {
         World.bootstrap(&s)
         // 3.4: score every model and credit the milestones already reached.
         if !s.capsReady { Capabilities.bootstrap(&s) }
+        // 3.5: saves from before headquarters were founded in the US.
+        if s.hqCountry.isEmpty || CountryCatalog.byID[s.hqCountry] == nil { s.hqCountry = "us" }
+        if s.hqCity.isEmpty || !CountryCatalog.get(s.hqCountry).cities.contains(where: { $0.id == s.hqCity }) {
+            s.hqCity = CountryCatalog.get(s.hqCountry).cities[0].id
+        }
     }
 
     /// Decodes a save, migrates it and plays 90 days on a copy, resolving decisions with their first option.

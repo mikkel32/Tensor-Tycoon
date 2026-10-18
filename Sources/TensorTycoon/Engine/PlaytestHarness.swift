@@ -187,7 +187,12 @@ enum PTPlay {
 
     static func play(era: String, seed: UInt64, years: Double, mode: String, flags: Set<String>) -> PTSummary {
         let diff: Difficulty = flags.contains("hard") ? .hard : (flags.contains("easy") ? .easy : .normal)
-        var s = NewGame.create(NewGameSettings(companyName: "Playtest Labs", founderName: "Pat", eraID: era, difficulty: diff), seed: seed)
+        var settings = NewGameSettings(companyName: "Playtest Labs", founderName: "Pat", eraID: era, difficulty: diff)
+        if let hq = flags.first(where: { $0.hasPrefix("hq=") })?.dropFirst(3).split(separator: ":") {   // 3.5: e.g. hq=fr:grenoble
+            settings.hqCountry = hq.first.map(String.init) ?? "us"
+            settings.hqCity = hq.count > 1 ? String(hq[1]) : ""
+        }
+        var s = NewGame.create(settings, seed: seed)
         var bot = PTBot()
         bot.flags = flags
         cautiousFlag = flags.contains("cautious")

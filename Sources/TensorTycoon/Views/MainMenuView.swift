@@ -87,6 +87,8 @@ struct MainMenuView: View {
                 }
             }
 
+            CountrySelectionView(country: $settings.hqCountry, city: $settings.hqCity, eraID: settings.eraID, difficulty: settings.difficulty)   // 3.5: headquarters
+
             HStack(alignment: .top, spacing: 20) {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Difficulty").font(.subheadline.weight(.semibold))

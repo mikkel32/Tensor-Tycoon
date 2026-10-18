@@ -44,7 +44,7 @@ enum Finance {
         // Investors price off where the company is marked (which moves slowly) and where its fundamentals say
         // it's heading. Lab identity and how much the board believes in you move the price.
         let anchor = s.valuation > 0 && !s.isPublic ? (s.valuation * v).squareRoot() : v
-        var pre = anchor * s.rng.range(0.85, 1.2) * (strategic ? 1.15 : 1) * max(0.6, 1 + s.traits.valuation) * Board.valuationFactor(s)
+        var pre = anchor * s.rng.range(0.85, 1.2) * (strategic ? 1.15 : 1) * max(0.6, 1 + s.traits.valuation) * Board.valuationFactor(s) * HQ.investorFactor(s, value: anchor)
         pre = max(pre, 2_000_000)
         let f = s.raiseFraction
         let cap = maxRaise(s.year) * s.rng.range(0.5, 1.0)
@@ -168,6 +168,7 @@ enum Monthly {
         SecurityOps.monthly(&s)
         Policy.monthly(&s)
         RivalIntel.monthly(&s)
+        HQ.monthly(&s)   // 3.5: grants, partnerships and contracts from home
         if s.publication == .secret { s.brand = max(0, s.brand - 0.25) }
         // Enterprise contracts tick
         for i in s.deals.indices where s.deals[i].active {
@@ -193,11 +194,7 @@ enum Monthly {
 
         // Taxes on positive monthly profit
         let pre = s.month.revenue + s.month.interestIncome + s.month.oneOffIncome - s.month.opex - s.month.costInterest
-        if pre > 0 {
-            let tax = pre * 0.21
-            s.month.taxes = tax
-            s.cash -= tax
-        }
+        HQ.settleTaxes(&s, pre: pre)   // 3.5: the home country's rate and R&D credit (21% in the US)
 
         // Market modifiers drift back to normal
         let target = EventCatalog.hypeBase(s.year)

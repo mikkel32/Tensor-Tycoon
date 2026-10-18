@@ -164,7 +164,8 @@ struct Location: Identifiable, Sendable {
 }
 
 enum LocationCatalog {
-    static let all: [Location] = [
+    static let all: [Location] = core + european   // 3.5: European locations live in Countries.swift
+    static let core: [Location] = [
         Location(id: "nova", name: "Ashburn, Virginia", region: "US East", powerPrice: 0.085, pueDelta: 0.0, buildSpeed: 0.8,
                  gridCapMW: 1_200, coloFee: 185, image: "dc_corridor",
                  blurb: "Data Center Alley — the densest datacenter market on Earth. Great connectivity, long grid queues."),

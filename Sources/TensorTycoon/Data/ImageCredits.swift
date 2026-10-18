@@ -53,5 +53,19 @@ enum ImageCredits {
         ImageCredit(id: "stock_exchange", title: "Frankfurt Stock Exchange (Ank Kumar) 03.jpg", author: "Ank Kumar", license: "CC BY-SA 4.0", page: "https://commons.wikimedia.org/wiki/File:Frankfurt_Stock_Exchange_(Ank_Kumar)_03.jpg"),
         ImageCredit(id: "sf_skyline", title: "Golden Gate Bridge and San Francisco skyline from Hawk Hill at Blue Hour dllu.jpg", author: "Daniel L. Lu (user:dllu)", license: "CC BY-SA 4.0", page: "https://commons.wikimedia.org/wiki/File:Golden_Gate_Bridge_and_San_Francisco_skyline_from_Hawk_Hill_at_Blue_Hour_dllu.jpg"),
         ImageCredit(id: "nvidia_hq", title: "NVIDIA Headquarters.jpg", author: "Coolcaesar", license: "CC BY-SA 4.0", page: "https://commons.wikimedia.org/wiki/File:NVIDIA_Headquarters.jpg"),
+        // 3.5: headquarters cities (resized to 1600 px; Cluj and Rome cropped to 16:9 from wider panoramas)
+        ImageCredit(id: "hq_bucharest", title: "Bucharest-Skyline-01.jpg", author: "seisdeagosto", license: "CC BY-SA 2.0", page: "https://commons.wikimedia.org/wiki/File:Bucharest-Skyline-01.jpg"),
+        ImageCredit(id: "hq_cluj", title: "Cluj panorama 2026.jpg", author: "Yerpo", license: "CC BY-SA 4.0", page: "https://commons.wikimedia.org/wiki/File:Cluj_panorama_2026.jpg"),
+        ImageCredit(id: "hq_milan", title: "Milan skyline skyscrapers of Porta Nuova business district.jpg", author: "Francesco Ungaro", license: "CC0", page: "https://commons.wikimedia.org/wiki/File:Milan_skyline_skyscrapers_of_Porta_Nuova_business_district.jpg"),
+        ImageCredit(id: "hq_rome", title: "Rome skyline panorama.jpg", author: "Nicholas Hartmann", license: "CC BY-SA 4.0", page: "https://commons.wikimedia.org/wiki/File:Rome_skyline_panorama.jpg"),
+        ImageCredit(id: "hq_turin", title: "Turin skyline.jpg", author: "Francesco Manzari", license: "CC BY-SA 2.0", page: "https://commons.wikimedia.org/wiki/File:Turin_skyline.jpg"),
+        ImageCredit(id: "hq_paris", title: "Paris skyline view (Unsplash).jpg", author: "Anthony Delanoix", license: "CC0", page: "https://commons.wikimedia.org/wiki/File:Paris_skyline_view_(Unsplash).jpg"),
+        ImageCredit(id: "hq_lyon", title: "Lyon 1er - Place Bellevue - Vue sur le quartier de La Part-Dieu et les Alpes.jpg", author: "Romainbehar", license: "CC0", page: "https://commons.wikimedia.org/wiki/File:Lyon_1er_-_Place_Bellevue_-_Vue_sur_le_quartier_de_La_Part-Dieu_et_les_Alpes.jpg"),
+        ImageCredit(id: "hq_grenoble", title: "Grenoble, vue de Bastille (1).jpg", author: "Olivier Cleynen", license: "CC BY-SA 4.0", page: "https://commons.wikimedia.org/wiki/File:Grenoble,_vue_de_Bastille_(1).jpg"),
+        ImageCredit(id: "hq_copenhagen", title: "Copenhagen Harbour at sunset.jpg", author: "European Commission", license: "CC BY 4.0", page: "https://commons.wikimedia.org/wiki/File:Copenhagen_Harbour_at_sunset.jpg"),
+        ImageCredit(id: "hq_aarhus", title: "Aarhus skyline seen from Aarhus Ø.jpg", author: "Kenny Arne Lang Antonsen", license: "CC BY 4.0", page: "https://commons.wikimedia.org/wiki/File:Aarhus_skyline_seen_from_Aarhus_%C3%98.jpg"),
+        ImageCredit(id: "hq_odense", title: "Odense City Hall.jpg", author: "Bo Jessen", license: "CC0", page: "https://commons.wikimedia.org/wiki/File:Odense_City_Hall.jpg"),
+        ImageCredit(id: "hq_aalborg", title: "Aalborg 2010 - 125 ubt.JPG", author: "Tomasz Sienicki", license: "CC BY-SA 3.0", page: "https://commons.wikimedia.org/wiki/File:Aalborg_2010_-_125_ubt.JPG"),
+        ImageCredit(id: "hq_dk_wind", title: "Danish Wind Turbines 4890894762.jpg", author: "CGP Grey", license: "CC BY 2.0", page: "https://commons.wikimedia.org/wiki/File:Danish_Wind_Turbines_4890894762.jpg"),
     ]
 }

@@ -572,7 +572,7 @@ extension GameState {
 
     mutating func upgradeOffice() -> String? {
         guard officeLevel + 1 < Economy.officeLevels.count else { return "You already have the biggest campus." }
-        let next = Economy.officeLevels[officeLevel + 1]
+        let next = Economy.office(self, officeLevel + 1)   // 3.5: local rent
         let fitout = next.monthly * 3
         if fitout > cash { return "Fit-out costs \(Fmt.money(fitout))." }
         cash -= fitout

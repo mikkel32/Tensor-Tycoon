@@ -728,7 +728,7 @@ enum Cast {
         if let i = s.cast.firstIndex(where: { $0.employeeID == e.id.uuidString }) { return i }
         if s.cast.isEmpty { seed(&s) }
         let title = jobTitle(e.role)
-        var m = newPerson(s, key: "yours|\(e.id.uuidString)", name: e.name, hq: s.sites.first?.location.name ?? "San Francisco", kind: .researcher,
+        var m = newPerson(s, key: "yours|\(e.id.uuidString)", name: e.name, hq: HQ.isDefault(s) ? (s.sites.first?.location.name ?? "San Francisco") : HQ.place(s), kind: .researcher,
                           org: "player", role: title, focus: jobFocus(e.role), stature: e.star ? 0.4 : 0.25)
         m.employeeID = e.id.uuidString
         m.since = e.hired

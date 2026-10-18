@@ -100,6 +100,8 @@ enum Stakeholders {
         let (bias, capital, safety) = r.standing
         add(r == .china ? "A Western lab in Beijing's eyes" : "Starting point", bias)
         if capital > 0 { add("Political capital", capital * (s.politicalCapital - 20)) }
+        let home = HQ.standingBonus(s, r)   // 3.5: headquarters
+        if home != 0 { add(home > 0 ? "Your home government" : "A foreign lab in Washington's eyes", home) }
         add("Your safety record", 0.2 * safety * (s.safetyScore - 50))
         let sites = s.sites.filter { $0.kind != .garage && $0.isReady(s.date) && Region.of(location: $0.locationID) == r }.count
         if sites > 0 { add("Your datacenters there", min(6, 3 * Double(sites))) }
