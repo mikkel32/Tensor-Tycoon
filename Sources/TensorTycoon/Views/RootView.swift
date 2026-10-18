@@ -160,6 +160,7 @@ struct ScreenRouter: View {
         case .world: WorldView()   // 3.4: world and stakeholders
         case .milestones: MilestonesView()
         case .products: ProductLinesView()
+        case .events: EventsView()   // 3.5
         }
     }
 }

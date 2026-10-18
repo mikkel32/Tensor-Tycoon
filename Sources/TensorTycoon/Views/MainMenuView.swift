@@ -10,6 +10,7 @@ struct MainMenuView: View {
     }()
     @State private var saves: [GameStore.SaveInfo] = []
     @State private var deleting: GameStore.SaveInfo?
+    @State private var showChallenges = false   // 3.5: scenarios
 
     var body: some View {
         ZStack {
@@ -64,6 +65,13 @@ struct MainMenuView: View {
                 .font(.title3)
                 .foregroundStyle(.white.opacity(0.85))
             UpdateStatusLine()
+            // 3.5: challenge-mode scenarios
+            Button { showChallenges = true } label: {
+                Label("Challenges: curated starts with a goal and a score", systemImage: "flag.checkered")
+            }
+            .buttonStyle(.bordered)
+            .environment(\.colorScheme, .dark)
+            .sheet(isPresented: $showChallenges) { ScenarioPickerSheet() }
         }
     }
 

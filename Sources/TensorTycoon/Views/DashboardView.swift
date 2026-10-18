@@ -35,6 +35,7 @@ struct DashboardView: View {
                     GettingStarted(state: s)
                     FoundingKitCard(state: s)   // 3.5
                     MilestonesCard()
+                    FunDashboardCard()
                     RaceCard(labs: labs, state: s)
                     TopLabsCard(labs: labs)
                     PulseCard()

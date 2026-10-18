@@ -309,6 +309,7 @@ final class GameStore {
         if !force && Date().timeIntervalSince(lastSave) < 12 { return }
         lastSave = Date()
         Self.saveQueue.async { Self.write(s, to: url) }
+        if let broke = HallOfFame.record(s) { show(broke) }   // 3.5: records across games
     }
 
     /// Writes the save before returning: used when quitting or relaunching for an update.
