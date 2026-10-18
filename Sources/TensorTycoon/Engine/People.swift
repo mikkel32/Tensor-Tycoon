@@ -95,7 +95,7 @@ enum Events {
     static func daily(_ s: inout GameState) {
         // Rare daily incidents
         let readySites = s.sites.filter { $0.isReady(s.date) && $0.kind != .garage }
-        if !readySites.isEmpty && s.rng.chance(0.0015 * Double(readySites.count)) {
+        if !readySites.isEmpty && s.rng.chance(0.0015 * Double(readySites.count) * AgentOrgs.outageFactor(s)) {   // 3.6: infrastructure teams
             let site = s.rng.pick(readySites)
             s.reliability *= 0.85
             for i in s.runs.indices where s.runs[i].status == .running {

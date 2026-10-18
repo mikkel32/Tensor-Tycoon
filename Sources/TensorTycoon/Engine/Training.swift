@@ -399,6 +399,7 @@ enum Training {
                 TrainingExperience.ledgerDay(&s, i, accel: accel, coverage: cov, raw: raw, ckpt: Sim.checkpointOverhead(s.runs[i].interval), straggle: straggle)
             }
             if s.runs[i].kind == .proxy { perDay *= 0.33 }
+            if s.runs[i].toy || s.runs[i].kind == .proxy { perDay *= AgentOrgs.experimentSpeed(s) }   // 3.6: experiment coordination
             s.runs[i].cost += Economy.chipDailyCost(accel, count: d.chips, state: s)
             s.runs[i].opsCoverage = cov
 

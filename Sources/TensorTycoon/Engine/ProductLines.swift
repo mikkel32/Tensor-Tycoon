@@ -171,7 +171,7 @@ enum ProductLines {
             // Customers sign up over months: about half the gap to the target share closes each month.
             s.productLines[i].share += (s.productLines[i].target - s.productLines[i].share) * 0.022
             let r = s.productLines[i].share * marketSize(p, s) / 365
-            let c = r * p.serving + upkeep(p, y) / 30.4
+            let c = r * p.serving * AgentOrgs.productServingFactor(s) + upkeep(p, y) / 30.4   // 3.6: software teams
             s.productLines[i].revenueMonth += r
             s.productLines[i].costMonth += c
             s.productLines[i].lifetime += r
@@ -221,7 +221,7 @@ enum ProductLines {
         for p in catalog {
             var entrants: [(key: String, q: Double, brand: Double, reach: Double)] = []
             if s.productLines.contains(where: { $0.id == p.id }) {
-                entrants.append(("player", quality(p, s.labDomains["player"]), s.brand, myPull * HQ.productPull(p, s)))
+                entrants.append(("player", quality(p, s.labDomains["player"]) + AgentOrgs.productQualityBonus(s, p.id), s.brand, myPull * HQ.productPull(p, s)))
             }
             for r in s.rivalProducts where r.product == p.id {
                 guard let c = s.competitors.first(where: { $0.id == r.lab }) else { continue }
