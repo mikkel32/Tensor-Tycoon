@@ -60,6 +60,7 @@ struct TeamView: View {
                 }
             }
 
+            NotablePeopleCard()   // 3.4: your people the industry knows by name
             HStack {
                 Text("Candidates").font(.title3.weight(.semibold))
                 Spacer()

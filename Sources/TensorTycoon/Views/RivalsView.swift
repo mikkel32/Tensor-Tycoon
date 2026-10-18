@@ -198,6 +198,7 @@ struct RivalsOverviewTab: View {
                     .frame(width: 400)
             }
             FieldMovesCard(state: s, open: open)
+            IndustryBuzzCard(open: open)   // 3.4: who the industry is talking about
         }
     }
 }

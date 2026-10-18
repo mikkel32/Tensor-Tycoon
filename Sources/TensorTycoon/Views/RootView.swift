@@ -153,6 +153,7 @@ struct ScreenRouter: View {
         case .finance: FinanceView()
         case .funding: FundingView()
         case .news: NewsView()
+        case .pulse: PulseView()   // 3.4
         case .achievements: AchievementsView()
         case .credits: CreditsView()
         }
