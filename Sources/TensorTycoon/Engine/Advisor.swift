@@ -20,6 +20,8 @@ enum AdvisorFix: Hashable {
     case setAgent(UUID)
     case raises
     case enableDelegate(String)
+    /// 3.5: lease datacenter space (location, MW, years).
+    case leaseCapacity(String, Double, Int)
     /// Handled by the app: open this decision.
     case openDecision(UUID)
 }
@@ -169,6 +171,19 @@ enum Advisor {
             } else {
                 add("idle", .warning, "cpu", "\(Fmt.int(idle)) accelerators idle", "Train, serve, run agents — or lease them out.", .compute)
             }
+        }
+        // 3.5: out of datacenter power with little on the way.
+        if let pb = Power.powerBound(s) {
+            if let q = DCMarket.quickLease(s, mw: pb.suggestMW), let loc = LocationCatalog.byID[q.locationID] {
+                add("power-bound", .warning, "bolt.trianglebadge.exclamationmark.fill", "Your datacenters are \(Fmt.pct(pb.used, decimals: 0)) full",
+                    "Little new power is on the way, so new chips will have nowhere to go. Lease space now, or buy or build a campus on the Datacenters page.", .datacenters,
+                    fix: .leaseCapacity(q.locationID, pb.suggestMW, 3),
+                    "Lease \(Fmt.watts(pb.suggestMW * 1e6)) in \(loc.name.split(separator: ",").first.map(String.init) ?? loc.name) (\(Fmt.money(q.rate * pb.suggestMW * 1000))/mo, \(q.days) days)")
+            }
+        }
+        if let site = s.sites.first(where: { $0.phaseBlocked && $0.plannedKW > 0 }) {
+            add("phase-\(site.id)", .info, "hammer.fill", "\(site.name): next phase waits for cash",
+                "\(Fmt.watts(site.plannedKW * 1000)) of planned capacity is on hold until you can pay for the next phase.", .datacenters)
         }
         for r in s.rentals {
             guard let end = r.end, r.term.months != nil, GameCalendar.daysBetween(s.date, end) <= 14, GameCalendar.daysBetween(s.date, end) >= 0 else { continue }
@@ -340,6 +355,8 @@ enum Advisor {
             default: return "Unknown delegate."
             }
             return nil
+        case .leaseCapacity(let loc, let mw, let years):
+            return s.leaseCapacity(locationID: loc, mw: mw, years: years, cooling: s.year >= 2023 ? .liquid : .air)
         case .openDecision:
             return nil
         }

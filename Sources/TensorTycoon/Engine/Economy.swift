@@ -315,11 +315,13 @@ enum Economy {
     }
 
     static func siteLoadKW(_ s: GameState, _ siteID: UUID) -> Double {
-        s.owned.filter { $0.siteID == siteID }.reduce(0) { acc, b in
+        let chips = s.owned.filter { $0.siteID == siteID }.reduce(0) { acc, b in
             acc + (HardwareCatalog.get(b.accelID).map(chipKW) ?? 0) * Double(b.count)
         } + s.orders.filter { $0.siteID == siteID }.reduce(0) { acc, o in
             acc + (HardwareCatalog.get(o.accelID).map(chipKW) ?? 0) * Double(o.count)
         }
+        let sublet: Double = s.sites.first { $0.id == siteID }?.subleasedKW ?? 0   // 3.5: space rented to a tenant
+        return chips + sublet
     }
 
     static func hardwareValue(_ s: GameState) -> Double {

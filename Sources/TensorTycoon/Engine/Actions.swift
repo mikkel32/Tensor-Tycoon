@@ -94,7 +94,7 @@ extension GameState {
         case .garage, .office:
             return "You already have that."
         case .colo:
-            if capacityKW / 1000 > Campus.coloCapMW { return "Colocation providers lease at most \(Int(Campus.coloCapMW)) MW to one tenant. Build your own campus for more." }
+            if capacityKW / 1000 > Campus.coloCapMW { return "Month-to-month cages top out at \(Int(Campus.coloCapMW)) MW. Sign a wholesale lease (Datacenters → Buy & lease), buy a campus or build one for more." }
             if power == .gas || power == .smr || power == .fusion { return "A colocation provider picks grid power or a PPA, not on-site generation." }
             let setup = loc.coloFee * capacityKW * (cooling == .air ? 1 : 1.35)
             if setup > cash { return "The first month's fee of \(Fmt.money(setup)) is more than your cash." }
@@ -147,12 +147,13 @@ extension GameState {
         case .garage, .office:
             return "Upgrade your office from the Team page instead."
         case .colo:
-            if (site.capacityKW + addKW) / 1000 > Campus.coloCapMW { return "Colocation providers lease at most \(Int(Campus.coloCapMW)) MW to one tenant. Build your own campus for more." }
+            if site.isTermLease { return "Sign another lease for more space: wholesale leases are fixed blocks." }
+            if (site.capacityKW + addKW) / 1000 > Campus.coloCapMW { return "Month-to-month cages top out at \(Int(Campus.coloCapMW)) MW. Sign a wholesale lease (Datacenters → Buy & lease), buy a campus or build one for more." }
             let fee = site.location.coloFee * addKW * (site.cooling == .air ? 1 : 1.35)
             sites[i].capacityKW += addKW
             sites[i].monthlyFee += fee
         case .datacenter:
-            let cap = Campus.siteCapMW(site.location, site.powerDeal, self)
+            let cap = Campus.siteLimitMW(site, nil, self)
             if (Campus.plannedTotalKW(site) + addKW) / 1000 > cap + 0.01 {
                 return "\(site.location.name) can supply at most \(Fmt.watts(cap * 1e6)) to one site on \(site.powerDeal.rawValue.lowercased()). Switch to a bigger power source or build another site."
             }
@@ -176,7 +177,7 @@ extension GameState {
         if !deal.available(self) { return "Not available yet." }
         if sites[i].kind == .garage || sites[i].kind == .office { return "Your landlord picks the power for you." }
         if sites[i].kind == .colo && (deal == .gas || deal == .smr || deal == .fusion) { return "A colocation provider can't run on-site generation for you." }
-        let cap = Campus.siteCapMW(sites[i].location, deal, self)
+        let cap = sites[i].kind == .datacenter ? Campus.siteLimitMW(sites[i], deal, self) : Campus.siteCapMW(sites[i].location, deal, self)
         if Campus.plannedTotalKW(sites[i]) / 1000 > cap + 0.01 {
             return "\(deal.rawValue) can only supply \(Fmt.watts(cap * 1e6)) here; this campus is planned for \(Fmt.watts(Campus.plannedTotalKW(sites[i]) * 1000))."
         }

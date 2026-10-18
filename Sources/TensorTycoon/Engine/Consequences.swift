@@ -178,7 +178,7 @@ enum Consequences {
         let campuses = s.sites.filter { $0.kind == .datacenter && $0.isReady(today) }.map { ($0, Economy.siteLoadKW(s, $0.id)) }
         let big = campuses.filter { $0.1 >= 50_000 }.max { $0.1 < $1.1 }
         if let (site, kw) = big, World.roll(s, "grid|\(s.date.ym.year)-\(month)") < 0.6 {
-            let extra = kw * 24 * 7 * site.powerPrice * 1.5
+            let extra = kw * 24 * 7 * site.powerPrice * 1.5 * (1 - Power.backupShare(s, site, loadKW: kw))   // 3.5: own power rides it out
             s.cash -= extra
             s.month.costPower += extra
             s.world.gridShock -= 10

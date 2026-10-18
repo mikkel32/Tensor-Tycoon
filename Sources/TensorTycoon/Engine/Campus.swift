@@ -14,6 +14,51 @@ enum Campus {
     /// The most a colocation provider leases to one tenant in one place.
     static let coloCapMW = 500.0
 
+    /// 3.5: the most this site can grow to: its power source's limit, plus grid capacity won in the interconnection queue,
+    /// on-site generation and a little peak-shaving from batteries.
+    static func siteLimitMW(_ site: Site, _ deal: PowerDeal? = nil, _ s: GameState) -> Double {
+        let d = deal ?? site.powerDeal
+        // Power sources that are their own ceiling (gas, reactors, fusion) already assume you build the plant.
+        let connection = siteCapMW(site.location, d.siteCapMW > 0 ? .grid : d, s) + site.gridExtraKW / 1000 + site.onsiteKW / 1000
+        return min(100_000, max(siteCapMW(site.location, d, s), connection) + site.batteryMWh / 4 * 0.1)
+    }
+
+    /// 3.5: retrofitting `site` to better cooling.
+    static func coolingRetrofitCost(_ site: Site, to: Cooling, _ s: GameState) -> Double {
+        let mw = site.capacityKW / 1000
+        return mw * (max(0, to.capexPerMW - site.cooling.capexPerMW) + 2_000_000) * (s.year > 2024 ? 1.15 : 1)
+    }
+
+    /// 3.5: the next rack generation at `site`.
+    static func generationCost(_ site: Site, _ s: GameState) -> Double {
+        site.capacityKW / 1000 * 2_000_000 * (1 + 0.5 * Double(site.generation))
+    }
+
+    /// 3.5: each phase of a campus still to finish: (kW, cost, start, ready, building now).
+    static func schedule(_ site: Site, _ s: GameState) -> [(kw: Double, cost: Double, start: Date, ready: Date, building: Bool)] {
+        guard site.kind == .datacenter else { return [] }
+        var out: [(kw: Double, cost: Double, start: Date, ready: Date, building: Bool)] = []
+        var cursor = s.date
+        if !site.isReady(s.date) {
+            out.append((site.capacityKW, 0, site.opened, site.ready, true))
+            cursor = site.ready
+        }
+        if site.expanding > 0, let r = site.expansionReady {
+            out.append((site.expanding, 0, s.date, r, true))
+            cursor = max(cursor, r)
+        }
+        var left = site.plannedKW
+        while left > 0.5 && out.count < 12 {
+            let kw = min(left, max(site.phaseKW, 1_000))
+            let months = s.buildMonths(mw: kw / 1000, loc: site.location, power: site.powerDeal) * 0.35
+            let ready = GameCalendar.addDays(cursor, max(30, Int(months * 30.4)))
+            out.append((kw, kw / 1000 * capexPerMW(site.cooling, s), cursor, ready, false))
+            cursor = ready
+            left -= kw
+        }
+        return out
+    }
+
     /// Construction cost per MW: shell, substation, cooling (chips not included).
     static func capexPerMW(_ c: Cooling, _ s: GameState) -> Double {
         c.capexPerMW * (s.year > 2024 ? 1.15 : 1)
@@ -66,6 +111,8 @@ enum Campus {
 
     /// Daily: finish phases that are done and start the next ones.
     static func daily(_ s: inout GameState) {
+        DCMarket.daily(&s)   // 3.5: listings, leases, subleases, upgrades
+        Power.daily(&s)      // 3.5: power contracts
         for i in s.sites.indices where s.sites[i].kind == .datacenter && s.sites[i].plannedKW > 0 && s.sites[i].expanding == 0 {
             startNextPhase(&s, i)
         }
@@ -106,9 +153,10 @@ extension GameState {
         let housed = owned.filter { $0.siteID == id }.reduce(0) { $0 + $1.count }
         if housed > 0 { return "Move or sell the \(Fmt.int(housed)) chips housed here first." }
         if orders.contains(where: { $0.siteID == id }) { return "Hardware is on its way to this site. Let it arrive, then move it." }
+        if site.subleasedKW > 0 && site.kind == .colo { return "\(site.subleaseTenant) rents space here until \(site.subleaseEnd?.gameShort ?? "later"). End the sublease first." }
         if site.kind == .colo {
-            let penalty = site.monthlyFee
-            if penalty > cash { return "Ending the lease early costs a month's fee (\(Fmt.money(penalty)))." }
+            let penalty = site.isTermLease ? DCMarket.exitFee(site, self) : site.monthlyFee
+            if penalty > cash { return site.isTermLease ? "Ending the lease early costs half the rent left, \(Fmt.money(penalty))." : "Ending the lease early costs a month's fee (\(Fmt.money(penalty)))." }
             cash -= penalty
             month.costSites += penalty
             sites.remove(at: i)
@@ -118,6 +166,7 @@ extension GameState {
         let price = Campus.salePrice(site, self)
         cash += price
         sites.remove(at: i)
+        powerContracts.removeAll { $0.siteID == id }
         Sim.news(&self, "Sold \(site.name)", "A hyperscaler bought the \(Fmt.watts(Campus.plannedTotalKW(site) * 1000)) campus for \(Fmt.money(price)) (\(Fmt.money(site.capex)) invested).",
                  .company, image: "hyperscale_campus", important: true)
         return nil
