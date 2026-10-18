@@ -1283,6 +1283,10 @@ struct GameState: Codable {
     /// Your chip business: design teams, designs, wafer bookings, fabs, packaging and HBM, shocks, orders (Semis).
     @D var semi: SemiState = SemiState()
 
+    // 3.6: science labs
+    /// Laboratories, research projects, discoveries, patents and rival labs' science (Science).
+    @D var science: ScienceState = ScienceState()
+
     var totalShares: Double {
         founderShares + employeePoolShares + publicShares + holdings.reduce(0) { $0 + $1.shares }
     }

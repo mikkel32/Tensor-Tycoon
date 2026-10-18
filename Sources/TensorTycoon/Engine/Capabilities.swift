@@ -229,6 +229,7 @@ enum Capabilities {
             for (d, v) in fx { e[d.index] += v * q }
         }
         for (d, v) in AdvancedProjects.domainEffects(s) { e[d.index] += v }   // 3.5: delivered government programmes
+        for (d, v) in Science.domainKnowHow(s) { e[d.index] += v }   // 3.6: science-lab discoveries
         return e
     }
 

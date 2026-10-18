@@ -67,5 +67,12 @@ enum ImageCredits {
         ImageCredit(id: "hq_odense", title: "Odense City Hall.jpg", author: "Bo Jessen", license: "CC0", page: "https://commons.wikimedia.org/wiki/File:Odense_City_Hall.jpg"),
         ImageCredit(id: "hq_aalborg", title: "Aalborg 2010 - 125 ubt.JPG", author: "Tomasz Sienicki", license: "CC BY-SA 3.0", page: "https://commons.wikimedia.org/wiki/File:Aalborg_2010_-_125_ubt.JPG"),
         ImageCredit(id: "hq_dk_wind", title: "Danish Wind Turbines 4890894762.jpg", author: "CGP Grey", license: "CC BY 2.0", page: "https://commons.wikimedia.org/wiki/File:Danish_Wind_Turbines_4890894762.jpg"),
+        // 3.6: science labs (resized to 1600 px)
+        ImageCredit(id: "lab_robotics", title: "University of Washington - Bill and Melinda Gates Center for CSE - robotics lab 02.jpg", author: "Joe Mabel", license: "CC BY-SA 4.0", page: "https://commons.wikimedia.org/wiki/File:University_of_Washington_-_Bill_and_Melinda_Gates_Center_for_CSE_-_robotics_lab_02.jpg"),
+        ImageCredit(id: "lab_biology", title: "Tissue Culture.jpg", author: "Orla Keogh", license: "CC BY 4.0", page: "https://commons.wikimedia.org/wiki/File:Tissue_Culture.jpg"),
+        ImageCredit(id: "lab_automation", title: "Chemical Genomics Robot.jpg", author: "Maggie Bartlett, National Human Genome Research Institute", license: "Public domain", page: "https://commons.wikimedia.org/wiki/File:Chemical_Genomics_Robot.jpg"),
+        ImageCredit(id: "lab_energy", title: "Prototype battery testing (5113771331).jpg", author: "Oak Ridge National Laboratory", license: "CC BY 2.0", page: "https://commons.wikimedia.org/wiki/File:Prototype_battery_testing_(5113771331).jpg"),
+        ImageCredit(id: "lab_electronics", title: "Keysight InfiniiVision DSOX 4024A and digital multimeter and power supply in laboratory use.jpg", author: "Radarvector", license: "CC BY-SA 4.0", page: "https://commons.wikimedia.org/wiki/File:Keysight_InfiniiVision_DSOX_4024A_and_digital_multimeter_and_power_supply_in_laboratory_use.jpg"),
+        ImageCredit(id: "lab_materials", title: "Electron microscope in Seagate's R&D lab.jpg", author: "Robert Scoble", license: "CC BY 2.0", page: "https://commons.wikimedia.org/wiki/File:Electron_microscope_in_Seagate%27s_R%26D_lab.jpg"),
     ]
 }

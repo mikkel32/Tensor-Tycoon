@@ -60,6 +60,7 @@ enum PowerKind: String, Codable, CaseIterable, Identifiable, Sendable {
 
     func available(_ s: GameState) -> Bool {
         if self == .fusion && XenoScience.megaDone(s, "supergrid") && s.year >= 2029 { return true }
+        if self == .fusion { return s.year >= availableFrom - Science.fusionPullIn(s) }   // 3.6: fusion-control discoveries
         return s.year >= availableFrom
     }
 
@@ -279,7 +280,7 @@ enum Power {
     /// Quote for a contract: (upfront, $/MWh, months to first power, error).
     static func quote(_ kind: PowerKind, locationID: String, siteID: UUID?, mw: Double, _ s: GameState) -> (upfront: Double, priceMWh: Double, months: Double, error: String?) {
         guard let loc = LocationCatalog.byID[locationID] else { return (0, 0, 0, "Pick a location.") }
-        let upfront = kind.capexPerMW(s.year) * mw
+        let upfront = kind.capexPerMW(s.year) * mw * (kind == .battery ? Science.storageCapexFactor(s) : 1)   // 3.6: battery discoveries
         let price = kind.priceMWh(s.year) * (kind == .gasTurbines && loc.id == "uae" ? 0.8 : 1)
         let months = leadMonths(kind, loc, mw: mw, s)
         if !kind.available(s) { return (upfront, price, months, "\(kind.rawValue) isn't available until \(Int(kind.availableFrom)).") }
@@ -359,7 +360,7 @@ enum Power {
             // Take-or-pay: the rest is sold into the market at 70% of the local wholesale price.
             delta += left * 24 * (c.location.powerPrice * grid * 0.7 - c.priceMWh / 1000)
         }
-        delta *= max(0.5, 1 - s.traits.power) * XenoScience.powerFactor(s)
+        delta *= max(0.5, 1 - s.traits.power) * XenoScience.powerFactor(s) * Science.powerFactor(s)   // 3.6: energy discoveries
         s.cash += delta
         s.month.costPower -= delta
     }

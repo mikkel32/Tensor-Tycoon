@@ -30,6 +30,8 @@ struct DashboardView: View {
                     BusinessCard(state: s, derived: d)
                     if !s.advanced.programmes.isEmpty || !s.advanced.solicitations.isEmpty { AdvancedProjectsCard(state: s) }   // 3.5
                     if s.corp.engaged || s.isPublic { CorporateCard(state: s) }   // 3.5
+                    if s.semi.engaged { SemiconductorCard(state: s) }   // 3.5
+                    if !s.science.labs.isEmpty || !s.science.discoveries.isEmpty { ScienceDashboardCard(state: s) }   // 3.6
                 }
                 .frame(maxWidth: .infinity)
                 VStack(spacing: 16) {

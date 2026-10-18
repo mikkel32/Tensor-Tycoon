@@ -385,6 +385,7 @@ enum Events {
         case (Semis.bugKind, _): Semis.resolveBug(&s, d, option: option)   // 3.5: semiconductors
         case (Semis.shockKind, _): Semis.resolveShock(&s, d, option: option)
         case (Semis.orderKind, _), (Semis.rivalKind, _): Semis.resolveOrder(&s, d, option: option)
+        case ("sci_report", _): Science.resolve(&s, d, option: option)   // 3.6: science labs
         case ("board_ouster", _), ("exclusive_supply", _), ("swarm_audit", _), ("merger_offer", _), ("spinoff", _), ("sovereign_deal", _), ("talent_raid", _),
              ("distill_campaign", _), ("eval_escape", _), ("insider_caught", _):
             StrategyEvents.resolve(&s, d, option: option)

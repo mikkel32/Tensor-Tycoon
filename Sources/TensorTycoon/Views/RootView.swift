@@ -164,6 +164,7 @@ struct ScreenRouter: View {
         case .advancedProjects: AdvancedProjectsView()   // 3.5
         case .corporate: CorporateView()   // 3.5
         case .semiconductors: SemiconductorsView()   // 3.5
+        case .science: ScienceView()   // 3.6
         }
     }
 }
@@ -221,6 +222,7 @@ struct Sidebar: View {
         case .advancedProjects: s.advanced.programmes.filter { $0.status == .active && $0.stage == .award }.count   // 3.5: waiting for a team
         case .corporate: s.decisions.filter { $0.kind.hasPrefix("corp_") }.count   // 3.5
         case .semiconductors: s.decisions.filter { Semis.kinds.contains($0.kind) }.count   // 3.5
+        case .science: Science.pending(s).count   // 3.6
         default: 0
         }
     }

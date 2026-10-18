@@ -149,7 +149,7 @@ enum ProductLines {
             missing.append("Research \(ResearchCatalog.byID[p.research]?.name ?? p.research)")
         }
         let best = s.labDomains["player"]
-        for (d, t) in p.needs where (best?[d] ?? 0) < t - HQ.productRelief(p, s) {   // 3.5: local partners
+        for (d, t) in p.needs where (best?[d] ?? 0) < t - HQ.productRelief(p, s) - Science.productRelief(p, s) {   // 3.5: local partners; 3.6: discoveries
             missing.append("\(d.label) \(Int(t)) (best released: \(best.map { Int($0[d].rounded()) }.map(String.init) ?? "—"))")
         }
         return (missing.isEmpty, missing)
@@ -221,7 +221,7 @@ enum ProductLines {
         for p in catalog {
             var entrants: [(key: String, q: Double, brand: Double, reach: Double)] = []
             if s.productLines.contains(where: { $0.id == p.id }) {
-                entrants.append(("player", quality(p, s.labDomains["player"]) + AgentOrgs.productQualityBonus(s, p.id), s.brand, myPull * HQ.productPull(p, s)))
+                entrants.append(("player", quality(p, s.labDomains["player"]) + AgentOrgs.productQualityBonus(s, p.id), s.brand, myPull * HQ.productPull(p, s) * Science.productPull(p, s)))   // 3.6: software teams; discoveries
             }
             for r in s.rivalProducts where r.product == p.id {
                 guard let c = s.competitors.first(where: { $0.id == r.lab }) else { continue }
