@@ -3,7 +3,7 @@ import Foundation
 /// Money that isn't revenue: interest on cash, API repricing and the founder's own wealth.
 enum Treasury {
     /// What idle cash earns in T-bills and money-market funds (percent per year).
-    static func yieldRate(_ s: GameState) -> Double { max(0, Economy.fedRate(s) - 0.4 + s.traits.yield) }
+    static func yieldRate(_ s: GameState) -> Double { max(0, Economy.fedRate(s) - 0.4 + s.traits.yield + AgentOrgs.yieldBonus(s)) }   // 3.6: finance teams
 
     static func daily(_ s: inout GameState) {
         guard s.cash > 0 else { return }

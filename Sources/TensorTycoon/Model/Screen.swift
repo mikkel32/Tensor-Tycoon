@@ -28,7 +28,7 @@ enum Screen: String, CaseIterable, Identifiable, Hashable {
         case .rivalWatch: "Rival Watch"
         case .benchmarks: "Benchmarks"
         case .rsi: "Self-Improvement Lab"
-        case .swarms: "Agent Swarms"
+        case .swarms: "AI Organisations"
         case .xeno: "Alien Tech"
         case .hardware: "Hardware Store"
         case .compute: "Compute Fleet"

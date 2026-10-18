@@ -26,7 +26,7 @@ struct DashboardView: View {
                     RevenueCard(state: s)
                     ActiveRunsCard(state: s)
                     if !liveRSI.isEmpty { RSIStatusCard(runs: liveRSI) }
-                    if !s.swarms.isEmpty || s.xenoInsight > 0 || !s.alienArchs.isEmpty { SwarmStatusCard(state: s) }
+                    if !s.swarms.isEmpty || !s.orgs.isEmpty || s.xenoInsight > 0 || !s.alienArchs.isEmpty { AgentOrgsDashboardCard(state: s) }   // 3.6
                     BusinessCard(state: s, derived: d)
                 }
                 .frame(maxWidth: .infinity)

@@ -401,10 +401,10 @@ extension GlossaryTerm {
                           detail: "Alignment drifts out of sight as it goes, faster with more autonomy and less oversight. Checkpoints let you promote a generation to a new model, roll back or run a deep audit.",
                           screen: .rsi, aliases: ["self-improvement", "generations", "autonomy", "oversight"])
         case .swarms:
-            GlossaryEntry(title: "Agent swarms", category: .frontier,
-                          definition: "Many copies of one of your models, from ten to a billion, running on your inference chips toward one mission: research, training operations, chip design, alignment, security, intelligence, alien-tech search or paid work.",
-                          detail: "Each agent burns tens of millions of tokens a day, so chips set the size of a swarm. Output grows a little slower than the number of agents, and an agent is worth more the smarter its model.",
-                          screen: .swarms, aliases: ["agents", "swarm", "missions", "workforce"])
+            GlossaryEntry(title: "AI organisations & agent swarms", category: .frontier,
+                          definition: "Teams of copies of your models, from ten to a billion agents on your inference chips, organised around one objective: software, architecture research, scientific discovery, chips, training or infrastructure operations, security, robotics, finance, experiments, alignment, intelligence, alien-tech search or paid work.",
+                          detail: "Each agent burns tens of millions of tokens a day, so chips set the size of a team. Output grows slower than the number of agents (and coordination overhead grows with size); supervisor teams, verification and a tools budget win some of it back. An agent is worth more the smarter its model, and more again when the model is strong in the domains the work needs. More autonomy is faster but drifts out of alignment faster.",
+                          screen: .swarms, aliases: ["agents", "swarm", "missions", "workforce", "organisation", "organization", "supervisors", "verification"])
         case .alignmentDrift:
             GlossaryEntry(title: "Alignment drift", category: .frontier,
                           definition: "Swarms and self-improvement runs slowly slide out of alignment (0–100), faster with more autonomy, less oversight, bigger swarms and alien architectures.",

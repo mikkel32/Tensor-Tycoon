@@ -1254,6 +1254,15 @@ struct GameState: Codable {
     /// Grants, offers and incentives from home so far (HQ).
     @D var hq: HQState = HQState()
 
+    // 3.6: agent organisations
+    /// AI organisations built from swarms (AgentOrgs). Swarms with an `orgID` are their teams; swarms without one
+    /// (every swarm in an older save) work stand-alone, exactly as before.
+    @D var orgs: [AgentOrg] = []
+    /// Today's level (0–1) per organisation activity ("<mission>.<activity>"), read by the systems they improve.
+    @D var orgLevels: [String: Double] = [:]
+    /// Techniques published by architecture research departments (each +0.3 points of training MFU).
+    @D var orgTechniques: Int = 0
+
     var totalShares: Double {
         founderShares + employeePoolShares + publicShares + holdings.reduce(0) { $0 + $1.shares }
     }

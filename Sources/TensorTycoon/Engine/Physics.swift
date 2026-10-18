@@ -44,7 +44,7 @@ enum Physics {
         let needed = 0.5 + Double(chips) / 1_500
         base += 0.04 * min(1, engineers / needed)
         // Agent swarms on training operations tune kernels and route around bad nodes.
-        base += 0.04 * s.swarmOps + s.traits.mfu
+        base += 0.04 * s.swarmOps + s.traits.mfu + AgentOrgs.mfuBonus(s)   // 3.6: techniques from architecture research
         if engineers < 0.5 && chips > 64 { base -= 0.05 }
         return clamp(base * scaleOutFactor(accel: accel, chips: chips, bonuses: b), 0.05, 0.7)
     }
