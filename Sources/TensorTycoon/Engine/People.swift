@@ -22,11 +22,12 @@ enum People {
     static func makeCandidate(_ s: inout GameState, role: Role? = nil, star: Bool? = nil) -> Candidate {
         var roles: [Role] = [.researcher, .researcher, .mlEngineer, .mlEngineer, .infra, .data, .sales, .safety]
         if s.bonuses.has(.customSilicon) && s.year > 2018 { roles.append(.chipDesigner) }
+        roles += HQ.extraRoles(s)   // 3.5: what the local ecosystem produces
         let r = role ?? s.rng.pick(roles)
         let isStar = star ?? s.rng.chance(0.06)
         let pull = r == .researcher ? (s.publication == .open ? 4.0 : s.publication == .secret ? -5.0 : 0) : 0
-        let skill = isStar ? s.rng.range(85, 99) : clamp(45 + pull + s.traits.hiring + s.rng.gaussian() * 15, 15, 90)
-        var salary = Macro.salary(r, s.year) * pow(skill / 50, 1.6)
+        let skill = isStar ? s.rng.range(85, 99) : clamp(45 + pull + s.traits.hiring + HQ.skillBonus(s, r) + s.rng.gaussian() * 15, 15, 90)
+        var salary = Macro.salary(r, s.year) * pow(skill / 50, 1.6) * HQ.salaryFactor(s, star: isStar)
         if isStar && s.year > 2024.5 && r == .researcher { salary *= s.rng.range(3, 12) }   // 2025 talent wars
         let equity = isStar ? s.rng.range(0.05, 0.6) : s.rng.range(0, 0.05)
         let name = "\(s.rng.pick(NameBank.first)) \(s.rng.pick(NameBank.last))"
@@ -43,7 +44,7 @@ enum People {
 
     static func refreshCandidates(_ s: inout GameState) {
         s.candidates.removeAll { $0.expires < s.date }
-        let target = 8 + min(8, s.employees.count / 20)
+        let target = HQ.candidateTarget(s, 8 + min(8, s.employees.count / 20))
         while s.candidates.count < target { s.candidates.append(makeCandidate(&s)) }
     }
 
@@ -55,7 +56,7 @@ enum People {
         let momentum = (s.history.last?.revenue ?? 0) > (s.history.dropLast().last?.revenue ?? 0) ? 1.0 : -0.5
         var poached: [Employee] = []
         for i in s.employees.indices {
-            let market = Macro.salary(s.employees[i].role, s.year) * pow(s.employees[i].skill / 50, 1.6)
+            let market = Macro.salary(s.employees[i].role, s.year) * pow(s.employees[i].skill / 50, 1.6) * HQ.salaryFactor(s, star: s.employees[i].star)
             let payRatio = s.employees[i].salary / max(market, 1)
             var m = s.employees[i].morale
             m += (payRatio - 1) * 6 + momentum + (crowded ? -4 : 0) + (s.cash < 0 ? -10 : 0)
@@ -63,6 +64,7 @@ enum People {
             s.employees[i].morale = clamp(m, 0, 100)
             // Rival labs poach unhappy, highly skilled people (never the loyal ones)
             var risk = (s.employees[i].skill / 100) * max(0, 0.6 - s.employees[i].morale / 100) * 0.12 + (s.employees[i].star ? 0.01 : 0)
+            risk *= HQ.poachFactor(s)   // 3.5: big labs abroad recruit harder where pay is lower
             if s.employees[i].talent == .loyal { risk = 0 }
             if s.rng.chance(risk) { poached.append(s.employees[i]) }
         }
@@ -355,6 +357,8 @@ enum Events {
                 s.brand = max(0, s.brand - 6)
                 Sim.news(&s, "You lost the trade-secret case", "Damages of \(Fmt.money(d.amount * 2)). Brand −6.", .policy, important: true, good: false)
             }
+        case ("hq_grant", _), ("hq_partner", _), ("hq_contract", _):   // 3.5: headquarters
+            HQ.resolve(&s, d, option: option)
         case ("rsi_resource", _), ("rsi_exfil", _):
             RSI.resolve(&s, kind: d.kind, option: option, ref: d.ref)
         case ("swarm_collusion", _), ("swarm_escape", _):

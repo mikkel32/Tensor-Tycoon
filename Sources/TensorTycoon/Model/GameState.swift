@@ -1247,6 +1247,13 @@ struct GameState: Codable {
     /// Your lab's training firsts (first 100B model, first 100K-chip run, …), oldest first (TrainingExperience).
     @D var trainingFirsts: [TrainingFirst] = []
 
+    // 3.5: headquarters
+    /// Where the company is based (CountryCatalog / HQ). Older saves decode "" and migrate to the US default.
+    @D var hqCountry: String = "us"
+    @D var hqCity: String = "sf"
+    /// Grants, offers and incentives from home so far (HQ).
+    @D var hq: HQState = HQState()
+
     var totalShares: Double {
         founderShares + employeePoolShares + publicShares + holdings.reduce(0) { $0 + $1.shares }
     }

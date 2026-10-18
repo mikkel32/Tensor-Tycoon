@@ -337,7 +337,7 @@ enum Economy {
 
     static func debt(_ s: GameState) -> Double { s.loans.reduce(0) { $0 + $1.balance } }
 
-    static func payrollYear(_ s: GameState) -> Double { s.employees.reduce(0) { $0 + $1.salary } * max(0.5, 1 + s.traits.payroll) }
+    static func payrollYear(_ s: GameState) -> Double { s.employees.reduce(0) { $0 + $1.salary } * max(0.5, 1 + s.traits.payroll) * HQ.payrollFactor(s) }
 
     static let officeLevels: [(name: String, capacity: Int, monthly: Double, image: String)] = [
         ("Garage", 6, 0, "garage"),

@@ -197,6 +197,10 @@ enum PTPlay {
         if let k = flags.first(where: { $0.hasPrefix("kit=") }) { settings.kit = k.dropFirst(4).split(separator: "+").map(String.init) }
         if flags.contains("genius") { settings.kitMode = .genius }
         if flags.contains("quests") { settings.starterQuests = true }
+        if let hq = flags.first(where: { $0.hasPrefix("hq=") })?.dropFirst(3).split(separator: ":") {   // 3.5: e.g. hq=fr:grenoble
+            settings.hqCountry = hq.first.map(String.init) ?? "us"
+            settings.hqCity = hq.count > 1 ? String(hq[1]) : ""
+        }
         var s = NewGame.create(settings, seed: seed)
         var bot = PTBot()
         bot.flags = flags

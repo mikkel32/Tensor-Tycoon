@@ -73,7 +73,7 @@ private struct TodayHeader: View {
                         }
                         Text("\(s.date.gameLong) · day \(Fmt.int(day))")
                             .font(.callout.weight(.semibold).monospacedDigit())
-                        Text("\(Economy.officeLevels[min(s.officeLevel, 5)].name) · \(Fmt.int(s.employees.count + 1)) people · \(Fmt.int(d.totalChips)) accelerators · \(Fmt.count(d.h100e)) H100e")
+                        Text("\(Economy.office(s, s.officeLevel).name) · \(Fmt.int(s.employees.count + 1)) people · \(Fmt.int(d.totalChips)) accelerators · \(Fmt.count(d.h100e)) H100e")
                             .font(.callout).opacity(0.9)
                     }
                     Spacer()
@@ -112,7 +112,7 @@ private struct TodayHeader: View {
     private func heroImage(_ s: GameState) -> String {
         if let dc = s.sites.filter({ $0.kind == .datacenter && $0.isReady(s.date) }).max(by: { $0.capacityKW < $1.capacityKW }) { return dc.location.image }
         if s.sites.contains(where: { $0.kind == .colo }) { return "dc_corridor" }
-        return Economy.officeLevels[min(s.officeLevel, 5)].image
+        return Economy.office(s, s.officeLevel).image
     }
 }
 

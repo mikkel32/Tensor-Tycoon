@@ -225,7 +225,7 @@ enum Region: String, Codable, CaseIterable, Identifiable, Sendable {
     var locations: [String] {
         switch self {
         case .us: ["nova", "texas", "iowa", "oregon", "arizona"]
-        case .eu: ["iceland"]
+        case .eu: ["iceland"] + LocationCatalog.european.map(\.id)   // 3.5
         case .gulf: ["uae"]
         default: []
         }
