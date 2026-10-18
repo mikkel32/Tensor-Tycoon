@@ -8,8 +8,8 @@ import Foundation
 /// contrarian). A trailing + or − nudges the post's tone toward the lab it's about; "/BS" after the pool limits a line to
 /// people whose voice is in those families (bold, careful, terse, skeptic, worried, numbers).
 /// `{name's}` is a possessive. Some facts exist only to gate a line: {ifsafety} (a safety bill), {ifdereg} (a bill that
-/// loosens rules), {ifsmall} / {ifbig} (the lab's size), {iffromlab} / {ifestablished} (a career move from a lab / to a lab
-/// at least a year old) fill in as nothing, and a line that needs a missing one isn't used.
+/// loosens rules), {ifsmall} / {ifbig} (the lab's size), {ifceo} / {ifcs} (a promotion), {iffromlab} / {ifestablished} (a
+/// career move from a lab / to a lab at least a year old) fill in as nothing, and a line that needs a missing one isn't used.
 enum PulseBank {
     static let lines: [String: [String]] = {
         var all: [String: [String]] = [:]
@@ -487,7 +487,8 @@ enum PulseBank {
         "p.career.promoted": [
             "self|Honoured to step up at {toshort}.",
             "reporter|{name} is {toshort's} new {role}.",
-            "insider|{name} running things at {toshort} means a lot more shipping and a lot fewer memos.",
+            "insider|{ifceo}{name} running things at {toshort} means a lot more shipping and a lot fewer memos.",
+            "insider|{ifcs}{name} running research at {toshort}. Expect fewer papers and bigger runs.",
         ],
         "p.career.out": [
             "reporter|{name} is out at {fromshort}.",

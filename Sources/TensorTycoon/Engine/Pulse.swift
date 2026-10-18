@@ -223,6 +223,8 @@ enum Pulse {
         if !mv.from.isEmpty { v["fromshort"] = Cast.orgName(mv.from, s, short: true) }
         if !mv.to.isEmpty { v["toshort"] = Cast.orgName(mv.to, s, short: true); v["to"] = Cast.orgName(mv.to, s); v["toorg"] = mv.to }
         if Cast.isLab(mv.from) || mv.from == "player" { v["iffromlab"] = "" }
+        if mv.role == "Chief executive" || mv.role == "Director" { v["ifceo"] = "" }
+        if mv.role == "Chief scientist" { v["ifcs"] = "" }
         if Cast.isLab(mv.to), CompetitorCatalog.def(mv.to).founded.decimal <= s.year - 1 { v["ifestablished"] = "" }
         if let start = p.history.last?.date { v["years"] = "\(max(1, Cast.days(start, s.date) / 365))" }
         let kind: String
