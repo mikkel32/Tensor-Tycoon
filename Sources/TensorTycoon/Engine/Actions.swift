@@ -25,7 +25,7 @@ extension GameState {
         // Warrant rebates lower what the chips cost you (and what they'll resell for).
         let rebate = Partners.recordSpend(&self, accel: a, amount: total, purchase: true)
         if a.cls == .tpu { Achievements.unlock(&self, "tpu_owner") }
-        let days = Economy.leadTimeDays(a, self)
+        let days = AlienFab.isAlienChip(a.id) ? AlienFab.book(&self, count: count) : Economy.leadTimeDays(a, self)
         orders.append(HardwareOrder(accelID: accelID, count: count, siteID: siteID, unitCost: unit - rebate / Double(count), ordered: date,
                                     arrives: GameCalendar.addDays(date, days)))
         Sim.news(&self, "Ordered \(Fmt.int(count))× \(a.name)", "\(Fmt.money(total)) paid. Delivery in about \(days) days to \(site.name).", .company, image: a.image)

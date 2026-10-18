@@ -120,6 +120,7 @@ private struct ChipLineCard: View {
         let demandAtPrice = accel.map { ChipBusiness.demand(chip: $0, price: price, sellToRivals: l.sellToRivals, s) } ?? 0
         let ref = Silicon.reference(s)
         let buyers = l.buyerUnits.sorted { $0.value > $1.value }.prefix(8)
+        let lineCap = chip.alien ? AlienFab.merchantPerLine(s) : l.capacityMonth / 30.4
         Card {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 4) {
@@ -129,7 +130,9 @@ private struct ChipLineCard: View {
                         Pill(text: l.active ? "On sale" : "Paused", color: l.active ? .green : .orange)
                         if chip.alien { Pill(text: "Alien", color: .purple, symbol: "atom") }
                     }
-                    Text("\(Fmt.money(chip.unitCost)) to make · selling at \(Fmt.money(l.price)) · \(Fmt.count(l.capacityMonth))/month capacity\(l.pendingCapacity > 0 ? " (+\(Fmt.count(l.pendingCapacity)) from \(l.pendingReady?.gameShort ?? ""))" : "")")
+                    Text(chip.alien
+                         ? "\(Fmt.money(chip.unitCost)) to make · selling at \(Fmt.money(l.price)) · up to \(Fmt.count(AlienFab.merchantPerLine(s) * 30.4))/month from your alien fab line\(s.alienFab.pendingCapacity > 0 ? " (expanding \(s.alienFab.pendingReady?.gameShort ?? ""))" : "")"
+                         : "\(Fmt.money(chip.unitCost)) to make · selling at \(Fmt.money(l.price)) · \(Fmt.count(l.capacityMonth))/month capacity\(l.pendingCapacity > 0 ? " (+\(Fmt.count(l.pendingCapacity)) from \(l.pendingReady?.gameShort ?? ""))" : "")")
                         .font(.callout).foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -139,13 +142,14 @@ private struct ChipLineCard: View {
             }
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 5), spacing: 10) {
                 LineStat(label: "Shipping", value: "\(Fmt.count(l.unitsToday * 30.4))/mo", tint: .blue)
-                LineStat(label: "Demand", value: "\(Fmt.count(l.demandToday * 30.4))/mo", tint: l.demandToday > l.capacityMonth / 30.4 ? .orange : .secondary)
+                LineStat(label: "Demand", value: "\(Fmt.count(l.demandToday * 30.4))/mo", tint: l.demandToday > lineCap ? .orange : .secondary)
                 LineStat(label: "Shipped", value: Fmt.count(l.shipped), tint: .indigo)
                 LineStat(label: "Revenue", value: Fmt.money(l.revenue), tint: .green)
                 LineStat(label: "Gross profit", value: Fmt.money(l.profit), tint: .green)
             }
-            if l.demandToday > l.capacityMonth / 30.4 + 0.5 {
-                Label("Buyers want \(Fmt.count(l.demandToday * 30.4)) a month — reserve more foundry capacity.", systemImage: "exclamationmark.triangle.fill")
+            if l.demandToday > lineCap + 0.5 {
+                Label(chip.alien ? "Buyers want \(Fmt.count(l.demandToday * 30.4)) a month — expand your alien fab line (your own orders get three quarters of it while they're queued)."
+                                 : "Buyers want \(Fmt.count(l.demandToday * 30.4)) a month — reserve more foundry capacity.", systemImage: "exclamationmark.triangle.fill")
                     .font(.caption).foregroundStyle(.orange)
             }
             HStack(alignment: .top, spacing: 24) {
@@ -161,17 +165,18 @@ private struct ChipLineCard: View {
                 }
                 .frame(maxWidth: .infinity)
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Foundry capacity").font(.headline)
+                    Text(chip.alien ? "Alien fab line" : "Foundry capacity").font(.headline)
                     HStack {
                         Slider(value: $capacityLog, in: 3...6.3)
                         Text("+\(Fmt.count(capacity))/mo").font(.callout.monospacedDigit().weight(.semibold)).frame(width: 90, alignment: .trailing)
                     }
                     if let accel {
-                        Text("Costs \(Fmt.money(ChipBusiness.capacityCost(accel, units: capacity, s))) up front (tooling, packaging slots, HBM prepayments). Ramps in \(chip.alien ? 3 : 4) months.")
+                        Text(chip.alien ? "Costs \(Fmt.money(AlienFab.expansionCost(s, units: capacity))) up front and serves your own orders too. Online in about \(AlienFab.expansionDays(s) / 30 + 1) months."
+                                        : "Costs \(Fmt.money(ChipBusiness.capacityCost(accel, units: capacity, s))) up front (tooling, packaging slots, HBM prepayments). Ramps in 4 months.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
-                    Button("Reserve capacity") { store.act("Capacity reserved") { $0.addFabCapacity(l.chipID, units: capacity) } }
-                        .disabled(l.pendingCapacity > 0)
+                    Button(chip.alien ? "Expand the line" : "Reserve capacity") { store.act("Capacity reserved") { $0.addFabCapacity(l.chipID, units: capacity) } }
+                        .disabled(chip.alien ? s.alienFab.pendingCapacity > 0 : l.pendingCapacity > 0)
                 }
                 .frame(maxWidth: .infinity)
             }

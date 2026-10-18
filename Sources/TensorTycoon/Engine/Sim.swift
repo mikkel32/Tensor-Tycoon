@@ -220,6 +220,10 @@ enum Sim {
                     RSI.log(&s, ri, "Paused: not enough \(pool.accel.name) chips.")
                 }
             }
+            if excess > 0 && pool.accel.vendor == .custom {
+                // 3.5: your own chips can't be rented as spares, so a run on them carries on with the chips that are left.
+                AlienFab.shrinkRuns(&s, accel: pool.accel, excess: &excess)
+            }
             if excess > 0 {
                 for ri in s.runs.indices where s.runs[ri].design.accelID == id && (s.runs[ri].status == .running || s.runs[ri].status == .postTraining) && excess > 0 {
                     s.runs[ri].status = .paused

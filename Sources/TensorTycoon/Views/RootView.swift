@@ -213,7 +213,7 @@ struct Sidebar: View {
         case .swarms: s.swarms.filter { !$0.paused }.count
         case .strategy: s.culturePoints
         case .security: s.bills.filter { $0.stance == 0 }.count
-        case .xeno: s.alienArchs.reduce(0) { $0 + $1.offers.count } + s.decisions.filter { $0.kind == "xeno_anomaly" }.count
+        case .xeno: s.alienArchs.reduce(0) { $0 + $1.offers.count } + s.decisions.filter { $0.kind == "xeno_anomaly" || $0.kind == "alien_errata" }.count
         case .silicon: s.chipProjects.filter { !$0.done }.count
         case .partners: s.partnerships.count
         case .advancedProjects: s.advanced.programmes.filter { $0.status == .active && $0.stage == .award }.count   // 3.5: waiting for a team

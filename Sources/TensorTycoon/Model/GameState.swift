@@ -1256,6 +1256,9 @@ struct GameState: Codable {
     // 3.5: advanced projects
     /// Government contracts: the marketplace, your bids, programmes, classified facilities and clearances (AdvancedProjects).
     @D var advanced: AdvancedState = AdvancedState()
+    // 3.5: alien fab
+    /// Your alien fab line: capacity, your order queue and its volume milestones (AlienFab).
+    @D var alienFab: AlienFabState = AlienFabState()
 
     var totalShares: Double {
         founderShares + employeePoolShares + publicShares + holdings.reduce(0) { $0 + $1.shares }

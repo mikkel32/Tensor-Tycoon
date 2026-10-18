@@ -188,6 +188,7 @@ enum Alerts {
         "fun_cfp": 0, "fun_keynote": 1,   // 3.5: fun systems
         "hq_grant": 0, "hq_partner": 1, "hq_contract": 1,   // 3.5: headquarters
         AdvancedProjects.secrecyKind: 0,   // 3.5: keep a classified discovery classified
+        "alien_errata": 0,   // 3.5: alien fab
     ]
 
     static func isUrgent(_ d: Decision) -> Bool { inboxDefaults[d.kind] == nil }

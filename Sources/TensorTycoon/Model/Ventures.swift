@@ -157,6 +157,20 @@ struct AlienArch: Codable, Identifiable, Hashable {
     /// Once licensed, the blueprint is out for good.
     var licensedOnce = false
     var lastOffer: Date? = nil
+    // 3.5: alien fab — chip generations, revisions and errata.
+    /// Latest chip version in production (0 = only RTL, 1 = v1, 2 = v2, 3 = v3).
+    @D var chipVersion: Int = 0
+    /// Every chip made from this architecture, oldest first.
+    @D var chipIDs: [String] = []
+    /// A next-generation revision of the chip is being designed.
+    @D var revising: Bool = false
+    @D var reviseDaysLeft: Double = 0
+    @D var reviseTotal: Double = 0
+    @D var reviseRespins: Int = 0
+    /// Total days of the tape-out under way (for its progress bar).
+    @D var fabTotal: Double = 0
+    /// Errata your chips have thrown so far.
+    @D var errata: Int = 0
 
     var multiplier: Double { pow(10, computeGain) }
 }

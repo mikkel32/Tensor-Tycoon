@@ -10,10 +10,10 @@ checks pass (`--forecast-check` identical, save fixtures load, playtests sane) a
 | 3 | Deeper intelligence: domains (11 exist), model families, distillation, advanced techniques | Partly done (domains, milestones); families/distillation not started | No |
 | 4 | Progression stages with new powers | Partly (founding kit merged: 39 cards, genius starts, RL lab, starter quests; late-game systems exist) | No |
 | 5 | Countries: Romania, Italy, France, Denmark; premium selection; real effects; photos | Merged (12 cities, real economics, 13 licensed Commons photos with credits) | No |
-| 6 | Advanced Projects: government contracts, classified facilities, programmes, secrecy | In progress (wave 1) | No |
+| 6 | Advanced Projects: government contracts, classified facilities, programmes, secrecy | Merged (14 agencies, 23 programme templates, 4 contract types, clearances, secrecy choices) | No |
 | 7 | Data economy: types, quality dimensions, licensing, processing, contamination | In progress (wave 2) | No |
 | 8 | Science labs and experiments | In progress (wave 2; builds on XenoScience/moonshots) | No |
-| 9 | Semiconductor industry (fab, yields, packaging, sales) | Alien fab in progress (wave 1); full industry wave 2 | No |
+| 9 | Semiconductor industry (fab, yields, packaging, sales) | Alien fab line merged (pilot line, v2/v3 generations, yields, errata); full industry wave 3 | No |
 | 10 | Autonomous agent organisations | In progress (wave 2; builds on swarms) | No |
 | 11 | Smarter rivals | Largely done in 3.3 (strategies, lifecycle, books); specialisation response wave 2 | No |
 | 12 | National economies and AI strategies | Partly (world model, regions); national strategies wave 2 | No |
@@ -27,7 +27,7 @@ checks pass (`--forecast-check` identical, save fixtures load, playtests sane) a
 | 23 | Save compatibility | Checked each merge with the 3.1 and 3.2 fixtures | n/a |
 | 25 | Visual acceptance in the running app | Blocked: no macOS machine in this environment; needs the owner | — |
 
-Also in wave 1 (owner's earlier request): founding kit and genius starts (merged), alien GPU pipeline fixes (in progress),
+Also in wave 1 (owner's earlier request): founding kit and genius starts (merged), alien GPU pipeline fixes (merged: four ways it got stuck, fixed),
 datacenter/GW market, buying and leasing (merged), conferences/competitions/scenarios (merged).
 
 ## Known blockers

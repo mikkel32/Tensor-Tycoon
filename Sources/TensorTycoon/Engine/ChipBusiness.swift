@@ -91,7 +91,7 @@ enum ChipBusiness {
             let line = s.chipLines[i]
             guard line.active, let chip = HardwareCatalog.get(line.chipID), let unitCost = chip.price else { continue }
             let want = demand(chip: chip, price: line.price, sellToRivals: line.sellToRivals, s)
-            let units = min(want, line.capacityMonth / 30.4)
+            let units = min(want, AlienFab.isAlienChip(line.chipID) ? AlienFab.merchantPerLine(s) : line.capacityMonth / 30.4)
             s.chipLines[i].demandToday = want
             s.chipLines[i].unitsToday = units
             guard units > 0 else { continue }
@@ -217,6 +217,8 @@ extension GameState {
 
     mutating func addFabCapacity(_ chipID: String, units: Double) -> String? {
         guard let i = chipLines.firstIndex(where: { $0.chipID == chipID }), let chip = HardwareCatalog.get(chipID) else { return "Open a sales line first." }
+        // Alien chips come off your own fab line (3.5): expanding it serves sales and your own orders.
+        if AlienFab.isAlienChip(chipID) { return expandAlienFab(units: units) }
         if chipLines[i].pendingCapacity > 0 { return "A capacity expansion is already ramping." }
         if units < 1_000 { return "Foundries won't reserve fewer than 1,000 chips a month." }
         let cost = ChipBusiness.capacityCost(chip, units: units, self)

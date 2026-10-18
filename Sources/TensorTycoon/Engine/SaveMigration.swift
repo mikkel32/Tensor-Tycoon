@@ -57,6 +57,8 @@ enum SaveMigration {
         if s.hqCity.isEmpty || !CountryCatalog.get(s.hqCountry).cities.contains(where: { $0.id == s.hqCity }) {
             s.hqCity = CountryCatalog.get(s.hqCountry).cities[0].id
         }
+        // 3.5: alien programs in progress get unstuck and existing alien chips get their fab line.
+        AlienFab.migrate(&s)
     }
 
     /// Decodes a save, migrates it and plays 90 days on a copy, resolving decisions with their first option.
