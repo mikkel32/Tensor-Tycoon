@@ -25,6 +25,7 @@ struct DashboardView: View {
                     WorldCard()
                     RevenueCard(state: s)
                     ActiveRunsCard(state: s)
+                    if !s.families.families.isEmpty || !s.families.jobs.isEmpty { ModelFamiliesCard(state: s) }   // 3.5
                     if !liveRSI.isEmpty { RSIStatusCard(runs: liveRSI) }
                     if !s.swarms.isEmpty || !s.orgs.isEmpty || s.xenoInsight > 0 || !s.alienArchs.isEmpty { AgentOrgsDashboardCard(state: s) }   // 3.6
                     BusinessCard(state: s, derived: d)

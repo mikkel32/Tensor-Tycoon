@@ -18,6 +18,7 @@ enum Sim {
         Operations.daily(&s, b)
         s.xenoInsightToday = 0
         Training.daily(&s, b)
+        Families.daily(&s, b)   // 3.5: model families (distillation, post-training)
         RSI.daily(&s, b)
         Swarms.daily(&s, b)
         Silicon.daily(&s)
@@ -238,6 +239,7 @@ enum Sim {
                                  screen: .training, critical: true, cooldown: 7)
                 }
             }
+            if excess > 0 && !s.families.jobs.isEmpty { Families.shrink(&s, accelID: id, excess: &excess) }   // 3.5: model families
         }
     }
 
@@ -309,6 +311,8 @@ enum Sim {
 
         // Consumer
         var chatTokens = 0.0
+        var freeRoute: (id: UUID, share: Double)? = nil
+        var freeServed = 1.0
         // What rival apps earn per weekly user a month (RivalEconomy's assumption).
         let rivalChatARPU = Market.paidConversion(price: 20, freeTier: true) * 20
         if let chat = snap.consumer.first(where: { $0.isPlayer }) {
@@ -328,7 +332,16 @@ enum Sim {
                 * Market.budgetFactor(s.consumerUsers * conv * s.chatPrice / 30.4, pool: snap.consumerRevenuePool, others: others)
             let reasoningMult = chat.reasoning ? 2.2 : 1
             chatTokens = s.consumerUsers * Macro.tokensPerUserDay(y) * reasoningMult
-            if let id = chat.modelID { demand[id, default: 0] += chatTokens }
+            if let id = chat.modelID, let free = Families.freeRoute(s, chatID: id) {
+                // 3.5: model families — free users are served by a cheaper tier, paying users by the chat model.
+                freeRoute = (free.id, Families.freeShare(s))
+                let base = s.consumerUsers * Macro.tokensPerUserDay(y)
+                let paid = base * (1 - freeRoute!.share) * reasoningMult
+                let freeTokens = base * freeRoute!.share * (free.reasoning ? 2.2 : 1)
+                chatTokens = paid + freeTokens
+                demand[id, default: 0] += paid
+                demand[free.id, default: 0] += freeTokens
+            } else if let id = chat.modelID { demand[id, default: 0] += chatTokens }
             // Player can trigger the consumer boom early
             if s.chatMoment == nil, let m = s.models.first(where: { $0.id == chat.modelID }), m.c >= 4.1, m.design.instruct, m.design.rlhf {
                 s.chatMoment = y
@@ -410,6 +423,7 @@ enum Sim {
             s.models[i].revenueDay = r
             revAPI += r
             if id == s.chatModelID { chatServed = frac }
+            if id == freeRoute?.id { freeServed = frac }
             if id == agentModelID { agentServed = frac }
             if ent > 0 && entFrac < 0.95 {
                 for di in s.deals.indices where s.deals[di].active && s.deals[di].modelID == id {
@@ -419,6 +433,7 @@ enum Sim {
             servedTotal += served
             demandTotal += dem
         }
+        if let r = freeRoute { chatServed = chatServed * (1 - r.share) + freeServed * r.share }
         s.consumerServedFraction = chatServed
         let overall = demandTotal > 0 ? servedTotal / demandTotal : 1
         s.reliability = clamp(s.reliability * 0.93 + overall * 0.07, 0.05, 1)

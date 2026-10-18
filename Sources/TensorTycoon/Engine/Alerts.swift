@@ -196,6 +196,7 @@ enum Alerts {
         "corp_funding": 1, "corp_covenant": 0, "corp_downgrade": 2, "corp_audit": 0,   // 3.5: corporate
         Semis.bugKind: 0, Semis.shockKind: 0, Semis.orderKind: 2, Semis.rivalKind: 1,   // 3.5: semiconductors
         "sci_report": 0,   // 3.6: science labs (patent and license)
+        Families.decisionKind: 0,   // 3.5: model families — route free chat users to a cheaper tier
     ]
 
     static func isUrgent(_ d: Decision) -> Bool { inboxDefaults[d.kind] == nil }

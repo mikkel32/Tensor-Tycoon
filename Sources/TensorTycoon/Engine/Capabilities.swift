@@ -291,7 +291,11 @@ enum Capabilities {
     // MARK: Scoring models
 
     static func playerScores(_ m: AIModel, research e: [Double]) -> DomainScores {
-        scores(Leaderboard.profile(m), extra: e, video: m.design.video)
+        guard !m.domainBonus.isEmpty else { return scores(Leaderboard.profile(m), extra: e, video: m.design.video) }
+        // 3.5: model families — distillation retention and post-training passes add per-domain know-how.
+        var x = e
+        for (i, v) in m.domainBonus.enumerated() where i < x.count { x[i] += v }
+        return scores(Leaderboard.profile(m), extra: x, video: m.design.video)
     }
 
     static func rivalScores(_ s: GameState, _ m: CompetitorModel, lab: String, def: CompetitorDef) -> DomainScores {

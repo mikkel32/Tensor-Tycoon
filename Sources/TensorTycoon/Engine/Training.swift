@@ -1032,6 +1032,7 @@ enum Training {
             runLog(&s, i, "Ops report: \(Int(run.prevented)) failures prevented, \(Int(run.sdcCaught)) corrupt nodes caught, \(Int(run.sdcMissed)) slipped through.")
         }
         TrainingExperience.finished(&s, run: s.runs[i], model: model, previousBest: previousBest, rank: rank)
+        Families.adopt(&s, model)   // 3.5: a run named for an existing family becomes its new flagship
     }
 
     // MARK: Helpers

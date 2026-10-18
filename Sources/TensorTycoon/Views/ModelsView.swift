@@ -40,6 +40,7 @@ private struct ModelCard: View {
     @State private var launch: LaunchStyle = .standard
     @State private var addAccel = ""
     @State private var confirmRetire = false
+    @State private var familySheet: FamilySheet?   // 3.5: model families
 
     var body: some View {
         let s = state
@@ -64,6 +65,7 @@ private struct ModelCard: View {
                         if m.rsiGeneration > 0 { Pill(text: "Self-improved g\(m.rsiGeneration)", color: .purple, symbol: "arrow.triangle.2.circlepath") }
                         if m.efficiencyBoost > 0.05 { Pill(text: "+\(Int(m.efficiencyBoost * 100))% serving efficiency", color: .teal) }
                         if s.agentModelID == m.id { Pill(text: "Powers agent product", color: .indigo, symbol: "figure.walk.motion") }
+                        if let f = Families.family(of: m.id, s), let t = f.tier(of: m.id) { Pill(text: "\(f.name) \(t.label)", color: .teal, symbol: t.symbol) }
                     }
                     Text("\(Fmt.params(m.design.paramsB)) params\(m.design.isMoE ? " (\(Fmt.params(m.design.activeParamsB)) active)" : "") · \(Fmt.tokens(m.design.tokensT)) tokens · \(m.design.contextK >= 1000 ? "1M" : "\(m.design.contextK)K") context · trained \(m.created.gameShort)")
                         .font(.callout).foregroundStyle(.secondary)
@@ -94,6 +96,7 @@ private struct ModelCard: View {
             }
         }
         .onAppear { priceText = String(format: "%.3f", m.apiPrice) }
+        .familySheet($familySheet)
     }
 
     @ViewBuilder
@@ -129,6 +132,15 @@ private struct ModelCard: View {
                 if !m.design.instruct { Text("Base models (no instruction tuning) can't power a chat app.").font(.caption).foregroundStyle(.secondary) }
                 if !m.openWeights {
                     Button("Open-source the weights") { store.act("Weights released") { $0.release(m.id, api: m.api, openWeights: true) } }
+                }
+            }
+            if !m.preview {
+                // 3.5: model families
+                HStack {
+                    Button("Distil a tier…") { familySheet = .distill(m.id) }
+                        .help("Train a smaller, much cheaper student from this model")
+                    Button("Post-train…") { familySheet = .postTrain(m.id) }
+                        .help("Reasoning RL, agentic training, safety tuning, long context or a specialisation, as a point release")
                 }
             }
             Button("Retire model…", role: .destructive) { confirmRetire = true }

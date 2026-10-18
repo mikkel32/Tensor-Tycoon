@@ -165,6 +165,7 @@ struct ScreenRouter: View {
         case .corporate: CorporateView()   // 3.5
         case .semiconductors: SemiconductorsView()   // 3.5
         case .science: ScienceView()   // 3.6
+        case .families: FamiliesView()   // 3.5: model families
         }
     }
 }
@@ -223,6 +224,7 @@ struct Sidebar: View {
         case .corporate: s.decisions.filter { $0.kind.hasPrefix("corp_") }.count   // 3.5
         case .semiconductors: s.decisions.filter { Semis.kinds.contains($0.kind) }.count   // 3.5
         case .science: Science.pending(s).count   // 3.6
+        case .families: s.families.jobs.filter(\.paused).count   // 3.5: model families
         default: 0
         }
     }
