@@ -516,6 +516,9 @@ enum ScreenGuide {
         case .finance:
             Hint(title: "Finance", text: "Profit and loss, cash, debt and runway, month by month.",
                       firstStep: "Keep an eye on runway. Under four months, start raising or cut costs.", term: .runway)
+        case .corporate:
+            Hint(title: "Corporate", text: "Your company as a group: monthly statements, corporate debt and its covenants, your credit rating, the cap table, taxes, and subsidiaries you start, buy, sell down, list, spin off or fold back in.",
+                      firstStep: "Check the runway scenarios on Statements, then try a small subsidiary on the Subsidiaries tab.", term: .runway)
         case .operations:
             Hint(title: "Operations", text: "Hand recurring chores to delegates that run on your best model, choose which alerts stop the clock, and rewind a bad call.",
                       firstStep: "Turn on the serving-capacity and launch delegates first.", term: .delegates)

@@ -17,12 +17,12 @@ checks pass (`--forecast-check` identical, save fixtures load, playtests sane) a
 | 10 | Autonomous agent organisations | In progress (wave 2; builds on swarms) | No |
 | 11 | Smarter rivals | Largely done in 3.3 (strategies, lifecycle, books); specialisation response wave 2 | No |
 | 12 | National economies and AI strategies | Partly (world model, regions); national strategies wave 2 | No |
-| 13 | Subsidiaries | Not started (wave 3) | No |
+| 13 | Subsidiaries | Merged (7 kinds, own CEO and P&L, sell stakes, list, spin off, fold in, transfer-price audits) | No |
 | 14 | UI design system pass | Partly (Today dashboard, help); full pass wave 3 | No |
 | 15–17 | Images: reuse + licensed new photos with credits | Countries' photos in wave 1; more in later waves | No |
 | 18 | Discovery reports | In progress (wave 2, with science labs) | No |
 | 19 | Launch strategies and reactions | Partly (launch styles exist); deepen in wave 2 | No |
-| 20 | Corporate finance depth | Not started (wave 3) | No |
+| 20 | Corporate finance depth | Merged (term loans with LTM covenants, convertibles, green bonds, credit rating, dividends, buybacks, tender offers, three statements, runway scenarios, tax view) | No |
 | 22 | Performance | Measured each merge (~1 s per 2033 game-year) | n/a |
 | 23 | Save compatibility | Checked each merge with the 3.1 and 3.2 fixtures | n/a |
 | 25 | Visual acceptance in the running app | Blocked: no macOS machine in this environment; needs the owner | — |

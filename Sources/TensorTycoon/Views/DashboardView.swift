@@ -29,6 +29,7 @@ struct DashboardView: View {
                     if !s.swarms.isEmpty || s.xenoInsight > 0 || !s.alienArchs.isEmpty { SwarmStatusCard(state: s) }
                     BusinessCard(state: s, derived: d)
                     if !s.advanced.programmes.isEmpty || !s.advanced.solicitations.isEmpty { AdvancedProjectsCard(state: s) }   // 3.5
+                    if s.corp.engaged || s.isPublic { CorporateCard(state: s) }   // 3.5
                 }
                 .frame(maxWidth: .infinity)
                 VStack(spacing: 16) {

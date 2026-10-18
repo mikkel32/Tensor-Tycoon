@@ -9,6 +9,7 @@ enum AlertKind: String, Codable, CaseIterable, Identifiable, Sendable {
     case inbox, milestone, briefing
     case world   // 3.4: world and stakeholders
     case advanced   // 3.5: advanced projects
+    case corporate   // 3.5: corporate
 
     var id: String { rawValue }
 
@@ -33,6 +34,7 @@ enum AlertKind: String, Codable, CaseIterable, Identifiable, Sendable {
         case .briefing: "The monthly briefing is ready"
         case .world: "The world reacts: protests, regulators, grid emergencies"
         case .advanced: "Government contracts: awards, deliveries and trouble"
+        case .corporate: "Corporate: covenant breaches, rating changes, subsidiaries"
         }
     }
 
@@ -54,6 +56,7 @@ enum AlertKind: String, Codable, CaseIterable, Identifiable, Sendable {
         case .briefing: "doc.text.fill"
         case .world: "globe.americas.fill"
         case .advanced: "building.columns.fill"
+        case .corporate: "building.2.crop.circle.fill"
         }
     }
 
@@ -190,6 +193,7 @@ enum Alerts {
         AdvancedProjects.secrecyKind: 0,   // 3.5: keep a classified discovery classified
         "alien_errata": 0,   // 3.5: alien fab
         "data_auction": 2, "data_collection": 1, "data_lawsuit": 0,   // 3.6: data economy
+        "corp_funding": 1, "corp_covenant": 0, "corp_downgrade": 2, "corp_audit": 0,   // 3.5: corporate
     ]
 
     static func isUrgent(_ d: Decision) -> Bool { inboxDefaults[d.kind] == nil }

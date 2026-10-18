@@ -888,11 +888,14 @@ struct MonthRecord: Codable, Identifiable, Hashable {
     @D var headcount: Int = 0
     /// Capability of your best released model (0 = none recorded).
     @D var bestC: Double = 0
+    // 3.5: corporate — subsidiaries you folded back in, booked as divisions of the company
+    @D var revGroup: Double = 0
+    @D var costGroup: Double = 0
 
-    var revenue: Double { revAPI + revConsumer + revEnterprise + revOther + revAgents + revCloud + revChips + revLicensing + revLabor }
+    var revenue: Double { revAPI + revConsumer + revEnterprise + revOther + revAgents + revCloud + revChips + revLicensing + revLabor + revGroup }
     /// Selling hardware and leasing compute: valued like a hardware business, not a software one.
     var hardwareRevenue: Double { revCloud + revChips }
-    var opex: Double { costRent + costPower + costSites + costPayroll + costData + costMarketing + costOther + costChips }
+    var opex: Double { costRent + costPower + costSites + costPayroll + costData + costMarketing + costOther + costChips + costGroup }
     var profit: Double { revenue + interestIncome + oneOffIncome - opex - costInterest - taxes }
 }
 
@@ -1259,6 +1262,9 @@ struct GameState: Codable {
     // 3.5: alien fab
     /// Your alien fab line: capacity, your order queue and its volume milestones (AlienFab).
     @D var alienFab: AlienFabState = AlienFabState()
+    // 3.5: corporate
+    /// Subsidiaries, corporate debt and covenants, the credit rating, dividends, buybacks and the monthly books (Corporate).
+    @D var corp: CorporateState = CorporateState()
 
     // 3.6: data economy
     /// Datasets bought, licensed, won or generated; processing, annotation and synthetic jobs; contamination detection;
