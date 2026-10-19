@@ -142,6 +142,7 @@ enum ResearchLab {
                 s.publishedTech[entry] = s.date
                 Sim.news(&s, "Your \(item.name) paper goes viral", "Open science wins you fans — and every rival lab will have reproduced it within about six months.", .research, good: true)
             }
+            Science.breakthroughFinished(&s, tech: entry)   // its report and follow-up (publish, keep, license)
         }
         checkFusions(&s)
         cascade(&s)

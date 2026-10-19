@@ -115,7 +115,7 @@ enum ForecastEngine {
 
         // Data available & repetition
         var unique = Physics.availableTokensT(dataSources, y: y, bonuses: b)
-        if d.syntheticShare > 0 && b.has(.syntheticData) { unique *= 1 + d.syntheticShare * 3 }
+        unique += plan.syntheticUniqueT   // one synthetic budget: the slider and synthetic datasets, approaching your real tokens
         if plan.active { unique += plan.extraUniqueT }
         f.tokensPerParam = d.tokensT * 1000 / max(d.activeParamsB, 0.001)
         f.optimalTokensPerParam = d.tokensT > 0 ? (pre / 6 / (optimalParamsB(flops: pre) * 1e9)) / (optimalParamsB(flops: pre) * 1e9) : 20
@@ -252,12 +252,8 @@ enum ForecastEngine {
             case .conversational: data -= 0.02
             }
             if d.syntheticShare > 0 && b.has(.syntheticData) {
-                data += 0.08 * min(d.syntheticShare, 0.25) / 0.25 * b.result("synthetic_data")
-                if d.syntheticShare > 0.3 {
-                    let collapse = -0.12 * (d.syntheticShare - 0.3) / 0.2
-                    data += collapse
-                    f.penalties.append("\(Int(d.syntheticShare * 100))% synthetic data: risk of model collapse (×\(Fmt.trim(pow(10, collapse), 2)))")
-                }
+                // Model collapse is judged on all generated data together (slider and datasets): it's in `plan.dData`.
+                data += 0.08 * min(d.syntheticShare, 0.25) / 0.25 * b.result("synthetic_data") * plan.collapseFactor
             }
             if plan.active {
                 data += plan.dData
@@ -355,9 +351,11 @@ enum ForecastEngine {
                 drivers.append(ForecastDriver(name: "Data plan", value: skills, kind: .skill, detail: "Your datasets' domain-relevant, quality-weighted tokens (Training Data page)"))
             }
         }
-        if d.rlhf && !dataSources.contains("human_feedback") && !plan.hasPreferences {
-            chat -= 0.2
-            f.penalties.append("RLHF without a human-preference data vendor is weak (Training Data page)")
+        if d.rlhf && !dataSources.contains("human_feedback") && plan.preferenceShortfall > 0.01 {
+            // Needs fresh labels: the minimum delivered in the last twelve months; the penalty scales with what's missing.
+            chat -= 0.2 * plan.preferenceShortfall
+            f.penalties.append(plan.preferenceShortfall >= 0.99 ? "RLHF without fresh human-preference data is weak (Training Data page)"
+                                                                 : "RLHF on too little fresh preference data: \(Int(plan.preferenceShortfall * 100))% weaker (Training Data page)")
         }
         var lang = 0.05 + b.skill(.lang)
         if d.dataMix == .multilingual { lang += 0.3 }

@@ -43,6 +43,8 @@ enum HarnessCLI {
         if let era = arg(after: "--experience", "2024") { BalanceHarness.experience(era: era); return 0 }
         if let era = arg(after: "--ventures", "2026") { BalanceHarness.ventures(era: era); return 0 }
         if let era = arg(after: "--simulate", "2022") { BalanceHarness.run(era: era); return 0 }
+        if let y = arg(after: "--data-value", "2025") { PTPlay.dataValue(year: Int(y) ?? 2025); return 0 }   // what datasets are worth to a coding model
+        if args.contains("--data-check") { return PTPlay.dataCheck() == 0 ? 0 : 1 }   // data economy and science rules, scripted
         StableID.alwaysDraw = false
         return nil
     }

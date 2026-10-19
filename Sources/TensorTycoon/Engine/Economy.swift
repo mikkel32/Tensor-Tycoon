@@ -79,6 +79,7 @@ enum Economy {
         let mult = a.cls == .consumer ? (s.market.consumerGPUPrice + s.market.rentPrice) / 2 : s.market.rentPrice
         return decayed * mult * (1 - dealDiscount(a, s)) * (1 - Partners.discount(a, s)) * (1 - s.traits.hardware)
             * (s.lawsPassed.contains("nairr") && HQ.region(s) == .us ? 0.95 : 1) * Nations.chipFactor(s)   // 3.7; 3.4 overhaul: the US research cloud serves US labs
+            * Science.cloudFactor(s)   // providers pass on part of your energy discoveries' saving
     }
 
     static func resaleValue(_ a: Accelerator, _ s: GameState, unitCost: Double, purchased: Date) -> Double {

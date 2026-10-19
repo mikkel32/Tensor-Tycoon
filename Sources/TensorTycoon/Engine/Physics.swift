@@ -263,9 +263,7 @@ enum Physics {
 
     /// Unique tokens (trillions) a design can draw on: your data sources, data research and its synthetic share.
     static func uniqueTokensT(_ d: ModelDesign, state s: GameState) -> Double {
-        let b = s.bonuses
-        let raw = availableTokensT(s.dataSources.sorted(), y: s.year, bonuses: b)
-        return raw * (d.syntheticShare > 0 && b.has(.syntheticData) ? 1 + d.syntheticShare * 3 : 1) + DataEconomy.extraUniqueT(s)   // 3.6
+        DataEconomy.uniqueTokensT(d, state: s, sources: s.dataSources.sorted())   // exactly as the forecast counts them (synthetic data bounded)
     }
 
     /// Passes over the unique data worth planning: past this a repeated token is worth well under half a fresh one.

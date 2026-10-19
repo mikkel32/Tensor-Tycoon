@@ -503,7 +503,7 @@ enum Sim {
             power += draw * site.pue * 24 * site.powerPrice * (site.kind == .colo || site.kind == .datacenter ? grid : 1)
                 * Nations.powerFactor(s, location: site.locationID)   // 3.7: energy policy where the site is
         }
-        power *= max(0.5, 1 - s.traits.power) * XenoScience.powerFactor(s) * AgentOrgs.powerFactor(s) * Science.powerFactor(s) * AdvancedProjects.powerFactor(s)   // 3.6: infrastructure teams; energy discoveries; cooling programmes
+        power *= Power.billFactor(s)   // traits, alien materials, infrastructure teams, energy discoveries, cooling programmes (floored)
         let sites = s.sites.reduce(0) { $0 + $1.monthlyFee } / 30.4
         let office = (Economy.office(s, s.officeLevel).monthly + HQ.satelliteRent(s)) / 30.4   // 3.5: local rent; 3.4 overhaul: satellite offices
         let payroll = Economy.payrollYear(s) / 365

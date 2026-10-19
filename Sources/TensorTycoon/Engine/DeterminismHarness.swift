@@ -7,8 +7,8 @@ import Foundation
 /// Plays the playtest bot for `days` (default 240) in each era twice with the same seed, in this process, and
 /// compares a digest of the whole saved game; a third game with another seed must differ. Then saves the first game,
 /// loads it back and plays on, twice, and compares again. A last game plays from a European headquarters with the
-/// bot's optional systems switched on (advanced projects, science labs), so their daily code is checked too. Exits 1
-/// on any mismatch.
+/// bot's optional systems switched on (advanced projects, science labs, the data economy), so their daily code is
+/// checked too. Exits 1 on any mismatch.
 /// (Cross-process determinism, which also catches Set / Dictionary iteration order, is checked by running a playtest
 /// twice and diffing the output.)
 enum DeterminismHarness {
@@ -19,7 +19,7 @@ enum DeterminismHarness {
         var failed = false
         let games: [(label: String, era: String, flags: [String])] = [
             ("2017", "2017", []), ("2022", "2022", []), ("2026", "2026", []),
-            ("2022, Copenhagen, more systems", "2022", ["hq=dk:copenhagen", "advproj", "science"]),
+            ("2022, Copenhagen, more systems", "2022", ["hq=dk:copenhagen", "advproj", "science", "data"]),
         ]
         for (label, era, flags) in games {
             let one = play(era, seed: 11, years: years, flags: flags)

@@ -21,9 +21,10 @@ struct DataView: View {
         Page(title: "Training Data", subtitle: "Models are what they eat. Unique tokens let you train bigger without repeating; relevant, high-quality tokens raise the skills a model is built for.", screen: .data) {
             KPIRow {
                 StatTile(title: "Unique tokens", value: Fmt.tokens(tokens), detail: b.dataTokens > 0 ? "Incl. +\(Int(b.dataTokens * 100))% from data research" : "Text you can train on", symbol: "text.word.spacing", tint: .blue)
-                StatTile(title: "Datasets", value: "\(active.count + s.dataEco.holdings.filter(\.active).count)", detail: "\(s.dataEco.holdings.filter(\.exclusive).count) exclusive", symbol: "externaldrive.fill", tint: .purple)
+                StatTile(title: "Datasets", value: "\(active.count + s.dataEco.holdings.filter(\.active).count)", detail: "\(s.dataEco.holdings.filter(\.exclusive).count) exclusive · \(Fmt.money(DataEconomy.assetValue(s))) book value", symbol: "externaldrive.fill", tint: .purple)
                 StatTile(title: "Data bill", value: "\(Fmt.money(Economy.dataMonthlyCost(s)))/mo", detail: "Licences, annotation, storage", symbol: "doc.text.fill", tint: .orange)
-                StatTile(title: "Legal risk", value: risk > 0.3 ? "High" : (risk > 0.05 ? "Moderate" : "Low"), detail: "Copyright & provenance", symbol: "exclamationmark.shield.fill", tint: risk > 0.3 ? .red : .green)
+                StatTile(title: "Spent on data", value: Fmt.money(s.dataEco.spent), detail: s.dataEco.settlements > 0 ? "Incl. \(Fmt.money(s.dataEco.settlements)) in lawsuit settlements" : "Purchases, jobs, transfers; no settlements", symbol: "dollarsign.circle.fill", tint: .teal)
+                StatTile(title: "Legal risk", value: risk > 0.3 ? "High" : (risk > 0.05 ? "Moderate" : "Low"), detail: "Copyright & provenance", symbol: "exclamationmark.shield.fill", tint: risk > 0.3 ? Tone.bad.color : Tone.good.color)
             }
             SectionTabs(selection: $tab, options: DataTab.allCases)
             switch tab {
@@ -88,16 +89,30 @@ struct DataView: View {
                     let rel = DataEconomy.relevance(DataEconomy.Entry(id: it.id, name: it.name, kind: it.kind, focus: it.holding?.focus, uniqueT: it.tokensT, quality: it.quality, synthetic: false))
                     Text("Teaches most: " + CapDomain.allCases.sorted { rel[$0.index] > rel[$1.index] }.prefix(3).map(\.label).joined(separator: ", "))
                         .font(.caption).foregroundStyle(.secondary)
-                    if it.quality.provenance < 0.5 { Label("Poor provenance: a lawsuit is likely, more so under a copyright law.", systemImage: "exclamationmark.triangle.fill").font(.caption).foregroundStyle(.red) }
-                    if it.quality.contamination > 0.5 { Label("High contamination risk: benchmark items are likely inside.", systemImage: "drop.triangle.fill").font(.caption).foregroundStyle(.orange) }
+                    Text(Self.signalLine(it.quality))
+                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    if it.quality.provenance < 0.5 { Label("Poor provenance: a lawsuit is likely, more so under a copyright law.", systemImage: Tone.bad.symbol).font(.caption).foregroundStyle(Tone.bad.color) }
+                    if !it.legacy && it.quality.licence < DataQuality.openLicence {
+                        Label("Research-only licence terms: models trained on it can't be released as open weights. Verifying it documents better terms.", systemImage: "lock.doc.fill")
+                            .font(.caption).foregroundStyle(Tone.warning.color).fixedSize(horizontal: false, vertical: true)
+                    }
+                    if it.quality.contamination > 0.5 { Label("High contamination risk: benchmark items are likely inside.", systemImage: "drop.triangle.fill").font(.caption).foregroundStyle(Tone.warning.color) }
+                    if let h = it.holding, h.kind == .preferences {
+                        let fresh = DataEconomy.preferenceT(s, [h])
+                        Text("Delivered in the last 12 months: \(Fmt.tokens(fresh)) of the \(Fmt.tokens(DataEconomy.minPreferenceT)) RLHF needs at full strength.")
+                            .font(.caption).foregroundStyle(fresh >= DataEconomy.minPreferenceT ? Color.secondary : Tone.warning.color)
+                    }
+                    if let h = it.holding, h.synthetic, let t = DataEconomy.teacherC(h, s) {
+                        Text(Self.teacherLine(h, teacher: t)).font(.caption).foregroundStyle(.secondary)
+                    }
                     HStack {
                         if it.legacy {
                             if it.id != "web" {
                                 Button("Stop using") { store.act("Removed \(it.name)") { $0.toggleData(it.id) } }.buttonStyle(.bordered)
                             }
                         } else if let h = it.holding {
-                            if h.term == .licence || h.term == .perRun {
-                                Button("Renew") { store.act("Renewed \(h.name)") { DataEconomy.renew(&$0, h.id) } }.buttonStyle(.bordered)
+                            if (h.term == .licence || h.term == .perRun) && DataEconomy.renewable(h, s) {
+                                Button(h.active ? "Renew" : "Renew (keeps your processed copy)") { store.act("Renewed \(h.name)") { DataEconomy.renew(&$0, h.id) } }.buttonStyle(.bordered)
                             }
                             Button(h.term == .licence || h.term == .partnership ? "End it" : "Delete") {
                                 store.act("Dropped \(h.name)") { DataEconomy.drop(&$0, h.id) }
@@ -199,11 +214,13 @@ struct DataView: View {
         }
         Card {
             CardHeader("Rare collections & auctions", symbol: "building.columns.fill", subtitle: "Once in a while a unique archive comes up for sale. Offers and sealed-bid auctions arrive in your inbox; rival labs bid too.")
-            let gains = s.dataEco.rivalGains.flatMap { lab, ids in ids.map { (CompetitorCatalog.def(lab).name, DataMarketCatalog.byID[$0]?.name ?? $0) } }
-            if gains.isEmpty && s.dataEco.auctionsWon == 0 {
+            let gains = s.dataEco.rivalGains.sorted { $0.key < $1.key }.flatMap { lab, ids in ids.map { (CompetitorCatalog.def(lab).name, DataMarketCatalog.byID[$0]?.name ?? $0) } }
+            if gains.isEmpty && s.dataEco.auctionsWon == 0 && s.dataEco.auctionsLost == 0 {
                 Text("Nothing has come up yet.").font(.caption).foregroundStyle(.secondary)
             }
-            if s.dataEco.auctionsWon > 0 { Text("You've won \(s.dataEco.auctionsWon) auction\(s.dataEco.auctionsWon == 1 ? "" : "s").").font(.caption) }
+            if s.dataEco.auctionsWon + s.dataEco.auctionsLost > 0 {
+                Text("Auctions: \(s.dataEco.auctionsWon) won, \(s.dataEco.auctionsLost) lost. Winning bids pay the transfer on top.").font(.caption)
+            }
             ForEach(gains, id: \.1) { g in Text("\(g.0) bought \(g.1).").font(.caption).foregroundStyle(.secondary) }
         }
     }
@@ -263,8 +280,18 @@ struct DataView: View {
     // MARK: Annotation
 
     @ViewBuilder private func annotation(_ s: GameState) -> some View {
-        Text("Vendors produce data to order every day: preference labels for RLHF, expert demonstrations, robot trajectories. What they deliver is yours to keep.")
+        Text("Vendors produce data to order every day: preference labels for RLHF, expert demonstrations, robot trajectories. What they deliver is yours to keep — but RLHF needs fresh labels: \(Fmt.tokens(DataEconomy.minPreferenceT)) delivered within the last 12 months for full strength, less means a proportionally weaker chat model.")
             .font(.callout).foregroundStyle(.secondary)
+        let prefs = DataEconomy.preferenceT(s, s.dataEco.holdings.filter { $0.kind == .preferences })
+        if !s.dataSources.contains("human_feedback") {
+            let tone: Tone = prefs >= DataEconomy.minPreferenceT ? .good : .warning
+            VStack(alignment: .leading, spacing: 4) {
+                Label(Self.preferenceLine(prefs), systemImage: tone.symbol)
+                    .font(.caption).foregroundStyle(tone.color)
+                Meter(value: min(1, prefs / DataEconomy.minPreferenceT), tint: tone.color, height: 6)
+            }
+            .accessibilityElement(children: .combine)
+        }
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 12)], spacing: 12) {
             ForEach(DataMarketCatalog.vendors) { v in
                 let contract = s.dataEco.annotation.first { $0.id == v.id }
@@ -297,6 +324,37 @@ struct DataView: View {
 
     @ViewBuilder private func synthetic(_ s: GameState) -> some View {
         SyntheticCard(state: s)
+    }
+
+    // MARK: Text
+
+    /// How much of a dataset teaches, and what a token of it is worth.
+    static func signalLine(_ q: DataQuality) -> String {
+        var t = "\(Int((1 - q.noise) * 100))% of its tokens carry signal "
+        t += "(\(Int(q.noise * 100))% is noise nobody checked or cleaned); "
+        t += "value per token ×\(Fmt.trim(DataQuality.weight(q.effective), 2)) a raw-crawl token."
+        return t
+    }
+
+    /// What a synthetic dataset can still teach.
+    static func teacherLine(_ h: DataHolding, teacher: Double) -> String {
+        let reach = DataEconomy.teacherReach(verified: h.quality.processing >= 0.8, focus: h.focus)
+        var t = "Written by a model at capability \(Fmt.trim(teacher, 2)): "
+        t += "it can teach designs forecast below about \(Fmt.trim(teacher + reach, 2))."
+        return t
+    }
+
+    /// Fresh preference labels against the RLHF minimum.
+    static func preferenceLine(_ prefs: Double) -> String {
+        let need = DataEconomy.minPreferenceT
+        var t = "Fresh preference labels: \(Fmt.tokens(prefs)) of \(Fmt.tokens(need))"
+        if prefs >= need {
+            t += " — RLHF at full strength"
+        } else {
+            let weaker = Int((1 - min(1, prefs / need)) * 100)
+            t += " — RLHF \(weaker)% weaker"
+        }
+        return t
     }
 
     // MARK: Detection & rivals
@@ -348,7 +406,7 @@ private struct SyntheticCard: View {
         let s = state
         let models = s.models.filter { !$0.preview }.sorted { $0.c > $1.c }
         Card {
-            CardHeader("Generate validated synthetic data", symbol: "wand.and.stars", subtitle: "Your own models write training data. Its quality is capped by how good the model is in that domain. Past ~20% of the corpus, model collapse sets in.")
+            CardHeader("Generate validated synthetic data", symbol: "wand.and.stars", subtitle: "Your own models write training data. Its quality is capped by how good the model is in that domain, it can't teach a design more than its generator knows, its value in a domain approaches but never passes half of your real data's, and the more you generate the more it repeats itself. Past ~40% of the corpus (counting the Model Lab's synthetic slider), model collapse sets in.")
             if !s.bonuses.has(.syntheticData) {
                 Text("Research Synthetic Data Pipelines to generate data with your models.").font(.callout).foregroundStyle(.secondary)
             } else if models.isEmpty {
@@ -368,29 +426,62 @@ private struct SyntheticCard: View {
                     Text("1T").tag(1.0)
                 }
                 .pickerStyle(.segmented)
-                Toggle("Verify (filters and judges every sample: +quality, +50% compute)", isOn: $verified)
+                Toggle("Verify (filters and judges every sample: +quality, +50% compute, and it reaches a little past its generator)", isOn: $verified)
                 let q = DataEconomy.synthQuality(s, model: m, focus: focus, verified: verified)
                 let c = DataEconomy.synthCost(s, model: m, tokensT: size, verified: verified)
+                let dup = DataEconomy.synthDuplication(tokensT: size, verified: verified)
+                let room = DataEconomy.synthRoom(s)
                 HStack {
-                    Text("Quality ~\(Int(q * 100)) · \(Fmt.money(c.cost)) · \(c.days) days").font(.callout.monospacedDigit())
+                    Text(Self.jobLine(quality: q, duplication: dup, cost: c.cost, days: c.days)).font(.callout.monospacedDigit())
                     Spacer()
                     Button("Generate") {
                         let id = m.id, f = focus, t = size, v = verified
                         store.act("Generation started") { DataEconomy.startSynth(&$0, model: id, focus: f, tokensT: t, verified: v) }
                     }
                     .buttonStyle(.borderedProminent)
+                    .disabled(size > room.room)
                 }
+                Text(Self.reachLine(m, focus: focus, verified: verified, room: room.room))
+                    .font(.caption).foregroundStyle(size > room.room ? Tone.warning.color : Color.secondary).fixedSize(horizontal: false, vertical: true)
             }
             ForEach(s.dataEco.synth) { j in
                 Text("\(j.modelName): \(Fmt.tokens(j.tokensT)) of \(j.focus.label.lowercased()), ready \(j.done.gameShort)").font(.caption).foregroundStyle(.secondary)
             }
-            let synT = s.dataEco.holdings.filter { $0.synthetic && $0.active }.reduce(0) { $0 + $1.tokensT }
-            if synT > 0 {
-                let share = synT / max(1e-9, Physics.availableTokensT(s.dataSources.sorted(), y: s.year, bonuses: s.bonuses) + DataEconomy.extraUniqueT(s))
-                Text("Synthetic data held: \(Fmt.tokens(synT)) (\(Int(share * 100))% of your corpus)").font(.caption)
-                    .foregroundStyle(share > 0.2 ? .orange : .secondary)
+            let held = Self.heldSynthetic(s)
+            if held.tokensT > 0 {
+                Text(Self.heldLine(held)).font(.caption)
+                    .foregroundStyle(held.share > DataEconomy.collapseStart ? Tone.warning.color : Color.secondary)
             }
         }
+    }
+
+    static func jobLine(quality q: Double, duplication dup: Double, cost: Double, days: Int) -> String {
+        var t = "Quality ~\(Int(q * 100)) · \(Int(dup * 100))% near-duplicates"
+        t += " · \(Fmt.money(cost)) · \(days) days"
+        return t
+    }
+
+    /// What a model's data can teach, and the room left before synthetic data outgrows real data.
+    static func reachLine(_ m: AIModel, focus: CapDomain, verified: Bool, room: Double) -> String {
+        let reach = DataEconomy.teacherReach(verified: verified, focus: focus)
+        var t = "\(m.name) is at capability \(Fmt.trim(m.c, 2)): its data teaches designs forecast below about \(Fmt.trim(m.c + reach, 2)), "
+        t += "and nothing to bigger ones. Room for \(Fmt.tokens(room)) more synthetic data before it outgrows your real data."
+        return t
+    }
+
+    /// Synthetic data held (unique tokens) and its share of the corpus before the Model Lab's slider.
+    static func heldSynthetic(_ s: GameState) -> (tokensT: Double, share: Double) {
+        let active = s.dataEco.holdings.filter(\.active)
+        let syn = active.filter(\.synthetic).reduce(0) { $0 + $1.tokensT * (1 - $1.quality.duplication) }
+        let heldReal = active.filter { !$0.synthetic && $0.kind.isText }.reduce(0) { $0 + $1.tokensT * (1 - $1.quality.duplication) }
+        let real = max(1e-9, Physics.availableTokensT(s.dataSources.sorted(), y: s.year, bonuses: s.bonuses) + heldReal)
+        return (syn, syn / (real + syn))
+    }
+
+    static func heldLine(_ held: (tokensT: Double, share: Double)) -> String {
+        var t = "Synthetic data held: \(Fmt.tokens(held.tokensT)) unique (\(Int(held.share * 100))% of your corpus before the Model Lab's slider; "
+        t += "collapse starts at \(Int(DataEconomy.collapseStart * 100))% of slider and datasets together)"
+        return t
     }
 }
 

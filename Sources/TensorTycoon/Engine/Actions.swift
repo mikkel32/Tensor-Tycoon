@@ -99,7 +99,7 @@ extension GameState {
         case .colo:
             if capacityKW / 1000 > Campus.coloCapMW { return "Month-to-month cages top out at \(Int(Campus.coloCapMW)) MW. Sign a wholesale lease (Datacenters → Buy & lease), buy a campus or build one for more." }
             if power == .gas || power == .smr || power == .fusion { return "A colocation provider picks grid power or a PPA, not on-site generation." }
-            let setup = loc.coloFee * capacityKW * (cooling == .air ? 1 : 1.35)
+            let setup = loc.coloFee * capacityKW * (cooling == .air ? 1 : 1.35) * Science.coloFactor(self)   // energy discoveries, passed on
             if setup > cash { return "The first month's fee of \(Fmt.money(setup)) is more than your cash." }
             cash -= setup
             let ready = GameCalendar.addDays(date, 30)
@@ -127,6 +127,7 @@ extension GameState {
                             opened: date, ready: ready, capex: capex, monthlyFee: 0)
             site.plannedKW = (mw - phaseMW) * 1000
             site.phaseKW = phaseMW * 1000
+            site.pueGain += Science.newSitePUEGain(self)   // lossless superconducting power delivery
             sites.append(site)
             let incentive = HQ.buildCost(self, location: locationID) < 1 ? " \(HQ.country(self).adjective) incentives take \(Fmt.pct(1 - HQ.buildCost(self, location: locationID), decimals: 0)) off each phase." : ""
             let phasesNote = (n > 1 ? " Built in \(n) phases of \(Fmt.watts(phaseMW * 1e6)); the first is energised \(ready.gameMonth), about \(Fmt.money(mw * Campus.capexPerMW(cooling, self, location: locationID))) in all." : " \(Fmt.money(capex)), online \(ready.gameMonth).") + incentive
@@ -138,6 +139,7 @@ extension GameState {
 
     func buildMonths(mw: Double, loc: Location, power: PowerDeal) -> Double {
         var m = (7 + min(22, mw * 0.025)) / loc.buildSpeed * market.buildDelay * Policy.buildFactor(self, location: loc.id) * XenoScience.buildFactor(self)   // 3.4 overhaul: US permitting law on US soil only
+            * Science.buildFactor(self)
         m /= Campus.speedup(year)
         if power == .gas { m *= 0.7 }
         if power == .smr || power == .fusion { m *= 0.85 }
@@ -332,6 +334,7 @@ extension GameState {
         guard let i = models.firstIndex(where: { $0.id == id }) else { return "Not found." }
         let launch = plan.strategy
         var publishWeights = openWeights
+        if (openWeights || launch == .openWeights) && !models[i].openWeights, let why = DataEconomy.openWeightsBlocker(self, model: id) { return why }   // research-only data licences
         if !models[i].released {
             if launch == .keynote && GameState.keynoteCost(self) > cash { return "A keynote costs \(Fmt.money(GameState.keynoteCost(self)))." }
             if !plan.isDefault, let e = Launches.blocker(plan, self) { return e }   // 3.7
