@@ -155,7 +155,7 @@ extension PTPlay {
         let synthetic = e.holdings.filter(\.synthetic).reduce(0) { $0 + $1.tokensT }
         let extra = DataEconomy.extraUniqueT(s)
         let filtered = s.dataSources.filter { DataMarketCatalog.legacyProfile($0).kind.isText }
-            .reduce(0) { $0 + DataEconomy.legacyTokensT(s, $1, processed: false) - DataEconomy.legacyTokensT(s, $1, processed: true) }
+            .reduce(0) { $0 + DataEconomy.legacyTokensT(s, $1, processed: false) - DataEconomy.legacyTokensT(s, $1, processed: true) } * (1 + s.bonuses.dataTokens)
         print("  synthetic held \(Fmt.tokens(synthetic)) · unique tokens the datasets add today \(extra < 0 ? "−" : "+")\(Fmt.tokens(abs(extra))) (filtering the original sources removed \(Fmt.tokens(filtered)))")
         // Each run: the plan frozen at launch vs what the finished model got.
         for r in s.runs where r.kind == .full {
