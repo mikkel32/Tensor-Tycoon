@@ -216,6 +216,15 @@ enum DataEconomy {
     /// Relevance of one source to each domain, scaled by its scientific reliability and specialist coverage.
     static func relevance(_ e: Entry) -> [Double] {
         var r = e.kind.relevance
+        // 3.8: the five domains added after the data tables (DataKind.relevance lists the first eleven) learn from
+        // what teaches their neighbours: chips from code, reliability from agentic traces, calibration from reasoning,
+        // architecture from code and reasoning, languages from text that teaches knowledge.
+        if r.count < CapDomain.count {
+            func at(_ d: CapDomain) -> Double { d.index < r.count ? r[d.index] : 0 }
+            let extra: [CapDomain: Double] = [.hardware: 0.15 * at(.coding), .reliability: 0.5 * at(.agents), .calibration: 0.4 * at(.reasoning),
+                                              .architecture: 0.2 * at(.coding) + 0.2 * at(.reasoning), .multilingual: 0.5 * at(.knowledge)]
+            r += CapDomain.allCases.dropFirst(r.count).map { extra[$0] ?? 0 }
+        }
         let primary = Set(e.kind.primary + (e.focus.map { [$0] } ?? []))
         if let f = e.focus { r[f.index] = max(r[f.index], 1) }
         for d in CapDomain.allCases {

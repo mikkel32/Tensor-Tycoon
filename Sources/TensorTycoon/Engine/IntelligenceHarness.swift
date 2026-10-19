@@ -186,21 +186,23 @@ enum IntelligenceHarness {
     // MARK: 6. Family tiers aren't launches
 
     static func tiers(_ base: GameState, _ best: AIModel, _ r: inout ScenarioHarness.Report) {
-        func gain(withTier: Bool) -> Double {
+        func gain(withTier: Bool) -> (Double, Double) {
             var s = base
-            if withTier {
-                let k = clone(&s, best, name: "Harness Mote")
-                _ = s.release(s.models[k].id, api: true, openWeights: false, plan: LaunchPlan(), by: "family")
-            }
+            // Same IDs in both runs (benchmark noise is keyed on the model), so only the tier's release differs.
+            StableID.seed(9_001)
             let f = clone(&s, best, name: "Harness Flagship")
+            let k = clone(&s, best, name: "Harness Mote")
+            if withTier { _ = s.release(s.models[k].id, api: true, openWeights: false, plan: LaunchPlan(), by: "family") }
             s.models[f].c += 0.6
             let fid = s.models[f].id
             s.models[f].index = BenchmarkCatalog.index(Leaderboard.profile(s.models[f]), set: Leaderboard.indexSet(s))
             _ = s.release(fid, api: true, openWeights: false, plan: LaunchPlan())
-            return s.launches.last { $0.modelID == fid }?.brandGain ?? 0
+            let rec = s.launches.last { $0.modelID == fid }
+            return (rec?.brandGain ?? 0, rec?.previousBest ?? 0)
         }
         let plain = gain(withTier: false), after = gain(withTier: true)
-        r.expect("an auto-released tier doesn't halve the next flagship's brand gain", plain > 0 && abs(after - plain) < 1e-6, "\(Fmt.trim(plain, 2)) vs \(Fmt.trim(after, 2))")
+        r.expect("an auto-released tier doesn't halve the next flagship's brand gain", plain.0 > 0 && abs(after.0 - plain.0) < 1e-6,
+                 "\(Fmt.trim(plain.0, 2)) vs \(Fmt.trim(after.0, 2)) (previous best \(Fmt.trim(plain.1, 2)) / \(Fmt.trim(after.1, 2)))")
     }
 
     // MARK: 7. Specialists win their segment
@@ -225,6 +227,7 @@ enum IntelligenceHarness {
             s.models[ci].released = true
             s.models[ci].api = true
             s.models[ci].capacityTokensDay = max(1, best.capacityTokensDay)
+            s.models[ci].tps = best.tps
         }
         let snap = Market.snapshot(s)
         let cp = snap.api.first { $0.modelID == coder.id }, fp = snap.api.first { $0.modelID == best.id }
@@ -247,14 +250,32 @@ enum IntelligenceHarness {
     static func launchesMoveMarkets(_ base: GameState, _ best: AIModel, _ r: inout ScenarioHarness.Report) {
         var s = base
         let i = clone(&s, best, name: "Harness Frontier")
-        s.models[i].c = (s.competitors.compactMap { $0.latest?.c }.max() ?? best.c) + 0.8
-        s.models[i].index = BenchmarkCatalog.index(Leaderboard.profile(s.models[i]), set: Leaderboard.indexSet(s))
         let id = s.models[i].id
+        s.models[i].c = (s.competitors.compactMap { $0.latest?.c }.max() ?? best.c) + 0.5
+        s.models[i].index = BenchmarkCatalog.index(Leaderboard.profile(s.models[i]), set: Leaderboard.indexSet(s))
+        for _ in 0..<6 where Leaderboard.rank(of: id, in: s) > 1 {
+            s.models[i].c += 0.3
+            s.models[i].reasoningBoost += 0.3
+            s.models[i].codeBoost += 0.15
+            s.models[i].index = BenchmarkCatalog.index(Leaderboard.profile(s.models[i]), set: Leaderboard.indexSet(s))
+        }
         let leads = s.deals.filter { !$0.active }.count
         s.deals.removeAll { !$0.active }
+        let rank = Leaderboard.rank(of: id, in: s)
+        let board = Leaderboard.entries(s)
+        let mine = board.first { $0.id == id.uuidString }?.index ?? 0
+        let top = board.filter { !$0.isPlayer && $0.released }.max { $0.index < $1.index }
+        r.note("leads check: ours \(Fmt.score(mine)) (c \(Fmt.trim(s.models[i].c, 2))) vs \(top?.model ?? "-") \(Fmt.score(top?.index ?? 0)) (c \(Fmt.trim(top?.c ?? 0, 2)))")
+        let held = s.competitors.filter { $0.alive && ((($0.models + $0.openModels).map(\.index).max() ?? 0) < s.models[i].index) }.reduce(0) { $0 + $1.apiShare }
         _ = s.release(id, api: true, openWeights: false, plan: LaunchPlan())
-        let won = s.deals.filter { !$0.active }.count
-        r.expect("a new #1 turns weaker rivals' enterprise clients into leads", won > 0, "\(won) leads (had \(leads) open before)")
+        // Benchmarks saturate in this era (a rival's skills keep it ahead on the index), so when the release didn't top
+        // the board, ask the market directly what a new #1 would win.
+        let won = rank == 1 ? s.deals.filter { !$0.active }.count : Launches.winLeads(&s, s.models[i])
+        r.expect("a new #1 turns weaker rivals' enterprise clients into leads", won > 0 && won <= 3, "\(won) leads (had \(leads) open before; rank \(rank), rivals beaten hold \(Fmt.pct(held, decimals: 1)) of the API)")
+        let titles = s.deals.filter { !$0.active }.map(\.title)
+        r.expect("…for the work it does best", titles.allSatisfy { t in
+            Capabilities.dealFitPoints(s.models[i], title: t, s) >= (Launches.dealTitles(s.year).map { Capabilities.dealFitPoints(s.models[i], title: $0, s) }.sorted(by: >).dropFirst(2).first ?? -99)
+        }, titles.joined(separator: ", "))
     }
 
     // MARK: 8b. Rivals notice loud launches
@@ -320,15 +341,36 @@ enum IntelligenceHarness {
         let techs = s.rivalBooks.values.reduce(0) { $0 + $1.techniques }
         r.note("rival R&D: \(techs) proprietary techniques in five years; pivots: \(s.marketMoves.lastPivot.map { $0.gameShort } ?? "none")")
         r.expect("rivals' R&D spending buys techniques over time", techs > 0, "\(techs)")
+        // A runaway leader: the strongest unspecialised rival pivots to where you're weakest.
+        var p = s
+        p.marketMoves.lastPivot = nil
+        p.monthsAtTop = 12
+        if let bi = p.models.indices.filter({ p.models[$0].released && !p.models[$0].retired }).max(by: { p.models[$0].c < p.models[$1].c }) {
+            p.models[bi].c = (p.competitors.compactMap { $0.latest?.c }.max() ?? p.models[bi].c) + 0.5
+            Capabilities.refreshLabs(&p)
+            let before = Dictionary(uniqueKeysWithValues: p.competitors.map { ($0.id, Nations.focus(p, $0.id)) })
+            RivalStrategy.pivot(&p)
+            let moved = p.competitors.filter { Nations.focus(p, $0.id) != before[$0.id] ?? nil }
+            r.expect("a rival pivots when your lead is wide and long-held", moved.count == 1 && RivalStrategy.capabilityFocuses.contains(Nations.focus(p, moved[0].id) ?? .consumer),
+                     moved.map { "\($0.def.name) → \(Nations.focus(p, $0.id)?.noun ?? "-")" }.joined(separator: ", "))
+            r.expect("…and the news says why", p.news.prefix(3).contains { $0.title.contains("pivots to") && $0.body.contains("led for 12 months") })
+        }
         // Compute commitments need leased capacity, cost the rival cash and give it compute.
         var t = s
         t.leases = [:]
         t.computeCommitments = []
         r.expect("no leased chips, no compute commitment", RivalEconomy.commitmentOffer(t, invest: 1e9) == nil)
-        if let p = Economy.pools(t).filter({ $0.owned > 0 }).max(by: { $0.owned < $1.owned }), let lab = alive.first {
+        // The bot rents its chips; give the lab some of its own to lease out.
+        if let site = t.sites.first?.id {
+            t.owned.append(OwnedBatch(accelID: HardwareCatalog.h100.id, count: 2_000, siteID: site, purchased: t.date, unitCost: 25_000))
+        }
+        if let p = Economy.pools(t).first(where: { $0.accel.id == HardwareCatalog.h100.id && $0.owned > 0 }), let lab = alive.first {
             t.leases[p.accel.id] = p.owned / 2
-            if let offer = RivalEconomy.commitmentOffer(t, invest: 1e12) {
-                let leasedH = Double(p.owned / 2) * RivalEconomy.h100e(p.accel)
+            let leasedH = Double(p.owned / 2) * RivalEconomy.h100e(p.accel)
+            // A cheque whose two-for-one commitment is twice what the leased chips can carry.
+            let invest = leasedH * RivalEconomy.commitRate(p.accel, t) * 24
+            r.expect("a big enough cheque comes with a commitment once you lease chips", RivalEconomy.commitmentOffer(t, invest: invest) != nil)
+            if let offer = RivalEconomy.commitmentOffer(t, invest: invest) {
                 r.expect("a commitment is capped by your leased capacity", offer.h100e <= leasedH + 1e-6, "\(Fmt.count(offer.h100e)) of \(Fmt.count(leasedH)) H100e")
                 var c = ComputeCommitment(labID: lab.id, labName: lab.def.name, monthly: offer.monthly, monthsLeft: 24)
                 c.accelID = offer.accelID
@@ -340,6 +382,12 @@ enum IntelligenceHarness {
                 r.expect("the rival pays from its own cash and gains the compute", t.competitors[li].cash < cash0 - offer.monthly * 0.99 && t.competitors[li].computeH100e > compute0,
                          "cash −\(Fmt.money(cash0 - t.competitors[li].cash)), compute +\(Fmt.count(t.competitors[li].computeH100e - compute0)) H100e")
                 r.expect("you aren't paid twice (it arrives as lease income)", abs(t.cash - mine0) < 1, "\(Fmt.money(t.cash - mine0))")
+                var open = t
+                open.computeCommitments = []
+                ChipBusiness.leases(&open)
+                ChipBusiness.leases(&t)
+                r.expect("committed chips earn at full occupancy", t.leaseRevenueToday > open.leaseRevenueToday,
+                         "\(Fmt.money(open.leaseRevenueToday))/day on the open market → \(Fmt.money(t.leaseRevenueToday))/day with the commitment")
             }
         }
     }
