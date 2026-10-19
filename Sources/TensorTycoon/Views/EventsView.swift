@@ -428,7 +428,7 @@ struct ScenarioPickerSheet: View {
                 }
                 .frame(width: 330)
                 VStack(alignment: .leading, spacing: 10) {
-                    Photo(key: d.image, thumb: false).frame(height: 130).clipShape(.rect(cornerRadius: 12))
+                    Photo(key: d.image, thumb: false, size: .banner, illustrative: true).frame(height: 130).clipShape(.rect(cornerRadius: 12))
                     Text(d.title).font(.title2.weight(.bold))
                     Text(d.story).font(.callout).fixedSize(horizontal: false, vertical: true)
                     Label(d.goal, systemImage: "flag.checkered").font(.callout.weight(.semibold))

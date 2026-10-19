@@ -364,7 +364,7 @@ private struct AlienArchCard: View {
     private func chipSection(_ a: AlienArch, chip: Accelerator?, _ s: GameState) -> some View {
         if let chip {
             HStack(alignment: .center, spacing: 12) {
-                Photo(key: chip.image).frame(width: 64, height: 44).clipShape(.rect(cornerRadius: 8))
+                Photo(key: chip.image, illustrative: true).frame(width: 64, height: 44).clipShape(.rect(cornerRadius: 8))
                 VStack(alignment: .leading, spacing: 2) {
                     Text(chip.name).font(.headline)
                     Text("\(Fmt.tflops(chip.best)) \(chip.bestPrecisionLabel) · \(Fmt.memory(chip.memoryGB)) · \(Int(chip.tdpW)) W · \(Fmt.money(chip.price ?? 0)) to make")

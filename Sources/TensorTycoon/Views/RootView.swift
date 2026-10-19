@@ -348,7 +348,7 @@ struct DecisionSheet: View {
         let fallback = Alerts.inboxDefaults[decision.kind] ?? (decision.options.count - 1)
         VStack(alignment: .leading, spacing: 0) {
             if let img = ImagePicker.illustrate(decision.image, title: decision.title, fill: false) {
-                Photo(key: img, thumb: false)
+                Photo(key: img, thumb: false, size: .banner, illustrative: ImagePicker.isIllustrative(img))
                     .frame(height: 170)
                     .clipped()
                     .overlay(LinearGradient(colors: [.clear, .black.opacity(0.5)], startPoint: .top, endPoint: .bottom))

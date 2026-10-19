@@ -50,7 +50,7 @@ struct ComputeView: View {
                     ForEach(s.rentals) { r in
                         if let a = HardwareCatalog.get(r.accelID) {
                             HStack {
-                                Photo(key: a.image).frame(width: 44, height: 30).clipShape(.rect(cornerRadius: 6))
+                                Photo(key: a.image, illustrative: a.photoIsIllustrative).frame(width: 44, height: 30).clipShape(.rect(cornerRadius: 6))
                                 VStack(alignment: .leading, spacing: 1) {
                                     Text("\(Fmt.int(r.count))× \(a.name)").font(.callout.weight(.semibold))
                                     Text("\(r.term.rawValue) · \(Fmt.price(r.hourly))/hr · \(Fmt.money(r.hourly * 24 * 30.4 * Double(r.count)))/mo\(r.end.map { " · ends \($0.gameShort)" } ?? "")")
@@ -100,7 +100,7 @@ private struct PoolRow: View, Equatable {
         let p = pool
         let total = max(1, Double(p.total))
         HStack(spacing: 12) {
-            Photo(key: p.accel.image).frame(width: 54, height: 36).clipShape(.rect(cornerRadius: 7))
+            Photo(key: p.accel.image, illustrative: p.accel.photoIsIllustrative).frame(width: 54, height: 36).clipShape(.rect(cornerRadius: 7))
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
                     Text(p.accel.name).font(.callout.weight(.semibold))
@@ -139,7 +139,7 @@ private struct OwnedRow: View {
             let site = state.sites.first { $0.id == batch.siteID }
             let unit = Economy.resaleValue(a, state, unitCost: batch.unitCost, purchased: batch.purchased)
             HStack {
-                Photo(key: a.image).frame(width: 44, height: 30).clipShape(.rect(cornerRadius: 6))
+                Photo(key: a.image, illustrative: a.photoIsIllustrative).frame(width: 44, height: 30).clipShape(.rect(cornerRadius: 6))
                 VStack(alignment: .leading, spacing: 1) {
                     Text("\(Fmt.int(batch.count))× \(a.name)").font(.callout.weight(.semibold))
                     Text("\(site?.name ?? "?") · bought \(batch.purchased.gameShort) at \(Fmt.money(batch.unitCost)) · resale \(Fmt.money(unit))")

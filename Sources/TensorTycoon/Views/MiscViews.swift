@@ -91,7 +91,7 @@ private struct NewsRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 14) {
             if let img = item.image {
-                Photo(key: img).frame(width: 120, height: 76).clipShape(.rect(cornerRadius: 10))
+                Photo(key: img, illustrative: ImagePicker.isIllustrative(img)).frame(width: 120, height: 76).clipShape(.rect(cornerRadius: 10))
             } else {
                 Image(systemName: item.category.symbol)
                     .font(.title2)
