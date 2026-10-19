@@ -955,13 +955,8 @@ enum TrainingExperience {
     /// 3.8: unique tokens the run drew on, counted as its forecast counts them: the sources in its data snapshot, the
     /// synthetic share, and the data-economy datasets it held when it started (bought, licensed, processed, synthetic).
     static func validationUniqueT(_ run: TrainingRun, _ s: GameState) -> Double {
-        let b = s.bonuses
-        let d = run.design
-        var unique = Physics.availableTokensT(run.dataSnapshot, y: s.year, bonuses: b)
-        if d.syntheticShare > 0 && b.has(.syntheticData) { unique *= 1 + d.syntheticShare * 3 }
-        let plan = DataEconomy.plan(d, state: s, sources: run.dataSnapshot)
-        if plan.active { unique += plan.extraUniqueT }
-        return unique
+        guard let plan = run.dataPlan else { return DataEconomy.uniqueTokensT(run.design, state: s, sources: run.dataSnapshot) }
+        return Physics.availableTokensT(run.dataSnapshot, y: s.year, bonuses: s.bonuses) + plan.syntheticUniqueT + (plan.active ? plan.extraUniqueT : 0)
     }
 
     /// The validation series for the Training page, on the run's own unique data.

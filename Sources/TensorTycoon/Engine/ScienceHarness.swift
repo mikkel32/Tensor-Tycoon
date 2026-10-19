@@ -108,7 +108,7 @@ extension PTPlay {
     static func dataBot(_ s: inout GameState) {
         if s.runs.isEmpty { dataPlans = [:] }   // a new game
         for r in s.runs where r.status == .running && r.kind == .full && dataPlans[r.id] == nil {
-            dataPlans[r.id] = (r.design.name, DataEconomy.freeze(r.design, state: s, sources: r.dataSnapshot))
+            dataPlans[r.id] = (r.design.name, r.dataPlan ?? DataEconomy.freeze(r.design, state: s, sources: r.dataSnapshot))
         }
         guard GameCalendar.components(s.date).day == 2 else { return }
         let held = Set(s.dataEco.holdings.filter(\.active).map(\.source))
@@ -256,6 +256,19 @@ extension PTPlay {
             let back = json.flatMap { try? JSONDecoder().decode(DataPlanSummary.self, from: $0) }
             check("frozen plan", snap.contains(DataEconomy.marker) && !p.datasets && back == summary && summary.dCode > 0,
                   "snapshot has the marker: \(snap.contains(DataEconomy.marker)); data bought later in that run's plan: \(p.datasets); summary round-trips: \(back == summary), dCode \(Fmt.trim(summary.dCode, 3))")
+        }
+        // 1b. A run forecasts (and finishes) on the plan frozen at launch, whatever is bought or dropped later.
+        do {
+            var s = fresh(2025)
+            _ = DataEconomy.acquire(&s, "code_curated", term: .buy)
+            var run = TrainingRun(design: d, started: s.date, flopsTotal: 1e24, dataSnapshot: DataEconomy.snapshot(&s))
+            run.dataPlan = DataEconomy.freeze(d, state: s, sources: run.dataSnapshot)
+            let atLaunch = Training.forecast(d, run, s).code
+            s.dataEco.holdings = []   // sold off mid-run
+            let today = ForecastEngine.forecast(d, state: s, dataSources: run.dataSnapshot).code
+            let frozen = Training.forecast(d, run, s).code
+            check("run keeps its launch data", abs(frozen - atLaunch) < 1e-12 && today < atLaunch,
+                  "code skill at launch \(Fmt.trim(atLaunch, 3)), mid-run on the frozen plan \(Fmt.trim(frozen, 3)), priced on today's data \(Fmt.trim(today, 3))")
         }
         // 2. Same-day re-buy while a run still uses the old copy: unique IDs; the new copy can be processed again; a job on
         //    a vanished target records nothing.

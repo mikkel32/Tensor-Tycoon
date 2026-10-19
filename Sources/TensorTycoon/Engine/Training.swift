@@ -47,11 +47,22 @@ enum Training {
 
     // MARK: Start
 
+    /// A run's forecast on its own data: the plan frozen at launch (older runs price their snapshot today).
+    static func forecast(_ d: ModelDesign, _ run: TrainingRun, _ s: GameState) -> Forecast {
+        ForecastEngine.forecast(d, state: s, dataSources: run.dataSnapshot, frozen: run.dataPlan)
+    }
+
+    /// Benchmark-contamination risk from a run's data (its frozen plan) times your contamination checks today.
+    static func contaminationRisk(_ s: GameState, _ run: TrainingRun) -> Double {
+        guard let plan = run.dataPlan else { return DataEconomy.contaminationFactor(s, run: run) }
+        return plan.contaminationFactor * DataEconomy.detectionFactor(s.dataEco.detection)
+    }
+
     /// Fills in the forecast and the hidden truth of a new run.
     static func prepare(_ run: inout TrainingRun, state s: inout GameState) {
         let b = s.bonuses
         let d = run.design
-        let f = ForecastEngine.forecast(d, state: s, dataSources: run.dataSnapshot.isEmpty ? s.dataSources.sorted() : run.dataSnapshot)   // 3.6: the run's own data
+        let f = run.dataSnapshot.isEmpty ? ForecastEngine.forecast(d, state: s, dataSources: s.dataSources.sorted()) : forecast(d, run, s)   // 3.6: the run's own data
         let set = Leaderboard.indexSet(s)
         // The forecast includes the learning rate's effect, like the Model Lab and the pre-training review show it.
         var withLR = f
@@ -679,7 +690,7 @@ enum Training {
 
     static func projectedIndex(_ s: GameState, _ run: TrainingRun) -> (Double, Double, Double) {
         guard let fc = run.forecast else { return (0, 0, 0) }
-        let f = ForecastEngine.forecast(run.design, state: s, dataSources: run.dataSnapshot)
+        let f = forecast(run.design, run, s)
         let set = Leaderboard.indexSet(s)
         let known = -run.qualityPenalty + run.lrCreditAtEnd - (run.bugFound ? run.bugPenalty * 0.25 : 0)
         let mean = fc.baseC + run.revealMean + known
@@ -702,7 +713,7 @@ enum Training {
         partial.tokensT = max(run.design.tokensT * f, 0.0001)
         partial.instruct = false
         partial.reasoning = false
-        let fc = ForecastEngine.forecast(partial, state: s, dataSources: run.dataSnapshot)
+        let fc = forecast(partial, run, s)
         let c = fc.c + trueDeviation(s.runs[i], at: f) + run.lrCredit
         let p = ForecastEngine.profile(fc, design: partial, key: "\(run.id.uuidString)-\(Int(f * 1000))", c: c)
         let set = Leaderboard.indexSet(s)
@@ -800,7 +811,7 @@ enum Training {
         let b = s.bonuses
         // Benchmark contamination
         if frac > 0.3 && frac < 0.75 && !s.runs[i].decided.contains("contamination") {
-            if s.rng.chance(0.012 * b.contaminationKeep * DataEconomy.contaminationFactor(s, run: s.runs[i]) * (s.runs[i].toy ? 0 : 1)) {
+            if s.rng.chance(0.012 * b.contaminationKeep * contaminationRisk(s, s.runs[i]) * (s.runs[i].toy ? 0 : 1)) {
                 s.runs[i].decided.insert("contamination")
                 Events.addDecision(&s, kind: "contamination", title: "Benchmark contamination in \(s.runs[i].design.name)",
                                    body: "An audit found test questions from popular benchmarks scattered through your web crawl. Your scores will be inflated — and someone will notice.",
@@ -1051,7 +1062,7 @@ enum Training {
         creditLR(&s.runs[i])
         let run = s.runs[i]
         let d = run.design
-        let fc = ForecastEngine.forecast(d, state: s, dataSources: run.dataSnapshot)
+        let fc = forecast(d, run, s)
         let base = run.forecast?.baseC ?? fc.c
         let c = base + trueDeviation(run, at: 1) + run.lrCreditAtEnd
         var model = AIModel(name: d.name, design: d, created: s.date, c: c, reasoning: d.reasoning && b.has(.reasoning),
@@ -1064,7 +1075,10 @@ enum Training {
         model.longctxSkill = fc.longctx
         model.visSkill = fc.vis
         model.usedShadowData = fc.usesShadowData
-        model.tuned = d.benchmarkTuning || run.contaminated
+        model.tuned = d.benchmarkTuning || run.contaminated || (run.dataPlan.map { DataEconomy.silentlyTuned($0, run: run.id) } ?? false)   // contamination nobody caught
+        if let plan = run.dataPlan, !plan.domainBonus.isEmpty {
+            model.domainBonus = CapDomain.allCases.map { plan.domain($0) }   // 3.6: science and robotics data no skill carries
+        }
         model.safety = clamp(fc.safety + run.dSafety, 0, 100)
         model.cForecast = run.forecast?.c ?? base
         model.forecastSigma = run.forecast?.sigma ?? fc.sigma

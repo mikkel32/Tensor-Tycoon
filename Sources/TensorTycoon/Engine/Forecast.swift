@@ -99,14 +99,15 @@ enum ForecastEngine {
 
     // MARK: Forecast
 
-    static func forecast(_ d: ModelDesign, state s: GameState, dataSources: [String]) -> Forecast {
+    /// `frozen`: a run's data plan as it stood at launch (`TrainingRun.dataPlan`); nil prices today's data.
+    static func forecast(_ d: ModelDesign, state s: GameState, dataSources: [String], frozen: DataPlanSummary? = nil) -> Forecast {
         let dataSources = dataSources.sorted()   // 3.7: fixed order (float sums), whatever order a run's snapshot was saved in
         let b = s.bonuses
         let y = s.year
         var f = Forecast()
         let sources = dataSources.compactMap { DataCatalog.byID[$0] }
         var drivers: [ForecastDriver] = []
-        let plan = DataEconomy.plan(d, state: s, sources: dataSources)   // 3.6: data economy (all zero without new data)
+        let plan = frozen.map { DataPlan($0) } ?? DataEconomy.plan(d, state: s, sources: dataSources)   // 3.6: data economy (all zero without new data)
 
         let pre = Physics.pretrainFLOPs(d)
         f.rawC = log10(max(pre, 1e12)) - 21

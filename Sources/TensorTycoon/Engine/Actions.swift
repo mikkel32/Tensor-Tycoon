@@ -238,6 +238,7 @@ extension GameState {
         if d.syntheticShare > 0 && !b.has(.syntheticData) { return "Research synthetic data pipelines first." }
         let pre = Physics.pretrainFLOPs(d)
         var run = TrainingRun(design: d, started: date, flopsTotal: pre, dataSnapshot: DataEconomy.snapshot(&self))   // 3.6
+        run.dataPlan = DataEconomy.freeze(d, state: self, sources: run.dataSnapshot)   // data bought or lost later never changes it
         run.lr = lr.rawValue
         run.checkpointEvery = checkpointEvery
         run.autoRollback = autoRollback
@@ -806,7 +807,7 @@ extension GameState {
         d.tokensT = max(runs[i].design.tokensT * cp.fraction, 0.0001)
         d.name = "\(runs[i].design.name)-preview-\(Int(cp.fraction * 100))"
         d.reasoning = false
-        let fc = ForecastEngine.forecast(d, state: self, dataSources: runs[i].dataSnapshot)
+        let fc = Training.forecast(d, runs[i], self)
         var m = AIModel(name: d.name, design: d, created: date, c: cp.c, reasoning: false, reasoningBoost: fc.reasoning, codeBoost: fc.code,
                         arenaBonus: 75 * fc.chat, scores: [:], index: 0)
         m.chatSkill = fc.chat
