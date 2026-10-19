@@ -6,24 +6,36 @@ extension ScenarioHarness {
     /// cap), sovereign revenue, science output, the nuclear contract on offer, and that US federal rules stay out.
     static func scenarioD() -> Report {
         var r = Report(id: "D", title: all.first { $0.id == "D" }?.title ?? "D")
-        var s = newGame(era: "2022", hq: "fr", city: "grenoble", seed: 24, name: "Alpes Recherche")
+        var s = newGame(era: "2022", hq: "fr", city: "grenoble", seed: hqSeed(24), name: "Alpes Recherche")
         var bot = PTBot()
-        bot.flags = ["advproj", "science"]
+        bot.flags = ["advproj", "science", "fillroles"]
         var smeRelief = 0.0, smeLossMonths = 0
         var reported = false
-        let months = hqPlay(&s, &bot, months: 78) { s, _ in
+        var partnered: Date? = nil
+        var grantFactorBefore = 0.0, grantFactorAfter = 0.0
+        let months = hqPlay(&s, &bot, months: 78) { s, m in
             // The US executive-order reporting fee (late 2023 to early 2025) would show up as this headline.
             if s.news.contains(where: { $0.title == "Training run reported to the US government" && GameCalendar.daysBetween($0.date, s.date) <= 40 }) { reported = true }
+            // A sovereign partnership: co-fund the national compute centre once the company can easily afford it.
+            if partnered == nil, m >= 6, s.cash > 30 * Nations.partnershipCost(.computeCentre, s) {
+                grantFactorBefore = Nations.grantFactor(s)
+                if s.signNationalPartnership(.computeCentre, country: "fr", city: "paris") == nil {
+                    partnered = s.date
+                    grantFactorAfter = Nations.grantFactor(s)
+                }
+            }
         }
         for (i, mo) in months.enumerated() where i > 0 && mo.pre <= 0 && mo.staff < 250 {
             smeLossMonths += 1
-            smeRelief += mo.rdCredits - months[i - 1].rdCredits
+            smeRelief += mo.relief
         }
         r.note("ended \(s.date.gameShort): staff \(s.employees.count), valuation \(hqMoney(s.valuation)), \(s.science.labs.count) science labs, \(s.advanced.programmes.count) agency programmes")
 
         // Research funding: grants, public compute, the CIR.
         let h = s.hq
         let years = Double(months.count) / 12
+        r.expect("co-funding the national compute centre lifts grant offers", partnered != nil && grantFactorAfter >= grantFactorBefore * 1.29,
+                 "signed \(partnered?.gameShort ?? "never"): grant offers ×\(Fmt.trim(grantFactorBefore, 2)) → ×\(Fmt.trim(grantFactorAfter, 2)); GPU hours so far \(hqMoney(h.partnerCredits))")
         r.expect("grants and public compute received", h.grants + h.computeGrants > 0 && h.grantOffers >= 2,
                  "\(h.grantOffers) offers in \(Fmt.trim(years, 1)) years (\(Fmt.trim(Double(h.grantOffers) / years, 2))/yr; selection screen expects ≈\(Fmt.trim(HQ.country(s).expectedGrantsAtStart(2022.7), 1))/yr): \(hqMoney(h.grants)) in grants, \(hqMoney(h.computeGrants)) in compute")
         r.expect("the CIR pays cash while small and loss-making", smeLossMonths == 0 || smeRelief > 0,

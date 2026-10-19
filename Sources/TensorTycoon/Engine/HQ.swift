@@ -34,6 +34,15 @@ struct HQState: Codable, DefaultValue {
     @D var strikes: [String: Int] = [:]
     /// Home income from national contracts so far.
     @D var contractRevenue: Double = 0
+    /// Priority GPU hours paid out by compute centres you co-fund, so far.
+    @D var partnerCredits: Double = 0
+    /// The last monthly tax settlement as the tax code saw it: pre-tax profit, the taxable profit after losses carried
+    /// forward, the tax charged (after relief and any minimum-tax top-up) and the R&D relief (harness and scenario
+    /// checks; the books close more after it).
+    @D var taxProfit: Double = 0
+    @D var taxBase: Double = 0
+    @D var taxCharged: Double = 0
+    @D var taxRelief: Double = 0
 }
 
 /// 3.4 overhaul: an office in another city (at home or abroad). It hires from that city's pool at that city's pay and
@@ -170,9 +179,10 @@ enum HQ {
         s.corp.lossPool = split.pool
         let tax = split.taxable * taxRate(s)
         var net = tax
+        var relief = 0.0
         if !isDefault(s) {
             let c = country(s)
-            let relief = rdRelief(&s, tax: tax, pre: pre)   // 3.4 overhaul: the real scheme, its caps and carry-forward
+            relief = rdRelief(&s, tax: tax, pre: pre)   // 3.4 overhaul: the real scheme, its caps and carry-forward
             net = tax - relief + minimumTaxDue(&s, tax: tax - relief)   // 3.4 overhaul: Romania's minimum turnover tax
             s.hq.rdCredits += relief
             // A loss surrendered for Denmark's tax credit is paid out, so it isn't carried forward as well.
@@ -180,6 +190,10 @@ enum HQ {
                 s.corp.lossPool = max(0, s.corp.lossPool - relief / c.corporateTax)
             }
         }
+        s.hq.taxProfit = pre
+        s.hq.taxBase = split.taxable
+        s.hq.taxCharged = net
+        s.hq.taxRelief = relief
         guard net != 0 else { return }
         s.month.taxes += net
         s.cash -= net
@@ -507,7 +521,7 @@ enum HQ {
         // A national contract: the home government buys from its own lab, sized by the home market.
         let best = s.releasedModels.max(by: { $0.c < $1.c })
         if y >= 2023.5, let best, best.c > Macro.frontier(y) - 2.0, !s.hq.offered.contains("contract|\(Int(y))"),
-           roll("contract") < 0.03 * c.contractAffinity * clamp(s.world.ready ? s.world.government(c.region) / 60 : 1, 0.5, 1.5) * Nations.contractFactor(s) {
+           roll("contract") < c.contractAffinity / 12 * clamp(s.world.ready ? s.world.government(c.region) / 60 : 1, 0.5, 1.5) * Nations.contractFactor(s) {
             s.hq.offered.insert("contract|\(Int(y))")
             s.hq.lastOffer = s.date
             let programme = c.programmes.first { $0.kind == .contract }
@@ -561,10 +575,14 @@ enum HQ {
     }
 
     /// What a national contract pays a month: sized to the business and to the home market (France = 1; a market a
-    /// sixth of the size pays about a quarter as much).
+    /// sixth of the size pays about a quarter as much), and never more than a slice of what that state spends on AI
+    /// (about 3% of the country's AI market a year, game estimate).
     static func contractMonthly(_ s: GameState) -> Double {
-        let market = pow(country(s).homeMarket / 0.03, 0.75)
-        return (max(3e6 * scale(s.year), Economy.runRate(s) * 0.02) * market / 1_000).rounded() * 1_000
+        let c = country(s)
+        let market = pow(c.homeMarket / 0.03, 0.75)
+        let state = 0.03 * c.homeMarket * Macro.marketSize(s.year) / 12
+        let sized = max(3e6 * scale(s.year) * market, min(Economy.runRate(s) * 0.02 * market, state))
+        return (sized / 1_000).rounded() * 1_000
     }
 
     /// Grants and allocations grow with the era (public AI budgets did).
@@ -604,7 +622,9 @@ enum HQ {
     /// Compute centres you co-fund deliver their priority GPU hours (40% of the stake over three years).
     static func partnershipsMonthly(_ s: inout GameState) {
         for p in s.hq.partners where p.kind == .computeCentre && p.active(s.date) {
-            s.cloudCredits += p.cost * 0.4 / Double(p.kind.months)
+            let hours = p.cost * 0.4 / Double(p.kind.months)
+            s.cloudCredits += hours
+            s.hq.partnerCredits += hours
         }
     }
 

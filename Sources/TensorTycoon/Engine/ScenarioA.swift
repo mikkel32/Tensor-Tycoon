@@ -16,11 +16,15 @@ extension ScenarioHarness {
         var rank: Int
         var staff: Int
         var opProfit: Double
-        /// Pre-tax profit, as the tax code sees it.
+        /// Pre-tax profit as the tax code saw it at the month's settlement (the books close more after it), and the
+        /// taxable profit left after losses carried forward.
         var pre: Double
+        var taxable: Double
         var rdCredits: Double
         var rdCarry: Double
+        /// Tax charged at the settlement (after relief and any minimum-tax top-up), and the R&D relief in it.
         var taxes: Double
+        var relief: Double
     }
 
     /// Plays `months` months with the playtest bot, calling `step` at the start of each month with its index, and
@@ -36,9 +40,8 @@ extension ScenarioHarness {
                 guardDays += 1
             }
             let h = s.history.last
-            let pre = h.map { $0.revenue + $0.interestIncome + $0.oneOffIncome - $0.opex - $0.costInterest } ?? 0
-            out.append(HQMonth(date: s.date, rank: hqRank(s), staff: s.employees.count, opProfit: (h?.revenue ?? 0) - (h?.opex ?? 0), pre: pre,
-                               rdCredits: s.hq.rdCredits, rdCarry: s.hq.rdCarry, taxes: h?.taxes ?? 0))
+            out.append(HQMonth(date: s.date, rank: hqRank(s), staff: s.employees.count, opProfit: (h?.revenue ?? 0) - (h?.opex ?? 0), pre: s.hq.taxProfit, taxable: s.hq.taxBase,
+                               rdCredits: s.hq.rdCredits, rdCarry: s.hq.rdCarry, taxes: s.hq.taxCharged, relief: s.hq.taxRelief))
             if s.gameOver != nil { break }
         }
         return out
@@ -92,19 +95,39 @@ extension ScenarioHarness {
         return ratios.reduce(0, +) / Double(max(1, ratios.count))
     }
 
-    /// Tax charged plus R&D relief over the last `n` profitable months, against pre-tax profit: the statutory rate
-    /// the books actually applied.
-    static func hqEffectiveRate(_ months: [HQMonth], last n: Int = 12) -> (rate: Double, pre: Double)? {
-        var pre = 0.0, charged = 0.0, used = 0
-        for i in months.indices.reversed() where i > 0 && used < n && months[i].pre > 0 {
-            pre += months[i].pre
-            charged += months[i].taxes + (months[i].rdCredits - months[i - 1].rdCredits)
+    /// Tax charged plus R&D relief over the last `n` months with taxable profit, against the taxable profit the tax
+    /// code settled on (after losses carried forward): the statutory rate the game actually applied.
+    static func hqEffectiveRate(_ months: [HQMonth], last n: Int = 12) -> (rate: Double, taxable: Double, pre: Double)? {
+        var taxable = 0.0, pre = 0.0, charged = 0.0, used = 0
+        for m in months.reversed() where used < n && m.taxable > 0 {
+            taxable += m.taxable
+            pre += m.pre
+            charged += m.taxes + m.relief
             used += 1
         }
-        return pre > 0 ? (charged / pre, pre) : nil
+        return taxable > 0 ? (charged / taxable, taxable, pre) : nil
+    }
+
+    /// What the tax code charges on `pre` of taxable profit for this company, and for the same company under US rules
+    /// (on copies with no losses carried forward, so the whole of `pre` is taxable).
+    static func hqTaxOn(_ s: GameState, pre: Double) -> (home: Double, us: Double) {
+        var home = s
+        home.month = MonthRecord(month: s.month.month)
+        home.corp.lossPool = 0
+        HQ.settleTaxes(&home, pre: pre)
+        var us = hqAsIfUS(s)
+        us.month = MonthRecord(month: s.month.month)
+        us.corp.lossPool = 0
+        HQ.settleTaxes(&us, pre: pre)
+        return (home.hq.taxCharged + home.hq.taxRelief, us.hq.taxCharged + us.hq.taxRelief)
     }
 
     static func hqMoney(_ v: Double) -> String { Fmt.money(v) }
+
+    /// The scenario's seed, shifted by HQ_SCENARIO_SEED when set (to try the same checks on other paths).
+    static func hqSeed(_ base: UInt64) -> UInt64 {
+        base &+ (ProcessInfo.processInfo.environment["HQ_SCENARIO_SEED"].flatMap { UInt64($0) } ?? 0)
+    }
 }
 
 // MARK: - A: Denmark
@@ -114,9 +137,9 @@ extension ScenarioHarness {
     /// in Texas, and a race to the top three — with Danish tax, pay and power rules checked against US ones.
     static func scenarioA() -> Report {
         var r = Report(id: "A", title: all.first { $0.id == "A" }?.title ?? "A")
-        var s = newGame(era: "2022", hq: "dk", city: "copenhagen", seed: 21, name: "Fjord Labs")
+        var s = newGame(era: "2022", hq: "dk", city: "copenhagen", seed: hqSeed(21), name: "Fjord Labs")
         var bot = PTBot()
-        bot.flags = ["advproj", "science"]
+        bot.flags = ["advproj", "science", "fillroles"]
         let start = s.date
         let payStart = hqLocalPay(s)
         let payAbroad = hqLocalPay(s, relocated: true)
@@ -124,7 +147,7 @@ extension ScenarioHarness {
         var homeGross = 0.0, homeNet = 0.0, rebatesBefore = 0.0, abroadGross = 0.0
         var ppa: UUID? = nil
         var partnerSigned: Date? = nil
-        var creditsBefore = 0.0, creditsAfter = 0.0
+        var standingWhileActive = 0.0, grantFactorWhileActive = 0.0
         var subsidyBefore = 0.0, subsidyAfter = 0.0, boostBefore = 0.0, boostAfter = 0.0
         var countedAt: Date? = nil
         var usPresenceBefore = false
@@ -145,10 +168,12 @@ extension ScenarioHarness {
             if partnerSigned == nil, m >= 14, s.cash > 30 * Nations.partnershipCost(.computeCentre, s) {
                 subsidyBefore = Nations.level(s, country: "dk", .subsidy)
                 boostBefore = s.nations.countries["dk"]?.boost[NationLever.subsidy.index] ?? 0
-                creditsBefore = s.cloudCredits
                 if s.signNationalPartnership(.computeCentre, country: "dk", city: "copenhagen") == nil { partnerSigned = s.date }
             }
-            if let p = partnerSigned, GameCalendar.daysBetween(p, s.date) < 40 { creditsAfter = s.cloudCredits }
+            if let p = partnerSigned, (60..<100).contains(GameCalendar.daysBetween(p, s.date)) {
+                standingWhileActive = Stakeholders.governmentTarget(s, .eu).parts.first { $0.label == "National partnerships" }?.value ?? 0
+                grantFactorWhileActive = Nations.grantFactor(s)
+            }
             if partnerSigned != nil, countedAt == nil, s.hq.partners.first?.counted == true {
                 countedAt = s.date
                 subsidyAfter = Nations.level(s, country: "dk", .subsidy)
@@ -169,11 +194,19 @@ extension ScenarioHarness {
         r.note("ended \(s.date.gameShort): staff \(s.employees.count), valuation \(hqMoney(s.valuation)), best rank #\(months.map(\.rank).filter { $0 > 0 }.min() ?? 0), \(s.hq.satellites.count) satellite offices")
 
         // Danish rules against US ones.
+        let probe = hqTaxOn(s, pre: 1e9)
+        let probeOK = abs(probe.home - 0.22e9) < 1 && abs(probe.us - 0.21e9) < 1
+        let probeText = "on $1B of taxable profit today: \(hqMoney(probe.home)) here vs \(hqMoney(probe.us)) under US rules (federal only)"
         if let t = hqEffectiveRate(months) {
-            r.expect("Danish corporate tax charged on profit", abs(t.rate - 0.22) < 0.002,
-                     "tax + R&D relief = \(Fmt.pct(t.rate, decimals: 2)) of \(hqMoney(t.pre)) pre-tax profit over the last 12 profitable months (US rules: \(Fmt.pct(HQ.taxRate(us), decimals: 0)) federal)")
+            r.expect("Danish corporate tax charged on profit", abs(t.rate - 0.22) < 0.002 && probeOK,
+                     "tax + R&D relief = \(Fmt.pct(t.rate, decimals: 2)) of \(hqMoney(t.taxable)) taxable profit (\(hqMoney(t.pre)) before losses carried forward) over the last 12 taxed months; \(probeText); losses still carried \(hqMoney(s.corp.lossPool))")
         } else {
-            r.expect("Danish corporate tax charged on profit", false, "no profitable months")
+            // Every profit so far went against losses carried forward: no tax may be charged on it, and the rate shows
+            // on the probe alone.
+            let profitable = months.filter { $0.pre > 0 }
+            let untaxed = profitable.allSatisfy { $0.taxable == 0 && abs($0.taxes + $0.relief) < 1 }
+            r.expect("Danish corporate tax charged on profit", untaxed && s.corp.lossPool > 0 && probeOK,
+                     "\(profitable.count) profitable months, all set against losses carried forward (\(hqMoney(s.corp.lossPool)) still carried), none taxed; \(probeText)")
         }
         r.expect("Danish frontier-lab pay on local hires", abs(payStart - 0.651) < 0.03 && abs(payAbroad - 0.8255) < 0.03 && HQ.salaryFactor(us) == 1,
                  "local candidates ×\(Fmt.trim(payStart, 3)) of the San Francisco formula (Copenhagen ×0.651), relocating hires ×\(Fmt.trim(payAbroad, 3)) (×0.826) vs ×1 under US rules")
@@ -197,14 +230,15 @@ extension ScenarioHarness {
         }
         // The partnership.
         if let p = partnerSigned {
-            let active = s.hq.partners.first?.active(s.date) ?? false
-            let target = Stakeholders.governmentTarget(s, .eu).parts.first { $0.label == "National partnerships" }?.value ?? 0
-            r.expect("partnership: priority GPU hours paid", creditsAfter > creditsBefore,
-                     "cloud credits \(hqMoney(creditsBefore)) → \(hqMoney(creditsAfter)) in the first month after signing \(p.gameShort)")
+            let cost = s.hq.partners.first?.cost ?? 0
+            let paidMonths = Double(min(36, max(0, GameCalendar.daysBetween(p, s.date) / 30)))
+            r.expect("partnership: priority GPU hours paid", s.hq.partnerCredits > 0 && abs(s.hq.partnerCredits - cost * 0.4 * paidMonths / 36) <= cost * 0.4 / 36 * 1.5,
+                     "\(hqMoney(s.hq.partnerCredits)) of GPU hours from a \(hqMoney(cost)) stake signed \(p.gameShort) (40% over 36 months)")
             r.expect("partnership: Danish dials pushed at the next January review", countedAt != nil && boostAfter >= boostBefore * 0.7 + 2.7,
                      "signed \(p.gameShort), counted \(countedAt?.gameShort ?? "never"): subsidy boost \(Fmt.trim(boostBefore, 1)) → \(Fmt.trim(boostAfter, 1)), compute subsidies \(Int(subsidyBefore.rounded())) → \(Int(subsidyAfter.rounded()))")
-            r.expect("partnership: standing with the EU while it runs", !active || target >= 4,
-                     "standing part +\(Fmt.trim(target, 0)) (active \(active)); grant factor now ×\(Fmt.trim(Nations.grantFactor(s), 2))")
+            let policyOnly = 0.6 + 0.8 * Nations.level(s, country: "dk", .subsidy) / 100
+            r.expect("partnership: standing and grant offers while it runs", standingWhileActive >= 4 && grantFactorWhileActive > 1.2,
+                     "EU standing part +\(Fmt.trim(standingWhileActive, 0)) and grant offers ×\(Fmt.trim(grantFactorWhileActive, 2)) two months in (×\(Fmt.trim(policyOnly, 2)) on policy alone today)")
         } else {
             r.expect("partnership signed", false)
         }

@@ -187,7 +187,8 @@ struct HQCountry: Identifiable, Sendable {
     let usStanding: Double
     /// Chance per month of a grant or compute allocation offer, before spacing, era and national policy.
     let grantRate: Double
-    /// How keen the home government is to buy from a national champion (contract offers per year, roughly).
+    /// How keen the home government is to buy from a national champion: contract offers a year while you have a model
+    /// near the frontier (at most one a year; standing at home and the sovereign-AI programme move it).
     let contractAffinity: Double
     let programmes: [HQProgramme]
     let affinities: [HQAffinity]
