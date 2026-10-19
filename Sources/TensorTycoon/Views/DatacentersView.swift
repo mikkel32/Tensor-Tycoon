@@ -26,6 +26,7 @@ struct DatacentersView: View {
             case .overview:
                 AddCapacityCard(state: s)
                 SitesTable(state: s) { tab = .sites }
+                DatacenterDiagramSection(state: s)
             case .sites:
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 440), spacing: 14)], spacing: 14) {
                     ForEach(s.sites) { site in SiteCard(site: site, state: s) }
