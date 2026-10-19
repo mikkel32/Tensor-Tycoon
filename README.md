@@ -66,6 +66,13 @@ in that year. `swift run TensorTycoon --strategy 2022` prints what each doctrine
 years of board goals, and rival acquisitions. `swift run TensorTycoon --forecast-check` replays real training runs (GPT-3,
 Chinchilla, LLaMA, GPT-4, Llama 3, DeepSeek-V3, Kimi K2, Grok 4…) through the forecast engine and prints the error.
 
+The simulation also builds without SwiftUI on Linux for its headless checks: `Scripts/linux_build.sh` writes
+`.build/linux/tt`, which takes the same flags. `--scenarios all` plays the eight scenario playthroughs (four European
+headquarters, a frontier breakthrough, classified research, a custom chip and a technology empire), `--determinism`
+checks that the same seed gives the same game, `--finance-check`, `--data-check`, `--intelligence` and `--photo-check`
+check those systems' rules, and `--playtest <era> <seeds> <years> quiet [flags]` runs the playtest bot.
+`Scripts/linux/uistubs/typecheck.sh` type-checks every view against SwiftUI stand-ins.
+
 Saves live in `~/Library/Application Support/TensorTycoon/Saves` (autosave every month, ⌘S to save).
 Speed: ⌘⇧P play/pause, ⌘1–⌘5 speeds (1.5 to 90 days per second), ⌘→ one day.
 
