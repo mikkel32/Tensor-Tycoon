@@ -54,6 +54,7 @@ enum Treasury {
             // Never more than 2.5× what a frontier model charges, however far ahead the model is.
             let ceiling = min(market * 2, Macro.frontierPrice(s.year) * s.market.apiPricePressure * 2.5)
             p = clamp(p, min(market * 0.5, ceiling), ceiling)
+            if let band = Launches.stanceBand(s, m) { p = clamp(p, band.lowerBound, band.upperBound) }   // 3.8: a launch's pricing stance holds for its window
             if !m.deployments.isEmpty { p = max(p, minPrice(m, s, bonuses: bonuses)) }
             s.models[i].apiPrice = max(0.001, tidy(p))
         }

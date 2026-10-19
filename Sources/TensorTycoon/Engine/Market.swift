@@ -15,6 +15,70 @@ struct MarketProduct: Identifiable {
     var modelID: UUID?
     var attraction: Double = 0
     var share: Double = 0
+    /// 3.8: the model's domain scores as buyers see them (nil before it has been scored: then only `c` counts).
+    var scores: DomainScores? = nil
+    /// 3.8: share of each API segment (APISegment order); `share` is their weighted sum.
+    var segShares: [Double] = []
+    /// 3.8: the family it's sold under (yours only), for routing between members.
+    var familyID: UUID? = nil
+}
+
+/// 3.8: API buyers come for different work, and each kind picks models on the domains that work needs. A coding
+/// specialist wins the coding segment from a stronger generalist; a model that can't see gets almost none of the
+/// vision and voice segment. General chat and knowledge work still goes by overall capability (the leaderboard's `c`).
+enum APISegment: Int, CaseIterable, Identifiable, Sendable {
+    case coding, general, agents, languages, media
+
+    var id: Int { rawValue }
+
+    var label: String {
+        switch self {
+        case .coding: "Coding"
+        case .general: "General & chat"
+        case .agents: "Agents & tools"
+        case .languages: "Multilingual"
+        case .media: "Vision & voice"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .coding: "chevron.left.forwardslash.chevron.right"
+        case .general: "text.bubble.fill"
+        case .agents: "figure.walk.motion"
+        case .languages: "globe"
+        case .media: "eye.fill"
+        }
+    }
+
+    /// The domains buyers in this segment judge a model on (general uses `c`).
+    var mix: [(CapDomain, Double)] {
+        switch self {
+        case .coding: [(.coding, 0.7), (.reasoning, 0.15), (.agents, 0.15)]
+        case .general: [(.knowledge, 0.4), (.reasoning, 0.3), (.social, 0.3)]
+        case .agents: [(.agents, 0.6), (.reliability, 0.25), (.coding, 0.15)]
+        case .languages: [(.multilingual, 0.7), (.knowledge, 0.3)]
+        case .media: [(.vision, 0.6), (.voice, 0.4)]
+        }
+    }
+
+    /// Share of API spending in this segment. Coding grows to about a third by 2025, agent traffic from 2023, and the
+    /// multilingual share follows where the world's AI money is (Capabilities.multilingualShare).
+    static func weights(_ s: GameState) -> [Double] {
+        let y = s.year
+        var w = [Double](repeating: 0, count: allCases.count)
+        w[APISegment.coding.rawValue] = interpolate([(2017, 0.1), (2021, 0.18), (2023, 0.27), (2025, 0.34), (2030, 0.35)], at: y)
+        w[APISegment.agents.rawValue] = interpolate([(2022, 0.01), (2024, 0.05), (2026, 0.13), (2030, 0.2)], at: y)
+        w[APISegment.languages.rawValue] = Capabilities.multilingualShare(s)
+        w[APISegment.media.rawValue] = interpolate([(2017, 0.03), (2023, 0.07), (2026, 0.11), (2030, 0.13)], at: y)
+        w[APISegment.general.rawValue] = max(0.15, 1 - w.reduce(0, +))
+        let total = w.reduce(0, +)
+        return w.map { $0 / total }
+    }
+
+    /// How strongly a domain lead pulls buyers: exp(0.15 × points), the same as a capability lead (1.5 per decade of
+    /// effective compute): a 10-point specialist edge is 4.5× the attraction.
+    static let premium = 0.15
 }
 
 struct MarketSnapshot {
@@ -72,20 +136,29 @@ enum Market {
         snap.agentSeatBudget = 100 * max(1, agentPriceLevel(y))
         snap.agentRevenuePool = snap.agentSeatsPool * snap.agentSeatBudget / 30.4
         let agentFrontier = frontier + 0.87
+        let ref = Capabilities.reference(y)
+        let fieldAgents = Capabilities.field(.agents, at: y)
 
         for comp in s.competitors where !comp.acquired {
             guard let m = comp.latest else { continue }
             let def = comp.def
-            let price = m.price * (1 - comp.priceCut)
-            snap.api.append(MarketProduct(id: "\(comp.id)-flag", lab: comp.id, labName: def.name, name: m.name, c: m.c, price: price,
-                                          tps: m.tps, brand: comp.brand, open: m.open, reasoning: m.reasoning, isPlayer: false))
-            if comp.models.count >= 2 && y >= 2023 {
-                snap.api.append(MarketProduct(id: "\(comp.id)-mini", lab: comp.id, labName: def.name, name: "\(m.name) Mini", c: m.c - 0.55,
-                                              price: price * 0.12, tps: m.tps * 1.8, brand: comp.brand, open: m.open,
-                                              reasoning: false, isPlayer: false))
+            // 3.8: specialisations that change what a lab sells: smaller, cheaper models; its own (cheaper) chips.
+            let lean = specialistRamp(s, comp.id, .efficient, years: 1)
+            let silicon = specialistRamp(s, comp.id, .hardware, years: 2)
+            let price = m.price * (1 - comp.priceCut) * (1 - 0.35 * lean) * (1 - 0.12 * silicon)
+            let dc = -0.1 * lean
+            let scores = s.domainScores[m.id.uuidString]
+            snap.api.append(MarketProduct(id: "\(comp.id)-flag", lab: comp.id, labName: def.name, name: m.name, c: m.c + dc, price: price,
+                                          tps: m.tps * (1 + 0.3 * lean), brand: comp.brand, open: m.open, reasoning: m.reasoning, isPlayer: false,
+                                          scores: shifted(scores, dc)))
+            if (comp.models.count >= 2 && y >= 2023) || (lean > 0 && y >= 2021) {
+                let miniGap = 0.55 - 0.1 * lean
+                snap.api.append(MarketProduct(id: "\(comp.id)-mini", lab: comp.id, labName: def.name, name: "\(m.name) Mini", c: m.c - miniGap,
+                                              price: price * (0.12 - 0.04 * lean), tps: m.tps * 1.8, brand: comp.brand, open: m.open,
+                                              reasoning: false, isPlayer: false, scores: shifted(scores, -miniGap)))
             }
             if y >= 2025.0 && m.reasoning && !m.open {
-                let x = Leaderboard.profile(m, def: def).agenticX
+                let x = seatX(Leaderboard.profile(m, def: def).agenticX, scores: scores, ref: ref, fieldAgents: fieldAgents)
                 snap.agents.append(MarketProduct(id: "\(comp.id)-agent", lab: comp.id, labName: def.name, name: "\(def.chatProduct) Agent", c: x,
                                                  price: def.id == "halcyon" ? 120 : 100, tps: m.tps, brand: comp.brand * (1 + def.codeBonus * 2) * RivalStrategy.agentBoost(comp),
                                                  open: false, reasoning: true, isPlayer: false))
@@ -93,7 +166,8 @@ enum Market {
             // Open-weights side releases stay on the market for two years.
             if let o = comp.openModels.last, GameCalendar.daysBetween(o.date, s.date) < 730 {
                 snap.api.append(MarketProduct(id: "\(comp.id)-open", lab: comp.id, labName: def.name, name: o.name, c: o.c, price: o.price,
-                                              tps: o.tps, brand: comp.brand, open: true, reasoning: o.reasoning, isPlayer: false))
+                                              tps: o.tps, brand: comp.brand, open: true, reasoning: o.reasoning, isPlayer: false,
+                                              scores: s.domainScores[o.id.uuidString]))
             }
             let launched = comp.id == "prometheus" ? chatOn : (chatOn && y >= def.firstModel.decimal + 0.2 && y >= 2023.0)
             if launched {
@@ -104,10 +178,12 @@ enum Market {
         }
 
         for m in s.models where m.released && !m.retired && m.api && (m.capacityTokensDay > 0 || Families.servesToday(s, m)) {
+            let penalty = Physics.servingPenalty(m.servingPrecision)
             snap.api.append(MarketProduct(id: m.id.uuidString, lab: "player", labName: s.companyName, name: m.name,
-                                          c: m.c - Physics.servingPenalty(m.servingPrecision), price: m.apiPrice,
+                                          c: m.c - penalty, price: m.apiPrice,
                                           tps: max(m.tps, 1), brand: s.brand * (0.7 + 0.3 * s.reliability) * (m.design.mode == .finetune ? 0.8 : 1) * Families.brandMult(s, m.id), open: m.openWeights,
-                                          reasoning: m.reasoning, isPlayer: true, modelID: m.id))
+                                          reasoning: m.reasoning, isPlayer: true, modelID: m.id,
+                                          scores: shifted(s.domainScores[m.id.uuidString], -penalty), familyID: Families.family(of: m.id, s)?.id))
         }
         if chatOn || (s.year < 2022.91 && s.chatModelID != nil),
            let id = s.chatModelID, let m = s.models.first(where: { $0.id == id && $0.released && !$0.retired }) {
@@ -118,26 +194,60 @@ enum Market {
         }
 
         if let id = s.agentModelID, let m = s.models.first(where: { $0.id == id && $0.released && !$0.retired }), b.has(.toolUse) {
+            // 3.8: agent seats go by the agents domain (agentic skill plus agents know-how) and reliability.
+            let x = seatX(Leaderboard.profile(m).agenticX, scores: s.domainScores[m.id.uuidString], ref: ref, fieldAgents: fieldAgents)
             snap.agents.append(MarketProduct(id: "player-agent", lab: "player", labName: s.companyName, name: "\(s.companyName) Agent",
-                                             c: Leaderboard.profile(m).agenticX, price: max(1, s.agentPrice), tps: max(m.tps, 1),
+                                             c: x, price: max(1, s.agentPrice), tps: max(m.tps, 1),
                                              brand: s.brand * (0.6 + 0.4 * s.reliability) * (1 + b.enterpriseDemand * 0.5),
                                              open: false, reasoning: m.reasoning, isPlayer: true, modelID: m.id))
         }
 
-        // API shares
-        var totalA = 0.0
+        // API shares, segment by segment (3.8). Each product's pull is its price, speed and brand (as before) times its
+        // quality for the segment's work; the shares are summed by segment weight.
+        let weights = APISegment.weights(s)
+        let segs = APISegment.allCases
+        var seg = [[Double]](repeating: [Double](repeating: 0, count: segs.count), count: snap.api.count)
+        let eco = Launches.ecosystemFactor(s)
         for i in snap.api.indices {
-            var p = snap.api[i]
-            let ref = Macro.referencePrice(c: p.c, y: y) * s.market.apiPricePressure
-            p.attraction = attraction(c: p.c, price: p.price, refPrice: ref, tps: p.tps, brand: p.brand, frontier: frontier, elasticity: 1.4,
-                                      floor: p.isPlayer ? priceFloorFactor : 0)
-            if p.isPlayer { p.attraction *= (1 + b.apiDemand) * s.reliability * max(0.3, 1 + s.traits.api) * Stakeholders.demandFactor(s, .api) * Launches.demandFactor(s, p.modelID) }   // 3.7: launch curve
-            if p.open { p.attraction *= 1.15 }
-            snap.api[i] = p
-            totalA += p.attraction
+            let p = snap.api[i]
+            let refPrice = Macro.referencePrice(c: p.c, y: y) * s.market.apiPricePressure
+            var pull = attraction(c: frontier, price: p.price, refPrice: refPrice, tps: p.tps, brand: p.brand, frontier: frontier, elasticity: 1.4,
+                                  floor: p.isPlayer ? priceFloorFactor : 0)
+            if p.isPlayer { pull *= (1 + b.apiDemand) * s.reliability * max(0.3, 1 + s.traits.api) * Stakeholders.demandFactor(s, .api) * Launches.demandFactor(s, p.modelID) * eco }   // 3.7: launch curve; 3.8: developer ecosystem
+            if p.open { pull *= 1.15 }
+            for k in segs.indices { seg[i][k] = pull * segmentQuality(p, segs[k], frontier: frontier, ref: ref) }
         }
-        let otherA = max(totalA * 0.18, 1e-9)
-        for i in snap.api.indices { snap.api[i].share = snap.api[i].attraction / (totalA + otherA) }
+        // 3.8: Model Routing research — a family sells through one router endpoint: each request goes to the member that
+        // suits it (the best fit gets most of a segment's traffic) and buyers like the single endpoint (+12%).
+        if b.has(.modelRouting) {
+            let families = Set(snap.api.compactMap(\.familyID))
+            for f in families.sorted(by: { $0.uuidString < $1.uuidString }) {
+                let members = snap.api.indices.filter { snap.api[$0].familyID == f }
+                guard members.count >= 2 else { continue }
+                for k in segs.indices {
+                    let total = members.reduce(0) { $0 + seg[$1][k] }
+                    let sq = members.reduce(0) { $0 + seg[$1][k] * seg[$1][k] }
+                    guard total > 0, sq > 0 else { continue }
+                    let routed = members.map { seg[$0][k] * seg[$0][k] / sq * total * routingPremium }
+                    for (j, i) in members.enumerated() { seg[i][k] = routed[j] }
+                }
+            }
+        }
+        var segTotals = [Double](repeating: 0, count: segs.count)
+        for i in snap.api.indices { for k in segs.indices { segTotals[k] += seg[i][k] } }
+        for i in snap.api.indices {
+            var shares = [Double](repeating: 0, count: segs.count)
+            var share = 0.0, pull = 0.0
+            for k in segs.indices {
+                let other = max(segTotals[k] * 0.18, 1e-9)
+                shares[k] = seg[i][k] / (segTotals[k] + other)
+                share += weights[k] * shares[k]
+                pull += weights[k] * seg[i][k]
+            }
+            snap.api[i].segShares = shares
+            snap.api[i].share = share
+            snap.api[i].attraction = pull
+        }
         // API buyers have a fixed budget (the API pool). If today's prices and shares would bill more than that,
         // they buy fewer tokens from everyone, so the API market never earns more than its pool.
         let shareTotal = snap.api.reduce(0) { $0 + $1.share }
@@ -177,6 +287,60 @@ enum Market {
         let otherG = max(totalG * 0.1, 1e-9)
         for i in snap.agents.indices { snap.agents[i].share = snap.agents[i].attraction / (totalG + otherG) }
         return snap
+    }
+
+    /// 3.8: what a router endpoint adds to a family's pull in each segment.
+    static let routingPremium = 1.12
+
+    /// Scores moved by `dc` log-compute (a smaller variant, quantised serving): 10 points per unit.
+    static func shifted(_ v: DomainScores?, _ dc: Double) -> DomainScores? {
+        guard let v else { return nil }
+        guard abs(dc) > 1e-9 else { return v }
+        return DomainScores(v.v.map { max(0, $0 + 10 * dc) })
+    }
+
+    /// 3.8: a product's quality for one segment's buyers. General work goes half by capability (`c`, the leaderboard's
+    /// measure) and half by its domain mix; every other segment by its domain mix against a frontier model with the
+    /// field's published know-how. A product not scored yet is judged on `c` alone.
+    static func segmentQuality(_ p: MarketProduct, _ seg: APISegment, frontier: Double, ref: DomainScores) -> Double {
+        let general = 1.5 * (p.c - frontier)
+        guard let v = p.scores else { return exp(general) }
+        let domain = APISegment.premium * (v.mix(seg.mix) - ref.mix(seg.mix))
+        return exp(seg == .general ? 0.5 * general + 0.5 * domain : domain)
+    }
+
+    /// 3.8: an agent seat's effective capability: its agentic skill (as before), plus the agents know-how it has beyond
+    /// what a typical lab has adopted (85% of what the field has published), tilted by how its reliability compares
+    /// with a frontier model's.
+    static func seatX(_ agenticX: Double, scores: DomainScores?, ref: DomainScores, fieldAgents: Double) -> Double {
+        guard let v = scores, v[.agents] > 0 else { return agenticX }
+        let knowHow = Capabilities.capability(fromScore: v[.agents]) - agenticX
+        let tilt = 0.025 * ((v[.reliability] - v[.agents]) - (ref[.reliability] - ref[.agents]))
+        return agenticX + (knowHow - 0.85 * fieldAgents) + clamp(tilt, -0.3, 0.3)
+    }
+
+    /// 3.8: how far a rival's specialisation has gone (0–1 over `years`): smaller models for an efficiency specialist,
+    /// own silicon for a hardware one.
+    static func specialistRamp(_ s: GameState, _ lab: String, _ f: RivalFocus, years: Double) -> Double {
+        guard let st = s.nations.focus[lab], st.rivalFocus == f, let since = st.since else { return 0 }
+        return clamp(Double(GameCalendar.daysBetween(since, s.date)) / (365 * years), 0, 1)
+    }
+
+    /// 3.8: your models' share of each API segment today (summed over your products).
+    static func playerSegments(_ snap: MarketSnapshot) -> [Double] {
+        var out = [Double](repeating: 0, count: APISegment.allCases.count)
+        for p in snap.api where p.isPlayer {
+            for (k, v) in p.segShares.enumerated() where k < out.count { out[k] += v }
+        }
+        return out
+    }
+
+    /// 3.8: the segments a model sells most of (its share of each, best first).
+    static func segments(of id: UUID, _ snap: MarketSnapshot) -> [(segment: APISegment, share: Double)] {
+        guard let p = snap.api.first(where: { $0.modelID == id }) else { return [] }
+        return APISegment.allCases.compactMap { k in
+            k.rawValue < p.segShares.count && p.segShares[k.rawValue] > 0.001 ? (k, p.segShares[k.rawValue]) : nil
+        }.sorted { $0.share > $1.share }
     }
 
     /// Fixed budgets: the factor that keeps your spending share of a market within its pool. `natural` is what you'd
@@ -225,7 +389,9 @@ enum Market {
     /// Your agent's worth per seat today (nil if it isn't on sale).
     static func agentWTP(_ s: GameState) -> Double? {
         guard let id = s.agentModelID, let m = s.models.first(where: { $0.id == id && $0.released && !$0.retired }) else { return nil }
-        return agentWTP(x: Leaderboard.profile(m).agenticX, y: s.year)
+        let x = seatX(Leaderboard.profile(m).agenticX, scores: s.domainScores[m.id.uuidString], ref: Capabilities.reference(s.year),
+                      fieldAgents: Capabilities.field(.agents, at: s.year))
+        return agentWTP(x: x, y: s.year)
     }
 
     /// Share of weekly users who pay at `price` when they'd pay up to `wtp` (5% at the WTP). Without a free

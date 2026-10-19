@@ -322,16 +322,16 @@ struct DistillSheet: View {
         let p = Families.distillPlan(s, teacher: t, tier: tier, data: data, accelID: accelID, chips: chips)
         let fam = Families.family(of: t.id, s)?.name ?? Families.suggestedName(t)
         let student = Families.student(s, teacher: t, plan: p, name: Families.tierName(s, family: fam, tier: tier), accelID: accelID, chips: chips)
-        let research = Capabilities.researchDomains(s)
-        let tv = Capabilities.playerScores(t, research: research)
-        let sv = Capabilities.playerScores(student, research: research)
+        // 3.8: the teacher as it is scored today; the student on the teacher's know-how (not research done since).
+        let tv = s.domainScores[t.id.uuidString] ?? Capabilities.playerScores(t, research: Capabilities.knowHow(t, s))
+        let sv = Capabilities.playerScores(student, research: student.knowHow)
         let set = store.derived.indexSet
         let sIndex = BenchmarkCatalog.index(Leaderboard.profile(student), set: set)
         Text("Distil from \(t.name)").font(.title2.weight(.bold))
         Text("A smaller student learns from \(t.name)'s outputs. It keeps most of the teacher's ability for a fraction of the serving cost, and joins the \(fam) family.")
             .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         Picker("Tier", selection: $tier) {
-            ForEach(FamilyTier.allCases.filter { $0 != .flagship }) { t in Text("\(t.label) (\(Fmt.pct(t.sizeFraction, decimals: t.sizeFraction < 0.05 ? 1 : 0)) size)").tag(t) }
+            ForEach(FamilyTier.sizes.filter { $0 != .flagship }) { t in Text("\(t.label) (\(Fmt.pct(t.sizeFraction, decimals: t.sizeFraction < 0.05 ? 1 : 0)) size)").tag(t) }
         }
         .pickerStyle(.segmented)
         Text(tier.role).font(.caption).foregroundStyle(.secondary)
@@ -366,8 +366,8 @@ struct DistillSheet: View {
         Grid(alignment: .trailing, horizontalSpacing: 10, verticalSpacing: 3) {
             GridRow {
                 Text("Domain").gridColumnAlignment(.leading)
-                Text("Teacher"); Text("Student"); Text("Kept")
-                Text("Weight")
+                Text("Teacher"); Text("Student"); Text("Change")
+                Text("Compute"); Text("Weight")
             }
             .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
             ForEach(CapDomain.allCases) { d in
@@ -375,8 +375,13 @@ struct DistillSheet: View {
                     Label(d.short, systemImage: d.symbol).font(.caption).gridColumnAlignment(.leading)
                     Text("\(Int(tv[d].rounded()))").font(.caption.monospacedDigit())
                     Text("\(Int(sv[d].rounded()))").font(.caption.monospacedDigit())
-                    Text(tv[d] > 0 ? Fmt.pct(sv[d] / tv[d], decimals: 0) : "—").font(.caption.monospacedDigit())
-                        .foregroundStyle(tv[d] > 0 && sv[d] / tv[d] < 0.9 ? Color.orange : Color.secondary)
+                    // Scores are logarithmic (10 points = 10× effective compute): show the point change and what share of the
+                    // teacher's effective compute it amounts to, not a ratio of scores.
+                    let delta = sv[d] - tv[d]
+                    Text(tv[d] > 0 ? CapStyle.delta(delta) : "—").font(.caption.monospacedDigit())
+                        .foregroundStyle(tv[d] > 0 && delta <= -5 ? Color.orange : Color.secondary)
+                    Text(tv[d] > 0 ? Fmt.pct(pow(10, delta / 10), decimals: pow(10, delta / 10) < 0.1 ? 1 : 0) : "—").font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
                     Text("×\(Fmt.trim(Families.retentionWeight(d), 2))").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                 }
             }
@@ -406,7 +411,7 @@ struct PostTrainSheet: View {
             HStack {
                 Spacer()
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Start \(pass.label.lowercased())") {
+                Button(pass.forks ? "Fork & specialise" : "Start \(pass.label.lowercased())") {
                     let (p, a, n) = (pass, accelID, chips)
                     if store.act("Post-training started", { $0.startPostTrain(modelID, pass: p, accelID: a, chips: n) }) { dismiss() }
                 }
@@ -432,16 +437,19 @@ struct PostTrainSheet: View {
     private func content(_ m: AIModel, _ s: GameState) -> some View {
         let p = Families.passPlan(s, model: m, pass: pass, accelID: accelID, chips: chips)
         let set = store.derived.indexSet
-        let research = Capabilities.researchDomains(s)
-        let before = Capabilities.playerScores(m, research: research)
-        let after = Capabilities.playerScores(p.after, research: research)
+        let before = s.domainScores[m.id.uuidString] ?? Capabilities.playerScores(m, research: Capabilities.knowHow(m, s))
+        let after = Capabilities.playerScores(p.after, research: p.after.knowHow)
         let idxBefore = BenchmarkCatalog.index(Leaderboard.profile(m), set: set)
         let idxAfter = BenchmarkCatalog.index(Leaderboard.profile(p.after), set: set)
         let costBefore = Economy.servingCostPerM(m, s)
         let costAfter = Economy.servingCostPerM(p.after, s)
-        Text("Post-train \(m.name)").font(.title2.weight(.bold))
-        Text("A pass upgrades the model in place: same servers, same products, a new point version (\(Families.versionLabel(m.version)) → \(Families.versionLabel(m.version + 1))). Every pass has a trade-off; merging two or more passes into a point release wins half of it back.")
+        Text(pass.forks ? "Fork & specialise \(m.name)" : "Post-train \(m.name)").font(.title2.weight(.bold))
+        Text(pass.forks
+             ? "A specialisation forks a new member of the family: a copy of \(m.name) trained for one kind of work, sold beside it as the \(pass.tier?.label ?? "") tier with servers of its own. \(m.name) itself is unchanged; API buyers who need that work go to whichever member suits them."
+             : "A pass upgrades the model in place: same servers, same products, a new point version (\(Families.versionLabel(m.version)) → \(Families.versionLabel(m.version + 1))). Every pass has a trade-off; merging two or more passes into a point release wins half of it back.")
             .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        Text("A pass teaches the model the published techniques of its own domains (\(pass.refreshes.map { $0.short.lowercased() }.joined(separator: ", "))) and nothing else: research in other fields reaches your models through training new ones.")
+            .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], alignment: .leading, spacing: 8) {
             ForEach(PostTrainPass.allCases) { x in
                 let blocked = Families.passBlocker(s, m, x)
@@ -450,7 +458,7 @@ struct PostTrainSheet: View {
                     HStack(alignment: .top, spacing: 8) {
                         Image(systemName: x.symbol).frame(width: 18)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(x.label + (done > 0 ? " (done \(done)×)" : "")).font(.callout.weight(.semibold))
+                            Text((x.forks ? "Fork: " : "") + x.label + (done > 0 ? " (done \(done)×)" : "") + (Families.inRecipe(s, m, x) ? " · family recipe, half cost" : "")).font(.callout.weight(.semibold))
                             Text(blocked ?? x.blurb).font(.caption2).foregroundStyle(blocked == nil ? Color.secondary : Color.orange).lineLimit(3)
                         }
                         Spacer(minLength: 0)
@@ -479,6 +487,8 @@ struct PostTrainSheet: View {
                 SpecRow(label: "Compute", value: "\(Fmt.flops(p.flops)) FLOPs")
                 SpecRow(label: "Time", value: p.days.isFinite ? "\(Int(p.days.rounded(.up))) days" : "—")
                 SpecRow(label: "Chip cost", value: p.cost.isFinite ? Fmt.money(p.cost) : "—")
+                if Families.previewFactor(s, m) < 1 { Text("Research-preview feedback: this pass costs 30% less.").font(.caption).foregroundStyle(.secondary) }
+                if pass.forks { Text("The specialist needs its own servers once it's on sale.").font(.caption).foregroundStyle(.secondary) }
             }
             .frame(width: 330, alignment: .leading)
         }

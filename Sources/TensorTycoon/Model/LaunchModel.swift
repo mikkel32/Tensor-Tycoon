@@ -40,6 +40,18 @@ struct LaunchReport: Codable, Hashable {
     var verdict: String
     var verdictText: String
     @D var leads: Int = 0
+    // 3.8: the model as the market met it
+    @D var architecture: String = ""
+    @D var pricePerM: Double = 0
+    @D var servingPerM: Double = 0
+    @D var tokensPerSec: Double = 0
+    /// Product lines and API segments it powers, and your API share on the eve of launch and a week later.
+    @D var powers: [String] = []
+    @D var segments: [String] = []
+    @D var apiShareBefore: Double = 0
+    @D var apiShare: Double = 0
+    /// What the launch moved in the market (enterprise leads won from rivals, developer ecosystem, investors).
+    @D var moves: [String] = []
 }
 
 /// One launch: the plan, what it changed on the day, the reactions it queued and (after a week) its report.
@@ -67,6 +79,37 @@ struct LaunchRecord: Codable, Hashable, Identifiable {
     @D var secondWave: Date? = nil
     /// A rival's counter-event cut the launch's buzz short from this date.
     @D var upstaged: Date? = nil
+    // 3.8
+    /// Your API share the day before launch.
+    @D var apiShareBefore: Double = 0
+    /// A hand-set price the pricing stance replaced (restored when the stance ends; 0 when auto-priced), and the
+    /// price the stance set.
+    @D var priorPrice: Double = 0
+    @D var stancePrice: Double = 0
+    @D var priceSettled: Bool = false
+    /// Post-training passes the model had at launch (a research preview's feedback discounts the next one).
+    @D var passesAtLaunch: Int = 0
+    /// Limited-access testing: the day testers handed over and the model went on general sale.
+    @D var generalRelease: Date? = nil
+}
+
+/// 3.8: what launches leave behind in the market after the day itself.
+struct MarketMovesState: Codable, Hashable, DefaultValue {
+    static var defaultValue: MarketMovesState { MarketMovesState() }
+    /// Developers building on your models (0–100): fed by open weights, API share and developer standing, it lifts API
+    /// demand and fades slowly when you stop feeding it.
+    @D var devEcosystem: Double = 0
+    /// Your lab's leaderboard rank at the last monthly check (0 = nothing released yet).
+    @D var lastRank: Int = 0
+    /// What investors make of your rank changes (−1 … +1): jumps when you climb or fall, fades over months.
+    @D var rankMomentum: Double = 0
+    /// Lifetime: contracts lost to a rival at renewal, and leads launches won from rivals.
+    @D var churned: Int = 0
+    @D var leadsWon: Int = 0
+    /// Recent moves in plain words, newest first.
+    @D var log: [String] = []
+    /// The last time a rival pivoted to the domain where you're weakest (RivalStrategy.pivot).
+    @D var lastPivot: Date? = nil
 }
 
 // MARK: - 3.7: company stages

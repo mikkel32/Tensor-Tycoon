@@ -130,7 +130,7 @@ enum Events {
         // Jailbreak scandal → decision
         if consumer || !released.isEmpty {
             let unsafe = released.contains { $0.unsafeRelease }
-            let p = 0.06 * (1 - s.safetyScore / 100) * (consumer ? 1.5 : 1) * (unsafe ? 2.5 : 1)
+            let p = 0.06 * (1 - s.safetyScore / 100) * (consumer ? 1.5 : 1) * (unsafe ? 2.5 : 1) * Capabilities.incidentFactor(s)   // 3.8: calibration, limited-access testing
             if s.rng.chance(p), let m = (unsafe ? released.filter(\.unsafeRelease) : released).randomElement(using: &s.rng) {
                 addDecision(&s, kind: "jailbreak", title: "\(m.name) jailbreak goes viral",
                             body: "Users found a prompt that makes \(m.name) produce dangerous instructions. Journalists are asking for comment.",

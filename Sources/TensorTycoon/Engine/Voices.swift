@@ -391,6 +391,9 @@ enum Voices {
         case .openWeights: facts.append(pick(&s, "plaunch.style.open", v, key: key) ?? "")
         case .enterprise: facts.append(pick(&s, "plaunch.style.enterprise", v, key: key) ?? "")
         case .government: facts.append(pick(&s, "plaunch.style.government", v, key: key) ?? "")
+        // 3.8
+        case .researchPreview: facts.append(pick(&s, "plaunch.style.preview", v, key: key) ?? "")
+        case .limitedAccess: facts.append(pick(&s, "plaunch.style.limited", v, key: key) ?? "")
         }
         if top, v["margin"] != nil, let t = pick(&s, "plaunch.ctx.top", v, key: key) {
             facts.append(t)

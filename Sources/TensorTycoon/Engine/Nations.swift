@@ -490,14 +490,14 @@ extension Nations {
     /// How naturally each specialisation comes to each lab (0–1).
     static func character(_ id: String) -> [RivalFocus: Double] {
         switch id {
-        case "prometheus": return [.consumer: 0.9, .coding: 0.6, .enterprise: 0.5, .science: 0.3, .robotics: 0.3, .sovereign: 0.3, .openWeights: 0.1]
-        case "deepgrove": return [.science: 0.9, .robotics: 0.7, .consumer: 0.6, .enterprise: 0.4, .coding: 0.4, .sovereign: 0.2, .openWeights: 0.3]
-        case "halcyon": return [.coding: 0.9, .enterprise: 0.8, .science: 0.5, .sovereign: 0.3, .consumer: 0.2, .robotics: 0.1, .openWeights: 0]
-        case "xenon": return [.consumer: 0.7, .robotics: 0.7, .sovereign: 0.6, .coding: 0.4, .science: 0.3, .enterprise: 0.2, .openWeights: 0.4]
-        case "openweights": return [.openWeights: 1.0, .consumer: 0.6, .robotics: 0.4, .coding: 0.3, .science: 0.3, .enterprise: 0.2, .sovereign: 0.1]
-        case "dragonlake": return [.openWeights: 0.9, .coding: 0.6, .sovereign: 0.5, .science: 0.4, .consumer: 0.4, .robotics: 0.3, .enterprise: 0.2]
-        case "sirocco": return [.sovereign: 0.8, .enterprise: 0.7, .openWeights: 0.6, .coding: 0.4, .consumer: 0.3, .science: 0.3, .robotics: 0.1]
-        case "aletheia": return [.science: 0.9, .coding: 0.4, .enterprise: 0.1, .sovereign: 0.1, .consumer: 0, .robotics: 0.1, .openWeights: 0]
+        case "prometheus": return [.consumer: 0.9, .coding: 0.6, .enterprise: 0.5, .science: 0.3, .robotics: 0.3, .sovereign: 0.3, .openWeights: 0.1, .hardware: 0.4, .efficient: 0.2]
+        case "deepgrove": return [.science: 0.9, .robotics: 0.7, .consumer: 0.6, .enterprise: 0.4, .coding: 0.4, .sovereign: 0.2, .openWeights: 0.3, .hardware: 0.8, .efficient: 0.3]
+        case "halcyon": return [.coding: 0.9, .enterprise: 0.8, .science: 0.5, .sovereign: 0.3, .consumer: 0.2, .robotics: 0.1, .openWeights: 0, .hardware: 0.1, .efficient: 0.2]
+        case "xenon": return [.consumer: 0.7, .robotics: 0.7, .sovereign: 0.6, .coding: 0.4, .science: 0.3, .enterprise: 0.2, .openWeights: 0.4, .hardware: 0.5, .efficient: 0.1]
+        case "openweights": return [.openWeights: 1.0, .consumer: 0.6, .robotics: 0.4, .coding: 0.3, .science: 0.3, .enterprise: 0.2, .sovereign: 0.1, .hardware: 0.3, .efficient: 0.4]
+        case "dragonlake": return [.openWeights: 0.9, .coding: 0.6, .sovereign: 0.5, .science: 0.4, .consumer: 0.4, .robotics: 0.3, .enterprise: 0.2, .hardware: 0.4, .efficient: 0.9]
+        case "sirocco": return [.sovereign: 0.8, .enterprise: 0.7, .openWeights: 0.6, .coding: 0.4, .consumer: 0.3, .science: 0.3, .robotics: 0.1, .hardware: 0.1, .efficient: 0.7]
+        case "aletheia": return [.science: 0.9, .coding: 0.4, .enterprise: 0.1, .sovereign: 0.1, .consumer: 0, .robotics: 0.1, .openWeights: 0, .hardware: 0.1, .efficient: 0]
         default:
             if let spec = CompetitorCatalog.spec(id) {
                 let p = spec.personality
@@ -506,7 +506,7 @@ extension Nations {
                 }
                 return [.consumer: p[RivalPlay.consumer.rawValue] ?? 0.3, .enterprise: p[RivalPlay.enterprise.rawValue] ?? 0.3,
                         .coding: p[RivalPlay.agents.rawValue] ?? 0.3, .openWeights: p[RivalPlay.openGambit.rawValue] ?? 0.2,
-                        .science: 0.4, .robotics: 0.3, .sovereign: 0.2]
+                        .science: 0.4, .robotics: 0.3, .sovereign: 0.2, .efficient: p[RivalPlay.efficiency.rawValue] ?? 0.2]
             }
             return [:]
         }
@@ -561,6 +561,10 @@ extension Nations {
                 ht = r == .china ? "US export controls (open weights route around them)" : programme(r, .safety)
             case .robotics: hw = 0.3 * (st.level(.energy) - 50) / 50 + 0.15 * (st.level(.subsidy) - 40) / 60; ht = "\(r.short) power and industrial subsidies"
             case .coding: hw = 0.3 * (st.level(.visas) - 50) / 50; ht = programme(r, .visas)
+            // 3.8: chip subsidies make own silicon pay; dear power makes efficiency pay.
+            case .hardware: hw = 0.35 * (st.level(.subsidy) - 40) / 60; ht = programme(r, .subsidy)
+            case .efficient: hw = -0.3 * (st.level(.energy) - 50) / 50 + (r == .china ? 0.2 * (s.nations.level(.us, .exports) - 50) / 50 : 0)
+                ht = r == .china ? "US export controls (efficiency routes around them)" : "\(r.short) power policy"
             }
             hw *= 1.5
             if abs(hw) >= 0.05 {

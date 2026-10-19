@@ -160,7 +160,8 @@ private struct ModelCard: View {
         let pools = store.derived.pools
         let load = m.capacityTokensDay > 0 ? m.demandTokensDay / m.capacityTokensDay : 0
         let dailyCost = m.deployments.reduce(0.0) { acc, d in acc + (HardwareCatalog.get(d.accelID).map { Economy.chipDailyCost($0, count: d.chips, state: s) } ?? 0) }
-        let costPerM = m.capacityTokensDay > 0 ? dailyCost / m.capacityTokensDay * 1e6 : 0
+        // 3.8: per 1M tokens sold: a reasoning model's servers also generate its thinking tokens.
+        let costPerM = m.capacityTokensDay > 0 ? dailyCost / m.capacityTokensDay * 1e6 * Families.thinkingTokens(m, b) : 0
         let ref = Macro.referencePrice(c: m.c, y: s.year) * s.market.apiPricePressure
 
         HStack(alignment: .top, spacing: 18) {
@@ -175,6 +176,15 @@ private struct ModelCard: View {
                 .pickerStyle(.segmented)
                 Text("Lower precision halves memory and boosts speed; costs a little quality (−\(Fmt.trim(Physics.servingPenalty(m.servingPrecision), 2)) c).")
                     .font(.caption).foregroundStyle(.secondary)
+                if m.reasoning {
+                    // 3.8: test-time compute — how long it thinks before answering.
+                    Picker("Reasoning effort", selection: Binding(get: { m.effort }, set: { e in store.act("Reasoning effort: \(e.label.lowercased())") { $0.setReasoningEffort(m.id, e) } })) {
+                        ForEach(ReasoningEffort.allCases) { e in Text(e.label).tag(e) }
+                    }
+                    .pickerStyle(.segmented)
+                    Text("\(m.effort.blurb) It now generates \(Fmt.trim(Families.thinkingTokens(m, b), 2)) tokens per token of answer\(b.thinkingEfficiency > 0.005 ? " (thinking-efficiency research saves \(Fmt.pct(min(0.8, b.thinkingEfficiency), decimals: 0)) of the thinking)" : ""): chat traffic needs that much more capacity, and every API token sold costs that much more to serve.")
+                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
                 ForEach(m.deployments) { d in
                     if let a = HardwareCatalog.get(d.accelID) {
                         DeploymentRow(model: m, dep: d, accel: a, state: s)
@@ -208,7 +218,7 @@ private struct ModelCard: View {
                     Metric(label: "Tokens/sec per user", value: m.tps > 0 ? "\(Int(m.tps))" : "—", symbol: "speedometer")
                     Metric(label: "Capacity / day", value: Fmt.count(m.capacityTokensDay), symbol: "square.stack.3d.up")
                     Metric(label: "Demand / day", value: Fmt.count(m.demandTokensDay), symbol: "person.3")
-                    Metric(label: "Serving cost / 1M", value: costPerM > 0 ? Fmt.price(costPerM) : "—", symbol: "bolt")
+                    Metric(label: m.reasoning ? "Serving cost / 1M sold" : "Serving cost / 1M", value: costPerM > 0 ? Fmt.price(costPerM) : "—", symbol: "bolt")
                     Metric(label: "API revenue / day", value: Fmt.money(m.revenueDay), symbol: "dollarsign")
                     Metric(label: "Gross margin", value: m.revenueDay > 0 ? Fmt.pct((m.revenueDay - dailyCost) / m.revenueDay, decimals: 0) : "—", symbol: "percent")
                 }
@@ -220,6 +230,13 @@ private struct ModelCard: View {
                     }
                     Meter(value: min(load, 1), tint: load > 1 ? .red : (load > 0.85 ? .orange : .green))
                     if load > 1 { Text("Over capacity: requests are failing and users are churning. Add chips!").font(.caption).foregroundStyle(.red) }
+                }
+                // 3.8: which kinds of API work it wins.
+                let segs = Market.segments(of: m.id, store.derived.snapshot)
+                if m.api && !segs.isEmpty {
+                    Text("API segments: " + segs.prefix(5).map { "\($0.segment.label) \(Fmt.pct($0.share, decimals: 1))" }.joined(separator: " · "))
+                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                        .help("Its share of each kind of API work. Buyers pick models on the domains the work needs: a coding specialist wins coding traffic from a stronger generalist.")
                 }
                 if m.api {
                     Toggle(isOn: Binding(get: { m.autoPrice }, set: { v in store.mutate { $0.setAutoPrice(m.id, v) } })) {

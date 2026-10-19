@@ -80,7 +80,7 @@ enum ResearchLab {
             return nil
         }
         let cost = Sim.researchCost(item, year: s.year)
-        let mult = max(0.1, item.category == .frontier ? 1 + s.traits.frontierRP : 1) * FoundingKit.categorySpeed(s, item)
+        let mult = max(0.1, item.category == .frontier ? 1 + s.traits.frontierRP : 1) * FoundingKit.categorySpeed(s, item) * Capabilities.researchSpeed(s, item)   // 3.8: architecture design
         return (max(0, (cost - (s.researchProgress[entry] ?? 0)) / mult), mult)
     }
 

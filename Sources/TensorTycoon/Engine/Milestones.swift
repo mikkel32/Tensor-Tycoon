@@ -88,9 +88,11 @@ enum Milestones {
                 pool.append(Contender(labID: c.id, lab: name, model: m.name, date: m.date, scores: v, modelID: m.id.uuidString))
             }
         }
-        for m in s.models where m.released {
+        // 3.8: a model of yours crosses a bar the day it does (on release, or after a pass or merge raised its scores),
+        // not on the day it first shipped.
+        for m in s.models where m.released && !m.retired {
             guard let v = s.domainScores[m.id.uuidString] else { continue }
-            pool.append(Contender(labID: "player", lab: s.companyName, model: m.name, date: m.releaseDate ?? m.created, scores: v, modelID: m.id.uuidString))
+            pool.append(Contender(labID: "player", lab: s.companyName, model: m.name, date: s.date, scores: v, modelID: m.id.uuidString))
         }
         guard !pool.isEmpty else { return }
         pool.sort { $0.date != $1.date ? $0.date < $1.date : $0.labID < $1.labID }

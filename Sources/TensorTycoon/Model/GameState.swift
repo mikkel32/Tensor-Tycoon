@@ -619,6 +619,11 @@ struct AIModel: Codable, Identifiable, Hashable {
     @D var tradeoffChat: Double = 0
     /// The model it was distilled from.
     @D var teacherID: UUID? = nil
+    /// 3.8: domain know-how from research (CapDomain order) as of its training, kept so later research doesn't flow
+    /// into it for free. Empty for models scored before 3.8 (rebuilt from their stored scores on first use).
+    @D var knowHow: [Double] = []
+    /// 3.8: how long a reasoning model thinks per answer (Families.thinkingTokens).
+    @D var effort: ReasoningEffort = .medium
     // live stats (updated daily)
     var demandTokensDay: Double = 0
     var servedTokensDay: Double = 0
@@ -873,6 +878,9 @@ struct ComputeCommitment: Codable, Hashable, Identifiable {
     var labName: String
     var monthly: Double
     var monthsLeft: Int
+    /// 3.8: the leased accelerator type it rents and how many H100-equivalents of it (0 for commitments from before 3.8).
+    @D var accelID: String = ""
+    @D var h100e: Double = 0
 }
 
 struct MonthRecord: Codable, Identifiable, Hashable {
@@ -1337,6 +1345,10 @@ struct GameState: Codable {
     // 3.7: launches and progression
     /// Every model launch, newest last: the plan, the rivals' queued answers and the report a week later (Launches).
     @D var launches: [LaunchRecord] = []
+    /// 3.8: what launches do to the market after the day: the developer ecosystem and rank momentum.
+    @D var marketMoves: MarketMovesState = MarketMovesState()
+    /// 3.8: the parts of rival labs' books that 3.3 didn't keep (parent budgets, R&D).
+    @D var rivalBooks: [String: RivalBook] = [:]
     /// The plan one-click launches and the launch delegate use. The default is the plain release the game always had.
     @D var launchDefault: LaunchPlan = LaunchPlan()
     /// Your company stage, when each was reached and the powers it unlocked (Progression).
