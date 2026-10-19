@@ -346,8 +346,9 @@ enum AdvancedProjects {
             let mine = open.filter { openToYou($0, s) }.count
             guard mine < maxOpen || open.count - mine < maxForeign else { break }
             let rel = agencyBudget(a, s) / budgetScale(y)
-            // An agency that has committed most of this year's budget posts less.
+            // An agency that has committed most of this year's budget posts less, and nothing once it's all but spent.
             let room = headroom(a, s)
+            guard room >= 0.05 else { continue }
             let p = clamp(0.05 + 0.13 * rel, 0.04, 0.32) * (0.25 + 0.75 * room)
             guard roll(s, "post|\(a.id)|\(ym.year)-\(ym.month)") < p else { continue }
             let options = AgencyCatalog.templates.filter { $0.agencies.contains(a.id) && $0.year <= y }
@@ -364,8 +365,7 @@ enum AdvancedProjects {
             // An agency doesn't post the same programme twice at once.
             guard !s.advanced.solicitations.contains(where: { $0.agency == a.id && $0.template == pick.id }) else { continue }
             let sol = make(pick, a, s, key: "\(a.id)|\(ym.year)-\(ym.month)", followOn: false)
-            // What's left of the year's budget may be too little for a real lot.
-            guard sol.ceiling >= 1e5 else { continue }
+            guard sol.ceiling >= 1e4 else { continue }
             // Work you can't bid on is listed too (it shows the market), but it never crowds out work you can.
             if openToYou(sol, s) ? mine >= maxOpen : open.count - mine >= maxForeign { continue }
             s.advanced.solicitations.append(sol)
@@ -1389,7 +1389,7 @@ enum AdvancedProjects {
         }
         let phase = max(sol.phase, 1) + 1
         let f = make(next, a, s, key: "follow|\(p.id)", followOn: true, scale: t.id == "seedling" ? 1 : 1.2, level: level, phase: phase)
-        guard f.ceiling >= 1e5 else {
+        guard headroom(a, s) >= 0.05, f.ceiling >= 1e4 else {
             log(&s.advanced.programmes[i], s.date, "\(a.short) would follow on, but it has no budget left this year.")
             return
         }
@@ -1402,12 +1402,13 @@ enum AdvancedProjects {
     /// Excess re-procurement costs the agency charges on a termination for default: 3% of the contract.
     static func reprocurement(_ p: Programme) -> Double { ((p.sol.type == .costPlus ? p.sol.estCost : p.value) * 0.03 / 1000).rounded() * 1000 }
 
-    /// What walking away would cost today under the contract's terms: progress payments or unearned fee back plus
-    /// re-procurement costs (contracts), unspent money returned (grants), nothing but the work (prizes).
+    /// What walking away would cost today under the contract's terms: a fifth of the progress payments (fixed-price) or
+    /// the whole fee paid so far (cost-plus: a default forfeits the fee) back, plus re-procurement costs; unspent money
+    /// returned (grants); nothing but the work (prizes).
     static func walkAwayCost(_ p: Programme) -> Double {
         switch p.sol.type {
         case .fixedPrice: return p.contractRevenue * 0.2 + reprocurement(p)
-        case .costPlus: return max(0, feePaid(p) - p.fee * p.completion) + reprocurement(p)
+        case .costPlus: return feePaid(p) + reprocurement(p)
         case .grant: return max(0, min(p.contractRevenue, p.contractRevenue - p.direct - p.allocated))
         case .prize: return 0
         }
@@ -1423,10 +1424,10 @@ enum AdvancedProjects {
         let share = sol.level >= .secret ? 0 : sol.ip.commercialShare * p.completion
         switch status {
         case .terminated:
-            // The agency recovers unliquidated progress payments (fixed-price) or fee not yet earned (cost-plus), and
-            // charges the excess cost of re-procuring the work (3% of the contract).
+            // The agency recovers unliquidated progress payments (fixed-price) or the fee it paid (cost-plus: a default
+            // forfeits the fee; the costs it reimbursed stay paid), and charges the excess cost of re-procuring the work.
             let reprocure = reprocurement(p)
-            let recovered = sol.type == .costPlus ? max(0, feePaid(p) - p.fee * p.completion) : p.contractRevenue * 0.2
+            let recovered = sol.type == .costPlus ? feePaid(p) : p.contractRevenue * 0.2
             let back = recovered + reprocure
             s.cash -= back
             s.month.costOther += back
@@ -1434,7 +1435,7 @@ enum AdvancedProjects {
             s.advanced.ratings[sol.agency] = clamp(rating(s, sol.agency) - 4, -10, 10)
             if sol.level >= .controlled { addTrust(&s, sol.agency, sol.level >= .secret ? -2 : -1) }
             if let r = sol.agencyDef?.region { Stakeholders.move(&s, [r.rawValue: -3], "\(agency) terminated \(sol.title) for default") }
-            let what = sol.type == .costPlus ? "unearned fee" : "progress payments"
+            let what = sol.type == .costPlus ? "fee forfeited" : "progress payments"
             log(&p, s.date, "Terminated for default: \(why). \(Fmt.money(back)) repaid (\(Fmt.money(recovered)) of \(what), \(Fmt.money(reprocure)) of re-procurement costs).", -1)
             p.effectScale = 0.15 * share
         case .cancelled:
@@ -1795,16 +1796,16 @@ enum AdvancedProjects {
     }
 
     /// Domain know-how a rival lab carries from contracts it delivered (half a programme's domain effects, once per kind
-    /// of programme): Capabilities.rivalDomains adds it to the lab's next models.
+    /// of programme, at most 0.04 — under half a point — per domain): Capabilities.rivalDomains adds it to its next models.
     static func rivalDomainEffects(_ s: GameState, lab: String) -> [(CapDomain, Double)] {
         guard !s.advanced.rivalProgrammes.isEmpty else { return [] }
         let kinds = Set(s.advanced.rivalProgrammes.filter { $0.lab == lab && $0.status == "completed" }.map(\.template))
-        var out: [(CapDomain, Double)] = []
+        var sum = [Double](repeating: 0, count: CapDomain.count)
         for id in kinds.sorted() {
             guard let t = AgencyCatalog.templateByID[id] else { continue }
-            for e in t.effects { if case .domain(let d, let v) = e { out.append((d, v * 0.5)) } }
+            for e in t.effects { if case .domain(let d, let v) = e { sum[d.index] += v * 0.5 } }
         }
-        return out
+        return CapDomain.allCases.compactMap { d in sum[d.index] > 0 ? (d, min(0.04, sum[d.index])) : nil }
     }
 
     // MARK: Daily
@@ -2483,7 +2484,7 @@ enum AdvancedProjects {
         case .fixedPrice:
             out.append("Cure notice at \(Int(Double(sol.months) * 1.25)) months; termination for default at \(Int(Double(sol.months) * 1.6)) months: 20% of payments repaid, plus 3% of the price in re-procurement costs")
         case .costPlus:
-            out.append("Costs reimbursed up to \(Fmt.money(sol.estCost * 1.25)) (pay above the allowable-compensation cap isn't); audits every 6 months; termination for default at \(Int(Double(sol.months) * 1.9)) months: fee not yet earned is repaid, plus 3% of the target cost in re-procurement costs")
+            out.append("Costs reimbursed up to \(Fmt.money(sol.estCost * 1.25)) (pay above the allowable-compensation cap isn't); audits every 6 months; termination for default at \(Int(Double(sol.months) * 1.9)) months, or if you walk away: the fee paid so far is forfeited (repaid), plus 3% of the target cost in re-procurement costs")
         case .grant:
             out.append("Lapses if not finished in \(sol.months * 2) months; unspent grant money is returned")
         case .prize:

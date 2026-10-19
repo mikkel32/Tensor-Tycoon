@@ -151,6 +151,13 @@ extension ScenarioHarness {
                      "\(Fmt.trim(rpBefore, 1)) → \(Fmt.trim(Sim.researchRate(s, s.bonuses), 1)) RP/day")
         }
         r.expect("cleared compute assigned", (s.advanced.programmes.first { $0.id == id }?.compute ?? 0) >= 0.5 * sol.computeH100e)
+        // While the Secret work runs, your science labs can't publish in its field; the agency's budget carries it.
+        if let paper = ScienceCatalog.projects.first(where: { $0.field == .software }) {
+            r.expect("Secret work in a field takes 'publish' off that field's discoveries", !Science.choices(s, paper).contains(.publish))
+        }
+        r.expect("the award draws down OADR's budget", AdvancedProjects.obligations(oadr, s) >= (s.advanced.programmes.first { $0.id == id }?.value ?? 0) / Double(sol.months) * 12 - 1,
+                 "\(Fmt.money(AdvancedProjects.obligations(oadr, s))) committed of \(Fmt.money(AdvancedProjects.agencyBudget(oadr, s)))")
+        mechanics(s, oadr, &r)
 
         // 8. Month by month to delivery.
         var maxStage = ProgrammeStage.award, months = 0, contractRevenue = 0.0, paidSeen = 0
@@ -254,5 +261,104 @@ extension ScenarioHarness {
         }
         sanity(s, &r)
         return r
+    }
+
+    /// Mechanics checked on copies of the game: prizes, stage carry-over, cost-plus default terms, follow-ons, officers.
+    static func mechanics(_ base: GameState, _ oadr: AgencyDef, _ r: inout Report) {
+        // A prize whose rival finishes this month is lost, even if your team would also finish: no purse.
+        if let t = AgencyCatalog.templateByID["mathprize"], let a = AgencyCatalog.byID["ukaia"] {
+            var g = base
+            var sol = AdvancedProjects.make(t, a, g, key: "scenF-prize", followOn: false)
+            sol.id = "scenF-prize"
+            sol.bidders = []
+            AdvancedProjects.award(&g, sol, bid: ProposalBid(price: 1, submitted: g.date, proposalCost: 0, odds: 1), margin: 5)
+            let i = g.advanced.programmes.count - 1
+            r.expect("a prize with no rival bidders still has a deadline (an outside team)", g.advanced.programmes[i].rivalFinish != nil && g.advanced.programmes[i].rivalLab.isEmpty)
+            g.advanced.programmes[i].stage = .completion
+            g.advanced.programmes[i].progress = 0.99
+            g.advanced.programmes[i].rivalFinish = g.date
+            AdvancedProjects.step(&g, i)
+            let p = g.advanced.programmes[i]
+            r.expect("a rival finishing the same month takes the prize (only the 10% runner-up award is paid)",
+                     p.status == .lost && !p.paid.contains(ProgrammeStage.completion.rawValue) && p.contractRevenue <= p.value * 0.1 + 1,
+                     "\(p.status.title), received \(Fmt.money(p.contractRevenue)) of a \(Fmt.money(p.value)) purse")
+        }
+        // Work past the end of a stage carries into the next in the next stage's units (research 22% → experiments 20%).
+        if let t = AgencyCatalog.templateByID["fusionsim"], let a = AgencyCatalog.byID["feso"] {
+            var g = base
+            let sol = AdvancedProjects.make(t, a, g, key: "scenF-carry", followOn: false)
+            AdvancedProjects.award(&g, sol, bid: ProposalBid(price: 0.95, submitted: g.date, proposalCost: 0, odds: 1), margin: 5)
+            let i = g.advanced.programmes.count - 1
+            g.advanced.programmes[i].stage = .research
+            g.advanced.programmes[i].progress = 1.5
+            AdvancedProjects.finishStage(&g, i)
+            let expected = 0.5 * AdvancedProjects.stageLength(sol, .research) / AdvancedProjects.stageLength(sol, .experimentation)
+            r.expect("leftover progress converts between stages", g.advanced.programmes[i].stage == .experimentation && abs(g.advanced.programmes[i].progress - expected) < 1e-9,
+                     "\(Fmt.trim(g.advanced.programmes[i].progress, 3)) vs \(Fmt.trim(expected, 3))")
+        }
+        // A failed trial sends the team back to rework and adds cost growth (risky work: try a few programmes for one).
+        if let t = AgencyCatalog.templateByID["rover"], let a = AgencyCatalog.byID["naoa"] {
+            var failed: Programme? = nil
+            for k in 0..<12 where failed == nil {
+                var g = base
+                var sol = AdvancedProjects.make(t, a, g, key: "scenF-trial\(k)", followOn: false)
+                sol.id = "scenF-trial\(k)"
+                sol.risk = 0.6
+                AdvancedProjects.award(&g, sol, bid: ProposalBid(price: 0.95, submitted: g.date, proposalCost: 0, odds: 1), margin: 0)
+                let i = g.advanced.programmes.count - 1
+                g.advanced.programmes[i].stage = .experimentation
+                g.advanced.programmes[i].progress = 1
+                if !AdvancedProjects.finishStage(&g, i) { failed = g.advanced.programmes[i] }
+            }
+            if let p = failed {
+                r.expect("a failed trial: rework from 40% of the stage, cost growth added, logged", p.progress == 0.4 && p.reworks == 1 && p.trialGrowth > 0.05
+                            && (p.history.last?.text.contains("failed (roll") ?? false), "growth +\(Fmt.pct(p.trialGrowth, decimals: 1))")
+            } else {
+                r.expect("a risky trial fails at least once in 12 tries", false)
+            }
+        }
+        // Walking away from cost-plus: the fee paid so far goes back, with re-procurement costs.
+        if let t = AgencyCatalog.templateByID["evalsuite"], let a = AgencyCatalog.byID["ncra"] {
+            var g = base
+            var sol = AdvancedProjects.make(t, a, g, key: "scenF-cp", followOn: false)
+            sol.type = .costPlus
+            AdvancedProjects.award(&g, sol, bid: ProposalBid(price: 0.1, submitted: g.date, proposalCost: 0, odds: 1), margin: 5)
+            let i = g.advanced.programmes.count - 1
+            g.advanced.programmes[i].stage = .research
+            AdvancedProjects.payMilestone(&g, i, .research)
+            g.advanced.programmes[i].stage = .experimentation
+            let p = g.advanced.programmes[i]
+            let owed = AdvancedProjects.feePaid(p) + AdvancedProjects.reprocurement(p)
+            g.abandonProgramme(p.id)
+            r.expect("walking away from cost-plus forfeits the fee paid and pays re-procurement costs", AdvancedProjects.feePaid(p) > 0 && abs(g.advanced.programmes[i].disallowed - owed) < 1,
+                     "\(Fmt.money(g.advanced.programmes[i].disallowed)) repaid, \(Fmt.money(owed)) owed")
+        }
+        // A seedling's follow-on is Phase II of the programme it scouted, one classification level up at most.
+        if let seed = AgencyCatalog.templateByID["seedling"] {
+            var offered: Solicitation? = nil
+            for k in 0..<12 where offered == nil {
+                var g = base
+                g.advanced.ratings[oadr.id] = 10
+                let sol = AdvancedProjects.make(seed, oadr, g, key: "scenF-seed\(k)", followOn: false)
+                guard let target = AgencyCatalog.templateByID[sol.target], target.classification >= 2 else { continue }
+                AdvancedProjects.award(&g, sol, bid: ProposalBid(price: 0.95, submitted: g.date, proposalCost: 0, odds: 1), margin: 5)
+                let before = g.advanced.solicitations.count
+                AdvancedProjects.complete(&g, g.advanced.programmes.count - 1)
+                if g.advanced.solicitations.count > before, let f = g.advanced.solicitations.last, f.followOn { offered = f }
+            }
+            if let f = offered {
+                r.expect("seedling follow-on: Phase II of its subject, at most one level up", f.phase == 2 && f.title.hasSuffix("Phase II") && f.classification <= 1 && f.template != "seedling",
+                         "\(f.title) (\(f.level.title))")
+            } else {
+                r.note("no classified-subject seedling follow-on was offered in 12 tries")
+            }
+        }
+        // Facilities stop when their cleared security officers are gone.
+        var g = base
+        g.advanced.clearances = g.advanced.clearances.map { var c = $0; c.level = 0; return c }
+        AdvancedProjects.checkFacilities(&g)
+        r.expect("without cleared officers every facility is suspended and cleared compute drops to nothing",
+                 g.advanced.facilities.allSatisfy { !$0.suspension.isEmpty } && AdvancedProjects.computeCapacity(g, atLeast: 1) == 0
+                    && g.advanced.programmes.filter { $0.status == .active && $0.sol.level > .unclassified }.allSatisfy { $0.compute == 0 })
     }
 }

@@ -38,7 +38,7 @@ enum ContractType: String, Codable, CaseIterable, Identifiable, Sendable {
     var risk: String {
         switch self {
         case .fixedPrice: "You're paid the price you bid at milestones, whatever it costs you. Every failed trial adds rework and cost growth, all of it out of your margin; far behind schedule, the government can terminate for default and take back a fifth of what it paid."
-        case .costPlus: "Your costs are reimbursed monthly (up to 125% of the target cost) plus a fixed fee at milestones. Overruns from failed trials are mostly reimbursed, but you carry compliance overhead, audits can disallow costs, and walking away forfeits the fee you haven't earned."
+        case .costPlus: "Your costs are reimbursed monthly (up to 125% of the target cost) plus a fixed fee at milestones. Overruns from failed trials are mostly reimbursed, but you carry compliance overhead, audits can disallow costs, and a default (walking away included) forfeits the fee paid so far."
         case .grant: "Fixed payments at milestones that cover about 85% of the government's cost estimate: you co-fund the rest, so on a full-cost basis a grant usually loses money unless the work goes well. In return you keep most of the rights, and the know-how is the point."
         case .prize: "No pay until you finish. The first team to deliver takes the purse; a rival or an outside team may get there first, and the challenge closes at twice its planned length."
         }

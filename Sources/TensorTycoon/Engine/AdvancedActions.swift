@@ -239,7 +239,12 @@ extension AdvancedProjects {
             let o = odds(sol, s, price: price)
             guard o.p >= 0.25, s.cash > 20 * proposalCost(sol) else { continue }
             if sol.level == .unclassified { guard staffReadiness(sol, s) >= 0.6 else { continue } }
-            else { guard !o.plan.tight, o.plan.cost < s.cash * 0.1 else { continue } }
+            else {
+                // Seconded people stop working for the company: take on classified work only if it leaves two thirds of
+                // every role at home, and the facilities it still needs are cheap next to the cash pile.
+                let roomy = sol.staff.allSatisfy { k, n in s.employees.filter { $0.role.rawValue == k }.count >= 3 * n }
+                guard roomy, !o.plan.tight, o.plan.cost < s.cash * 0.05 else { continue }
+            }
             let score = o.p * sol.ceiling
             if best == nil || score > best!.score { best = (sol.id, price, score) }
         }

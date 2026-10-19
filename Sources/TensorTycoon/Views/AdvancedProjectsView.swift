@@ -754,7 +754,7 @@ private struct ProgrammeCard: View {
         let keep = p.sol.level >= .secret ? "Nothing from unfinished classified work can be used." : "You keep a little of what was learned (in proportion to the work done)."
         switch p.sol.type {
         case .fixedPrice: return "Termination for default: about \(Fmt.money(cost)) repaid (a fifth of the payments so far plus re-procurement costs), record −4 with \(p.sol.agencyDef?.short ?? "the agency"). \(keep)"
-        case .costPlus: return "Termination for default: the fee not yet earned is repaid with re-procurement costs, about \(Fmt.money(cost)); record −4. \(keep)"
+        case .costPlus: return "Termination for default: the fee paid so far is forfeited and re-procurement costs charged, about \(Fmt.money(cost)); record −4. \(keep)"
         case .grant: return "The grant lapses: \(Fmt.money(cost)) of unspent money goes back; record −1.5. \(keep)"
         case .prize: return "You leave the challenge; nothing is paid. \(keep)"
         }
