@@ -190,6 +190,12 @@ struct Photo: View {
             }
     }
 
+    /// What VoiceOver reads for the photo: its credited subject, and whether it only stands in for the real thing.
+    private var accessibilityText: String {
+        let subject = ImageCredits.byID[key]?.subject ?? "Photo"
+        return illustrative ? "Illustrative photo: \(subject)" : subject
+    }
+
     private func measured(_ size: CGSize) {
         let longest = max(size.width, size.height).rounded(.up)
         if longest > laidOut { laidOut = longest }
@@ -201,6 +207,7 @@ struct Photo: View {
                 .resizable()
                 .interpolation(.medium)
                 .aspectRatio(contentMode: contentMode)
+                .accessibilityLabel(accessibilityText)
         } else {
             LinearGradient(colors: [.indigo.opacity(0.6), .cyan.opacity(0.4)], startPoint: .topLeading, endPoint: .bottomTrailing)
                 .overlay(Image(systemName: "photo").font(.largeTitle).foregroundStyle(.white.opacity(0.6)))
