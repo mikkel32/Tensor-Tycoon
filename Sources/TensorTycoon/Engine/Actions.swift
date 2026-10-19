@@ -344,7 +344,9 @@ extension GameState {
             // What this launch adds over your best model so far, and how soon after your last one it comes.
             let earlier = models.filter { $0.released && $0.id != id }
             let previousBest = earlier.map(\.index).max()
-            let lastLaunch = earlier.compactMap(\.releaseDate).max()
+            // 3.8: tiers a family distilled and released on its own are not launches (they don't use up the attention).
+            let autoTiers = Set(launches.filter { $0.by == "family" }.map(\.modelID))
+            let lastLaunch = earlier.filter { !autoTiers.contains($0.id) }.compactMap(\.releaseDate).max()
             models[i].released = true
             models[i].releaseDate = date
             let quality = max(0, 6 + 4 * (models[i].c - Macro.frontier(year)))
@@ -375,6 +377,12 @@ extension GameState {
             case .openWeights: break
             case .enterprise: gain *= 0.6
             case .government: gain *= 0.7
+            // 3.8
+            case .researchPreview: gain *= 0.4
+            case .limitedAccess:
+                gain *= 0.5
+                models[i].safety = min(100, models[i].safety + 6)
+                safetyScore = min(100, safetyScore + 2)
             }
             var spent = launch == .keynote ? GameState.keynoteCost(self) : 0
             if plan.safety == .thorough {
@@ -385,13 +393,13 @@ extension GameState {
                 models[i].safety = min(100, models[i].safety + 3)
                 safetyScore = min(100, safetyScore + 1)
             }
-            gain = Launches.adjustGain(gain, plan, rank: rank)
+            gain = Launches.adjustGain(gain, plan, rank: rank, lift: Families.generationLift(self, models[i]))
             // A second launch within 90 days of the last gets half the attention.
             if gain > 0, let last = lastLaunch, GameCalendar.daysBetween(last, date) < 90 { gain *= 0.5 }
             brand = clamp(brand + gain, 0, 100)
-            Voices.playerLaunch(&self, i, rank: rank, previousBest: previousBest, style: launch)   // 3.4: told by people
+            if by != "family" { Voices.playerLaunch(&self, i, rank: rank, previousBest: previousBest, style: launch) }   // 3.4: told by people
             SafetyFramework.onRelease(&self, i)
-            RivalIntel.playerReleased(&self, name: models[i].name, index: models[i].index)
+            if by != "family" { RivalIntel.playerReleased(&self, name: models[i].name, index: models[i].index, plan: plan) }   // 3.8: not for auto-released tiers
             Launches.launched(&self, i, plan: plan, rank: rank, previousBest: previousBest, gain: gain, cost: spent, by: by)   // 3.7
         }
         models[i].api = api

@@ -48,6 +48,12 @@ struct MarketView: View {
                 ShareChart(title: "Chat app share", products: snap.consumer, state: s)
             }
 
+            HStack(alignment: .top, spacing: Theme.gap) {
+                APISegmentsCard(state: s, snap: snap)   // 3.8
+                MarketMovesCard(state: s)
+                    .frame(width: 380)
+            }
+
             DealsCard(state: s)
 
             Card {
@@ -291,6 +297,81 @@ private struct DealsCard: View {
                             .font(.caption.monospacedDigit()).foregroundStyle(d.breaches > 0 ? .orange : .secondary)
                     }
                 }
+            }
+        }
+    }
+}
+
+// MARK: - 3.8: API segments and market moves
+
+/// API buyers by kind of work: each segment's weight, your share of it and who leads it, so a specialist's pull shows.
+private struct APISegmentsCard: View {
+    let state: GameState
+    let snap: MarketSnapshot
+
+    var body: some View {
+        let s = state
+        let weights = APISegment.weights(s)
+        let mine = Market.playerSegments(snap)
+        Card {
+            CardHeader("API segments", symbol: "square.grid.3x2.fill",
+                       subtitle: "Buyers pick models on the domains their work needs: coding traffic goes to the best coder, not the best average.")
+            Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 6) {
+                GridRow {
+                    Text("Segment"); Text("Of API spend"); Text("Your share"); Text("Leader")
+                }
+                .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                ForEach(APISegment.allCases) { seg in
+                    let leader = snap.api.filter { seg.rawValue < $0.segShares.count }.max { $0.segShares[seg.rawValue] < $1.segShares[seg.rawValue] }
+                    GridRow {
+                        Label(seg.label, systemImage: seg.symbol).font(.callout)
+                        Text(Fmt.pct(weights[seg.rawValue], decimals: 0)).font(.callout.monospacedDigit())
+                        HStack(spacing: 6) {
+                            Text(Fmt.pct(mine[seg.rawValue], decimals: 1)).font(.callout.monospacedDigit())
+                            Meter(value: mine[seg.rawValue], tint: Tone.accent.color, height: 5).frame(width: 60)
+                        }
+                        Text(leader.map { "\($0.name) (\($0.labName))" } ?? "—").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                }
+            }
+            Text("General work goes half by overall capability and half by knowledge, reasoning and conversation; the others by coding, agents and reliability, languages, or vision and voice. A 10-point edge in a segment's domains is 4.5× the pull. Multilingual demand follows where the world's AI money is (\(Fmt.pct(weights[APISegment.languages.rawValue], decimals: 0)) of API spending today).")
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
+/// What launches leave behind: the developer ecosystem, investors' read of your rank, contracts won and lost.
+private struct MarketMovesCard: View {
+    let state: GameState
+
+    static func momentum(_ mm: MarketMovesState) -> String {
+        var t = mm.rankMomentum >= 0 ? "+" : "−"
+        t += Fmt.trim(abs(mm.rankMomentum), 2)
+        t += mm.lastRank > 0 ? " (rank #\(mm.lastRank))" : ""
+        return t
+    }
+
+    static func momentumTone(_ mm: MarketMovesState) -> Tone? {
+        if mm.rankMomentum > 0.05 { return .good }
+        if mm.rankMomentum < -0.05 { return .bad }
+        return nil
+    }
+
+    var body: some View {
+        let s = state
+        let mm = s.marketMoves
+        Card {
+            CardHeader("After launch", symbol: "arrow.triangle.branch", subtitle: "How the market keeps moving once a model ships")
+            SpecRow(label: "Developer ecosystem", value: "\(Int(mm.devEcosystem.rounded()))/100 · API demand +\(Fmt.pct(Launches.ecosystemFactor(s) - 1, decimals: 1))")
+            Meter(value: mm.devEcosystem / 100, tint: Tone.info.color, height: 6)
+            Text("Developers build on near-frontier open weights, a big API share and good standing with them. It builds a tenth of the way each month and fades slowly when you stop feeding it.")
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            SpecRow(label: "Investor momentum", value: Self.momentum(mm), tone: Self.momentumTone(mm))
+            SpecRow(label: "Leads won from rivals", value: "\(mm.leadsWon)")
+            SpecRow(label: "Contracts lost at renewal", value: "\(mm.churned)", tone: mm.churned > 0 ? .warning : nil)
+            if !mm.log.isEmpty {
+                Divider()
+                ForEach(mm.log.prefix(5), id: \.self) { Text($0).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
             }
         }
     }

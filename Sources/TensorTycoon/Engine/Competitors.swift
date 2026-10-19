@@ -173,7 +173,7 @@ enum Competitors {
         let openLead = min(seen, max(0, (released.filter(\.openWeights).map(\.c).max() ?? -10) - Macro.frontier(y)))
         let held = min(leadNow + 0.2, leadAgo(s, before: date) ?? leadNow)
         let k = s.difficulty.rivalResponse * (0.75 + 0.25 * min(1.2, comp.funding))
-        let copied = 0.3 * max(0, seen - held) * (1 - 0.6 * min(1, s.bonuses.distillGuard))
+        let copied = 0.3 * max(0, seen - held) * (1 - 0.6 * min(1, s.bonuses.distillGuard)) * Launches.previewExposure(s, before: date)   // 3.8: research previews
         let race = max(k * held + copied, 0.7 * openLead)
         var c = Macro.frontier(y) + def.offset(y) + s.difficulty.competitorBoost + race + boost(s, def.id, at: y).c
         // Money buys compute: well-funded labs train bigger, starved ones fall behind.
@@ -195,7 +195,12 @@ enum Competitors {
             let shift = s.difficulty == .hard ? 0.1 : (s.difficulty == .easy ? -0.1 : 0)
             let tries = clamp(0.25 + 0.03 * Double(s.monthsAtTop - 6) + shift, 0.1, 0.6)
             if RivalIntel.unit("\(def.id)|leap|\(comp.releaseCount)") < tries {
-                let goal = mine + 1 + 4 * RivalIntel.unit("\(def.id)|leapsize|\(comp.releaseCount)")
+                // 3.8: a lab betting a run on passing you aims where you'll be when it ships, not where you were: your
+                // best index a quarter before its release plus the pace you kept over the half-year before that.
+                let earlier = GameCalendar.addDays(seenBy, -182)
+                let then = released.filter { ($0.releaseDate ?? $0.created) <= earlier }.map(\.index).max()
+                let pace = then.map { clamp((mine - $0) / 182, 0, 0.1) } ?? 0
+                let goal = mine + pace * 91 + 1 + 4 * RivalIntel.unit("\(def.id)|leapsize|\(comp.releaseCount)")
                 let set = Leaderboard.indexSet(s)
                 func score(_ x: Double) -> Double { RivalIntel.index(s, i, c: x, on: date, set: set) }
                 if score(c) < goal {
@@ -345,6 +350,7 @@ enum Competitors {
         for i in s.competitors.indices { refreshFinancials(&s, i) }
         RivalEconomy.monthly(&s)
         RivalStrategy.monthly(&s)
+        Launches.monthly(&s)   // 3.8: developer ecosystem, rank momentum, contract renewals
         // Price war: if you grab API share, rivals cut prices; otherwise they slowly restore them.
         // Labs in distress raise prices instead (RivalEconomy sets that).
         let playerShare = Market.snapshot(s).api.filter(\.isPlayer).reduce(0) { $0 + $1.share }

@@ -327,6 +327,14 @@ enum VoiceBank {
             "*|Officials were briefed before the public, and sovereign partners get early access.",
             "*|{founder} briefed governments first; public access follows.",
         ],
+        "plaunch.style.preview": [
+            "*|It ships as a research preview: nearly free, rate-limited, and open to feedback.",
+            "*|{you} called it a research preview and asked researchers to break it.",
+        ],
+        "plaunch.style.limited": [
+            "*|Only vetted testers get access for the first month; general availability follows.",
+            "*|{you} is keeping it to a small group of trusted testers for 30 days.",
+        ],
         "plaunch.ctx.top": [
             "*|It overtakes {prevlab's} {prev} by {margin} points.",
             "*|{prevlab's} {prev} drops to second, {margin} points behind.",
@@ -1095,6 +1103,16 @@ enum VoiceBank {
             "*|{you} just switched {model} on and let the benchmarks leak out. Unusual — and clever.",
             "S|A stealth drop is either confidence or a lack of it. With {model} it's hard to tell.",
             "C|Quiet launches are underrated. {model} will be judged on use, not hype.",
+        ],
+        "lreport.preview": [
+            "C|A research preview invites the field in. The bug reports on {model} are already better than most system cards.",
+            "*|Researchers are hammering the {model} preview, and {you} is reading every report.",
+            "S|A research preview is a free beta with a nicer name. Rivals are studying {model} too.",
+        ],
+        "lreport.limited": [
+            "C|Thirty days with trusted testers before general release. That's how {model} should ship, and it did.",
+            "*|The testers we spoke to say {you} is fixing what they find in {model} before the wider release.",
+            "W|Limited access is the right call for a model like {model}. I hope the testers include outside red-teamers.",
         ],
         "lreport.staged": [
             "C|A waitlist and a staged rollout is how frontier models should ship. More labs should copy {you}.",

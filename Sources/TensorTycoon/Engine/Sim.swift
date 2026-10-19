@@ -324,7 +324,8 @@ enum Sim {
             guard let id = p.modelID else { continue }
             let tokens = p.share * snap.apiTokenPool * reach
             apiDemand[id, default: 0] += tokens
-            demand[id, default: 0] += tokens
+            // 3.8: buyers pay for answers; a reasoning model's servers also generate its thinking tokens.
+            demand[id, default: 0] += tokens * (s.models.first { $0.id == id }.map { Families.thinkingTokens($0, b) } ?? 1)
         }
 
         // Consumer
@@ -348,14 +349,15 @@ enum Sim {
             let others = (1 - chat.share) * snap.consumerUsersPool * rivalChatARPU / 30.4
             s.paidUsers = s.consumerUsers * conv
                 * Market.budgetFactor(s.consumerUsers * conv * s.chatPrice / 30.4, pool: snap.consumerRevenuePool, others: others)
-            let reasoningMult = chat.reasoning ? 2.2 : 1
+            let chatModel = s.models.first { $0.id == chat.modelID }
+            let reasoningMult = chatModel.map { Families.thinkingTokens($0, b) } ?? (chat.reasoning ? 2.2 : 1)   // 3.8: research and effort
             chatTokens = s.consumerUsers * Macro.tokensPerUserDay(y) * reasoningMult
             if let id = chat.modelID, let free = Families.freeRoute(s, chatID: id) {
                 // 3.5: model families — free users are served by a cheaper tier, paying users by the chat model.
                 freeRoute = (free.id, Families.freeShare(s))
                 let base = s.consumerUsers * Macro.tokensPerUserDay(y)
                 let paid = base * (1 - freeRoute!.share) * reasoningMult
-                let freeTokens = base * freeRoute!.share * (free.reasoning ? 2.2 : 1)
+                let freeTokens = base * freeRoute!.share * Families.thinkingTokens(free, b)
                 chatTokens = paid + freeTokens
                 demand[id, default: 0] += paid
                 demand[free.id, default: 0] += freeTokens

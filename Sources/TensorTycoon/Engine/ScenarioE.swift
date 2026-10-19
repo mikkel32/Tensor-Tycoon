@@ -139,11 +139,12 @@ extension ScenarioHarness {
                 fund(&t, atLeast: 1e10)
             }
             if let c = t.runs.first(where: { $0.id == runID }), let mid2 = c.modelID, let m2 = t.models.first(where: { $0.id == mid2 }) {
-                r.note("ended early at 50%: index \(Fmt.score(m2.index)) (estimated \(Fmt.score(preview.indexNow))), \(Fmt.money(c.cost)) vs \(Fmt.money(done.cost)) for the full run")
+                r.note("ended early at 50%: index \(Fmt.score(m2.index)) (estimated \(Fmt.score(preview.indexNow)), 80% \(Fmt.score(preview.indexLow))–\(Fmt.score(preview.indexHigh))), \(Fmt.money(c.cost)) vs \(Fmt.money(done.cost)) for the full run")
                 r.expect("ending early costs less than finishing", c.cost < done.cost, "\(Fmt.money(c.cost)) vs \(Fmt.money(done.cost))")
                 r.expect("ending early gives a weaker model than finishing", m2.c <= model.c + 0.05, "c \(Fmt.trim(m2.c, 2)) vs \(Fmt.trim(model.c, 2))")
-                r.expect("the end-now estimate holds (within 4 index points)", abs(m2.index - preview.indexNow) <= 4,
-                         "\(Fmt.score(m2.index)) vs \(Fmt.score(preview.indexNow))")
+                // The estimate is a posterior: it holds within its own stated uncertainty (±3σ in capability).
+                r.expect("the end-now estimate holds (within ±3σ of its capability estimate)", abs(m2.c - preview.c) <= 3 * preview.sigma + 0.05,
+                         "c \(Fmt.trim(m2.c, 2)) vs \(Fmt.trim(preview.c, 2)) ± \(Fmt.trim(preview.sigma, 2)); index \(Fmt.score(m2.index)) vs \(Fmt.score(preview.indexNow))")
                 _ = cost0
             } else {
                 r.expect("early-ended run finishes", false)
@@ -172,9 +173,16 @@ extension ScenarioHarness {
         r.expect("the launch is recorded with a launch-day report", s.launches.last { $0.modelID == model.id }?.report != nil)
         r.expect("the new model earns", (launched?.revenueDay ?? 0) > 0, Fmt.money(launched?.revenueDay ?? 0) + "/day")
         r.note("revenue/day before \(Fmt.money(revenueBefore)), after \(Fmt.money(revenueAfter)); rank #\(Leaderboard.rank(of: model.id, in: s))")
+        let launch = s.launches.last { $0.modelID == model.id }
         if Leaderboard.rank(of: model.id, in: s) <= 2 {
-            let answered = s.launches.last { $0.modelID == model.id }?.responses.isEmpty == false || s.competitors.contains { $0.project.map { $0.rushed || $0.delays > 0 || $0.cAdjust != 0 } ?? false }
+            let answered = launch?.responses.isEmpty == false || s.competitors.contains { $0.project.map { $0.rushed || $0.delays > 0 || $0.cAdjust != 0 } ?? false }
             r.expect("rivals answer a top model", answered)
+        } else {
+            // A mid-table model draws a weaker answer than the same keynote for a #1 would.
+            let odds = launch?.responses.map(\.odds).max() ?? 0
+            let top = Launches.responseOdds(LaunchPlan(strategy: .keynote), rank: 1)
+            r.expect("rivals answer a mid-table model less than a #1", odds < top,
+                     "#\(launch?.rank ?? 0): response odds \(Fmt.pct(odds, decimals: 0)) vs \(Fmt.pct(top, decimals: 0)) for a #1")
         }
         sanity(s, &r)
         return r
