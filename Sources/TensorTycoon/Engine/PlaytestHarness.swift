@@ -7,7 +7,7 @@ import Foundation
 ///
 /// flags (comma-separated, optional): cautious (20% of cash per run, current-gen chips only, slow hiring, no research
 /// compute, no growth rounds), norent (never rents: garage GPUs only), hard / easy (difficulty), noresearchcompute,
-/// autorollback, noquick.
+/// autorollback, noquick, science (science labs), data (the data economy: datasets, annotation, synthetic data, processing).
 ///
 /// Output: a monthly table (every 3rd month unless mode is `full`), an event log, every training run (plan vs actual
 /// days, forecast vs actual capability), a summary of pacing metrics, and `CSV,` rows for offline aggregation.
@@ -335,6 +335,7 @@ enum PTPlay {
         if mode != "quiet" { printGame(rows, sum, bot, s, mode: mode) }
         if flags.contains("advproj") { for line in AdvancedProjects.report(s) { print(line) } }
         if flags.contains("science") { scienceSummary(s, seed: seed) }
+        if flags.contains("data") { dataSummary(s, seed: seed) }
         lastState = s
         return sum
     }
@@ -470,6 +471,7 @@ enum PTPlay {
             if bot.flags.contains("advproj") { AdvancedProjects.botAct(&s) }   // 3.5: bid on one government contract at a time
             if bot.flags.contains("science") { science(&s) }   // 3.6: science labs (only with the flag)
         }
+        if bot.flags.contains("data") { dataBot(&s) }   // data economy: datasets, annotation, synthetic data, processing (only with the flag)
     }
 
     /// Make sure `n` chips of `id` are free, renting on demand if needed. Returns the free count afterwards.
