@@ -307,6 +307,7 @@ enum Events {
                 markLawsuit(&s, d.ref)
                 Sim.news(&s, "You won the copyright case", "The judge ruled training was fair use. Legal fees: \(Fmt.money(d.amount * 0.05)).", .policy, good: true)
                 s.cash -= d.amount * 0.05
+                s.month.costOther += d.amount * 0.05   // 3.8: legal fees are costs
             } else {
                 s.cash -= d.amount * 2
                 s.month.costOther += d.amount * 2

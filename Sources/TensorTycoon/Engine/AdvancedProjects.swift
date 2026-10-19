@@ -351,6 +351,7 @@ enum AdvancedProjects {
         if let a = sol.agencyDef, !openToYou(sol, s) {
             out.append(sol.level == .unclassified ? "\(a.short) doesn't contract with labs from your country" : "\(sol.level.title) work for \(a.homeName) is open to its own labs only")
         }
+        if sol.level > .unclassified, let why = Progression.blocker(s, .classified) { out.append(String(why.dropLast())) }   // 3.8: Frontier Lab
         for id in missingResearch(sol, s) { out.append("Research \(ResearchCatalog.byID[id]?.name ?? id)") }
         if margin(sol, playerScores(s)) < -5 { out.append("Your best model is more than 5 points under the bars on average") }
         return out
@@ -375,6 +376,8 @@ enum AdvancedProjects {
         o.parts = [("Technical margin", w.tech * tech), ("Readiness", w.tech * ready), ("Price", w.price * pScore), ("Record & standing", w.past * past)]
         let pref = homePreference(sol, s)
         if pref != 0 { o.parts.append(("Home-country preference", pref)) }
+        let arm = Corporate.bidBoost(s, region: sol.agencyDef?.region ?? .us)   // 3.8: a government-research subsidiary there
+        if arm > 0 { o.parts.append(("Your government research arm", arm)) }
         o.score = o.parts.reduce(0) { $0 + $1.1 }
         o.rivals = sol.bidders.map { b in
             let name = CompetitorCatalog.def(b.lab).name
@@ -614,7 +617,7 @@ enum AdvancedProjects {
     static func income(_ s: inout GameState, _ i: Int, _ amount: Double) {
         guard amount > 0 else { return }
         s.cash += amount
-        s.month.revOther += amount
+        s.month.revContracts += amount   // 3.8: milestone income, kept out of the recurring run rate
         s.lifetimeRevenue += amount
         s.advanced.programmes[i].revenue += amount
     }

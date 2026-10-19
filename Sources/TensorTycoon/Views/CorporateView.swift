@@ -39,12 +39,12 @@ struct CorporateView: View {
              subtitle: "The company as a group: the monthly books, debt and its covenants, your credit rating, the cap table, taxes, and the subsidiaries you start, buy, sell down, list, spin off or fold back in.", screen: .corporate) {
             ScreenHint(.corporate)
             KPIRow {
-                StatTile(title: "Credit rating", value: Corporate.ratingName(s.corp.rating >= 0 ? s.corp.rating : (m.debt > 0 ? m.notch : -1)),
-                         detail: m.debt > 0 ? "Score \(Int(m.score)) · spread +\(Fmt.trim(Corporate.spreads[max(0, s.corp.rating >= 0 ? s.corp.rating : m.notch)], 2)) pts" : "Rated once you borrow",
-                         symbol: "checkmark.seal.fill", tint: CorpStyle.rating(s.corp.rating >= 0 ? s.corp.rating : m.notch))
+                StatTile(title: "Credit rating", value: Corporate.ratingName(s.corp.notch >= 0 ? s.corp.notch : (m.debt > 0 ? m.notch : -1)),
+                         detail: m.debt > 0 ? "Score \(Int(m.score)) · spread +\(Fmt.trim(Corporate.spreads[max(0, s.corp.notch >= 0 ? s.corp.notch : m.notch)], 2)) pts" : "Rated once you borrow",
+                         symbol: "checkmark.seal.fill", tint: CorpStyle.rating(s.corp.notch >= 0 ? s.corp.notch : m.notch))
                 StatTile(title: "Net debt", value: CorpStyle.signed(m.netDebt), detail: "Debt ÷ EBITDA \(CorpStyle.multiple(m.leverage)) · cover \(CorpStyle.multiple(m.coverage))",
                          symbol: "creditcard.fill", tint: m.netDebt > 0 ? .orange : .green)
-                StatTile(title: "EBITDA", value: CorpStyle.signed(m.ebitda), detail: "Last 3 months, annualised", symbol: "chart.bar.doc.horizontal.fill", tint: m.ebitda >= 0 ? .green : .red)
+                StatTile(title: "EBITDA", value: CorpStyle.signed(m.ebitda), detail: "Last 12 months (annualised while younger)", symbol: "chart.bar.doc.horizontal.fill", tint: m.ebitda >= 0 ? Theme.good : Theme.bad)
                 StatTile(title: "Subsidiaries", value: "\(live.count)", detail: live.isEmpty ? "Start or buy one" : "Your stakes: \(Fmt.money(Corporate.stakesValue(s)))",
                          symbol: "square.stack.3d.up.fill", tint: .indigo)
             }
@@ -91,11 +91,15 @@ private struct StatementsSection: View {
                     StatementGrid(rows: rows, lines: [
                         ("Revenue", { $0.revenue }, true),
                         ("  of which folded-in divisions", { $0.groupRevenue }, false),
+                        ("  of which government contracts (lumpy)", { $0.contracts }, false),
                         ("Compute (rent, power, chips)", { -$0.computeCosts }, false),
                         ("People", { -$0.peopleCosts }, false),
                         ("Everything else", { -$0.otherCosts }, false),
                         ("EBITDA", { $0.ebitda }, true),
+                        ("Depreciation (no cash)", { -$0.depreciation }, false),
+                        ("EBIT", { $0.ebit }, true),
                         ("Interest on cash and one-offs", { $0.interestIncome + $0.oneOff }, false),
+                        ("Gains and losses on disposals", { $0.assetGains }, false),
                         ("Interest on debt", { -$0.interest }, false),
                         ("Tax", { -$0.taxes }, false),
                         ("Net income (the company)", { $0.netCompany }, true),
@@ -105,11 +109,12 @@ private struct StatementsSection: View {
                         ("Outside holders' share", { -$0.minority }, false),
                         ("Share of associates", { $0.associates }, false),
                         ("Consolidated net income", { $0.consolidatedNet }, true),
+                        ("Consolidated revenue", { $0.consolidatedRevenue }, false),
                     ])
                 }
                 CardGrid(minWidth: 340, maxColumns: 2) {
                     Card {
-                        CardHeader("Balance sheet", symbol: "scalemass.fill", subtitle: "An approximation: hardware at resale value, datacenters at 80% of cost, stakes at market.")
+                        CardHeader("Balance sheet", symbol: "scalemass.fill", subtitle: "Hardware and datacenters at book value (cost less depreciation), stakes at market. Fabs, power plants and labs aren't carried here.")
                         if rows.contains(where: { $0.balance != nil }) {
                             StatementGrid(rows: rows, lines: [
                                 ("Cash", { $0.balance?.cash ?? 0 }, false),
@@ -118,6 +123,7 @@ private struct StatementsSection: View {
                                 ("Datacenters", { $0.balance?.sites ?? 0 }, false),
                                 ("Investments", { $0.balance?.investments ?? 0 }, false),
                                 ("Subsidiaries' cash", { $0.balance?.subsCash ?? 0 }, false),
+                                ("Your share of their value beyond cash", { $0.balance?.subsValue ?? 0 }, false),
                                 ("Total assets", { $0.assets }, true),
                                 ("Debt", { -$0.liabilities }, false),
                                 ("Outside holders in subsidiaries", { -($0.balance?.minorityInterest ?? 0) }, false),
@@ -128,12 +134,21 @@ private struct StatementsSection: View {
                         }
                     }
                     Card {
-                        CardHeader("Cash flow", symbol: "arrow.left.arrow.right.circle.fill", subtitle: "Operating is what's left once investing and financing are accounted for.")
+                        CardHeader("Cash flow", symbol: "arrow.left.arrow.right.circle.fill", subtitle: "Built from the month's own entries. The last line is anything they leave unexplained: it should be nothing.")
                         StatementGrid(rows: rows, lines: [
-                            ("Operating", { $0.operating }, false),
-                            ("Investing (capex, subsidiaries)", { $0.investing }, false),
-                            ("Financing (debt, equity, payouts)", { $0.financing }, false),
+                            ("Operating (net income, depreciation added back)", { $0.operating }, true),
+                            ("Capex", { -$0.capex }, false),
+                            ("Assets sold", { $0.flows[.assetSales] ?? 0 }, false),
+                            ("Subsidiaries", { $0.flows[.subsidiaries] ?? 0 }, false),
+                            ("Stakes and acquisitions", { ($0.flows[.stakes] ?? 0) + ($0.flows[.acquisitions] ?? 0) }, false),
+                            ("Investing", { $0.investing }, true),
+                            ("Equity raised", { $0.flows[.equity] ?? 0 }, false),
+                            ("Debt drawn", { $0.flows[.borrowing] ?? 0 }, false),
+                            ("Debt repaid", { $0.flows[.repayments] ?? 0 }, false),
+                            ("Dividends and buybacks", { ($0.flows[.dividends] ?? 0) + ($0.flows[.buybacks] ?? 0) }, false),
+                            ("Financing", { $0.financing }, true),
                             ("Change in cash", { $0.cashChange }, true),
+                            ("Unexplained", { $0.residual ?? 0 }, false),
                         ])
                     }
                 }
@@ -228,11 +243,11 @@ private struct RatingCard: View {
     var body: some View {
         let s = state
         let m = Corporate.metrics(s)
-        let notch = s.corp.rating >= 0 ? s.corp.rating : m.notch
+        let notch = s.corp.notch >= 0 ? s.corp.notch : m.notch
         Card {
-            CardHeader("Credit rating", symbol: "checkmark.seal.fill", subtitle: "Moves with leverage, interest cover, size and liquidity. It prices new debt, and term loans re-price with it.")
+            CardHeader("Credit rating", symbol: "checkmark.seal.fill", subtitle: "Moves with leverage, interest cover, size, liquidity and — while you lose money — runway. The same score sets your credit score on the Finance page, so both always read the same letter. It prices new debt, and term loans re-price with it.")
             HStack(alignment: .firstTextBaseline, spacing: 12) {
-                Text(s.corp.rating >= 0 || m.debt > 0 ? Corporate.ratingName(notch) : "—")
+                Text(s.corp.notch >= 0 || m.debt > 0 ? Corporate.ratingName(notch) : "—")
                     .font(TypeRamp.display)
                     .foregroundStyle(CorpStyle.rating(notch))
                 VStack(alignment: .leading, spacing: 2) {
@@ -247,6 +262,8 @@ private struct RatingCard: View {
                 GridRow { Text("Debt ÷ EBITDA").foregroundStyle(.secondary); Text(CorpStyle.multiple(m.leverage)).monospacedDigit() }
                 GridRow { Text("EBITDA ÷ interest").foregroundStyle(.secondary); Text(CorpStyle.multiple(m.coverage)).monospacedDigit() }
                 GridRow { Text("Interest a year").foregroundStyle(.secondary); Text(Fmt.money(m.interest)).monospacedDigit() }
+                GridRow { Text("Interest paid so far").foregroundStyle(.secondary); Text(Fmt.money(s.corp.interestPaid)).monospacedDigit() }
+                GridRow { Text("Credit score (same scale)").foregroundStyle(.secondary); Text("\(Int(s.creditScore)) · \(Corporate.ratingName(Corporate.notch(forCreditScore: s.creditScore)))").monospacedDigit() }
             }
             .font(.callout)
         }
@@ -303,6 +320,15 @@ private struct CorpDebtCard: View {
     let state: GameState
     @State private var amounts: [CorpDebtKind: Double] = [:]
 
+    /// Balance, coupon and term, plus what kind of debt it is: conversion price, the rating it's priced at, breaches so far.
+    private func debtLine(_ d: CorpDebt) -> String {
+        var t = "\(Fmt.money(d.balance)) of \(Fmt.money(d.principal)) · \(Fmt.trim(d.rate + d.penalty, 2))% · \(d.monthsLeft) months left"
+        if d.kind == .convertible { t += " · converts at \(Fmt.price(d.conversionPrice))" }
+        if d.kind == .termLoan { t += " · priced at \(Corporate.ratingName(d.notch))" }
+        if d.breaches > 0 { t += " · \(d.breaches) covenant breach" + (d.breaches == 1 ? "" : "es") + " so far" }
+        return t
+    }
+
     var body: some View {
         let s = state
         let m = Corporate.metrics(s)
@@ -315,13 +341,12 @@ private struct CorpDebtCard: View {
                     Image(systemName: d.kind.symbol).foregroundStyle(.secondary).frame(width: 20)
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(spacing: 6) {
-                            Text(d.kind.rawValue).font(.callout.weight(.semibold))
+                            Text(d.kind.title).font(.callout.weight(.semibold))
                             if !why.isEmpty { Pill("In breach", tone: .bad) }
                             if let w = d.waiverUntil, w > s.date { Pill(text: "Waiver to \(w.gameShort)", color: .orange) }
                             if d.penalty > 0 { Pill(text: "+\(Fmt.trim(d.penalty, 1)) pts penalty", color: .orange) }
                         }
-                        Text("\(Fmt.money(d.balance)) of \(Fmt.money(d.principal)) · \(Fmt.trim(d.rate + d.penalty, 2))% · \(d.monthsLeft) months left"
-                             + (d.kind == .convertible ? " · converts at \(Fmt.price(d.conversionPrice))" : ""))
+                        Text(debtLine(d))
                             .font(.caption).foregroundStyle(.secondary)
                         if !why.isEmpty {
                             Text(why.joined(separator: "; ").capitalizedFirst).font(.caption).foregroundStyle(.red)
@@ -340,7 +365,7 @@ private struct CorpDebtCard: View {
             ForEach(Corporate.quotes(s), id: \.kind) { q in
                 HStack(alignment: .center, spacing: 12) {
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(q.kind.rawValue).font(.callout.weight(.semibold))
+                        Text(q.kind.title).font(.callout.weight(.semibold))
                         Text(q.reason).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                         Text("Covenants: \(q.covenants)").font(.caption2).foregroundStyle(.tertiary)
                     }
@@ -348,6 +373,7 @@ private struct CorpDebtCard: View {
                     if q.available && q.max > 0 {
                         let amount = min(amounts[q.kind] ?? q.max / 2, q.max)
                         Slider(value: Binding(get: { amount }, set: { amounts[q.kind] = $0 }), in: min(q.max, 1e6)...q.max)
+                            .accessibilityValue(Fmt.money(amount))
                         Text(Fmt.money(amount)).font(.callout.monospacedDigit()).frame(width: 80)
                         Text("\(Fmt.trim(q.rate, 2))% · \(q.term / 12) yrs").font(.caption).foregroundStyle(.secondary).frame(width: 90)
                         Button("Borrow") {
@@ -498,6 +524,9 @@ private struct SubsidiaryCard: View {
                 if sub.separate {
                     StatTile(title: "Valuation", value: Fmt.money(sub.valuation), detail: "Cash \(CorpStyle.signed(sub.cash))", symbol: "building.columns.fill", tint: .purple)
                 }
+            }
+            if let effect = Corporate.effectLine(sub, s) {
+                Label(effect, systemImage: sub.kind.symbol).font(.caption).foregroundStyle(.secondary)
             }
             if year.count >= 2 {
                 Chart(year, id: \.month) { p in
@@ -714,7 +743,7 @@ struct CorporateCard: View {
             HStack(spacing: 16) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Rating").font(.caption).foregroundStyle(.secondary)
-                    Text(s.corp.rating >= 0 ? Corporate.ratingName(s.corp.rating) : "—").font(.title3.weight(.semibold)).foregroundStyle(CorpStyle.rating(s.corp.rating))
+                    Text(s.corp.notch >= 0 ? Corporate.ratingName(s.corp.notch) : "—").font(.title3.weight(.semibold)).foregroundStyle(CorpStyle.rating(s.corp.notch))
                 }
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Net debt").font(.caption).foregroundStyle(.secondary)

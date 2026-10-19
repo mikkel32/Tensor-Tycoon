@@ -73,24 +73,38 @@ enum HQ {
         s.employees.filter { $0.role != .sales }.reduce(0) { $0 + $1.salary } / 12 * payrollFactor(s) * max(0.5, 1 + s.traits.payroll)
     }
 
-    /// The month's tax: corporate tax on profit, less any R&D tax credit (paid out in cash where it's refundable).
+    /// The month's tax: corporate tax on profit after losses carried forward, less any R&D tax credit. A refundable
+    /// credit is paid out in cash even with no tax to set it against; a non-refundable one waits in the credit pool
+    /// until there is. Added to the month's taxes (a transfer-pricing audit settled earlier in the month stays booked).
     static func settleTaxes(_ s: inout GameState, pre: Double) {
-        if isDefault(s) {
-            if pre > 0 {
-                let tax = pre * 0.21
-                s.month.taxes = tax
-                s.cash -= tax
+        let split = taxableAfterLosses(pre, pool: s.corp.lossPool)
+        s.corp.lossPool = split.pool
+        let tax = split.taxable * taxRate(s)
+        var net = tax
+        if !isDefault(s) {
+            let c = country(s)
+            let credit = c.rdCredit * rdPayrollMonth(s)
+            if c.rdRefundable {
+                net = tax - credit
+            } else {
+                let available = credit + s.corp.creditPool
+                let offset = min(available, tax)
+                s.corp.creditPool = available - offset
+                net = tax - offset
             }
-            return
+            s.hq.rdCredits += tax - net
         }
-        let c = country(s)
-        let tax = max(0, pre) * c.corporateTax
-        let credit = c.rdCredit * rdPayrollMonth(s)
-        let net = c.rdRefundable ? tax - credit : max(0, tax - credit)
         guard net != 0 else { return }
-        s.month.taxes = net
+        s.month.taxes += net
         s.cash -= net
-        s.hq.rdCredits += tax - net
+    }
+
+    /// Profit left to tax once losses carried forward are used, and the pool afterwards: a loss adds to the pool,
+    /// a profit uses it up first.
+    static func taxableAfterLosses(_ pre: Double, pool: Double) -> (taxable: Double, pool: Double) {
+        if pre <= 0 { return (0, pool - pre) }
+        let used = min(pool, pre)
+        return (pre - used, pool - used)
     }
 
     // MARK: People

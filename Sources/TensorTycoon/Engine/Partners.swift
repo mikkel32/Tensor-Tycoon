@@ -231,6 +231,7 @@ extension GameState {
         let newShares = totalShares * t.equity / max(0.01, 1 - t.equity)
         holdings.append(Holding(name: "\(def.name) (strategic)", shares: newShares))
         cash += t.cash
+        Books.post(&self, .equity, t.cash)   // 3.8: the partner's investment, cash part (credits aren't cash)
         cloudCredits += t.credits
         valuation += t.investment
         partnerships.append(Partnership(partner: id, exclusive: exclusive, start: date, end: GameCalendar.addMonths(date, years * 12),

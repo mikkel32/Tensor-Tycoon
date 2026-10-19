@@ -16,10 +16,20 @@ enum Corporate {
     static let bands: [Double] = [88, 78, 66, 54, 42, 30, 0]
     /// Licence fees (transfer prices) tax authorities accept without asking questions.
     static let armsLength: ClosedRange<Double> = 0.10...0.30
-    static let maxSubsidiaries = 8
 
     static func ratingName(_ notch: Int) -> String { notch < 0 ? "Not rated" : ratings[min(notch, ratings.count - 1)] }
     static func investmentGrade(_ notch: Int) -> Bool { notch >= 0 && notch <= 3 }
+
+    /// 3.8: the credit score (300–850) on the same scale as the rating: the lowest score of each notch above CCC.
+    static let creditBands: [Double] = [790, 760, 725, 665, 605, 545]
+
+    /// The rating score (0–100) as a credit score: each rating band maps onto its credit-score band.
+    static func creditScore(forScore x: Double) -> Double {
+        interpolate([(0, 420), (30, 545), (42, 605), (54, 665), (66, 725), (78, 760), (88, 790), (100, 830)], at: clamp(x, 0, 100))
+    }
+
+    /// The rating letter a credit score reads as (CCC below the B band).
+    static func notch(forCreditScore c: Double) -> Int { creditBands.firstIndex { c >= $0 } ?? 6 }
 
     // MARK: Hashed randomness
 
@@ -149,13 +159,25 @@ enum Corporate {
         sub.kind.multiple * (Macro.revenueMultiple(s.year) / 25).squareRoot() * (0.85 + 0.3 * sub.ceoSkill / 100)
     }
 
-    /// What a subsidiary is worth on its numbers: revenue × its kind's multiple, moved by growth and margin.
-    /// The licence fee it pays you is a cost here (it lowers the margin) and is valued once, on your side (`feeValue`).
-    static func fundamental(_ sub: Subsidiary, _ s: GameState) -> Double {
+    /// What a subsidiary's business is worth on its numbers: revenue × its kind's multiple, moved by growth and margin,
+    /// and never less than its team. The licence fee it pays you is a cost here (it lowers the margin) and is valued
+    /// once, on your side (`feeValue`).
+    static func businessValue(_ sub: Subsidiary, _ s: GameState) -> Double {
         let gm = growthAndMargin(sub)
         let m = baseMultiple(sub, s) * multipleFactor(growth: gm.growth, margin: gm.margin)
-        let floor = max(0, sub.cash) + Double(sub.headcount) * sub.kind.payPerHead * payScale(sub.kind, s.year) * 0.8
-        return max(sub.revenue * 12 * m, floor)
+        let team = Double(sub.headcount) * sub.kind.payPerHead * payScale(sub.kind, s.year) * 0.8
+        return max(sub.revenue * 12 * m, team) * Crises.multipleFactor(s)
+    }
+
+    /// 3.8: what a subsidiary is worth: its business plus its cash (a shortfall counts against it). Cash moved into a
+    /// subsidiary is worth exactly that cash to it — and to you only your stake of it, at the holding discount.
+    static func fundamental(_ sub: Subsidiary, _ s: GameState) -> Double {
+        max(0, businessValue(sub, s) + sub.cash)
+    }
+
+    /// 3.8: divisions you folded back in, each at its own kind's multiple (their cash is already yours).
+    static func divisionValue(_ s: GameState) -> Double {
+        s.corp.subs.reduce(0) { $0 + ($1.status == .folded ? businessValue($1, s) : 0) }
     }
 
     /// The licence fees separate subsidiaries pay you, a year at the current rate (intercompany revenue).
@@ -184,6 +206,65 @@ enum Corporate {
     /// Your stakes in subsidiaries that still run separately, at their marks (their fees to you are in `feeValue`).
     static func stakesValue(_ s: GameState) -> Double {
         s.corp.subs.reduce(0) { $0 + ($1.separate ? $1.stake * $1.valuation : 0) }
+    }
+
+    // MARK: What subsidiaries do for you (3.8: energy, security and government research arms; exactly neutral without one)
+
+    /// Live subsidiaries of a kind.
+    static func live(_ s: GameState, _ k: SubsidiaryKind) -> [Subsidiary] { s.corp.subs.filter { $0.kind == k && $0.live } }
+
+    /// An energy developer supplies part of your datacenters' power under long contracts, 15% below what you'd pay:
+    /// up to half its output, against last month's power bill.
+    static func powerFactor(_ s: GameState) -> Double {
+        let output = live(s, .energy).reduce(0) { $0 + $1.revenue }
+        guard output > 0, let bill = s.history.last?.costPower, bill > 0 else { return 1 }
+        return 1 - 0.15 * clamp(output * 0.5 / bill, 0, 1)
+    }
+
+    /// A security-software arm hardens your own stack: an attack that gets past your security level succeeds less often
+    /// (up to 40% less with 600 security engineers).
+    static func attackFactor(_ s: GameState) -> Double {
+        let heads = live(s, .securitySoftware).reduce(0) { $0 + $1.headcount }
+        return 1 - min(0.4, Double(heads) / 1_500)
+    }
+
+    /// The region a jurisdiction's agencies sit in (nil where no agency in the game does).
+    static func region(of jurisdiction: String) -> Region? {
+        if let c = CountryCatalog.byID[jurisdiction] { return c.region }
+        switch jurisdiction {
+        case "uk": return .uk
+        case "de", "ie": return .eu
+        case "jp": return .japanKorea
+        case "in": return .india
+        default: return nil
+        }
+    }
+
+    /// A government-research arm in an agency's region adds to your bid score there: its people and record, up to
+    /// 3 points (a point per 100 staff, plus its years of work).
+    static func bidBoost(_ s: GameState, region r: Region) -> Double {
+        let arms = live(s, .govResearch).filter { region(of: $0.country) == r }
+        guard !arms.isEmpty else { return 0 }
+        return min(3, arms.reduce(0.0) { $0 + Double($1.headcount) / 100 + min(1, Double(GameCalendar.daysBetween($1.founded, s.date)) / 730) })
+    }
+
+    /// What a subsidiary does for the rest of your business today, in a sentence (nil for kinds that only earn).
+    static func effectLine(_ sub: Subsidiary, _ s: GameState) -> String? {
+        guard sub.live else { return nil }
+        switch sub.kind {
+        case .energy:
+            let f = powerFactor(s)
+            return f < 1 ? "Supplies your datacenters below grid price: your power bill is \(Fmt.pct(1 - f, decimals: 1)) lower." : "Supplies your datacenters once you have a power bill to cut."
+        case .securitySoftware:
+            return "Attacks that get past your security level succeed \(Fmt.pct(1 - attackFactor(s), decimals: 0)) less often."
+        case .govResearch:
+            guard let r = region(of: sub.country) else { return "No agency in the game sits in \(jurisdiction(sub.country).name): pick a country with agencies to help your bids." }
+            return "Adds \(Fmt.trim(bidBoost(s, region: r), 1)) points to your bids with \(r.title) agencies."
+        case .consulting:
+            return "Brings enterprise leads: \(Fmt.pct(dealFactor(s) - 1, decimals: 0)) more of them."
+        default:
+            return nil
+        }
     }
 
     /// Consulting arms bring enterprise leads (exactly 1 without one).
@@ -257,6 +338,13 @@ enum Corporate {
         }
         score += clamp(log10(max(rev, 1) / 1e6) * 6, 0, 25)
         score += clamp(max(0, s.cash) / max(1, annualService(s)) * 2.5, 0, 10)
+        // 3.8: a company losing money is judged on its runway, and never rated above BB without earnings.
+        if e <= 0 {
+            let burn = max(1, -(s.history.last?.cashProfit ?? 0))
+            let runway = max(0, s.cash) / burn
+            score -= runway >= 36 ? 10 : (runway >= 18 ? 18 : (runway >= 9 ? 26 : 34))
+            score = min(score, 50)
+        }
         if s.cash < 0 { score = min(score, 14) }
         var notch = bands.firstIndex { score >= $0 } ?? 6
         if s.cash < 0 && debt > 0 { notch = 7 }
@@ -287,20 +375,24 @@ enum Corporate {
 
     static func quotes(_ s: GameState) -> [Quote] {
         let m = metrics(s)
-        let notch = m.notch == 7 ? 7 : (s.corp.rating >= 0 ? s.corp.rating : m.notch)
+        let notch = m.notch == 7 ? 7 : (s.corp.notch >= 0 ? s.corp.notch : m.notch)
         let fed = max(0.25, Economy.fedRate(s) - s.traits.loanRate)
-        let spread = spreads[notch]
+        let spread = spreads[notch] + Crises.spreadAdd(s)   // 3.8: a credit crunch widens every spread
+        let crunch = Crises.crunchSeverity(s) > 0
         var out: [Quote] = []
         // Term loan: banks lend against cash flow.
         let termMax = m.ebitda > 0 ? max(0, 3 * m.ebitda - m.debt) : 0
-        out.append(Quote(kind: .termLoan, max: termMax, rate: fed + spread, term: 60, available: termMax > 1e6 && notch <= 5,
-                         reason: m.ebitda <= 0 ? "Banks lend against EBITDA — you need to be making money first."
-                             : (notch > 5 ? "Your rating is too low for a bank to lend." : "Up to 3× EBITDA less what you already owe. Cheaper than venture debt, but it comes with covenants."),
+        let termShut = crunch && !investmentGrade(notch)
+        let stageWhy = Progression.blocker(s, .termLoans)   // 3.8: a Scale-up's bank relationship
+        out.append(Quote(kind: .termLoan, max: termMax, rate: fed + spread, term: 60, available: termMax > 1e6 && notch <= 5 && !termShut && stageWhy == nil,
+                         reason: stageWhy ?? (m.ebitda <= 0 ? "Banks lend against EBITDA — you need to be making money first."
+                             : (termShut ? "Credit crunch: banks only lend to investment-grade borrowers (BBB or better) until it passes."
+                                : (notch > 5 ? "Your rating is too low for a bank to lend." : "Up to 3× EBITDA less what you already owe. Cheaper than venture debt, but it comes with covenants."))),
                          covenants: "Debt ≤ 4× last-twelve-months EBITDA, EBITDA ≥ 2× interest, tested monthly"))
         // Convertible note: cheap coupon, converts into shares if the company does well.
         let raised = !s.rounds.isEmpty || s.isPublic
         let notes = s.corp.debts.filter { $0.kind == .convertible }.reduce(0) { $0 + $1.balance }
-        let convMax = raised ? max(0, min(s.valuation * 0.15, Finance.maxRaise(s.year) * 0.5) - notes) : 0
+        let convMax = raised ? max(0, min(s.valuation * 0.15, Finance.maxRaise(s.year) * 0.5) * (crunch ? 0.5 : 1) - notes) : 0
         let price = pricePerShare(s)
         out.append(Quote(kind: .convertible, max: convMax, rate: max(0.5, fed - 1), term: 48, available: convMax > 1e6,
                          reason: raised ? "A low coupon, repaid in 4 years — or turned into shares at \(Fmt.price(price * 1.25)) (25% above today's \(Fmt.price(price))) if they're worth more by then."
@@ -313,10 +405,12 @@ enum Corporate {
         let issued = s.corp.debts.filter { $0.kind == .greenBond }.reduce(0) { $0 + $1.balance }
         let gMax = max(0, capex * 0.8 - issued)
         let cleanShare = capex > 0 ? green.reduce(0) { $0 + $1.capex } / capex : 0
+        let bondShut = crunch && !investmentGrade(notch)
         out.append(Quote(kind: .greenBond, max: gMax, rate: fed + spread - (cleanShare >= 0.5 ? 0.7 : 0.35), term: 120,
-                         available: gMax > 5e6 && notch <= 5 && s.year >= 2017,
+                         available: gMax > 5e6 && notch <= 5 && s.year >= 2017 && !bondShut,
                          reason: dcs.isEmpty ? "Needs datacenters of your own to finance."
-                             : (notch > 5 ? "Your rating is too low for bond investors." : "Ten-year bond against your datacenters (80% of their cost). \(cleanShare >= 0.5 ? "Mostly clean power: the full green discount." : "Put datacenters on clean power for a bigger discount.")"),
+                             : (bondShut ? "Credit crunch: bond buyers want investment grade (BBB or better) until it passes."
+                                : (notch > 5 ? "Your rating is too low for bond investors." : "Ten-year bond against your datacenters (80% of their cost). \(cleanShare >= 0.5 ? "Mostly clean power: the full green discount." : "Put datacenters on clean power for a bigger discount.")")),
                          covenants: "Keep 6 months of its interest in cash"))
         return out
     }
@@ -385,14 +479,15 @@ enum Corporate {
             if d.monthsLeft <= 0 {
                 if d.kind == .convertible && pricePerShare(s) >= d.conversionPrice && d.conversionPrice > 0 {
                     convert(&s, &d)
-                    done.append("\(d.kind.rawValue) converted into shares")
+                    done.append("\(d.kind.title) converted into shares")
                 } else {
                     principal = d.balance
-                    done.append("\(d.kind.rawValue) repaid at maturity (\(Fmt.money(d.balance)))")
+                    done.append("\(d.kind.title) repaid at maturity (\(Fmt.money(d.balance)))")
                 }
             }
             principal = min(principal, d.balance)
             s.cash -= principal
+            Books.post(&s, .repayments, -principal)   // 3.8
             d.balance -= principal
             s.corp.flow.debtRepaid += principal
             s.corp.debts[i] = d
@@ -435,22 +530,27 @@ enum Corporate {
             return
         }
         s.cash -= q
+        Books.post(&s, .dividends, -q)   // 3.8
         s.corp.flow.dividends += q
         s.corp.dividendsPaid += q
         let mine = q * s.founderStake * (1 - Treasury.capitalGainsTax)
         s.founderCash += mine
-        Sim.news(&s, "Quarterly dividend paid: \(Fmt.money(q))", "\(Fmt.price(q / max(1, s.totalShares))) a share. Your own shares earned you \(Fmt.money(mine)) after tax.", .finance, good: true)
+        // 3.8: the shares go ex-dividend: the price drops by what each share was paid.
+        s.sharePrice = max(0.5, s.sharePrice - q / max(1, s.totalShares))
+        s.valuation = s.sharePrice * s.totalShares
+        Sim.news(&s, "Quarterly dividend paid: \(Fmt.money(q))", "\(Fmt.price(q / max(1, s.totalShares))) a share, which came off the share price as it went ex-dividend. Your own shares earned you \(Fmt.money(mine)) after tax.", .finance, good: true)
     }
 
     static func rate(_ s: inout GameState) {
         let m = metrics(s, closing: true)
-        let old = s.corp.rating
+        let old = s.corp.notch
         let notch = settledNotch(m, current: old)
-        s.corp.rating = notch
+        s.corp.notch = notch
         guard old >= 0, notch != old else { return }
         let move = notch - old
         for i in s.corp.debts.indices where s.corp.debts[i].kind == .termLoan {
-            s.corp.debts[i].rate = max(0.25, s.corp.debts[i].rate + 0.25 * Double(move))
+            s.corp.debts[i].rate = max(0.25, s.corp.debts[i].rate + 0.25 * Double(notch - s.corp.debts[i].notch))
+            s.corp.debts[i].notch = notch
         }
         if move > 0 {
             let fallen = investmentGrade(old) && !investmentGrade(notch)
@@ -507,16 +607,16 @@ enum Corporate {
             s.corp.debts[i].breaches += 1
             let fee = (d.balance * 0.01 / 1_000).rounded(.up) * 1_000
             s.boardConfidence = clamp(s.boardConfidence - 3, 0, 100)
-            Events.addDecision(&s, kind: "corp_covenant", title: "Covenant breach on your \(d.kind.rawValue.lowercased())",
-                               body: "The \(Fmt.money(d.balance)) \(d.kind.rawValue.lowercased()) is in breach: \(why.joined(separator: "; ")). The lenders want a fix.",
+            Events.addDecision(&s, kind: "corp_covenant", title: "Covenant breach on your \(d.kind.title.lowercased())",
+                               body: "The \(Fmt.money(d.balance)) \(d.kind.title.lowercased()) is in breach: \(why.joined(separator: "; ")). The lenders want a fix.",
                                image: "stock_exchange",
                                options: [DecisionOption(label: "Pay for a waiver", detail: "\(Fmt.money(fee)) (1% of the balance); covenants aren't tested for 6 months."),
                                          DecisionOption(label: "Repay it now", detail: "\(Fmt.money(d.balance)) from cash (a waiver if you can't)."),
                                          DecisionOption(label: "Accept a penalty rate", detail: "+2 points of interest from now on, and 6 months' grace.")],
                                amount: fee, ref: d.id.uuidString)
-            Alerts.raise(&s, .corporate, key: "covenant|\(d.id.uuidString)", title: "Covenant breach: \(d.kind.rawValue)",
+            Alerts.raise(&s, .corporate, key: "covenant|\(d.id.uuidString)", title: "Covenant breach: \(d.kind.title)",
                          body: why.joined(separator: "; ").capitalizedFirst + ". A decision is waiting in your inbox.", screen: .corporate, cooldown: 60)
-            record(&s, "Covenant breach on the \(d.kind.rawValue.lowercased())")
+            record(&s, "Covenant breach on the \(d.kind.title.lowercased())")
         }
     }
 
@@ -570,21 +670,22 @@ enum Corporate {
         var m = CorpMonth(month: s.month.month)
         m.cash = s.cash
         m.credits = s.cloudCredits
-        m.hardware = Economy.hardwareValue(s)
-        m.sites = Economy.siteValue(s)
+        m.hardware = Books.hardwareBook(s)   // 3.8: book values (cost less depreciation)
+        m.sites = Books.sitesBook(s)
         m.investments = RivalEconomy.stakesValue(s)
         m.debt = Economy.debt(s)
         let start = s.month.month
-        m.equityRaised = s.rounds.filter { $0.date >= start && $0.date < s.date }.reduce(0) { $0 + $1.amount }
-            + s.shareIssues.filter { $0.date >= start && $0.date < s.date }.reduce(0) { $0 + $1.shares } * s.sharePrice * 0.95
+        m.equityRaised = Books.flow(s.month, .equity)   // 3.8: the cash actually raised (cloud credits aren't cash)
         m.flow = s.corp.flow
         m.capex = s.month.capex
-        m.rating = s.corp.engaged ? s.corp.rating : -1
+        m.rating = s.corp.engaged && s.corp.notch >= 0 ? s.corp.notch : nil
         for sub in s.corp.subs where sub.separate {
             let last = sub.last.flatMap { $0.month == start ? $0 : nil }
             if sub.stake > 0.5 {
                 m.subsCash += sub.cash
-                m.minorityInterest += (1 - sub.stake) * max(0, sub.cash)
+                m.minorityInterest += (1 - sub.stake) * sub.cash
+                // 3.8: your share of its value beyond its cash, so crossing 50% moves no equity.
+                m.subsValue += sub.stake * (sub.valuation - sub.cash)
                 if let l = last {
                     m.subRevenue += l.revenue
                     m.subCosts += l.costs
@@ -613,8 +714,8 @@ enum Corporate {
         guard s.corp.engaged, let cur = s.corp.months.last else { return [] }
         var out: [BriefingLine] = []
         let prev = s.corp.months.dropLast().last
-        if let p = prev, p.rating >= 0, cur.rating >= 0, p.rating != cur.rating {
-            out.append(BriefingLine(text: "Credit rating \(ratingName(p.rating)) → \(ratingName(cur.rating)).", good: cur.rating < p.rating, screen: Screen.corporate.rawValue))
+        if let p = prev, p.notch >= 0, cur.notch >= 0, p.notch != cur.notch {
+            out.append(BriefingLine(text: "Credit rating \(ratingName(p.notch)) → \(ratingName(cur.notch)).", good: cur.notch < p.notch, screen: Screen.corporate.rawValue))
         }
         let live = s.corp.subs.filter(\.separate)
         if !live.isEmpty {
@@ -653,9 +754,14 @@ enum Corporate {
         var associates: Double
         var consolidatedRevenue: Double { revenue - intercompany + subRevenue }
         var consolidatedNet: Double { netCompany - intercompany + subRevenue - subCosts - subTax - minority + associates }
+        // 3.8: the books
+        var contracts: Double = 0
+        var depreciation: Double = 0
+        var ebit: Double { ebitda - depreciation }
+        var assetGains: Double = 0
         // Balance sheet (nil before the corporate books existed)
         var balance: CorpMonth?
-        var assets: Double { balance.map { $0.cash + $0.credits + $0.hardware + $0.sites + $0.investments + $0.subsCash } ?? 0 }
+        var assets: Double { balance.map { $0.cash + $0.credits + $0.hardware + $0.sites + $0.investments + $0.subsCash + $0.subsValue } ?? 0 }
         var liabilities: Double { balance?.debt ?? 0 }
         var equity: Double { assets - liabilities - (balance?.minorityInterest ?? 0) }
         // Cash flow
@@ -663,6 +769,11 @@ enum Corporate {
         var operating: Double
         var investing: Double
         var financing: Double
+        /// 3.8: the flows behind each section, and cash the books couldn't explain (nil before the ledger, when
+        /// operating was worked out as whatever investing and financing left over).
+        var flows: [CashFlowKind: Double] = [:]
+        var capex: Double = 0
+        var residual: Double? = nil
     }
 
     static func statements(_ s: GameState, count: Int = 12) -> [Statement] {
@@ -675,21 +786,41 @@ enum Corporate {
             let c = byMonth[h.month]
             let prev = i > 0 ? s.history[i - 1] : nil
             let prevC = prev.flatMap { byMonth[$0.month] }
-            let change = prev.map { h.cashEnd - $0.cashEnd } ?? 0
-            var financing = 0.0, investing = -h.capex
-            if let c {
-                financing = (prevC.map { c.debt - $0.debt + c.flow.converted } ?? (c.flow.debtIn - c.flow.debtRepaid)) + c.equityRaised - c.flow.dividends - c.flow.buybacks
-                investing = -h.capex + c.flow.subProceeds
-            } else {
-                financing = s.rounds.filter { $0.date >= h.month && $0.date < GameCalendar.addMonths(h.month, 1) }.reduce(0) { $0 + $1.amount }
-            }
             let compute = h.costRent + h.costPower + h.costChips
-            out.append(Statement(month: h.month, revenue: h.revenue, groupRevenue: h.revGroup, computeCosts: compute, peopleCosts: h.costPayroll,
-                                 otherCosts: h.opex - compute - h.costPayroll, ebitda: h.revenue - h.opex, interestIncome: h.interestIncome,
-                                 oneOff: h.oneOffIncome, interest: h.costInterest, taxes: h.taxes, netCompany: h.profit,
-                                 subRevenue: c?.subRevenue ?? 0, subCosts: c?.subCosts ?? 0, subTax: c?.subTax ?? 0, intercompany: c?.intercompany ?? 0,
-                                 minority: c?.minority ?? 0, associates: c?.associates ?? 0, balance: c,
-                                 cashChange: change, operating: change - financing - investing, investing: investing, financing: financing))
+            var st = Statement(month: h.month, revenue: h.revenue, groupRevenue: h.revGroup, computeCosts: compute, peopleCosts: h.costPayroll,
+                               otherCosts: h.opex - compute - h.costPayroll, ebitda: h.ebitda, interestIncome: h.interestIncome,
+                               oneOff: h.oneOffIncome, interest: h.costInterest, taxes: h.taxes, netCompany: h.profit,
+                               subRevenue: c?.subRevenue ?? 0, subCosts: c?.subCosts ?? 0, subTax: c?.subTax ?? 0, intercompany: c?.intercompany ?? 0,
+                               minority: c?.minority ?? 0, associates: c?.associates ?? 0, balance: c,
+                               cashChange: 0, operating: 0, investing: 0, financing: 0)
+            st.contracts = h.revContracts
+            st.depreciation = h.costDepreciation
+            st.assetGains = h.assetGains
+            st.capex = h.capex
+            if let open = h.opening {
+                // 3.8: every line from the month's own entries; the residual is what they leave unexplained (≈ 0).
+                st.cashChange = h.cashEnd - open
+                st.operating = Books.operating(h)
+                st.investing = Books.investing(h)
+                st.financing = Books.financing(h)
+                for k in CashFlowKind.allCases where Books.flow(h, k) != 0 { st.flows[k] = Books.flow(h, k) }
+                st.residual = Books.residual(h, cashEnd: h.cashEnd)
+            } else {
+                // Months from before the ledger: operating is what investing and financing leave over.
+                let change = prev.map { h.cashEnd - $0.cashEnd } ?? 0
+                var financing = 0.0, investing = -h.capex
+                if let c {
+                    financing = (prevC.map { c.debt - $0.debt + c.flow.converted } ?? (c.flow.debtIn - c.flow.debtRepaid)) + c.equityRaised - c.flow.dividends - c.flow.buybacks
+                    investing = -h.capex + c.flow.subProceeds
+                } else {
+                    financing = s.rounds.filter { $0.date >= h.month && $0.date < GameCalendar.addMonths(h.month, 1) }.reduce(0) { $0 + $1.amount }
+                }
+                st.cashChange = change
+                st.operating = change - financing - investing
+                st.investing = investing
+                st.financing = financing
+            }
+            out.append(st)
         }
         return out
     }
@@ -720,6 +851,7 @@ enum Corporate {
         let taxRate = HQ.taxRate(s)
         func run(_ shock: Double, _ dg: Double, _ costGrowth: Double) -> [Double] {
             var cash = s.cash
+            var pool = s.corp.lossPool
             var rev = rev0 * shock
             var opex = opex0
             var loans = s.loans
@@ -757,7 +889,9 @@ enum Corporate {
                     principal += p
                 }
                 let pre = rev - opex - interest
-                let tax = max(0, pre) * taxRate
+                let split = HQ.taxableAfterLosses(pre, pool: pool)   // 3.8: losses carried forward
+                pool = split.pool
+                let tax = split.taxable * taxRate
                 cash += pre - tax - principal
                 if s.isPublic && s.corp.dividendQuarterly > 0 && t % 3 == 0 { cash -= s.corp.dividendQuarterly }
                 out.append(cash)
@@ -862,19 +996,20 @@ enum Corporate {
                 s.cash -= d.amount
                 s.month.costInterest += d.amount
                 s.corp.debts[i].waiverUntil = GameCalendar.addMonths(s.date, 6)
-                Sim.news(&s, "Covenant waiver: \(Fmt.money(d.amount))", "Lenders agreed not to test the \(debt.kind.rawValue.lowercased())'s covenants for six months.", .finance)
+                Sim.news(&s, "Covenant waiver: \(Fmt.money(d.amount))", "Lenders agreed not to test the \(debt.kind.title.lowercased())'s covenants for six months.", .finance)
                 record(&s, "Paid \(Fmt.money(d.amount)) for a covenant waiver")
             case 1:
                 s.cash -= debt.balance
+                Books.post(&s, .repayments, -debt.balance)   // 3.8
                 s.corp.flow.debtRepaid += debt.balance
                 s.corp.debts.remove(at: i)
-                Sim.news(&s, "Debt repaid after a covenant breach", "You paid off the \(Fmt.money(debt.balance)) \(debt.kind.rawValue.lowercased()).", .finance)
-                record(&s, "Repaid the \(debt.kind.rawValue.lowercased()) after a breach")
+                Sim.news(&s, "Debt repaid after a covenant breach", "You paid off the \(Fmt.money(debt.balance)) \(debt.kind.title.lowercased()).", .finance)
+                record(&s, "Repaid the \(debt.kind.title.lowercased()) after a breach")
             default:
                 s.corp.debts[i].penalty += 2
                 s.corp.debts[i].waiverUntil = GameCalendar.addMonths(s.date, 6)
-                Sim.news(&s, "Penalty rate on your \(debt.kind.rawValue.lowercased())", "Lenders added 2 points of interest in exchange for six months' grace.", .finance, good: false)
-                record(&s, "Took a +2 point penalty rate on the \(debt.kind.rawValue.lowercased())")
+                Sim.news(&s, "Penalty rate on your \(debt.kind.title.lowercased())", "Lenders added 2 points of interest in exchange for six months' grace.", .finance, good: false)
+                record(&s, "Took a +2 point penalty rate on the \(debt.kind.title.lowercased())")
             }
         case ("corp_downgrade", 0):
             var left = min(d.amount, max(0, s.cash))
@@ -887,6 +1022,7 @@ enum Corporate {
             }
             s.corp.debts.removeAll { $0.balance <= 1 }
             s.cash -= paid - left
+            Books.post(&s, .repayments, -(paid - left))   // 3.8
             s.corp.flow.debtRepaid += paid - left
             s.boardConfidence = clamp(s.boardConfidence + 3, 0, 100)
             Sim.news(&s, "Paying down debt", "You repaid \(Fmt.money(paid - left)) of corporate debt after the downgrade.", .finance)
@@ -962,7 +1098,14 @@ extension GameState {
 
     func subsidiaryBlocker(_ kind: SubsidiaryKind, country: String) -> String? {
         if year < kind.minYear { return "\(kind.title) subsidiaries make sense from \(Int(kind.minYear))." }
-        if corp.subs.filter(\.live).count >= Corporate.maxSubsidiaries { return "You run \(Corporate.maxSubsidiaries) subsidiaries already — sell, spin off or fold one in first." }
+        // 3.8: slots grow with your stage (2 as a Scale-up, 4, 8, 12).
+        let slots = Progression.subsidiarySlots(self)
+        if slots == 0 { return "Reach Scale-up to start or buy a subsidiary." }
+        if corp.subs.filter(\.live).count >= slots {
+            let next = CompanyStage.allCases.first { Progression.slots($0) > slots }
+            return "A \(progression.current.title) runs at most \(slots) subsidiaries\(next.map { " (\(Progression.slots($0)) as a \($0.title))" } ?? "") — sell, spin off or fold one in first."
+        }
+        if kind == .regional, let why = Progression.blocker(self, .regional) { return why }
         if kind == .regional {
             if country == Corporate.homeID(self) { return "A regional entity goes in another country." }
             if corp.subs.contains(where: { $0.live && $0.kind == .regional && $0.country == country }) { return "You already have an entity in \(Corporate.jurisdiction(country).name)." }
@@ -990,8 +1133,8 @@ extension GameState {
         corp.subs.append(sub)
         corp.engaged = true
         cash -= seed
+        Books.post(&self, .subsidiaries, -seed)   // 3.8: an investment, not capex
         corp.flow.subInvested += seed
-        month.capex += seed
         Sim.news(&self, "\(name) is born", "A \(kind.title.lowercased()) subsidiary in \(j.flag) \(j.name) with \(Fmt.money(seed)), \(kind.baseTeam) people and \(sub.ceo) as CEO. It licenses your models at \(Fmt.pct(sub.transferRate, decimals: 0)) of its revenue.",
                  .company, important: true, good: true)
         Corporate.record(&self, "Started \(name) with \(Fmt.money(seed))")
@@ -1019,8 +1162,8 @@ extension GameState {
         corp.bought.insert(t.id)
         corp.engaged = true
         cash -= t.price
+        Books.post(&self, .subsidiaries, -t.price)   // 3.8
         corp.flow.subInvested += t.price
-        month.capex += t.price
         Sim.news(&self, "\(companyName) buys \(t.name) for \(Fmt.money(t.price))",
                  "A \(t.kind.title.lowercased()) company in \(Corporate.jurisdiction(t.country).name): \(Fmt.money(t.revenue * 12)) annual revenue, \(t.headcount) people. CEO \(t.ceo) stays on. It now runs as your subsidiary.",
                  .company, image: "nvidia_hq", important: true, good: true)
@@ -1054,8 +1197,8 @@ extension GameState {
         corp.subs[i].cash += amount
         corp.subs[i].basis += amount
         cash -= amount
+        Books.post(&self, .subsidiaries, -amount)   // 3.8
         corp.flow.subInvested += amount
-        month.capex += amount
         Sim.news(&self, "\(Fmt.money(amount)) into \(sub.name)", "You own \(Fmt.pct(corp.subs[i].stake)) of it.", .finance)
         Corporate.record(&self, "Put \(Fmt.money(amount)) into \(sub.name)")
         return nil
@@ -1081,7 +1224,9 @@ extension GameState {
         cash += proceeds
         corp.flow.subProceeds += proceeds
         let gain = proceeds - basis
-        if gain > 0 { month.oneOffIncome += gain }
+        // 3.8: the gain or loss against what you put in, either way; the proceeds are an investing inflow.
+        month.assetGains += gain
+        Books.post(&self, .subsidiaries, proceeds)
         if corp.subs[i].stake < 0.0001 {
             corp.subs[i].stake = 0
             corp.subs[i].status = .sold
@@ -1136,12 +1281,20 @@ extension GameState {
         if !sub.isPublic && GameCalendar.daysBetween(sub.founded, date) < 365 { return "Spin-offs need a year of results or a listing." }
         let value = sub.stake * sub.valuation
         let mine = value * founderStake
-        founderCash += mine
+        // 3.8: a distribution of shares, not cash. Your slice is taxed like any gain, and the company is worth what left
+        // less: a listed parent's price drops by the value per share, a private mark (and its round floor) by the total.
+        let tax = mine * Treasury.capitalGainsTax
+        founderCash += mine - tax
         corp.subs[i].status = .spunOff
         corp.subs[i].statusDate = date
-        corp.subs[i].stake = 0
-        valuation = Economy.valuation(self)
-        Sim.news(&self, "\(sub.name) spun off", "Your shareholders receive its shares directly — \(Fmt.money(value)) of value leaves the company. Your own slice is worth \(Fmt.money(mine)) and counts toward your net worth.",
+        if isPublic {
+            sharePrice = max(0.5, sharePrice - value / max(1, totalShares))
+            valuation = sharePrice * totalShares
+        } else {
+            // The stake was in the mark at 90%; the round floor drops by the full value (Economy.roundFloor).
+            valuation = max(0, valuation - value * 0.9)
+        }
+        Sim.news(&self, "\(sub.name) spun off", "Your shareholders receive its shares directly — \(Fmt.money(value)) of value leaves the company\(isPublic ? ", and the share price falls by \(Fmt.price(value / max(1, totalShares)))" : ""). Your own slice, \(Fmt.money(mine)), was taxed \(Fmt.money(tax)) as a distribution; the rest counts toward your net worth.",
                  .finance, image: "stock_exchange", important: true, good: true)
         Corporate.record(&self, "Spun off \(sub.name) (\(Fmt.money(value)))")
         return nil
@@ -1149,16 +1302,26 @@ extension GameState {
 
     func foldInCost(_ sub: Subsidiary) -> Double { (1 - sub.stake) * sub.valuation * (sub.isPublic ? 1.25 : 1.1) }
 
+    /// 3.8: a company you bought runs on its own for a year before it can be merged in (integration, earn-outs, the
+    /// regulator), so a purchase can't be re-rated at once by folding it into your own books.
+    func foldInBlocker(_ sub: Subsidiary) -> String? {
+        guard sub.acquired else { return nil }
+        let ready = GameCalendar.addDays(sub.founded, 365)
+        return ready > date ? "\(sub.name) runs on its own for a year after you bought it: it can be folded in from \(ready.gameShort)." : nil
+    }
+
     /// Buy out the other holders and merge it in as a division: its cash and results become yours.
     mutating func foldInSubsidiary(_ id: String) -> String? {
         guard let i = subIndex(id), corp.subs[i].separate else { return "Not found." }
         let sub = corp.subs[i]
+        if let why = foldInBlocker(sub) { return why }
         let cost = foldInCost(sub)
         if cost > cash { return "Buying out the other holders costs \(Fmt.money(cost)); you have \(Fmt.money(cash))." }
         cash -= cost
+        Books.post(&self, .subsidiaries, -cost)   // 3.8
         corp.flow.subInvested += cost
-        month.capex += cost
         cash += sub.cash
+        Books.post(&self, .subsidiaries, sub.cash)
         corp.flow.subProceeds += max(0, sub.cash)
         corp.subs[i].cash = 0
         corp.subs[i].stake = 1
@@ -1180,7 +1343,12 @@ extension GameState {
         let severance = Double(sub.headcount) * Corporate.payPerHeadMonth(sub, year) * 2
         let left = sub.status == .folded ? -severance : sub.stake * max(0, sub.cash - severance)
         cash += left
-        if left >= 0 { corp.flow.subProceeds += left } else { month.costOther -= left }
+        if left >= 0 {
+            corp.flow.subProceeds += left
+            Books.post(&self, .subsidiaries, left)   // 3.8
+        } else {
+            month.costOther -= left
+        }
         corp.subs[i].status = .closed
         corp.subs[i].statusDate = date
         corp.subs[i].cash = 0
@@ -1215,7 +1383,7 @@ extension GameState {
         if amount <= 0 || amount > q.max + 1 { return "Up to \(Fmt.money(q.max))." }
         let m = Corporate.metrics(self)
         var d = CorpDebt(kind: kind, principal: amount, balance: amount, rate: q.rate, termMonths: q.term, monthsLeft: q.term, taken: date)
-        d.notch = corp.rating >= 0 ? corp.rating : m.notch
+        d.notch = corp.notch >= 0 ? corp.notch : m.notch
         switch kind {
         case .termLoan:
             d.maxLeverage = 4
@@ -1226,12 +1394,13 @@ extension GameState {
             d.minCash = amount * q.rate / 100 / 2
         }
         corp.debts.append(d)
-        if corp.rating < 0 { corp.rating = m.notch }
+        if corp.notch < 0 { corp.notch = m.notch }
         corp.engaged = true
         cash += amount
+        Books.post(&self, .borrowing, amount)   // 3.8
         corp.flow.debtIn += amount
-        Sim.news(&self, "\(kind.rawValue): \(Fmt.money(amount))", "\(Fmt.trim(q.rate, 2))% for \(q.term / 12) years. \(q.covenants).", .finance)
-        Corporate.record(&self, "Took a \(Fmt.money(amount)) \(kind.rawValue.lowercased()) at \(Fmt.trim(q.rate, 2))%")
+        Sim.news(&self, "\(kind.title): \(Fmt.money(amount))", "\(Fmt.trim(q.rate, 2))% for \(q.term / 12) years. \(q.covenants).", .finance)
+        Corporate.record(&self, "Took a \(Fmt.money(amount)) \(kind.title.lowercased()) at \(Fmt.trim(q.rate, 2))%")
         return nil
     }
 
@@ -1243,9 +1412,10 @@ extension GameState {
         if cost > cash { return "Need \(Fmt.money(cost))." }
         cash -= cost
         if cost > d.balance { month.costInterest += cost - d.balance }
+        Books.post(&self, .repayments, -d.balance)   // 3.8
         corp.flow.debtRepaid += d.balance
         corp.debts.remove(at: i)
-        Corporate.record(&self, "Repaid the \(d.kind.rawValue.lowercased()) early")
+        Corporate.record(&self, "Repaid the \(d.kind.title.lowercased()) early")
         return nil
     }
 
@@ -1269,7 +1439,18 @@ extension GameState {
         let old = corp.dividendQuarterly
         corp.dividendQuarterly = q
         corp.engaged = true
-        if q > old * 1.05 { sharePrice *= old == 0 ? 1.02 : 1.01 } else if q < old * 0.95 { sharePrice *= 0.94 }
+        // 3.8: the market re-rates a raise by what it adds to the yield (half a point of price per point of yield, at
+        // most 2%), and only once a quarter; a cut is punished by how much it takes away.
+        let cap = max(1, sharePrice * totalShares)
+        let yieldMove = 4 * (q - old) / cap
+        if q > old * 1.05 {
+            if corp.lastDividendBump.map({ GameCalendar.daysBetween($0, date) >= 90 }) ?? true {
+                sharePrice *= 1 + min(0.02, yieldMove * 0.5)
+                corp.lastDividendBump = date
+            }
+        } else if q < old * 0.95 {
+            sharePrice *= 1 - clamp(0.02 + 2 * abs(yieldMove), 0.02, 0.08)
+        }
         valuation = sharePrice * totalShares
         Sim.news(&self, q == 0 ? "Dividend cancelled" : (old == 0 ? "First dividend declared" : "Dividend changed"),
                  q == 0 ? "No more quarterly payouts." : "\(Fmt.money(q)) a quarter (\(Fmt.price(q / max(1, totalShares))) a share).", .finance, good: q >= old)
@@ -1308,6 +1489,7 @@ extension GameState {
         corp.buybacks.removeAll { GameCalendar.daysBetween($0.date, today) > 730 }
         corp.lastBuyback = date
         corp.flow.buybacks += spend
+        Books.post(&self, .buybacks, -spend)   // 3.8
         corp.buybacksSpent += spend
         corp.engaged = true
         Sim.news(&self, "Buyback: \(Fmt.money(spend))", "Bought and cancelled \(Fmt.count(shares)) shares at \(Fmt.price(price)). Your stake is now \(Fmt.pct(founderStake)).", .finance, good: true)

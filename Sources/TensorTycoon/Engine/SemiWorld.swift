@@ -362,6 +362,7 @@ extension Semis {
 extension GameState {
     mutating func hireChipTeam(engineers: Int) -> String? {
         guard bonuses.has(.customSilicon) else { return "Research Custom Accelerator Design first." }
+        if let why = Progression.blocker(self, .chipTeams) { return why }   // 3.8: Frontier Lab
         let n = clamp(engineers, 50, 2_000)
         let fee = Double(n) * Semis.engineerCost(year) * 0.25
         if fee > cash { return "Recruiting \(n) engineers costs \(Fmt.money(fee)) up front." }
@@ -552,6 +553,7 @@ extension GameState {
 
     mutating func buildFab(site: String, node: String, wafersMonth: Double) -> String? {
         guard let st = SemiCatalog.siteByID[site] else { return "Pick a site." }
+        if let why = Progression.blocker(self, .fabs) { return why }   // 3.8: Hyperscaler
         let n = SemiCatalog.node(node)
         if n.launch > year { return "Nobody can build a \(n.short) fab before the node exists (\(Fmt.trim(n.launch, 1)))." }
         if HQ.region(self) == .china && market.exportControls && st.region != .china && n.density > 1.0 { return "Export controls: tool makers won't ship leading-edge tools to a Chinese company's fab abroad." }

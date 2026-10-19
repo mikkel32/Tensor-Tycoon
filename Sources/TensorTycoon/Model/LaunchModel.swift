@@ -127,6 +127,11 @@ struct ProgressionState: Codable, Hashable, DefaultValue {
     @D var lastPromotion: Date? = nil
     /// Your lab's leaderboard rank at the last weekly check (0 = nothing released).
     @D var rank: Int = 0
+    /// 3.8: features a save was already using when stages began to gate them (Progression.Feature raw values): kept
+    /// open whatever the stage. Worked out once (`gatesChecked`), with the subsidiaries it already ran.
+    @D var grandfathered: Set<String> = []
+    @D var gatesChecked: Bool = false
+    @D var grandfatheredSlots: Int = 0
 
     var current: CompanyStage { CompanyStage(rawValue: stage) ?? .garage }
 }
