@@ -6,9 +6,9 @@ extension ScenarioHarness {
     /// payroll taxes, capped) and power.
     static func scenarioC() -> Report {
         var r = Report(id: "C", title: all.first { $0.id == "C" }?.title ?? "C")
-        var s = newGame(era: "2022", hq: "it", city: "turin", seed: 23, name: "Officina AI")
+        var s = newGame(era: "2022", hq: "it", city: "turin", seed: hqSeed(23), name: "Officina AI")
         var bot = PTBot()
-        bot.flags = ["advproj", "science"]
+        bot.flags = ["advproj", "science", "fillroles"]
         var lab: UUID? = nil
         // The research behind the Robotics Brain, sampled each month to catch the partners' contribution.
         let research = ProductLines.byID["robotics"]?.research ?? ""
@@ -55,7 +55,7 @@ extension ScenarioHarness {
         }
         // Italian money rules.
         let lossMonths = months.filter { $0.pre <= 0 }
-        let reliefInLosses = zip(months.dropFirst(), months).filter { $0.0.pre <= 0 }.reduce(0) { $0 + ($1.0.rdCredits - $1.1.rdCredits) }
+        let reliefInLosses = months.filter { $0.pre <= 0 }.reduce(0) { $0 + $1.relief }
         let yearsPlayed = Double(months.count) / 12
         r.expect("R&D credit offsets payroll taxes, so it pays while loss-making", lossMonths.isEmpty || reliefInLosses > 0,
                  "\(lossMonths.count) loss-making months, \(hqMoney(reliefInLosses)) of relief in them")

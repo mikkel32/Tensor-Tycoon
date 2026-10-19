@@ -8,7 +8,8 @@ import Foundation
 /// flags (comma-separated, optional): cautious (20% of cash per run, current-gen chips only, slow hiring, no research
 /// compute, no growth rounds), norent (never rents: garage GPUs only), hard / easy (difficulty), noresearchcompute,
 /// autorollback, noquick, hq=<country>[:<city>] (headquarters, e.g. hq=fr:grenoble; unknown places print a warning),
-/// lean (half the usual training budget: smaller models), coding (specialist coding models).
+/// lean (half the usual training budget: smaller models), coding (specialist coding models), fillroles (when nobody
+/// fits the role furthest below its share, hire for the next short role instead of nobody).
 ///
 /// Output: a monthly table (every 3rd month unless mode is `full`), an event log, every training run (plan vs actual
 /// days, forecast vs actual capability), a summary of pacing metrics, and `CSV,` rows for offline aggregation.
@@ -812,13 +813,33 @@ enum PTPlay {
             let payroll = Economy.payrollYear(s)
             let allowance = max(0.25 * s.cash, 0.35 * Economy.runRate(s))
             let n = Double(s.employees.count + 1)
-            var role = Role.researcher, deficit = -Double.infinity
+            // The role furthest below its share. With `fillroles` (3.4 overhaul), when nobody suitable is on the market
+            // for it, the next role still below its share, as a player would, instead of hiring nobody that month.
+            var gaps: [(role: Role, gap: Double)] = []
             for (r, f) in roleMix {
                 let have = Double(s.employees.filter { $0.role == r }.count)
-                if f * n - have > deficit { deficit = f * n - have; role = r }
+                gaps.append((r, f * n - have))
             }
-            let pool = s.candidates.filter { $0.role == role && payroll + $0.salary <= allowance && $0.salary * 0.15 < s.cash * 0.02 && HQ.hasSeat(s, $0) }
-            guard let c = pool.max(by: { $0.skill / pow($0.salary, 0.5) < $1.skill / pow($1.salary, 0.5) }) else { break }
+            var order: [Role] = []
+            var left = gaps
+            while !left.isEmpty {
+                // The first largest gap, in roleMix order (as before when the top role is on the market).
+                var k = 0
+                for i in left.indices where left[i].gap > left[k].gap { k = i }
+                if order.isEmpty || (left[k].gap > 0 && bot.flags.contains("fillroles")) { order.append(left[k].role) }
+                left.remove(at: k)
+            }
+            var pick: Candidate? = nil
+            for role in order {
+                let pool = s.candidates.filter { c in
+                    c.role == role && payroll + c.salary <= allowance && c.salary * 0.15 < s.cash * 0.02 && HQ.hasSeat(s, c)
+                }
+                if let c = pool.max(by: { a, b in a.skill / pow(a.salary, 0.5) < b.skill / pow(b.salary, 0.5) }) {
+                    pick = c
+                    break
+                }
+            }
+            guard let c = pick else { break }
             if s.hire(c.id) == nil { hired.append("\(c.role.rawValue) \(Int(c.skill))") }
         }
         if !hired.isEmpty {
@@ -835,8 +856,11 @@ enum PTPlay {
             && HQ.satelliteExpandCost(o) < s.cash * 0.01 {
             if s.expandSatellite(o.id) == nil { bot.actions += 1; bot.events.append("\(HQ.officeName(s, o.id.uuidString)) office +\(HQ.satelliteStep) desks") }
         }
+        // Only while the home market is still thin: once relocating hires fill a San Francisco-sized pool, a satellite
+        // is a choice of city, not a necessity.
+        let base = 8 + min(8, HQ.staffCount(s, office: "") / 20)
         let local = HQ.country(s).talentPool * HQ.city(s).talent
-        guard local < 0.8, s.employees.count >= 40, s.hq.satellites.count < 2 else { return }
+        guard local < 0.8, HQ.candidateTargets(s, base).total < base, s.employees.count >= 25, s.hq.satellites.count < 2 else { return }
         if let last = s.hq.satellites.map(\.opened).max(), GameCalendar.daysBetween(last, s.date) < 540 { return }
         let options = [("fr", "paris"), ("us", "sf"), ("it", "milan")].filter { pair in
             !(pair.0 == s.hqCountry && pair.1 == s.hqCity) && !s.hq.satellites.contains { $0.country == pair.0 && $0.city == pair.1 }
@@ -855,7 +879,7 @@ enum PTPlay {
         return "  HQ \(HQ.place(s)): tax paid \(m(tax)) · R&D relief \(m(h.rdCredits))\(h.rdCarry > 1 ? " (+\(m(h.rdCarry)) carried)" : "")"
             + " · grants \(m(h.grants)) + compute \(m(h.computeGrants)) (\(h.grantOffers) offers, \(Fmt.trim(Double(h.grantOffers) / years, 2))/yr)"
             + " · build incentives \(m(h.rebates)) · national contracts \(h.contracts) (\(m(h.contractRevenue)))"
-            + (h.minimumTax > 0 ? " · minimum tax \(m(h.minimumTax))" : "") + " · partnerships \(h.partnerships)"
+            + (h.minimumTax > 0 ? " · minimum tax \(m(h.minimumTax))" : "") + " · industrial partnerships \(h.partnerships) · national partnerships \(h.partners.count)"
             + " · staff \(HQ.staffCount(s, office: "")) at HQ\(sats.isEmpty ? "" : ", offices: " + sats.joined(separator: ", ")) · safety \(Int(s.safetyScore))"
     }
 
