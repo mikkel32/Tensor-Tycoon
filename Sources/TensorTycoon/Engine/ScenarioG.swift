@@ -318,10 +318,43 @@ extension ScenarioHarness {
         r.expect("A's spec never moved with the calendar", abs(Semis.spec(design(s, idA)!, s).bf16 - ultraA.bf16) < 1)
         r.note("lifetime: \(Fmt.count(s.semi.designs.reduce(0) { $0 + $1.made.reduce(0, +) })) chips made, \(Fmt.count(s.semi.shipped)) sold for \(Fmt.money(s.semi.designs.reduce(0) { $0 + $1.revenue })), \(Fmt.count(s.semi.designs.reduce(0) { $0 + $1.taken.reduce(0, +) })) kept")
 
+        // MARK: Saves: the chip business round-trips, and a save missing the newer keys decodes to their real defaults
+        saveRepair(&r, s)
+
         // MARK: Organisations scale with sharply diminishing returns, and splitting never beats pooling
         orgScaling(&r, s)
         sanity(s, &r)
         return r
+    }
+
+    /// Encodes the game, strips keys older saves lack (or that a damaged save lost), and decodes it again.
+    static func saveRepair(_ r: inout Report, _ s: GameState) {
+        guard let data = try? SaveCoding.encoder().encode(s), let back = try? SaveCoding.decoder().decode(GameState.self, from: data) else {
+            r.expect("the chip business saves and loads", false)
+            return
+        }
+        r.expect("the chip business saves and loads unchanged", back.semi == s.semi && back.customChips == s.customChips)
+        guard var root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any], var semi = root["semi"] as? [String: Any],
+              var designs = semi["designs"] as? [[String: Any]], !designs.isEmpty else { return }
+        semi["keepShare"] = nil
+        semi["allowSovereigns"] = nil
+        for k in ["dieBank", "stockMine", "stockSale", "prices", "onSale", "made", "sold", "taken"] { designs[0][k] = nil }
+        designs[0]["stockSale"] = [Double]()   // present but short: padded on load
+        semi["designs"] = designs
+        root["semi"] = semi
+        guard let stripped = try? JSONSerialization.data(withJSONObject: root),
+              var old = try? SaveCoding.decoder().decode(GameState.self, from: stripped) else {
+            r.expect("a save missing the newer chip keys still decodes", false)
+            return
+        }
+        SaveMigration.migrate(&old)
+        let d = old.semi.designs[0]
+        r.expect("missing keys decode to their real defaults (keep 50%, sovereigns allowed, three bins)",
+                 old.semi.keepShare == 0.5 && old.semi.allowSovereigns && d.dieBank.count == 3 && d.onSale.count == 3 && d.stockSale.count == 3,
+                 "keep \(old.semi.keepShare), sovereigns \(old.semi.allowSovereigns), bins \(d.dieBank.count)/\(d.onSale.count)/\(d.stockSale.count)")
+        var t = old
+        Semis.daily(&t)
+        r.expect("…and the business runs a day on it", t.cash.isFinite)
     }
 
     /// Pure checks of the organisation pool (supervised frontier agents, 10% verification, fully funded).

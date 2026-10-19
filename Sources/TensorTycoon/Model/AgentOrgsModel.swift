@@ -99,6 +99,8 @@ struct AgentOrg: Codable, Identifiable, Hashable {
     @D var goalSet: Date? = nil
     @D var goalStatus: Int = 0
     @D var goalClosed: Date? = nil
+    /// Where the metric stood when a missed objective closed.
+    @D var goalEnd: Double = 0
 }
 
 extension SwarmMission {

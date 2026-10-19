@@ -568,7 +568,7 @@ enum AgentOrgs {
         let now = m.value(s)
         switch o.goalStatus {
         case 1: return "\(m.title.lowercased()) reached \(m.format(o.goalTarget))\(o.goalClosed.map { " on \($0.gameShort)" } ?? "")"
-        case 2: return "\(m.title.lowercased()) missed \(m.format(o.goalTarget)) by \(deadline.gameShort) (got to \(m.format(now)))"
+        case 2: return "\(m.title.lowercased()) missed \(m.format(o.goalTarget)) by \(deadline.gameShort) (got to \(m.format(o.goalEnd)))"
         default: return "\(m.title.lowercased()) \(m.format(now)) → \(m.format(o.goalTarget)) by \(deadline.gameShort)\(goalOnTrack(o, s) ? ", on track" : ", behind")"
         }
     }
@@ -597,6 +597,7 @@ enum AgentOrgs {
             } else if s.date >= deadline {
                 s.orgs[oi].goalStatus = 2
                 s.orgs[oi].goalClosed = s.date
+                s.orgs[oi].goalEnd = v
                 report(&s, o.id, .incident, "Objective missed: \(m.title.lowercased()) \(m.format(o.goalTarget))",
                        "Got to \(m.format(v)) from \(m.format(o.goalStart)) by \(deadline.gameShort). More agents, better models, a bigger tools budget or a nearer target.")
                 Sim.news(&s, "\(o.name) missed its objective", "\(m.title): \(m.format(v)) of the \(m.format(o.goalTarget)) promised by \(deadline.gameShort).", .research, good: false)
