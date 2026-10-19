@@ -60,7 +60,9 @@ enum Sim {
 
     static func news(_ s: inout GameState, _ title: String, _ body: String, _ cat: NewsCategory,
                      image: String? = nil, important: Bool = false, good: Bool? = nil) {
-        s.news.insert(NewsItem(date: s.date, title: title, body: body, category: cat, image: image, important: important, good: good), at: 0)
+        // The photo is a pure function of the headline (ImagePicker never draws from the game's RNG).
+        s.news.insert(NewsItem(date: s.date, title: title, body: body, category: cat,
+                               image: ImagePicker.illustrate(image, title: title, category: cat), important: important, good: good), at: 0)
         if s.news.count > 400 { s.news.removeLast(s.news.count - 400) }
         s.unreadNews += 1
     }

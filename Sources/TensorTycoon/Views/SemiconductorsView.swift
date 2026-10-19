@@ -21,7 +21,7 @@ struct SemiconductorsView: View {
         let making = s.semi.designs.filter(\.inProduction).count
         Page(title: "Semiconductors",
              subtitle: "Design your own accelerators, tape them out at a process node, book wafers or build a fab, buy advanced packaging and HBM, and sell what you make — or keep it all for yourself.", screen: .semiconductors) {
-            HeroBanner(image: "wafer", height: 150) {
+            HeroBanner(image: "fab_cleanroom", height: 150) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Your chip business").font(.title2.weight(.bold))
                     Text("\(s.semi.teams.reduce(0) { $0 + $1.engineers }) chip engineers · \(inDesign) design\(inDesign == 1 ? "" : "s") under way · \(making) in production · \(s.semi.fabs.count) fab\(s.semi.fabs.count == 1 ? "" : "s")")
@@ -556,6 +556,7 @@ private struct FabRow: View {
         let total = Double(max(1, GameCalendar.daysBetween(fab.started, fab.opens)))
         let done = Double(GameCalendar.daysBetween(fab.started, s.date))
         VStack(alignment: .leading, spacing: 4) {
+            IllustrativeBanner(key: ImagePicker.pick(fab.open(s.date) ? .fab : .construction, seed: fab.name), height: 70)
             HStack {
                 Text(fab.name).font(.callout.weight(.semibold))
                 Pill(text: SemiCatalog.node(fab.node).short, color: .indigo)

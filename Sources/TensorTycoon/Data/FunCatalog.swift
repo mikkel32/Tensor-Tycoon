@@ -15,6 +15,9 @@ struct VenueDef: Identifiable, Sendable {
     let blurb: String
     /// Research categories it likes best (a paper on one of them is stronger here).
     let likes: [ResearchCategory]
+
+    /// A conference-hall photo for this (fictional) venue; the same one every year.
+    var image: String { ImagePicker.pick(.events, seed: id) }
 }
 
 /// A public challenge, decided once a year on its date.
@@ -34,6 +37,9 @@ struct ContestDef: Identifiable, Sendable {
     let task: String
     let grandGoal: String
     let symbol: String
+
+    /// A photo for this (fictional) challenge: robots for the robotics one, a stage for the rest.
+    var image: String { ImagePicker.pick(domain == .robotics ? .robotics : .events, seed: id) }
 }
 
 /// A curated challenge-mode start.

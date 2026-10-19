@@ -114,11 +114,11 @@ enum PowerDeal: String, Codable, CaseIterable, Identifiable, Sendable {
         switch self {
         case .grid: "substation"
         case .solar: "solar_farm"
-        case .wind: "substation"
-        case .gas: "generator"
+        case .wind: "power_wind"
+        case .gas: "power_gas"
         case .nuclear: "nuclear"
         case .smr: "nuclear"
-        case .fusion: "substation"
+        case .fusion: "power_fusion"
         }
     }
 
@@ -168,7 +168,7 @@ enum LocationCatalog {
     static let all: [Location] = core + european   // 3.5: European locations live in Countries.swift
     static let core: [Location] = [
         Location(id: "nova", name: "Ashburn, Virginia", region: "US East", powerPrice: 0.085, pueDelta: 0.0, buildSpeed: 0.8,
-                 gridCapMW: 1_200, coloFee: 185, image: "dc_corridor",
+                 gridCapMW: 1_200, coloFee: 185, image: "dc_ashburn",
                  blurb: "Data Center Alley — the densest datacenter market on Earth. Great connectivity, long grid queues."),
         Location(id: "texas", name: "Abilene, Texas", region: "US South", powerPrice: 0.060, pueDelta: 0.03, buildSpeed: 1.25,
                  gridCapMW: 5_000, coloFee: 140, image: "dc_construction",
@@ -186,7 +186,7 @@ enum LocationCatalog {
                  gridCapMW: 800, coloFee: 140, image: "dc_hall",
                  blurb: "Some of the cheapest hydro power in the world and free cooling most of the year."),
         Location(id: "iceland", name: "Reykjanes, Iceland", region: "Nordics", powerPrice: 0.040, pueDelta: -0.10, buildSpeed: 0.7,
-                 gridCapMW: 300, coloFee: 160, image: "supercomputer",
+                 gridCapMW: 300, coloFee: 160, image: "power_geothermal",
                  blurb: "Geothermal power and arctic air. Small grid, far from users."),
         Location(id: "uae", name: "Abu Dhabi, UAE", region: "Middle East", powerPrice: 0.050, pueDelta: 0.10, buildSpeed: 1.35,
                  gridCapMW: 5_000, coloFee: 150, image: "gpu_cluster",

@@ -160,7 +160,7 @@ enum NewGame {
         Sim.news(&s, "Welcome to \(s.companyName)", "\(era.blurb) You have \(Fmt.money(s.cash)) from your \(s.rounds[0].name.lowercased()) round led by \(lead), a garage with \(starter.1)× \(HardwareCatalog.get(starter.0)?.name ?? "GPUs") and a tiny team. Build something people want.",
                  .company, image: era.image, important: true, good: true)
         for e in EventCatalog.historical where e.date < start && e.date > GameCalendar.addDays(start, -120) {
-            s.news.append(NewsItem(date: e.date, title: e.title, body: e.body, category: e.category, image: e.image))
+            s.news.append(NewsItem(date: e.date, title: e.title, body: e.body, category: e.category, image: ImagePicker.illustrate(e.image, title: e.title, category: e.category)))
         }
         let top = Leaderboard.entries(s).first
         if let top {

@@ -870,6 +870,22 @@ struct PhotoPill: View {
     }
 }
 
+/// A generic photo standing in for one of the player's (fictional) facilities or deals, captioned as such.
+struct IllustrativeBanner: View {
+    let key: String
+    var height: CGFloat = 80
+
+    var body: some View {
+        Photo(key: key)
+            .frame(maxWidth: .infinity)
+            .frame(height: height)
+            .clipped()
+            .clipShape(.rect(cornerRadius: 8))
+            .overlay(alignment: .bottomLeading) { PhotoPill(text: "Illustrative photo", symbol: "photo").padding(6) }
+            .help(ImageLibrary.credit(key).map { "Illustrative photo · \($0.author) · \($0.license) · Wikimedia Commons" } ?? "Illustrative photo")
+    }
+}
+
 struct ImageCreditLabel: View {
     let key: String
     var representative = false
