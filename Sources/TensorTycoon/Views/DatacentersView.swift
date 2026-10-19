@@ -244,7 +244,6 @@ private struct SiteCard: View {
     @State private var expandKW = 1000.0
     @State private var confirmSell = false
     @State private var moving: OwnedBatch?
-    @State private var subletShare = 0.5
 
     var body: some View {
         let s = state
