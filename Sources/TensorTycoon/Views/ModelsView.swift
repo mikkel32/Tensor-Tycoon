@@ -10,7 +10,7 @@ struct ModelsView: View {
         let focus = store.focusModelID
         let models = s.models.filter { showRetired || !$0.retired }
             .sorted { ($0.id == focus ? 1 : 0, $0.created) > ($1.id == focus ? 1 : 0, $1.created) }
-        Page(title: "Models & Serving", subtitle: "Release models, give them accelerators, set prices. Tokens/sec comes from memory bandwidth; capacity from FLOPS.") {
+        Page(title: "Models & Serving", subtitle: "Release models, give them accelerators, set prices. Tokens/sec comes from memory bandwidth; capacity from FLOPS.", screen: .models) {
             ScreenHint(.models)
             HStack {
                 Toggle("Show retired", isOn: $showRetired).toggleStyle(.switch)
@@ -72,7 +72,7 @@ private struct ModelCard: View {
                 }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 0) {
-                    Text(Fmt.score(entry?.index ?? BenchmarkCatalog.index(p, set: d.indexSet))).font(.system(size: 34, weight: .bold).monospacedDigit())
+                    Text(Fmt.score(entry?.index ?? BenchmarkCatalog.index(p, set: d.indexSet))).font(TypeRamp.bannerMetric)
                     Text("Index · #\(rank) lab worldwide").font(.caption).foregroundStyle(.secondary)
                     Text("Capability \(Int(BenchmarkCatalog.capability(p).rounded())) (GPT-4 = 100)").font(.caption).foregroundStyle(.secondary)
                     Text("Task horizon \(BenchmarkCatalog.formatHorizon(BenchmarkCatalog.taskHorizonMinutes(p)))").font(.caption2).foregroundStyle(.secondary)
@@ -288,7 +288,7 @@ private struct DeploymentRow: View {
             }
         }
         .padding(10)
-        .background(.quaternary.opacity(0.4), in: .rect(cornerRadius: 10))
+        .background(Theme.insetFill, in: .rect(cornerRadius: Theme.Radius.inset))
         .onAppear { chips = dep.chips }
         .onChange(of: dep.chips) { _, new in chips = new }
     }
@@ -299,13 +299,7 @@ private struct Metric: View {
     let value: String
     let symbol: String
     var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: symbol).foregroundStyle(.secondary).frame(width: 18)
-            VStack(alignment: .leading, spacing: 0) {
-                Text(value).font(.callout.weight(.semibold).monospacedDigit())
-                Text(label).font(.caption2).foregroundStyle(.secondary)
-            }
-        }
+        MetricTile(label: label, value: value, symbol: symbol, style: .plain)
     }
 }
 

@@ -11,7 +11,7 @@ struct TrainingView: View {
         // 3.5: one run at a time gets the full command centre; the switcher picks which.
         let focus = active.first { $0.id == store.focusRunID } ?? active.first { $0.kind == .full } ?? active.first
         let firsts = s.trainingFirsts.filter { !$0.quiet }
-        Page(title: "Training Runs", subtitle: "Mission control. Watch the loss against the forecast, catch bugs, call the spikes — and find out whether you trained a genius.") {
+        Page(title: "Training Runs", subtitle: "Mission control. Watch the loss against the forecast, catch bugs, call the spikes — and find out whether you trained a genius.", screen: .training) {
             ScreenHint(.training)
             if active.isEmpty {
                 Card {
@@ -365,7 +365,7 @@ private struct CommandCentre: View {
             if let fc = run.forecast { ForecastTracker(run: run, forecast: fc) }
 
             // Vital signs
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 6), spacing: 10) {
+            EqualColumns(minWidth: 120, spacing: 10, maxColumns: 6) {
                 LiveStat(label: "Tokens / sec", value: Fmt.count(tokensPerSec), symbol: "text.word.spacing", tint: .blue)
                 LiveStat(label: "Effective compute", value: Fmt.tflops(flopsPerSec / 1e12), symbol: "bolt.fill", tint: .yellow)
                 LiveStat(label: "Loss vs forecast", value: lossDelta(run), symbol: "chart.line.downtrend.xyaxis", tint: .teal)
@@ -520,7 +520,7 @@ private struct CommandCentre: View {
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 3) {
-                Text(Fmt.pct(progress, decimals: 1)).font(.system(size: 34, weight: .bold).monospacedDigit())
+                Text(Fmt.pct(progress, decimals: 1)).font(TypeRamp.bannerMetric)
                     .contentTransition(.numericText())
                 Meter(value: progress, tint: inPost ? .purple : .blue, height: 7).frame(width: 170)
                 Text(run.status == .paused ? "Paused — waiting for you" : (eta.isFinite ? "\(Fmt.days(eta)) left · ~\(GameCalendar.addDays(s.date, Int(eta.rounded(.up))).gameShort)" : "Not progressing"))
@@ -584,7 +584,7 @@ private struct CommandCentre: View {
             .frame(width: 380, alignment: .topLeading)
         }
         .padding(12)
-        .background(.quaternary.opacity(0.3), in: .rect(cornerRadius: 10))
+        .background(Theme.insetFill, in: .rect(cornerRadius: Theme.Radius.inset))
     }
 
     @ViewBuilder
@@ -599,7 +599,7 @@ private struct CommandCentre: View {
             }
             .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.quaternary.opacity(0.4), in: .rect(cornerRadius: 8))
+            .background(Theme.insetFill, in: .rect(cornerRadius: Theme.Radius.inset))
         }
     }
 
@@ -691,7 +691,7 @@ private struct OpsPanel: View {
                 .buttonStyle(.borderedProminent)
         }
         .padding(12)
-        .background(.quaternary.opacity(0.3), in: .rect(cornerRadius: 10))
+        .background(Theme.insetFill, in: .rect(cornerRadius: Theme.Radius.inset))
     }
 }
 
@@ -802,15 +802,7 @@ private struct LiveStat: View {
     let tint: Color
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Image(systemName: symbol).font(.caption).foregroundStyle(tint)
-            Text(value).font(.headline.monospacedDigit()).lineLimit(1).minimumScaleFactor(0.6)
-                .contentTransition(.numericText())
-            Text(label).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-        }
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(tint.opacity(0.08), in: .rect(cornerRadius: 10))
+        MetricTile(label: label, value: value, symbol: symbol, tint: tint, style: .tinted)
     }
 }
 
@@ -835,7 +827,7 @@ private struct StageTimeline: View {
             }
         }
         .padding(10)
-        .background(.quaternary.opacity(0.35), in: .rect(cornerRadius: 10))
+        .background(Theme.insetFill, in: .rect(cornerRadius: Theme.Radius.inset))
     }
 
     private func progress(_ idx: Int, _ st: RunStage) -> Double {
@@ -1050,7 +1042,7 @@ private struct CheckpointCard: View {
         }
         .padding(10)
         .frame(width: 170, alignment: .leading)
-        .background(.quaternary.opacity(0.45), in: .rect(cornerRadius: 10))
+        .background(Theme.insetFill, in: .rect(cornerRadius: Theme.Radius.inset))
         .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(cp.forkedModelID != nil ? Color.green.opacity(0.5) : .clear))
     }
 }

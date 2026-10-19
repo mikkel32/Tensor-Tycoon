@@ -36,9 +36,9 @@ struct CorporateView: View {
         let m = Corporate.metrics(s)
         let live = s.corp.subs.filter(\.separate)
         Page(title: "Corporate",
-             subtitle: "The company as a group: the monthly books, debt and its covenants, your credit rating, the cap table, taxes, and the subsidiaries you start, buy, sell down, list, spin off or fold back in.") {
+             subtitle: "The company as a group: the monthly books, debt and its covenants, your credit rating, the cap table, taxes, and the subsidiaries you start, buy, sell down, list, spin off or fold back in.", screen: .corporate) {
             ScreenHint(.corporate)
-            HStack(spacing: 14) {
+            KPIRow {
                 StatTile(title: "Credit rating", value: Corporate.ratingName(s.corp.rating >= 0 ? s.corp.rating : (m.debt > 0 ? m.notch : -1)),
                          detail: m.debt > 0 ? "Score \(Int(m.score)) · spread +\(Fmt.trim(Corporate.spreads[max(0, s.corp.rating >= 0 ? s.corp.rating : m.notch)], 2)) pts" : "Rated once you borrow",
                          symbol: "checkmark.seal.fill", tint: CorpStyle.rating(s.corp.rating >= 0 ? s.corp.rating : m.notch))
@@ -48,11 +48,7 @@ struct CorporateView: View {
                 StatTile(title: "Subsidiaries", value: "\(live.count)", detail: live.isEmpty ? "Start or buy one" : "Your stakes: \(Fmt.money(Corporate.stakesValue(s)))",
                          symbol: "square.stack.3d.up.fill", tint: .indigo)
             }
-            Picker("Section", selection: $tab) {
-                ForEach(CorporateTab.allCases) { t in Text(t.rawValue).tag(t) }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
+            SectionTabs(selection: $tab, options: CorporateTab.allCases)
             switch tab {
             case .statements: StatementsSection(state: s)
             case .capital: CapitalSection(state: s)
@@ -75,7 +71,7 @@ private struct StatementsSection: View {
         VStack(alignment: .leading, spacing: 16) {
             if rows.isEmpty {
                 Card {
-                    Text("The first statements appear when your first month closes.").font(.callout).foregroundStyle(.secondary)
+                    EmptyStateView(symbol: "doc.text", title: "No statements yet", message: "The first statements appear when your first month closes.", compact: true)
                 }
             } else {
                 HStack {
@@ -111,7 +107,7 @@ private struct StatementsSection: View {
                         ("Consolidated net income", { $0.consolidatedNet }, true),
                     ])
                 }
-                HStack(alignment: .top, spacing: 16) {
+                CardGrid(minWidth: 340, maxColumns: 2) {
                     Card {
                         CardHeader("Balance sheet", symbol: "scalemass.fill", subtitle: "An approximation: hardware at resale value, datacenters at 80% of cost, stakes at market.")
                         if rows.contains(where: { $0.balance != nil }) {
@@ -197,9 +193,9 @@ private struct RunwayCard: View {
                         Text(c.detail).font(.caption).foregroundStyle(.secondary)
                         Spacer()
                         if let z = c.zeroMonth {
-                            Pill(text: "Out of cash in \(z) months", color: z <= 6 ? .red : .orange)
+                            Pill("Out of cash in \(z) months", tone: z <= 6 ? .bad : .warning)
                         } else {
-                            Pill(text: "\(Fmt.money(c.cash.last ?? 0)) in 2 years", color: .green)
+                            Pill("\(Fmt.money(c.cash.last ?? 0)) in 2 years", tone: .good)
                         }
                     }
                 }
@@ -216,7 +212,7 @@ private struct CapitalSection: View {
     var body: some View {
         let s = state
         VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .top, spacing: 16) {
+            CardGrid(minWidth: 340, maxColumns: 2) {
                 RatingCard(state: s)
                 CapTableCard(state: s)
             }
@@ -237,7 +233,7 @@ private struct RatingCard: View {
             CardHeader("Credit rating", symbol: "checkmark.seal.fill", subtitle: "Moves with leverage, interest cover, size and liquidity. It prices new debt, and term loans re-price with it.")
             HStack(alignment: .firstTextBaseline, spacing: 12) {
                 Text(s.corp.rating >= 0 || m.debt > 0 ? Corporate.ratingName(notch) : "—")
-                    .font(.system(size: 40, weight: .bold).monospacedDigit())
+                    .font(TypeRamp.display)
                     .foregroundStyle(CorpStyle.rating(notch))
                 VStack(alignment: .leading, spacing: 2) {
                     Text(Corporate.investmentGrade(notch) ? "Investment grade" : "Speculative grade").font(.callout.weight(.semibold))
@@ -320,7 +316,7 @@ private struct CorpDebtCard: View {
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(spacing: 6) {
                             Text(d.kind.rawValue).font(.callout.weight(.semibold))
-                            if !why.isEmpty { Pill(text: "In breach", color: .red) }
+                            if !why.isEmpty { Pill("In breach", tone: .bad) }
                             if let w = d.waiverUntil, w > s.date { Pill(text: "Waiver to \(w.gameShort)", color: .orange) }
                             if d.penalty > 0 { Pill(text: "+\(Fmt.trim(d.penalty, 1)) pts penalty", color: .orange) }
                         }
@@ -439,12 +435,13 @@ private struct SubsidiariesSection: View {
         VStack(alignment: .leading, spacing: 16) {
             if live.isEmpty {
                 Card {
-                    Text("No subsidiaries yet. Start one with your own cash, or buy a startup below. Each has its own P&L, CEO, people and valuation; you can sell part of it, list it, spin it off or fold it back in.")
-                        .font(.callout).foregroundStyle(.secondary)
+                    EmptyStateView(symbol: "square.stack.3d.up", title: "No subsidiaries yet",
+                                   message: "Start one with your own cash, or buy a startup below. Each has its own P&L, CEO, people and valuation; you can sell part of it, list it, spin it off or fold it back in.",
+                                   compact: true)
                 }
             }
             ForEach(live) { sub in SubsidiaryCard(state: s, sub: sub) }
-            HStack(alignment: .top, spacing: 16) {
+            CardGrid(minWidth: 340, maxColumns: 2) {
                 StartSubsidiaryCard(state: s)
                 TargetsCard(state: s)
             }
@@ -485,14 +482,14 @@ private struct SubsidiaryCard: View {
                 Text(sub.name).font(.headline)
                 Pill(text: sub.kind.title, color: .indigo)
                 Text("\(j.flag) \(j.name)").font(.caption).foregroundStyle(.secondary)
-                if sub.isPublic { Pill(text: "Listed", color: .green) }
+                if sub.isPublic { Pill("Listed", tone: .good) }
                 if sub.status == .folded { Pill(text: "Folded in", color: .teal) }
                 if sub.acquired { Pill(text: "Acquired", color: .purple) }
-                if sub.separate && sub.cash < 0 { Pill(text: "Out of cash", color: .red) }
+                if sub.separate && sub.cash < 0 { Pill("Out of cash", tone: .bad) }
                 Spacer()
                 Text("CEO \(sub.ceo) · skill \(Int(sub.ceoSkill))").font(.caption).foregroundStyle(.secondary)
             }
-            HStack(spacing: 12) {
+            KPIRow {
                 StatTile(title: "Your stake", value: sub.separate ? Fmt.pct(sub.stake) : "100%", detail: sub.separate ? "Worth \(Fmt.money(sub.stake * sub.valuation))" : "A division now",
                          symbol: "chart.pie.fill", tint: .indigo)
                 StatTile(title: "Revenue", value: "\(Fmt.money(last?.revenue ?? 0))/mo", detail: "\(sub.headcount) people", symbol: "dollarsign.circle.fill", tint: .green)
@@ -643,7 +640,7 @@ private struct TaxSection: View {
         let pre = year.reduce(0) { $0 + max(0, $1.profit + $1.taxes) }
         let subs = s.corp.subs.filter { $0.live }
         VStack(alignment: .leading, spacing: 16) {
-            HStack(spacing: 14) {
+            KPIRow {
                 StatTile(title: "Home", value: "\(home.flag) \(Fmt.pct(HQ.taxRate(s), decimals: 1))", detail: "Corporate tax in \(home.name)", symbol: "building.columns.fill", tint: .blue)
                 StatTile(title: "R&D credit", value: c.rdCredit > 0 ? Fmt.pct(c.rdCredit, decimals: 0) : "None", detail: c.rdCredit > 0 ? "\(c.rdRefundable ? "Refundable" : "Against tax") · \(Fmt.money(s.hq.rdCredits)) so far" : "No research credit at home",
                          symbol: "flask.fill", tint: .teal)

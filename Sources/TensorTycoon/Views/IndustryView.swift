@@ -24,11 +24,11 @@ struct IndustryTab: View {
                     Spacer()
                     VStack(alignment: .trailing, spacing: 2) {
                         Text("Bubble meter").font(.caption).opacity(0.8)
-                        Text(Self.mood(s)).font(.system(size: 26, weight: .bold))
+                        Text(Self.mood(s)).font(TypeRamp.bannerMetric)
                     }
                 }
             }
-            HStack(spacing: 12) {
+            KPIRow {
                 StatTile(title: "Your share of lab revenue", value: Fmt.pct(yourRevenue / max(1, rivalRevenue + yourRevenue)),
                          detail: "\(Fmt.money(yourRevenue)) of \(Fmt.money(rivalRevenue + yourRevenue))", symbol: "chart.pie.fill", tint: .indigo)
                 StatTile(title: "Valuation ÷ revenue", value: multiple > 0 ? "\(Int(multiple))×" : "—",
@@ -40,12 +40,12 @@ struct IndustryTab: View {
                          detail: "\(s.rivalStakes.count) lab\(s.rivalStakes.count == 1 ? "" : "s")", symbol: "briefcase.fill", tint: .green)
             }
             LabFinancesCard(state: s, yourRevenue: yourRevenue, open: open)
-            HStack(alignment: .top, spacing: 16) {
+            HStack(alignment: .top, spacing: Theme.gap) {
                 ConsolidationCard(state: s, open: open)
                 MarketCycleCard(state: s)
                     .frame(width: 440)
             }
-            HStack(alignment: .top, spacing: 16) {
+            HStack(alignment: .top, spacing: Theme.gap) {
                 FundingFeedCard(state: s)
                 StakesCard(state: s)
                     .frame(width: 440)

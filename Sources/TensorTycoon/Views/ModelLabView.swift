@@ -74,11 +74,13 @@ struct ModelLabView: View {
         let s = store.game
         let d = store.derived
         let b = d.bonuses
-        Page(title: "Model Lab", subtitle: "Design a training run. Every choice moves the forecast — and the forecast is honest about how sure it is.") {
+        Page(title: "Model Lab", subtitle: "Design a training run. Every choice moves the forecast — and the forecast is honest about how sure it is.", screen: .lab) {
             ScreenHint(.lab)
             if d.pools.isEmpty {
-                EmptyStateView(symbol: "cpu", title: "No compute", message: "You need accelerators to train. Buy some or rent cloud capacity.",
-                               actionTitle: "Hardware Store") { store.open(.hardware) }
+                Card {
+                    EmptyStateView(symbol: "cpu", title: "No compute", message: "You need accelerators to train. Buy some or rent cloud capacity.",
+                                   actionTitle: "Hardware Store") { store.open(.hardware) }
+                }
             } else {
                 recipeStrip(s, b)
                 upgradeStrip(s)
@@ -707,7 +709,7 @@ struct ForecastPanel: View {
                     }
                     if known {
                         HStack(alignment: .firstTextBaseline, spacing: 10) {
-                            Text(Fmt.score(band.mean)).font(.system(size: 46, weight: .bold).monospacedDigit())
+                            Text(Fmt.score(band.mean)).font(TypeRamp.display)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Intelligence Index · \(Fmt.score(band.low))–\(Fmt.score(band.high))").foregroundStyle(.secondary)
                                 if let comparable {
@@ -941,7 +943,7 @@ struct DriverList: View {
             }
         }
         .padding(10)
-        .background(.quaternary.opacity(0.35), in: .rect(cornerRadius: 10))
+        .background(Theme.insetFill, in: .rect(cornerRadius: Theme.Radius.inset))
     }
 }
 
@@ -1036,10 +1038,7 @@ private struct PlannerStat: View {
     let value: String
     var tint: Color = .primary
     var body: some View {
-        VStack(alignment: .leading, spacing: 1) {
-            Text(value).font(.headline.monospacedDigit()).foregroundStyle(tint)
-            Text(label).font(.caption2).foregroundStyle(.secondary)
-        }
+        MetricTile(label: label, value: value, tint: tint, style: .plain)
     }
 }
 

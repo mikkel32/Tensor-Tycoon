@@ -11,8 +11,8 @@ struct ProductLinesView: View {
         let lifetime = s.productLines.reduce(0) { $0 + $1.lifetime }
         let open = ProductLines.catalog.filter { p in ProductLines.status(p, s).ok && !s.productLines.contains { $0.id == p.id } }.count
         Page(title: "Product Lines",
-             subtitle: "Products beyond chat, API, agents and contracts. Each opens when your best released model clears its domain bars and you've done the research that makes it shippable. Your share follows your product's quality against the rivals selling one, your brand and your reach.") {
-            HStack(spacing: 14) {
+             subtitle: "Products beyond chat, API, agents and contracts. Each opens when your best released model clears its domain bars and you've done the research that makes it shippable. Your share follows your product's quality against the rivals selling one, your brand and your reach.", screen: .products) {
+            KPIRow {
                 StatTile(title: "Lines running", value: "\(s.productLines.count) of \(ProductLines.catalog.count)",
                          detail: open > 0 ? "\(open) ready to launch" : nil, symbol: "square.grid.2x2.fill", tint: .indigo)
                 StatTile(title: "Revenue last month", value: Fmt.money(last.revenue), detail: "Booked as other revenue", symbol: "dollarsign.circle.fill", tint: .green)
@@ -24,7 +24,7 @@ struct ProductLinesView: View {
                 Text("Each product's quality is a mix of capability domains on your best released models (shown on every card). Against each rival product, every 10 points of quality is worth about 4.5× the pull, like the API market. Brand helps, and so does reach: labs sell new products first to the API, chat and agent customers they already have (your reach today: ×\(Fmt.trim(ProductLines.playerReach(s), 2))). Product lines run on your serving fleet, so they lose customers when it's overloaded, like the API (you serve \(Fmt.pct(s.reliability, decimals: 0)) of demand). Specialist companies keep part of every market. Customers sign up over a few months, so share builds slowly after a launch.")
                     .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 16), GridItem(.flexible(), spacing: 16)], alignment: .leading, spacing: 16) {
+            LazyVGrid(columns: Theme.cardColumns, alignment: .leading, spacing: Theme.gap) {
                 ForEach(ProductLines.catalog) { p in ProductCard(product: p, state: s) }
             }
         }

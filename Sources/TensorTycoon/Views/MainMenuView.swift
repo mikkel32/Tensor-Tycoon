@@ -189,7 +189,7 @@ struct MainMenuView: View {
                         VStack(alignment: .leading, spacing: 3) {
                             HStack {
                                 Text(save.company).font(.headline)
-                                if save.over { Pill(text: "Ended", color: .red) }
+                                if save.over { Pill("Ended", tone: .bad) }
                             }
                             Text("\(save.date.gameShort) · \(Fmt.money(save.cash)) cash · \(Fmt.money(save.valuation)) valuation")
                                 .font(.caption).foregroundStyle(.secondary)

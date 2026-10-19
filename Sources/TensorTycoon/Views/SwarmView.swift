@@ -13,7 +13,7 @@ struct SwarmView: View {
         let solo = s.swarms.filter { $0.orgID == nil }
         let spend = s.orgs.reduce(0) { $0 + $1.spendToday }
         let best = s.models.filter { !$0.retired }.max { Swarms.quality($0, s) < Swarms.quality($1, s) }
-        Page(title: "AI Organisations", subtitle: "Build organisations out of agent teams: specialists running your models, supervisors to coordinate them, a compute and money budget, verification and human oversight. What they produce depends on the models' skills in the domains the work needs — and a billion agents never do a billion agents' work.") {
+        Page(title: "AI Organisations", subtitle: "Build organisations out of agent teams: specialists running your models, supervisors to coordinate them, a compute and money budget, verification and human oversight. What they produce depends on the models' skills in the domains the work needs — and a billion agents never do a billion agents' work.", screen: .swarms) {
             HeroBanner(image: "dc_rows", height: 160) {
                 HStack(alignment: .bottom) {
                     VStack(alignment: .leading, spacing: 4) {
@@ -26,13 +26,13 @@ struct SwarmView: View {
                     if let best {
                         VStack(alignment: .trailing, spacing: 2) {
                             Text("Best agent: \(best.name)").font(.caption).opacity(0.8)
-                            Text(Swarms.tier(Swarms.quality(best, s))).font(.system(size: 22, weight: .bold))
+                            Text(Swarms.tier(Swarms.quality(best, s))).font(TypeRamp.bannerMetric)
                             Text("works \(Swarms.horizon(best)) on its own").font(.caption).opacity(0.8)
                         }
                     }
                 }
             }
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 190), spacing: 12)], spacing: 12) {
+            KPIRow(minWidth: 190) {
                 StatTile(title: "Agents running", value: Fmt.count(active), detail: "\(s.orgs.count) organisations · \(s.swarms.count) of \(Swarms.maxSwarms) teams", symbol: "person.3.sequence.fill", tint: .indigo)
                 StatTile(title: "Researcher-equivalents", value: Fmt.count(workforce), detail: "After scaling, overhead and verification", symbol: "brain.head.profile", tint: .purple)
                 StatTile(title: "Agent research", value: "\(Fmt.count(s.swarmRPToday)) RP/day", detail: s.orgTechniques > 0 ? "\(s.orgTechniques) techniques published" : "Added to your research queue", symbol: "lightbulb.max.fill", tint: .pink)
@@ -168,7 +168,7 @@ private struct AgentProfile: View {
             }
         }
         .padding(10)
-        .background(.quaternary.opacity(0.3), in: .rect(cornerRadius: 10))
+        .background(Theme.insetFill, in: .rect(cornerRadius: Theme.Radius.inset))
     }
 }
 
@@ -325,7 +325,7 @@ private struct FoundOrgCard: View {
             }
         }
         .padding(12)
-        .background(.quaternary.opacity(0.35), in: .rect(cornerRadius: 12))
+        .background(Theme.insetFill, in: .rect(cornerRadius: Theme.Radius.inset))
     }
 }
 
@@ -481,7 +481,7 @@ private struct OrgCard: View {
                     Button("Dissolve", systemImage: "xmark.circle", role: .destructive) { confirmDissolve = true }
                 }
             }
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 6), spacing: 10) {
+            EqualColumns(minWidth: 120, spacing: 10, maxColumns: 6) {
                 OrgStat(label: "Agents", value: "\(Fmt.count(e.specialists + e.supervisors))", symbol: "person.3.fill", tint: .indigo)
                 OrgStat(label: "Throughput", value: "\(Fmt.count(e.workforce)) r-eq", symbol: "speedometer", tint: .purple)
                 OrgStat(label: "Right first time", value: e.effective > 0 ? Fmt.pct(e.accuracy, decimals: 1) : "—", symbol: "checkmark.seal.fill", tint: .green)
@@ -531,13 +531,7 @@ private struct OrgStat: View {
     let tint: Color
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Label(label, systemImage: symbol).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-            Text(value).font(.headline.monospacedDigit()).foregroundStyle(tint).lineLimit(1).minimumScaleFactor(0.6)
-        }
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.quaternary.opacity(0.35), in: .rect(cornerRadius: 10))
+        MetricTile(label: label, value: value, symbol: symbol, tint: tint)
     }
 }
 
@@ -814,7 +808,7 @@ private struct AddTeamPanel: View {
             }
             .padding(12)
             .frame(width: 300)
-            .background(.quaternary.opacity(0.35), in: .rect(cornerRadius: 12))
+            .background(Theme.insetFill, in: .rect(cornerRadius: Theme.Radius.inset))
         }
         .onAppear {
             if modelID == nil { modelID = models.first?.id }
@@ -919,7 +913,7 @@ private struct SwarmCard: View {
                     Button("Disband", systemImage: "xmark.circle", role: .destructive) { confirmDisband = true }
                 }
             }
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 5), spacing: 10) {
+            EqualColumns(minWidth: 120, spacing: 10, maxColumns: 5) {
                 OrgStat(label: "Agents running", value: "\(Fmt.count(sw.active)) / \(Fmt.count(Double(sw.agents)))", symbol: "person.3.fill", tint: .indigo)
                 OrgStat(label: "Researcher-equivalents", value: Fmt.count(sw.workforce), symbol: "brain.head.profile", tint: .purple)
                 OrgStat(label: "Today", value: output(sw, s), symbol: sw.mission.symbol, tint: .blue)

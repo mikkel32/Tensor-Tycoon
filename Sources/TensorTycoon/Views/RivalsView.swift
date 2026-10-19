@@ -33,7 +33,7 @@ struct RivalsHubView: View {
     }
 
     var body: some View {
-        Page(title: "Rivals", subtitle: tab.subtitle) {
+        Page(title: "Rivals", subtitle: tab.subtitle, screen: .rivals) {
             ScreenHint(.rivals)
             RivalsTabBar(tab: $tab, lab: $lab)
             content
@@ -86,14 +86,7 @@ private struct RivalsTabBar: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Picker("Section", selection: $tab) {
-                ForEach(RivalsTab.allCases) { t in
-                    Text(t.rawValue).tag(t)
-                }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(maxWidth: 440)
+            SectionTabs(selection: $tab, options: RivalsTab.allCases)
             if tab == .labs && lab != nil {
                 Button {
                     lab = nil
@@ -102,7 +95,6 @@ private struct RivalsTabBar: View {
                 }
                 .buttonStyle(.link)
             }
-            Spacer()
         }
     }
 }
@@ -193,7 +185,7 @@ struct RivalsOverviewTab: View {
             FieldHero(field: field, state: s)
             FieldTiles(field: field, state: s)
             FieldTableCard(field: field, state: s, open: open)
-            HStack(alignment: .top, spacing: 16) {
+            HStack(alignment: .top, spacing: Theme.gap) {
                 FieldMomentumCard(field: field, state: s)
                 FieldNextUpCard(rows: Array(store.derived.watch.prefix(5)), open: open, show: show)
                     .frame(width: 400)
@@ -223,7 +215,7 @@ private struct FieldHero: View {
                 VStack(alignment: .trailing, spacing: 2) {
                     Text("Your rank").font(.caption).opacity(0.8)
                     Text((mine?.index ?? 0) > 0 ? rank.map { "#\($0) of \(field.count)" } ?? "—" : "—")
-                        .font(.system(size: 26, weight: .bold))
+                        .font(TypeRamp.bannerMetric)
                     Text((mine?.index ?? 0) > 0 ? "\(mine?.flagship ?? "") · \(Fmt.score(mine?.index ?? 0))" : "No model released yet")
                         .font(.caption).opacity(0.8)
                 }
@@ -257,7 +249,7 @@ private struct FieldTiles: View {
         let rising = rivals.filter { $0.momentum != nil }.max { ($0.momentum ?? 0) < ($1.momentum ?? 0) }
         let revenue = rivals.reduce(0) { $0 + $1.revenue }
         let value = rivals.reduce(0) { $0 + $1.valuation }
-        HStack(spacing: 12) {
+        KPIRow {
             StatTile(title: "Labs in the race", value: "\(rivals.count)",
                      detail: "\(state.customLabs.count) new since Oct 2026 · \(state.competitors.filter { !$0.exitNote.isEmpty }.count) gone",
                      symbol: "building.2.fill", tint: .indigo)

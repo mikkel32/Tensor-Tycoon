@@ -106,7 +106,7 @@ struct FoundingCardTile: View {
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .topLeading)
-        .background(chosen ? Color.accentColor.opacity(0.18) : Color.white.opacity(0.05), in: .rect(cornerRadius: 10))
+        .background(chosen ? Color.accentColor.opacity(0.18) : Theme.insetFill, in: .rect(cornerRadius: 10))
         .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(chosen ? Color.accentColor : .clear, lineWidth: 1.5))
         .opacity(dimmed ? 0.45 : 1)
         .contentShape(.rect)

@@ -15,16 +15,10 @@ struct DatacentersView: View {
     var body: some View {
         let s = store.game
         let p = Power.summary(s)
-        Page(title: "Datacenters & Power", subtitle: "Every chip you own needs power, cooling and space. Build campuses, buy them from neoclouds, miners and labs in trouble, lease space by the megawatt, and sign the power deals behind it all.") {
+        Page(title: "Datacenters & Power", subtitle: "Every chip you own needs power, cooling and space. Build campuses, buy them from neoclouds, miners and labs in trouble, lease space by the megawatt, and sign the power deals behind it all.", screen: .datacenters) {
             PowerDashboard(state: s, p: p)
             HStack {
-                Picker("", selection: $tab) {
-                    ForEach(DCTab.allCases) { t in Text(t.rawValue).tag(t) }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .frame(maxWidth: 520)
-                Spacer()
+                SectionTabs(selection: $tab, options: DCTab.allCases)
                 Button("Build a campus", systemImage: "hammer.fill") { building = true }
                     .buttonStyle(.borderedProminent)
             }
@@ -62,7 +56,7 @@ private struct PowerDashboard: View {
         let rent = s.sites.reduce(0) { $0 + $1.monthlyFee }
         let sublease = s.sites.reduce(0) { $0 + $1.subleasedKW * $1.subleaseRate }
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 12) {
+            KPIRow {
                 StatTile(title: "Online", value: Fmt.watts(p.onlineKW * 1000),
                          detail: "\(Fmt.watts(p.chipKW * 1000)) chips · \(Fmt.watts(p.freeKW * 1000)) free", symbol: "bolt.fill", tint: .yellow)
                 StatTile(title: "On the way", value: Fmt.watts(p.pipelineKW * 1000),
@@ -101,13 +95,11 @@ private struct GWBar: View {
             }
             .frame(height: 14)
             .clipShape(.capsule)
-            HStack(spacing: 14) {
+            // The legend wraps on narrow windows instead of running off the card.
+            LazyVGrid(columns: Theme.columns(min: 200, spacing: 10), alignment: .leading, spacing: 4) {
                 ForEach(Array(segments.enumerated()), id: \.offset) { _, seg in
                     if seg.0 > 0 {
-                        HStack(spacing: 4) {
-                            Circle().fill(seg.1).frame(width: 8, height: 8)
-                            Text("\(seg.2) \(Fmt.watts(seg.0 * 1000))").font(.caption).foregroundStyle(.secondary)
-                        }
+                        LegendItem(color: seg.1, label: seg.2, value: Fmt.watts(seg.0 * 1000))
                     }
                 }
             }
@@ -183,7 +175,7 @@ private struct QuoteTile: View {
             .disabled(q.upfront > state.cash)
         }
         .padding(12)
-        .background(.quaternary.opacity(0.35), in: .rect(cornerRadius: 10))
+        .background(Theme.insetFill, in: .rect(cornerRadius: Theme.Radius.inset))
     }
 }
 
@@ -680,7 +672,7 @@ private struct ListingTile: View {
             .disabled(l.price * f > state.cash)
         }
         .padding(12)
-        .background(.quaternary.opacity(0.35), in: .rect(cornerRadius: 10))
+        .background(Theme.insetFill, in: .rect(cornerRadius: Theme.Radius.inset))
     }
 }
 
@@ -762,7 +754,7 @@ private struct LeasingOutCard: View {
         Card {
             CardHeader("Leasing out", symbol: "arrow.up.right.square.fill",
                        subtitle: "Two ways to earn from spare capacity: rent idle chips as a GPU cloud, or sublet empty space (tenants bring their own chips and pay their own power).")
-            HStack(spacing: 12) {
+            KPIRow {
                 StatTile(title: "Chips leased out", value: Fmt.int(chips), detail: "+\(Fmt.money(s.leaseRevenueToday * 30.4))/mo", symbol: "cpu", tint: .orange)
                 StatTile(title: "Space sublet", value: Fmt.watts(sublets.reduce(0) { $0 + $1.subleasedKW } * 1000),
                          detail: "+\(Fmt.money(s.subleaseRevenueToday * 30.4))/mo", symbol: "person.2.badge.key.fill", tint: .purple)
@@ -881,7 +873,7 @@ private struct ContractsCard: View {
                     }
                     Spacer()
                     if c.isOnline(s.date) {
-                        Pill(text: "Online", color: .green)
+                        Pill("Online", tone: .good)
                     } else {
                         Pill(text: "Online \(c.online.gameShort)", color: .orange)
                     }
@@ -914,7 +906,7 @@ private struct QueueCard: View {
                     }
                     .padding(10)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(.quaternary.opacity(0.35), in: .rect(cornerRadius: 10))
+                    .background(Theme.insetFill, in: .rect(cornerRadius: Theme.Radius.inset))
                 }
             }
             ForEach(queued) { c in
@@ -952,7 +944,7 @@ private struct PowerOptionsCard: View {
                     }
                     .padding(10)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(.quaternary.opacity(0.35), in: .rect(cornerRadius: 10))
+                    .background(Theme.insetFill, in: .rect(cornerRadius: Theme.Radius.inset))
                     .opacity(open ? 1 : 0.6)
                 }
             }

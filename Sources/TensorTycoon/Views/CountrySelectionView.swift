@@ -109,7 +109,7 @@ private struct CountryCard: View {
                         Button { select(c.id) } label: {
                             Text(c.name).font(.caption.weight(.semibold)).lineLimit(1)
                                 .padding(.horizontal, 9).padding(.vertical, 4)
-                                .background(selected && c.id == cityID ? Color.accentColor.opacity(0.85) : Color.white.opacity(0.08), in: .capsule)
+                                .background(selected && c.id == cityID ? Color.accentColor.opacity(0.85) : Theme.insetFill, in: .capsule)
                                 .foregroundStyle(selected && c.id == cityID ? Color.white : Color.primary)
                         }
                         .buttonStyle(.plain)
@@ -147,7 +147,7 @@ private struct CountryCard: View {
         }
         .background(.background.secondary.opacity(0.6))
         .clipShape(.rect(cornerRadius: 16))
-        .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(selected ? Color.accentColor : .white.opacity(0.1), lineWidth: selected ? 3 : 1))
+        .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(selected ? Color.accentColor : Theme.hairline, lineWidth: selected ? 3 : 1))
     }
 }
 
@@ -234,7 +234,7 @@ private struct CountryDetails: View {
             ImageCreditLabel(key: city.image)
         }
         .padding(10)
-        .background(Color.white.opacity(0.04), in: .rect(cornerRadius: 10))
+        .background(Theme.insetFill, in: .rect(cornerRadius: 10))
     }
 }
 
@@ -321,7 +321,7 @@ private struct CountryComparison: View {
             }
             .padding(10)
         }
-        .background(Color.white.opacity(0.04), in: .rect(cornerRadius: 12))
+        .background(Theme.insetFill, in: .rect(cornerRadius: 12))
         Text("Each country's first city shown; city choices change pay, rent and the talent pool. Best value in green.")
             .font(.caption2).foregroundStyle(.tertiary)
     }

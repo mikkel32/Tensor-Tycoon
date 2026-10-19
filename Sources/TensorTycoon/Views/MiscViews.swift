@@ -16,7 +16,7 @@ struct NewsView: View {
         }.prefix(300)
         // Month by month, newest first, each with that month's briefing headline.
         let months = Dictionary(grouping: items, by: { $0.date.ym }).sorted { $0.key > $1.key }
-        Page(title: "News", subtitle: "Industry headlines, rival launches, hardware releases and your own company's milestones, month by month.") {
+        Page(title: "News", subtitle: "Industry headlines, rival launches, hardware releases and your own company's milestones, month by month.", screen: .news) {
             HStack(spacing: 12) {
                 Picker("Category", selection: $category) {
                     Text("All").tag(NewsCategory?.none)
@@ -122,7 +122,7 @@ struct AchievementsView: View {
 
     var body: some View {
         let s = store.game
-        Page(title: "Achievements", subtitle: "Milestones in your company's story; each one earns a culture point. \(s.achievements.count) of \(AchievementCatalog.all.count) unlocked.") {
+        Page(title: "Achievements", subtitle: "Milestones in your company's story; each one earns a culture point. \(s.achievements.count) of \(AchievementCatalog.all.count) unlocked.", screen: .achievements) {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 12)], spacing: 12) {
                 ForEach(AchievementCatalog.all) { a in
                     let done = s.achievements.contains(a.id)
@@ -149,7 +149,7 @@ struct AchievementsView: View {
 
 struct CreditsView: View {
     var body: some View {
-        Page(title: "Credits & Sources", subtitle: "Tensor Tycoon uses real hardware specs, real benchmarks and real photos. AI labs, CEOs, clients and investors are fictional.") {
+        Page(title: "Credits & Sources", subtitle: "Tensor Tycoon uses real hardware specs, real benchmarks and real photos. AI labs, CEOs, clients and investors are fictional.", screen: .credits) {
             Card {
                 CardHeader("How the simulation works", symbol: "function")
                 VStack(alignment: .leading, spacing: 6) {

@@ -20,7 +20,7 @@ struct SemiconductorsView: View {
         let inDesign = s.semi.designs.filter { $0.phase.rawValue < SemiPhase.production.rawValue }.count
         let making = s.semi.designs.filter(\.inProduction).count
         Page(title: "Semiconductors",
-             subtitle: "Design your own accelerators, tape them out at a process node, book wafers or build a fab, buy advanced packaging and HBM, and sell what you make — or keep it all for yourself.") {
+             subtitle: "Design your own accelerators, tape them out at a process node, book wafers or build a fab, buy advanced packaging and HBM, and sell what you make — or keep it all for yourself.", screen: .semiconductors) {
             HeroBanner(image: "wafer", height: 150) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Your chip business").font(.title2.weight(.bold))
@@ -29,7 +29,7 @@ struct SemiconductorsView: View {
                     PhotoPill(text: "Illustrative photo", symbol: "photo")
                 }
             }
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 190), spacing: 12)], spacing: 12) {
+            KPIRow(minWidth: 190) {
                 StatTile(title: "Chips last month", value: Fmt.count(last?.chips ?? 0),
                          detail: last.map { "from \(Fmt.count($0.wafers)) wafers" + ($0.bottleneck.isEmpty ? "" : " · limited by \($0.bottleneck)") } ?? "Nothing in production yet",
                          symbol: "cpu.fill", tint: .indigo)
@@ -42,11 +42,7 @@ struct SemiconductorsView: View {
                          detail: Semis.activeShocks(s).first?.title ?? "Packaging \(Semis.tightWords(Semis.tightness("pack", s.year))), HBM \(Semis.tightWords(Semis.tightness("hbm", s.year)))",
                          symbol: "exclamationmark.triangle.fill", tint: Semis.activeShocks(s).isEmpty ? .teal : .red)
             }
-            Picker("Section", selection: $tab) {
-                ForEach(SemiTab.allCases) { t in Text(t.rawValue).tag(t) }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
+            SectionTabs(selection: $tab, options: SemiTab.allCases)
             switch tab {
             case .design: SemiDesignTab(state: s)
             case .fabs: SemiFabsTab(state: s)
@@ -87,7 +83,11 @@ private struct EventLine: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(e.date.gameShort).font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(width: 78, alignment: .leading)
-            Circle().fill(SemiStyle.tone(e.tone)).frame(width: 6, height: 6)
+            let tone: Tone = e.tone > 0 ? .good : (e.tone < 0 ? .warning : .neutral)
+            Image(systemName: tone == .neutral ? "circle.fill" : tone.symbol)
+                .font(.system(size: tone == .neutral ? 5 : 9))
+                .foregroundStyle(tone == .neutral ? Color.secondary : tone.color)
+                .accessibilityLabel(tone.word)
             Text(e.text).font(.caption).fixedSize(horizontal: false, vertical: true)
         }
     }

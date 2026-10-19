@@ -8,7 +8,7 @@ struct RSIView: View {
         let s = store.game
         let b = store.derived.bonuses
         let unlocked = b.has(.autoResearch) || b.has(.rsi)
-        Page(title: "Self-Improvement Lab", subtitle: "Let a model improve its own training, generation after generation. Checkpoints let you promote, roll back or audit — because alignment drifts when nobody's watching.") {
+        Page(title: "Self-Improvement Lab", subtitle: "Let a model improve its own training, generation after generation. Checkpoints let you promote, roll back or audit — because alignment drifts when nobody's watching.", screen: .rsi) {
             HeroBanner(image: "supercomputer", height: 160) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Recursive self-improvement").font(.title.weight(.bold))
@@ -199,7 +199,7 @@ private struct NewRSIRun: View {
             .disabled(accelID.isEmpty || baseID == nil)
         }
         .padding(12)
-        .background(.quaternary.opacity(0.35), in: .rect(cornerRadius: 12))
+        .background(Theme.insetFill, in: .rect(cornerRadius: Theme.Radius.inset))
     }
 }
 
@@ -255,7 +255,7 @@ private struct RSIRunCard: View {
                 }
             }
 
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 5), spacing: 10) {
+            EqualColumns(minWidth: 120, spacing: 10, maxColumns: 5) {
                 RSIStat(label: run.target == .research ? "Research generated" : (run.target == .architecture ? "Alien insight found" : "Capability gain (measured)"),
                         value: run.target == .research ? "\(Fmt.count(run.rpGenerated)) RP"
                             : (run.target == .architecture ? Fmt.count(run.rpGenerated) : "+\(Fmt.trim(run.cMeasured - run.cStart, 2))"),
@@ -356,14 +356,7 @@ private struct RSIStat: View {
     let tint: Color
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Image(systemName: symbol).font(.caption).foregroundStyle(tint)
-            Text(value).font(.headline.monospacedDigit()).lineLimit(1).minimumScaleFactor(0.6).contentTransition(.numericText())
-            Text(label).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-        }
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(tint.opacity(0.09), in: .rect(cornerRadius: 10))
+        MetricTile(label: label, value: value, symbol: symbol, tint: tint, style: .tinted)
     }
 }
 
@@ -384,8 +377,8 @@ private struct RSICheckpointCard: View {
             Text("+\(Fmt.trim(cp.cMeasured - run.cStart, 2)) capability").font(.caption.weight(.semibold))
             Text("Index ≈ \(Fmt.score(index))").font(.caption).foregroundStyle(.secondary)
             HStack(spacing: 4) {
-                Circle().fill(a >= 70 ? Color.green : (a >= 45 ? .yellow : .red)).frame(width: 7, height: 7)
-                Text("Alignment \(Int(a))").font(.caption)
+                Text("Alignment").font(.caption)
+                AlignmentBadge(value: a)
             }
             Text(cp.date.gameShort).font(.caption2).foregroundStyle(.tertiary)
             HStack(spacing: 6) {
@@ -398,7 +391,7 @@ private struct RSICheckpointCard: View {
         }
         .padding(10)
         .frame(width: 160, alignment: .leading)
-        .background(.quaternary.opacity(0.45), in: .rect(cornerRadius: 10))
+        .background(Theme.insetFill, in: .rect(cornerRadius: Theme.Radius.inset))
     }
 }
 

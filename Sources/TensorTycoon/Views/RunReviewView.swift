@@ -160,7 +160,7 @@ struct RunReviewSheet: View {
                 Pill(text: r.tier, color: tierColor(r.tier))
             }
             HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text(Fmt.score(r.mean)).font(.system(size: 40, weight: .bold).monospacedDigit())
+                Text(Fmt.score(r.mean)).font(TypeRamp.display)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Intelligence Index · \(Fmt.score(r.low))–\(Fmt.score(r.high))").foregroundStyle(.secondary)
                     Text("Comparable to \(r.comparable)").font(.caption.weight(.semibold))
@@ -526,7 +526,7 @@ struct ArchitectureDiagram: View {
         }
         .padding(9)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.quaternary.opacity(0.4), in: .rect(cornerRadius: 10))
+        .background(Theme.insetFill, in: .rect(cornerRadius: Theme.Radius.inset))
     }
 
     private func contextBar(_ a: TrainingExperience.ArchSketch) -> some View {

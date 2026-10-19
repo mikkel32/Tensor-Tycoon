@@ -13,19 +13,19 @@ struct NationsView: View {
     var body: some View {
         let s = store.game
         let n = s.nations
-        Page(title: "Nations", subtitle: "Every region runs its own AI strategy and reviews it each January against public mood, incidents, jobs, grids and who holds the frontier. The dials change what chips, power, hiring and contracts cost you.") {
+        Page(title: "Nations", subtitle: "Every region runs its own AI strategy and reviews it each January against public mood, incidents, jobs, grids and who holds the frontier. The dials change what chips, power, hiring and contracts cost you.", screen: .nations) {
             ScreenHint(.nations)
             if !n.ready || n.strategies.isEmpty {
-                EmptyStateView(symbol: "globe.europe.africa", title: "Strategies are set at month end", message: "Come back after the first month closes.")
+                Card { EmptyStateView(symbol: "globe.europe.africa", title: "Strategies are set at month end", message: "Come back after the first month closes.") }
             } else {
                 let region = selected ?? HQ.region(s)
                 NationsHeadline(state: s)
-                HStack(alignment: .top, spacing: 16) {
+                CardGrid(minWidth: 340, maxColumns: 2) {
                     NationsEffectsCard(state: s)
                     NationsRivalsCard(state: s, open: { store.open(.competitors) })
                 }
                 NationsTable(state: s, selected: region) { selected = $0 }
-                HStack(alignment: .top, spacing: 16) {
+                CardGrid(minWidth: 340, maxColumns: 2) {
                     NationDetailCard(state: s, region: region)
                     NationsTimelineCard(state: s, region: region)
                 }
@@ -47,7 +47,7 @@ private struct NationsHeadline: View {
         let share = econ.reduce(0) { $0 + $1.0.aiShare * $1.1 }
         let invest = econ.reduce(0) { $0 + $1.0.aiInvestment }
         let auto = econ.reduce(0) { $0 + $1.0.automation * $1.1 }
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 190), spacing: 12)], spacing: 12) {
+        KPIRow(minWidth: 190) {
             StatTile(title: "Your home: \(home.short)", value: st.stance.isEmpty ? "—" : st.stance, detail: "Reviewed January \(st.reviewed)",
                      symbol: "house.fill", tint: .accentColor)
             StatTile(title: "World GDP growth", value: "\(Fmt.trim(gdp, 1))%", detail: "Weighted by AI spending", symbol: "chart.line.uptrend.xyaxis", tint: gdp >= 2 ? .green : .orange)
@@ -72,9 +72,15 @@ private struct NationsEffectsCard: View {
             ForEach(Array(rows.enumerated()), id: \.offset) { _, r in
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(r.title).font(.callout).frame(width: 170, alignment: .leading)
-                    Text(r.value).font(.callout.monospacedDigit().weight(.semibold))
-                        .foregroundStyle(r.good == true ? .green : (r.good == false ? .red : .secondary))
-                        .frame(width: 80, alignment: .leading)
+                    HStack(spacing: 3) {
+                        if let good = r.good {
+                            Image(systemName: good ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
+                                .font(.caption2).accessibilityLabel(good ? "Helps you" : "Hurts you")
+                        }
+                        Text(r.value).font(.callout.monospacedDigit().weight(.semibold))
+                    }
+                    .foregroundStyle(r.good == true ? Theme.good : (r.good == false ? Theme.bad : Color.secondary))
+                    .frame(width: 92, alignment: .leading)
                     Text(r.why).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
             }

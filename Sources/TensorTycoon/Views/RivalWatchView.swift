@@ -16,7 +16,7 @@ struct RivalWatchTab: View {
         let q = RivalIntel.quality(s)
         VStack(alignment: .leading, spacing: 18) {
             WatchHero(rows: rows, mine: mine)
-            HStack(spacing: 12) {
+            KPIRow {
                 StatTile(title: "In pre-training", value: "\(rows.filter { $0.outlook.phase == .pretraining }.count) of \(rows.count) labs",
                          detail: "Burning compute right now", symbol: "flame.fill", tint: .orange)
                 StatTile(title: "Next launch", value: rows.first?.project.name ?? "—",
@@ -29,7 +29,7 @@ struct RivalWatchTab: View {
             }
             ReleaseRadarCard(rows: rows, state: s)
             StrategyBoardCard(state: s, open: open)
-            HStack(alignment: .top, spacing: 16) {
+            HStack(alignment: .top, spacing: Theme.gap) {
                 ForecastChartCard(rows: rows, mine: mine, next: next, today: s.date)
                 IntelDeskCard(state: s, rows: rows)
                     .frame(width: 380)
@@ -44,7 +44,7 @@ struct RivalWatchTab: View {
                     ForEach(rows) { r in RivalRunCard(row: r, state: s, open: open) }
                 }
             }
-            HStack(alignment: .top, spacing: 16) {
+            HStack(alignment: .top, spacing: Theme.gap) {
                 RumorFeedCard(state: s)
                 TrackRecordCard(state: s)
                     .frame(width: 380)
@@ -98,7 +98,7 @@ private struct WatchHero: View {
                 Spacer()
                 VStack(alignment: .trailing, spacing: 2) {
                     Text("Your best").font(.caption).opacity(0.8)
-                    Text(mine.map { Fmt.score($0.index) } ?? "—").font(.system(size: 26, weight: .bold))
+                    Text(mine.map { Fmt.score($0.index) } ?? "—").font(TypeRamp.bannerMetric)
                     Text(mine?.name ?? "No model yet").font(.caption).opacity(0.8)
                 }
             }
@@ -560,7 +560,7 @@ private struct RivalRunCard: View {
                 }
                 .padding(8)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(.quaternary.opacity(0.3), in: .rect(cornerRadius: 8))
+                .background(Theme.insetFill, in: .rect(cornerRadius: Theme.Radius.inset))
             }
             HStack {
                 if let last = row.last {

@@ -11,7 +11,7 @@ struct HelpView: View {
 
     var body: some View {
         let router = HelpRouter.shared
-        Page(title: "Help & Glossary", subtitle: "What the game's terms mean and where you see them, how a game goes, and the keyboard shortcuts.") {
+        Page(title: "Help & Glossary", subtitle: "What the game's terms mean and where you see them, how a game goes, and the keyboard shortcuts.", screen: .help) {
             HStack(alignment: .top, spacing: 16) {
                 glossary
                     .frame(maxWidth: .infinity)

@@ -15,6 +15,12 @@ enum HintStore {
         set.insert(screen.rawValue)
         return set.sorted().joined(separator: ",")
     }
+
+    static func removing(_ screen: Screen, from raw: String) -> String {
+        var set = screens(in: raw)
+        set.remove(screen.rawValue)
+        return set.sorted().joined(separator: ",")
+    }
 }
 
 /// The first-visit hint for a screen: what it's for and the first useful thing to do, until dismissed. One line at the

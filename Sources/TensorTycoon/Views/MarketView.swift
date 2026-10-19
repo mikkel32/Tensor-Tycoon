@@ -7,9 +7,9 @@ struct MarketView: View {
     var body: some View {
         let s = store.game
         let snap = store.derived.snapshot
-        Page(title: "Market & Products", subtitle: "Four ways to make money: a consumer chat app, an API priced per token, coding/computer-use agents sold per seat, and enterprise contracts.") {
+        Page(title: "Market & Products", subtitle: "Four ways to make money: a consumer chat app, an API priced per token, coding/computer-use agents sold per seat, and enterprise contracts.", screen: .market) {
             ScreenHint(.market)
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 200), spacing: 12)], spacing: 12) {
+            KPIRow(minWidth: 200) {
                 StatTile(title: "AI model market", value: "\(Fmt.money(snap.marketSize))/yr", detail: "All providers, all segments", symbol: "globe", tint: .blue)
                 StatTile(title: "API demand", value: "\(Fmt.count(snap.apiTokenPool))/day", detail: "Tokens across the industry", symbol: "bolt.horizontal.fill", tint: .teal)
                 StatTile(title: "Chat users worldwide", value: Fmt.count(snap.consumerUsersPool), detail: s.chatMoment == nil ? "The consumer boom hasn't started" : "Weekly actives", symbol: "person.3.fill", tint: .pink)
@@ -37,13 +37,13 @@ struct MarketView: View {
                 .frame(width: 380)
             }
 
-            HStack(alignment: .top, spacing: 16) {
+            HStack(alignment: .top, spacing: Theme.gap) {
                 AgentProductCard(state: s, seatPool: snap.agentSeatsPool)
                 ShareChart(title: "Agent seat share", products: snap.agents, state: s)
                     .frame(width: 420)
             }
 
-            HStack(alignment: .top, spacing: 16) {
+            CardGrid(minWidth: 340, maxColumns: 2) {
                 ShareChart(title: "API token share", products: snap.api, state: s)
                 ShareChart(title: "Chat app share", products: snap.consumer, state: s)
             }
@@ -173,10 +173,7 @@ private struct MiniStat: View {
     let label: String
     let value: String
     var body: some View {
-        VStack(alignment: .leading, spacing: 1) {
-            Text(value).font(.callout.weight(.semibold).monospacedDigit())
-            Text(label).font(.caption2).foregroundStyle(.secondary)
-        }
+        MetricTile(label: label, value: value, style: .plain)
     }
 }
 

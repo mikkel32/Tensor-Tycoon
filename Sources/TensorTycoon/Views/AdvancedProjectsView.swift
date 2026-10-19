@@ -22,7 +22,7 @@ struct AdvancedProjectsView: View {
         let lifetime = a.programmes.reduce(0.0) { $0 + $1.revenue }
         let cleared = a.clearances.filter { $0.level > 0 }.count
         Page(title: "Advanced Projects",
-             subtitle: "Government research contracts. Agencies post solicitations; you bid against rival labs, then deliver with cleared people, cleared compute and accredited facilities. Classified work pays in standing and access — and sometimes in discoveries you may or may not be allowed to use.") {
+             subtitle: "Government research contracts. Agencies post solicitations; you bid against rival labs, then deliver with cleared people, cleared compute and accredited facilities. Classified work pays in standing and access — and sometimes in discoveries you may or may not be allowed to use.", screen: .advancedProjects) {
             HeroBanner(image: "supercomputer", height: 150) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Advanced Projects division").font(.title2.weight(.bold))
@@ -31,7 +31,7 @@ struct AdvancedProjectsView: View {
                     PhotoPill(text: "Illustrative photo — not a real facility", symbol: "photo")
                 }
             }
-            HStack(spacing: 14) {
+            KPIRow {
                 StatTile(title: "Active programmes", value: "\(active.count)", detail: active.isEmpty ? "Win a contract on the marketplace" : "\(Fmt.money(backlog)) still to bill",
                          symbol: "building.columns.fill", tint: .indigo)
                 StatTile(title: "Contract revenue", value: Fmt.money(lifetime), detail: "Booked as other revenue", symbol: "dollarsign.circle.fill", tint: .green)
@@ -40,11 +40,7 @@ struct AdvancedProjectsView: View {
                 StatTile(title: "Cleared compute", value: "\(Fmt.int(Int(AdvancedProjects.computeCapacity(s, atLeast: 1)))) H100e",
                          detail: "\(Fmt.int(Int(AdvancedProjects.seatCapacity(s, atLeast: 1)))) secure desks · \(Fmt.money(a.lastOpex))/mo", symbol: "lock.rectangle.stack.fill", tint: .orange)
             }
-            Picker("Section", selection: $tab) {
-                ForEach(AdvancedTab.allCases) { t in Text(t.rawValue).tag(t) }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
+            SectionTabs(selection: $tab, options: AdvancedTab.allCases)
             switch tab {
             case .market: MarketplaceSection(state: s)
             case .programmes: ProgrammesSection(state: s)
@@ -86,7 +82,8 @@ private struct RequirementLine: View {
     var body: some View {
         Label(text, systemImage: ok ? "checkmark.circle.fill" : "xmark.circle")
             .font(.caption)
-            .foregroundStyle(ok ? Color.secondary : Color.orange)
+            .foregroundStyle(ok ? Color.secondary : Theme.warning)
+            .accessibilityLabel("\(ok ? "Met" : "Not met"): \(text)")
     }
 }
 
@@ -179,10 +176,12 @@ private struct MarketplaceSection: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             if list.isEmpty {
-                EmptyStateView(symbol: "tray", title: all.isEmpty ? "No solicitations yet" : "Nothing matches the filters",
-                               message: all.isEmpty ? "Agencies post work at the start of each month." : "Loosen the filters to see more.")
+                Card {
+                    EmptyStateView(symbol: "tray", title: all.isEmpty ? "No solicitations yet" : "Nothing matches the filters",
+                                   message: all.isEmpty ? "Agencies post work at the start of each month." : "Loosen the filters to see more.")
+                }
             }
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 16), GridItem(.flexible(), spacing: 16)], alignment: .leading, spacing: 16) {
+            LazyVGrid(columns: Theme.columns(min: 420), alignment: .leading, spacing: Theme.gap) {
                 ForEach(list) { sol in SolicitationCard(sol: sol, state: s, onPropose: { proposal = sol }) }
             }
             if !s.advanced.bids.isEmpty {
@@ -190,7 +189,8 @@ private struct MarketplaceSection: View {
                     CardHeader("Recent decisions", symbol: "clock.arrow.circlepath")
                     ForEach(Array(s.advanced.bids.prefix(8).enumerated()), id: \.offset) { _, b in
                         HStack {
-                            Image(systemName: b.won ? "checkmark.seal.fill" : "xmark.seal").foregroundStyle(b.won ? .green : .secondary)
+                            Image(systemName: b.won ? "checkmark.seal.fill" : "xmark.seal").foregroundStyle(b.won ? Theme.good : .secondary)
+                                .accessibilityLabel(b.won ? "Won" : "Lost")
                             Text(b.title).font(.callout)
                             Text(AgencyCatalog.byID[b.agency]?.short ?? b.agency).font(.caption).foregroundStyle(.secondary)
                             Spacer()
@@ -250,9 +250,10 @@ private struct SolicitationCard: View {
                     Button("Withdraw") { store.mutate { $0.withdrawProposal(sol.id) } }.buttonStyle(.link)
                 } else {
                     if o.acceptable {
-                        Text("Win odds ≈ \(Fmt.pct(o.p, decimals: 0))").font(.callout.weight(.semibold)).foregroundStyle(o.p >= 0.4 ? .green : .orange)
+                        OddsBar(probability: o.p, label: "Win odds", good: 0.4, warning: 0.2)
+                            .frame(maxWidth: 260)
                     } else {
-                        Text(o.blockers.first ?? "Not eligible").font(.caption).foregroundStyle(.orange).lineLimit(2)
+                        ToneLabel(text: o.blockers.first ?? "Not eligible", tone: .warning, font: .caption).lineLimit(2)
                     }
                     Spacer()
                     Button("Prepare proposal…", action: onPropose).buttonStyle(.borderedProminent).disabled(!o.acceptable)
@@ -307,7 +308,7 @@ private struct ProposalSheet: View {
                     Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
                 }
                 Text(sol.templateDef?.objective ?? "").font(.callout).fixedSize(horizontal: false, vertical: true)
-                HStack(alignment: .top, spacing: 16) {
+                CardGrid(minWidth: 340, maxColumns: 2) {
                     Card {
                         CardHeader("Your price", symbol: "tag.fill")
                         switch sol.type {
@@ -329,11 +330,7 @@ private struct ProposalSheet: View {
                             Text("Prize challenges have no price: the first complete entry takes the \(Fmt.money(sol.ceiling)) purse.").font(.callout)
                         }
                         Divider()
-                        HStack {
-                            Text("Win odds").font(.headline)
-                            Spacer()
-                            Text(Fmt.pct(o.p, decimals: 0)).font(.title2.weight(.bold).monospacedDigit()).foregroundStyle(o.p >= 0.4 ? .green : .orange)
-                        }
+                        OddsBar(probability: o.p, label: "Win odds", good: 0.4, warning: 0.2)
                         ForEach(Array(o.parts.enumerated()), id: \.offset) { _, part in
                             SpecRow(label: part.0, value: Fmt.trim(part.1, 1))
                         }
@@ -355,13 +352,13 @@ private struct ProposalSheet: View {
                         SpecRow(label: "Writing the proposal", value: Fmt.money(e.proposal))
                         Divider()
                         SpecRow(label: "Contract value", value: Fmt.money(value))
-                        SpecRow(label: "Cash margin if on plan", value: AdvancedProjects.signed(cashMargin))
-                        SpecRow(label: "Full-cost margin if on plan", value: AdvancedProjects.signed(fullMargin))
+                        SpecRow(label: "Cash margin if on plan", value: AdvancedProjects.signed(cashMargin), tone: Tone.sign(cashMargin))
+                        SpecRow(label: "Full-cost margin if on plan", value: AdvancedProjects.signed(fullMargin), tone: Tone.sign(fullMargin))
                         Text("Cash margin counts only new spending; full cost also charges your seconded staff and facility running costs. Rework and slow progress add months of spending — on fixed-price work that comes out of your margin.")
                             .font(.caption2).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     }
                 }
-                HStack(alignment: .top, spacing: 16) {
+                CardGrid(minWidth: 340, maxColumns: 2) {
                     Card {
                         CardHeader("Payment schedule", symbol: "calendar")
                         if sol.type == .costPlus {
@@ -412,7 +409,7 @@ private struct ProgrammesSection: View {
         let done = s.advanced.programmes.filter { $0.status != .active }.sorted { ($0.ended ?? $0.awarded) > ($1.ended ?? $1.awarded) }
         VStack(alignment: .leading, spacing: 16) {
             if active.isEmpty {
-                EmptyStateView(symbol: "building.columns", title: "No active programmes", message: "Win a contract on the marketplace. Seedling studies are the easiest way in.")
+                Card { EmptyStateView(symbol: "building.columns", title: "No active programmes", message: "Win a contract on the marketplace. Seedling studies are the easiest way in.") }
             }
             ForEach(active) { p in ProgrammeCard(programme: p, state: s) }
             if !done.isEmpty {
@@ -423,30 +420,18 @@ private struct ProgrammesSection: View {
     }
 }
 
-/// The stages as a timeline, with the current one highlighted.
+/// The stages as a timeline on the shared `StageStrip`, with the current one highlighted.
 private struct StageTimeline: View {
     let programme: Programme
 
     var body: some View {
         let p = programme
         let stages = ProgrammeStage.allCases.filter { $0 != .proposal && ($0 != .commercialisation || p.stage == .commercialisation) }
-        HStack(spacing: 3) {
-            ForEach(stages, id: \.self) { st in
-                let done = st < p.stage || (p.status == .completed && st <= p.stage)
-                let current = st == p.stage && p.status == .active
-                VStack(spacing: 3) {
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(.quaternary)
-                        Capsule().fill(done ? Color.green : (current ? Color.accentColor : Color.clear))
-                            .frame(maxWidth: current ? nil : .infinity)
-                            .opacity(done || current ? 1 : 0)
-                    }
-                    .frame(height: 6)
-                    Text(st.short).font(.system(size: 9, weight: current ? .bold : .regular)).foregroundStyle(current ? .primary : .secondary).lineLimit(1)
-                }
-                .frame(maxWidth: .infinity)
-            }
-        }
+        StageStrip(steps: stages.map { st in
+            let done = st < p.stage || (p.status == .completed && st <= p.stage)
+            let current = st == p.stage && p.status == .active
+            return StageStep(id: "\(st)", title: st.short, status: done ? .done : (current ? .current : .upcoming))
+        })
     }
 }
 
@@ -481,10 +466,10 @@ private struct ProgrammeCard: View {
             HStack {
                 Text("\(p.stage.title) · stage \(Fmt.pct(min(1, p.progress), decimals: 0)) · overall \(Fmt.pct(p.completion, decimals: 0))").font(.callout)
                 Spacer()
-                Text(behind > 0.08 ? "Behind schedule" : (behind < -0.05 ? "Ahead of schedule" : "On schedule"))
-                    .font(.caption.weight(.semibold)).foregroundStyle(behind > 0.08 ? .orange : .green)
+                ToneLabel(text: behind > 0.08 ? "Behind schedule" : (behind < -0.05 ? "Ahead of schedule" : "On schedule"),
+                          tone: behind > 0.08 ? .warning : .good, font: .caption.weight(.semibold))
             }
-            Meter(value: p.completion, tint: behind > 0.08 ? .orange : .green)
+            Meter(value: p.completion, tint: behind > 0.08 ? Theme.warning : Theme.good)
             HStack(alignment: .top, spacing: 16) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Pace this month").font(.caption.weight(.semibold))
@@ -493,7 +478,11 @@ private struct ProgrammeCard: View {
                     SpecRow(label: "Model margin over bars", value: "×\(Fmt.trim(f.capability, 2))")
                     SpecRow(label: "Agents", value: "×\(Fmt.trim(f.agents, 2))")
                     SpecRow(label: "Overall (1 = on plan)", value: "×\(Fmt.trim(f.total, 2))")
-                    SpecRow(label: "Next trial failure odds", value: p.stage.hasTrial ? Fmt.pct(AdvancedProjects.failChance(p, s), decimals: 0) : "—")
+                    if p.stage.hasTrial {
+                        OddsBar(probability: AdvancedProjects.failChance(p, s), label: "Next trial failure odds", risk: true)
+                    } else {
+                        SpecRow(label: "Next trial failure odds", value: "—")
+                    }
                     ForEach(f.missing, id: \.self) { m in RequirementLine(ok: false, text: m) }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -503,7 +492,7 @@ private struct ProgrammeCard: View {
                     SpecRow(label: "Received", value: Fmt.money(p.revenue))
                     SpecRow(label: "Direct spend", value: Fmt.money(p.direct))
                     SpecRow(label: "Staff & facility (allocated)", value: Fmt.money(p.allocated))
-                    SpecRow(label: "P&L so far", value: AdvancedProjects.signed(p.profit))
+                    SpecRow(label: "P&L so far", value: AdvancedProjects.signed(p.profit), tone: Tone.sign(p.profit))
                     BurnChart(books: p.books)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -512,7 +501,8 @@ private struct ProgrammeCard: View {
                     ForEach(Array(AdvancedProjects.milestones(sol.type).enumerated()), id: \.offset) { _, m in
                         let paid = p.paid.contains(m.0.rawValue)
                         HStack {
-                            Image(systemName: paid ? "checkmark.circle.fill" : "circle").foregroundStyle(paid ? .green : .secondary)
+                            Image(systemName: paid ? "checkmark.circle.fill" : "circle").foregroundStyle(paid ? Theme.good : .secondary)
+                                .accessibilityLabel(paid ? "Paid" : "Not yet paid")
                             Text(m.0.title).font(.caption)
                             Spacer()
                             Text(Fmt.money((sol.type == .costPlus ? p.fee : p.value) * m.1)).font(.caption.monospacedDigit())
@@ -647,7 +637,8 @@ private struct FinishedProgrammeRow: View {
         let p = programme
         Card(padding: 12) {
             HStack {
-                Image(systemName: p.status == .completed ? "checkmark.seal.fill" : "xmark.octagon").foregroundStyle(p.status == .completed ? .green : .orange)
+                Image(systemName: p.status == .completed ? "checkmark.seal.fill" : "xmark.octagon").foregroundStyle(p.status == .completed ? Theme.good : Theme.warning)
+                    .accessibilityLabel(p.status.title)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(p.sol.title).font(.callout.weight(.semibold))
                     Text("\(p.sol.agencyDef?.short ?? "") · \(p.status.title) \(p.ended?.gameShort ?? "") · \(p.months) months · \(p.reworks) reworks\(p.secrecy == .none ? "" : " · \(p.secrecy.title)")")
@@ -655,7 +646,7 @@ private struct FinishedProgrammeRow: View {
                 }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 2) {
-                    Text("P&L \(AdvancedProjects.signed(p.profit))").font(.callout.monospacedDigit()).foregroundStyle(p.profit >= 0 ? .green : .red)
+                    Text("P&L \(AdvancedProjects.signed(p.profit))").font(TypeRamp.tableNumber).foregroundStyle(p.profit >= 0 ? Theme.good : Theme.bad)
                     Text("Research effects in use: \(Fmt.pct(p.effectScale, decimals: 0))\(p.royaltyMonthsLeft > 0 ? " · \(Fmt.money(p.royaltyMonthly))/mo royalties" : "")")
                         .font(.caption2).foregroundStyle(.secondary)
                 }
@@ -682,8 +673,8 @@ private struct FacilitiesSection: View {
         let q = AdvancedProjects.quote(kind, level: level, capacity: capacity, s.year)
         let sites = AdvancedProjects.sitesFor(kind, s)
         let site = sites.first { $0.id == siteID } ?? sites.first
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .top, spacing: 16) {
+        VStack(alignment: .leading, spacing: Theme.gap) {
+            CardGrid(minWidth: 380, maxColumns: 2) {
                 Card {
                     CardHeader("Your facilities", symbol: "lock.rectangle.stack.fill")
                     if s.advanced.facilities.isEmpty {
@@ -709,7 +700,6 @@ private struct FacilitiesSection: View {
                     }
                     Text("Photos are generic server rooms and datacenters, for illustration only.").font(.caption2).foregroundStyle(.tertiary)
                 }
-                .frame(maxWidth: .infinity)
                 Card {
                     CardHeader("Build a facility", symbol: "hammer.fill")
                     Picker("Kind", selection: $kind) {
@@ -739,7 +729,6 @@ private struct FacilitiesSection: View {
                     .buttonStyle(.borderedProminent)
                     .disabled(site == nil || s.cash < q.capex)
                 }
-                .frame(maxWidth: .infinity)
             }
             ClearancesCard(state: s, roleFilter: $roleFilter)
         }
@@ -774,7 +763,7 @@ private struct ClearancesCard: View {
                     if let c, let ready = c.ready {
                         Text("\(Classification(rawValue: c.target)?.clearance ?? "") investigation · \(ready.gameShort)").font(.caption).foregroundStyle(.blue)
                     } else if let c, c.deniedAt > 0 {
-                        Text("Denied at \(Classification(rawValue: c.deniedAt)?.clearance ?? "")").font(.caption).foregroundStyle(.orange)
+                        ToneLabel(text: "Denied at \(Classification(rawValue: c.deniedAt)?.clearance ?? "")", tone: .warning, font: .caption)
                     }
                     Spacer()
                     if c?.ready == nil {
@@ -803,7 +792,7 @@ private struct AgenciesSection: View {
     var body: some View {
         let s = state
         let home = AdvancedProjects.homeRegion(s)
-        LazyVGrid(columns: [GridItem(.flexible(), spacing: 16), GridItem(.flexible(), spacing: 16)], alignment: .leading, spacing: 16) {
+        LazyVGrid(columns: Theme.columns(min: 380), alignment: .leading, spacing: Theme.gap) {
             ForEach(AgencyCatalog.all) { a in
                 let rating = AdvancedProjects.rating(s, a.id)
                 let levels = Classification.allCases.filter { AdvancedProjects.eligible(home: home, agency: a.region, level: $0) }
@@ -819,7 +808,7 @@ private struct AgenciesSection: View {
                         Text(Fmt.money(AdvancedProjects.agencyBudget(a, s)) + "/yr").font(.callout.monospacedDigit())
                     }
                     Text(a.blurb).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                    SpecRow(label: "Your record", value: rating == 0 ? "None yet" : "\(rating >= 0 ? "+" : "")\(Fmt.trim(rating, 1))")
+                    SpecRow(label: "Your record", value: rating == 0 ? "None yet" : Fmt.signed(rating, 1), tone: rating == 0 ? nil : Tone.sign(rating))
                     SpecRow(label: "Standing with \(a.region.short) government", value: Fmt.trim(AdvancedProjects.standing(s, a.region), 0))
                     SpecRow(label: "Work open to you", value: levels.isEmpty ? "None" : levels.map(\.short).joined(separator: ", "))
                     if !done.isEmpty {
@@ -857,11 +846,11 @@ struct AdvancedProjectsCard: View {
                     HStack {
                         Text(p.sol.title).font(.callout.weight(.semibold)).lineLimit(1)
                         Pill(text: p.sol.level.short, color: AdvStyle.color(p.sol.level))
-                        if p.cureNotice { Pill(text: "Cure notice", color: .red) }
+                        if p.cureNotice { Pill("Cure notice", tone: .bad) }
                         Spacer()
                         Text(p.stage.title).font(.caption).foregroundStyle(.secondary)
                     }
-                    Meter(value: p.completion, tint: p.cureNotice ? .orange : .indigo)
+                    Meter(value: p.completion, tint: p.cureNotice ? Theme.warning : .indigo)
                     if let next {
                         Text("Next payment at \(next.0.title.lowercased()): \(Fmt.money((p.sol.type == .costPlus ? p.fee : p.value) * next.1)) · P&L so far \(AdvancedProjects.signed(p.profit))")
                             .font(.caption2).foregroundStyle(.secondary)
