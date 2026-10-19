@@ -1221,7 +1221,7 @@ private struct GradNormChart: View {
                 .foregroundStyle(p.spike ? .red : .gray)
         }
         .chartXAxis(.hidden)
-        .chartYAxis(.hidden)
+        .chartYAxis { AxisMarks(values: .automatic(desiredCount: 2)) }   // 3.4: a scale, so a spike reads as a spike
     }
 }
 
