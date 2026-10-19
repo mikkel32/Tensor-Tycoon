@@ -136,6 +136,10 @@ struct HardwareOrder: Codable, Identifiable, Hashable {
     var unitCost: Double
     var ordered: Date
     var arrives: Date
+    /// Orders on your own fab line arrive as they're made: chips made but not yet shipped, and chips delivered so
+    /// far (`count` is what's still to come). Nil on vendor orders and on own-chip orders from before rolling delivery.
+    var made: Double? = nil
+    var delivered: Int? = nil
 }
 
 struct Site: Codable, Identifiable, Hashable {

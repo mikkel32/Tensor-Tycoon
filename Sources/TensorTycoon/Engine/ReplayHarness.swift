@@ -22,6 +22,12 @@ enum ReplayHarness {
         BenchmarkCatalog.resetCache()
         HardwareCatalog.register(s.customChips)
         for t in techs {
+            if t.hasPrefix("order:") {
+                let parts = t.split(separator: ":").map(String.init)
+                let why = parts.count == 3 ? s.orderOwnChips(parts[1], count: Int(parts[2]) ?? 0) : "use order:<chip>:<count>"
+                print(why.map { "could not order: \($0)" } ?? "ordered \(parts[2])× \(parts[1])")
+                continue
+            }
             if t.hasPrefix(Breakthroughs.refinePrefix) {
                 _ = s.queueRefine(String(t.dropFirst(Breakthroughs.refinePrefix.count)))
             } else {
@@ -50,5 +56,11 @@ enum ReplayHarness {
         }.joined(separator: ", ")
         print("\(s.date.gameShort): owned usable \(Fmt.int(usable)), idle \(Fmt.int(pools.reduce(0) { $0 + $1.free })), waiting \(Fmt.int(waiting)), research chips \(s.researchChips.values.reduce(0, +))"
               + " · \(Fmt.trim(s.rpToday, 1)) RP/day · queue: \(queue.isEmpty ? "empty" : queue)")
+        let fab = s.orders.filter { AlienFab.isAlienChip($0.accelID) }
+        if s.alienFab.exists {
+            let own = s.owned.filter { AlienFab.isAlienChip($0.accelID) }.reduce(0) { $0 + $1.count }
+            print("    fab \(Fmt.int(Int(s.alienFab.capacityMonth)))/mo · own chips installed \(Fmt.int(own)) · "
+                  + (fab.isEmpty ? "no orders" : fab.map { "\(Fmt.int($0.count)) to come (\(Fmt.int($0.delivered ?? 0)) delivered), all by \($0.arrives.gameShort)" }.joined(separator: "; ")))
+        }
     }
 }

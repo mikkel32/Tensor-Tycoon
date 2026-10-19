@@ -375,7 +375,7 @@ private struct AlienArchCard: View {
                 if n > 0 {
                     Button("Order \(Fmt.count(Double(n)))") { store.act("Order queued on your fab line") { $0.orderOwnChips(chip.id, count: n) } }
                         .buttonStyle(.borderedProminent)
-                        .help("Arrives in about \(AlienFab.leadDays(s, count: n)) days from your alien fab line.")
+                        .help("From your alien fab line: the first chips in about \(AlienFab.shipDays) days, all \(Fmt.int(n)) in about \(AlienFab.leadDays(s, count: n)) days.")
                 } else {
                     Button("Lease a cage") { store.act("Cage leased — ready in 30 days") { $0.leaseAlienCage(for: chip.id, chips: max(4_000, AlienFabCard.suggestedOrder(chip.id, s, ignoringSites: true))) } }
                         .help("No site has free power for these chips. Lease a colocation cage sized for them (ready in 30 days).")

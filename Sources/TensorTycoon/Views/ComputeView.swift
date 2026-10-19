@@ -102,9 +102,18 @@ struct ComputeView: View {
                                 Image(systemName: "shippingbox.and.arrow.backward").foregroundStyle(.orange).frame(width: 44)
                                 VStack(alignment: .leading, spacing: 1) {
                                     Text("\(Fmt.int(o.count))× \(a.name)").font(.callout.weight(.semibold))
-                                    Text("In transit · arrives \(o.arrives.gameShort)").font(.caption).foregroundStyle(.orange)
+                                    if o.made != nil {
+                                        Text("From your fab line · \(Fmt.int(o.delivered ?? 0)) delivered so far, more every week · rest by \(o.arrives.gameShort)")
+                                            .font(.caption).foregroundStyle(.orange)
+                                    } else {
+                                        Text("In transit · arrives \(o.arrives.gameShort)").font(.caption).foregroundStyle(.orange)
+                                    }
                                 }
                                 Spacer()
+                                if o.made != nil {
+                                    Button("Cancel rest…") { store.act("Order cut short") { $0.cancelOwnChipOrder(o.id) } }
+                                        .help("Ship what's already made and refund \(Fmt.money(AlienFab.toMake(o) * o.unitCost)) for the chips not made yet.")
+                                }
                             }
                         }
                     }

@@ -14,6 +14,9 @@ extension GameState {
         if a.minOrder > 1 && count % a.minOrder != 0 { return "\(a.name) ships in racks of \(a.minOrder). Order a multiple of \(a.minOrder)." }
         let limit = Economy.allocationLimit(a, self)
         if count > limit && Semis.isSemiChip(a.id) { return "Only \(Fmt.int(limit)) finished \(a.name) in stock. Make more on the Semiconductors page." }
+        if AlienFab.isAlienChip(a.id) && count > AlienFab.maxOrder(self) {
+            return "Your fab line makes \(Fmt.count(max(alienFab.capacityMonth, AlienFab.pilotCapacity))) chips a month: order up to \(Fmt.int(AlienFab.maxOrder(self))) (six months) at a time, or expand the line."
+        }
         if count > limit { return "\(a.vendor.rawValue) will only allocate \(Fmt.int(limit)) units to a company your size right now. A supply agreement raises this." }
         let needKW = Economy.chipKW(a) * Double(count)
         let freeKW = site.capacityKW - Economy.siteLoadKW(self, siteID)
@@ -30,7 +33,13 @@ extension GameState {
             : (Semis.isSemiChip(a.id) ? Semis.take(&self, a.id, count: count) : Economy.leadTimeDays(a, self))
         orders.append(HardwareOrder(accelID: accelID, count: count, siteID: siteID, unitCost: unit - rebate / Double(count), ordered: date,
                                     arrives: GameCalendar.addDays(date, days)))
-        Sim.news(&self, "Ordered \(Fmt.int(count))× \(a.name)", "\(Fmt.money(total)) paid. Delivery in about \(days) days to \(site.name).", .company, image: a.image)
+        if AlienFab.isAlienChip(a.id) {
+            orders[orders.count - 1].made = 0
+            orders[orders.count - 1].delivered = 0
+            Sim.news(&self, "Ordered \(Fmt.int(count))× \(a.name)", "\(Fmt.money(total)) paid. Your fab line ships them as they're made: the first in about \(AlienFab.shipDays) days, all of them in about \(days) days, to \(site.name).", .company, image: a.image)
+        } else {
+            Sim.news(&self, "Ordered \(Fmt.int(count))× \(a.name)", "\(Fmt.money(total)) paid. Delivery in about \(days) days to \(site.name).", .company, image: a.image)
+        }
         return nil
     }
 

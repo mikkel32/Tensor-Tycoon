@@ -120,9 +120,12 @@ enum Sim {
     // MARK: - Hardware logistics
 
     static func deliveries(_ s: inout GameState) {
-        let arrived = s.orders.filter { $0.arrives <= s.date }
+        // Orders on your own fab line ship as they're made (AlienFab.produce), not here.
+        let today = s.date
+        let due = { (o: HardwareOrder) in o.arrives <= today && o.made == nil }
+        let arrived = s.orders.filter(due)
         guard !arrived.isEmpty else { return }
-        s.orders.removeAll { $0.arrives <= s.date }
+        s.orders.removeAll(where: due)
         // Remember what was ordered when: vendors allocate per quarter.
         let cutoff = GameCalendar.addDays(s.date, -120)
         s.orderLog.removeAll { $0.ordered < cutoff }

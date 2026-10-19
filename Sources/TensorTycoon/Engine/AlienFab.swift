@@ -1,12 +1,14 @@
 import Foundation
 
 /// 3.5: the alien fab line and chip generations. Your first alien tape-out opens a pilot line that makes every alien
-/// chip you own: your orders queue on it (delivery = queue + production + shipping, never a world allocation cap),
-/// merchant customers get what's left, and you buy more capacity with money. Each architecture's chip can be revised
+/// chip you own: your open orders share it and arrive as they're made (the first chips about two weeks after you
+/// order, like any GPU), merchant customers get what's left, and you buy more capacity with money. Each architecture's chip can be revised
 /// twice (v2, v3) for bigger leaps; chips nobody fully understands throw errata.
 enum AlienFab {
-    /// Chips a month the pilot line makes when it opens.
-    static let pilotCapacity = 20_000.0
+    /// Chips a month the pilot line makes when it opens (3.8: was 20K, which turned big orders into decade-long waits).
+    static let pilotCapacity = 100_000.0
+    /// The biggest single order, in months of the line's output.
+    static let maxOrderMonths = 6.0
     /// Packaging, burn-in and shipping after a chip leaves the line.
     static let shipDays = 14
     /// Chip revisions: performance, production cost and power vs v1 (index = version).
@@ -24,7 +26,7 @@ enum AlienFab {
     }
 
     /// Your own orders are being made.
-    static func busy(_ s: GameState) -> Bool { (s.alienFab.busyUntil ?? .distantPast) > s.date }
+    static func busy(_ s: GameState) -> Bool { s.orders.contains { isAlienChip($0.accelID) && $0.count > 0 } }
 
     /// Chips a day the line makes for you (a quarter goes to merchant contracts while a sales line is open).
     static func ownPerDay(_ s: GameState) -> Double {
@@ -39,24 +41,97 @@ enum AlienFab {
     /// One alien sales line's share of the merchant output.
     static func merchantPerLine(_ s: GameState) -> Double { merchantPerDay(s) / Double(max(1, activeMerchantLines(s))) }
 
-    /// Days until the line finishes what you've already ordered.
+    /// Chips still to be made for an order.
+    static func toMake(_ o: HardwareOrder) -> Double { max(0, Double(o.count) - (o.made ?? 0)) }
+
+    /// Days until the line finishes everything you've ordered.
     static func queueDays(_ s: GameState) -> Double {
-        guard let b = s.alienFab.busyUntil else { return 0 }
-        return max(0, b.timeIntervalSince(s.date) / 86_400)
+        s.orders.filter { isAlienChip($0.accelID) }.reduce(0) { $0 + toMake($1) } / ownPerDay(s)
     }
 
-    /// Days from ordering `count` chips today to having them installed.
+    /// Days until each of `needs` is made when the line's output is shared evenly between unfinished orders.
+    static func sharedFinishDays(_ needs: [Double], perDay: Double) -> [Double] {
+        let order = needs.indices.sorted { needs[$0] < needs[$1] }
+        var out = [Double](repeating: 0, count: needs.count)
+        var t = 0.0, done = 0.0
+        for (k, i) in order.enumerated() {
+            t += (needs[i] - done) * Double(needs.count - k) / max(1, perDay)
+            done = needs[i]
+            out[i] = t
+        }
+        return out
+    }
+
+    /// Days from ordering `count` chips today to having all of them installed (the first ones come after `shipDays`).
     static func leadDays(_ s: GameState, count: Int) -> Int {
-        Int((queueDays(s) + Double(count) / ownPerDay(s)).rounded(.up)) + shipDays
+        let needs = s.orders.filter { isAlienChip($0.accelID) }.map(toMake) + [Double(count)]
+        return max(shipDays, Int((sharedFinishDays(needs, perDay: ownPerDay(s)).last ?? 0).rounded(.up)) + 1)
     }
 
-    /// Queue an order on the line; returns days to delivery.
+    /// Biggest order the line takes at once.
+    static func maxOrder(_ s: GameState) -> Int { Int(max(s.alienFab.capacityMonth, pilotCapacity) * maxOrderMonths) }
+
+    /// Book an order on the line; returns days until all of it is delivered.
     static func book(_ s: inout GameState, count: Int) -> Int {
         if !s.alienFab.exists { openPilot(&s) }
-        let start = max(s.date, s.alienFab.busyUntil ?? s.date)
-        let finish = start.addingTimeInterval(Double(count) / ownPerDay(s) * 86_400)
-        s.alienFab.busyUntil = finish
-        return Int((finish.timeIntervalSince(s.date) / 86_400).rounded(.up)) + shipDays
+        let days = leadDays(s, count: count)
+        s.alienFab.busyUntil = GameCalendar.addDays(s.date, Int((queueDays(s) + Double(count) / ownPerDay(s)).rounded(.up)))
+        return days
+    }
+
+    /// Today's output for you, shared evenly between your open orders so a small order never waits behind a big
+    /// one. Chips ship from two weeks after the order was placed: the first batch right away, then weekly, and the
+    /// rest the day the order completes.
+    static func produce(_ s: inout GameState) {
+        let idx = s.orders.indices.filter { isAlienChip(s.orders[$0].accelID) }
+        guard !idx.isEmpty else {
+            s.alienFab.busyUntil = nil
+            return
+        }
+        var left = ownPerDay(s)
+        var open = idx.filter { toMake(s.orders[$0]) > 0.0001 }
+        while left > 0.0001 && !open.isEmpty {
+            let share = left / Double(open.count)
+            var next: [Int] = []
+            for i in open {
+                let take = min(toMake(s.orders[i]), share)
+                s.orders[i].made = (s.orders[i].made ?? 0) + take
+                s.alienFab.produced += take
+                left -= take
+                if toMake(s.orders[i]) > 0.0001 { next.append(i) }
+            }
+            open = next
+        }
+
+        let weekly = GameCalendar.components(s.date).day % 7 == 0
+        var shipped: [String: Int] = [:]
+        for i in idx where GameCalendar.daysBetween(s.orders[i].ordered, s.date) >= shipDays {
+            let o = s.orders[i]
+            let finished = toMake(o) <= 0.0001
+            let n = finished ? o.count : Int(o.made ?? 0)
+            // The first shipment goes as soon as it can; after that, weekly.
+            guard n > 0, weekly || finished || (o.delivered ?? 0) == 0 else { continue }
+            s.owned.append(OwnedBatch(accelID: o.accelID, count: n, siteID: o.siteID, purchased: s.date, unitCost: o.unitCost))
+            s.orders[i].count -= n
+            s.orders[i].made = max(0, (o.made ?? 0) - Double(n))
+            s.orders[i].delivered = (o.delivered ?? 0) + n
+            shipped[o.accelID, default: 0] += n
+        }
+        s.orders.removeAll { isAlienChip($0.accelID) && $0.count <= 0 }
+        if !shipped.isEmpty {
+            Sim.mergeOwned(&s)
+            let text = shipped.sorted { $0.key < $1.key }.map { "\(Fmt.int($0.value))× \(HardwareCatalog.get($0.key)?.name ?? $0.key)" }.joined(separator: " · ")
+            Sim.news(&s, "Delivered from your fab line: \(text)", "Racked and burned in. They're ready for work.", .company, image: "wafer", good: true)
+        }
+
+        // Keep each order's "all delivered by" date honest.
+        let rest = s.orders.indices.filter { isAlienChip(s.orders[$0].accelID) }
+        let finish = sharedFinishDays(rest.map { toMake(s.orders[$0]) }, perDay: ownPerDay(s))
+        for (k, i) in rest.enumerated() {
+            let shipAt = GameCalendar.addDays(s.orders[i].ordered, shipDays)
+            s.orders[i].arrives = max(shipAt, GameCalendar.addDays(s.date, max(1, Int(finish[k].rounded(.up)) + 1)))
+        }
+        s.alienFab.busyUntil = rest.isEmpty ? nil : GameCalendar.addDays(s.date, Int(queueDays(s).rounded(.up)))
     }
 
     /// A sensible order: what fits at your sites, up to a third of your cash and two months of the line.
@@ -149,7 +224,7 @@ enum AlienFab {
     static func daily(_ s: inout GameState, _ b: ResearchBonuses) {
         if s.alienFab.pendingCapacity > 0, let ready = s.alienFab.pendingReady, ready <= s.date { capacityOnline(&s) }
         if s.alienFab.exists {
-            if busy(s) { s.alienFab.produced += ownPerDay(s) }
+            produce(&s)
             s.alienFab.produced += s.chipLines.filter { isAlienChip($0.chipID) }.reduce(0) { $0 + $1.unitsToday }
             milestones(&s)
         }
@@ -209,20 +284,11 @@ enum AlienFab {
     }
 
     static func capacityOnline(_ s: inout GameState) {
-        let old = max(1, s.alienFab.capacityMonth)
-        let new = old + s.alienFab.pendingCapacity
-        let ratio = old / new
+        // Orders still being made pick up the extra output from tomorrow's run.
+        let new = s.alienFab.capacityMonth + s.alienFab.pendingCapacity
         s.alienFab.capacityMonth = new
         s.alienFab.pendingCapacity = 0
         s.alienFab.pendingReady = nil
-        // Everything still in the queue now comes off a faster line.
-        let q = queueDays(s)
-        if q > 0 { s.alienFab.busyUntil = s.date.addingTimeInterval(q * ratio * 86_400) }
-        for i in s.orders.indices where isAlienChip(s.orders[i].accelID) && s.orders[i].arrives > s.date {
-            let left = Double(GameCalendar.daysBetween(s.date, s.orders[i].arrives) - shipDays)
-            guard left > 0 else { continue }
-            s.orders[i].arrives = GameCalendar.addDays(s.date, shipDays + Int((left * ratio).rounded(.up)))
-        }
         Sim.news(&s, "Alien fab line expanded", "Now \(Fmt.count(new)) chips a month. Orders already in the queue move up.",
                  .hardware, image: "wafer", good: true)
     }
@@ -414,6 +480,23 @@ enum AlienFab {
             s.alienFab.opened = s.date
         }
         if s.alienFab.pendingCapacity > 0 && s.alienFab.pendingReady == nil { s.alienFab.pendingReady = s.date }
+        // 3.8: orders from before rolling delivery waited for the whole order, one after another. The line has been
+        // making the oldest since it was placed: those chips are made (they ship on the next day's run, as a first
+        // shipment), the rest
+        // now share the line. Then lines smaller than today's pilot are retooled up to it.
+        let old = s.orders.indices.filter { isAlienChip(s.orders[$0].accelID) && s.orders[$0].made == nil }
+            .sorted { s.orders[$0].ordered < s.orders[$1].ordered }
+        if let first = old.first {
+            let oldPerDay = max(s.alienFab.capacityMonth, 1_000) / 30.4
+            var budget = Double(max(0, GameCalendar.daysBetween(s.orders[first].ordered, s.date))) * oldPerDay
+            for i in old {
+                let made = min(Double(s.orders[i].count), budget)
+                s.orders[i].made = made
+                s.orders[i].delivered = 0
+                budget -= made
+            }
+        }
+        if s.alienFab.exists && s.alienFab.capacityMonth < pilotCapacity { s.alienFab.capacityMonth = pilotCapacity }
         if changed || s.customChips.contains(where: \.alien) { HardwareCatalog.register(s.customChips) }
     }
 }
@@ -475,6 +558,22 @@ extension GameState {
                              : "Your sites have room for \(Fmt.int(fits)) more \(a.name) (most at \(site.name)). Lease a cage for the rest."
         }
         return buyHardware(chipID, count: count, siteID: site.id)
+    }
+
+    /// Stop the part of an own-chip order the line hasn't made yet: what's made ships now, the rest is refunded.
+    mutating func cancelOwnChipOrder(_ id: UUID) -> String? {
+        guard let i = orders.firstIndex(where: { $0.id == id }), AlienFab.isAlienChip(orders[i].accelID) else { return "Not found." }
+        let o = orders[i]
+        let made = min(o.count, Int(o.made ?? 0))
+        let refund = Double(o.count - made) * o.unitCost
+        if made > 0 { owned.append(OwnedBatch(accelID: o.accelID, count: made, siteID: o.siteID, purchased: date, unitCost: o.unitCost)) }
+        orders.remove(at: i)
+        cash += refund
+        month.capex -= refund
+        Sim.mergeOwned(&self)
+        let name = HardwareCatalog.get(o.accelID)?.name ?? o.accelID
+        Sim.news(&self, "Cancelled the rest of \(name) order", "\(Fmt.int(made)) already made are shipped; \(Fmt.money(refund)) refunded for the \(Fmt.int(o.count - made)) not yet made.", .company)
+        return nil
     }
 
     /// Lease a colocation cage sized for `chips` alien chips at the cheapest location (air cooling is enough for them).
