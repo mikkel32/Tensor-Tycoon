@@ -242,11 +242,4 @@ enum ImagePicker {
         return h
     }
 }
-
-extension Accelerator {
-    /// True when this chip's photo is not a photo of this chip: a same-family stand-in or a roadmap part
-    /// nobody has photographed (`representativeImage`), or the player's own custom or alien silicon (shown
-    /// on a stock wafer photo). Views show such photos with the "Illustrative" pill:
-    /// `Photo(key: a.image, illustrative: a.photoIsIllustrative)`.
-    var photoIsIllustrative: Bool { representativeImage || vendor == .custom }
 }
