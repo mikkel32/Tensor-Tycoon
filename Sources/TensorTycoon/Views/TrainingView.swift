@@ -391,7 +391,7 @@ private struct CommandCentre: View {
                         Text("— training · ⋯ forecast · ╌ validation (derived)").font(.caption2).foregroundStyle(.secondary)
                     }
                     LossChart(points: run.loss, checkpoints: run.saved.map(\.tokensT),
-                              validation: TrainingExperience.validation(run, uniqueTokensT: Physics.availableTokensT(run.dataSnapshot, y: s.year, bonuses: b))
+                              validation: TrainingExperience.validation(run, state: s)
                                   .map { LossChart.Pair(t: $0.tokensT, l: $0.loss) })
                         .equatable()
                         .frame(height: 170)

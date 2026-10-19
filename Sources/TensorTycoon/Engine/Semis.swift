@@ -488,6 +488,7 @@ enum Semis {
         guard s.semi.engaged else { return }
         teamsAndDesigns(&s)
         produce(&s)
+        dieBank(&s)
         sell(&s)
         contractsDue(&s)
         fabsDaily(&s)
@@ -796,6 +797,107 @@ enum Semis {
             }
         }
         s.semi.hbmStock = max(0, s.semi.hbmStock - hbmUsed)
+    }
+
+    // MARK: Die bank (3.8)
+
+    /// Dies a day packaging actually takes for this product: last month's finished chips (this month's so far early on).
+    static func diesPackedDay(_ d: SemiDesign, _ s: GameState) -> Double {
+        let die = SemiCatalog.die(d.die)
+        let py = max(0.5, packYield(s))
+        let last = d.lastMade.reduce(0, +) / 30.4
+        let day = Double(max(1, GameCalendar.components(s.date).day))
+        let now = d.monthMade.reduce(0, +) / day
+        return max(last, now) * Double(die.dies) / py
+    }
+
+    /// Days of packaging the die bank holds (infinite when nothing is being packaged).
+    static func dieBankDays(_ d: SemiDesign, _ s: GameState) -> Double {
+        let bank = d.dieBank.reduce(0, +)
+        guard bank > 1 else { return 0 }
+        let use = diesPackedDay(d, s)
+        return use > 0 ? bank / use : .infinity
+    }
+
+    /// Wafer cost of one good die (what a die in the bank cost to make).
+    static func dieCost(_ d: SemiDesign, _ s: GameState) -> Double {
+        let f = SemiCatalog.foundryByID["fsw"]!
+        let die = SemiCatalog.die(d.die)
+        return unitCost(d, foundry: f, s).wafer / Double(max(1, die.dies))
+    }
+
+    /// A newer generation of yours is in production (old dies are worth less: nobody wants last year's part).
+    static func superseded(_ d: SemiDesign, _ s: GameState) -> Bool {
+        d.phase == .retired || s.semi.designs.contains { $0.inProduction && $0.generation > d.generation && $0.focus == d.focus }
+    }
+
+    /// Share of the die bank lost a month: 1% ages out; a generation behind 5%; a retired product 10%.
+    static func dieLossMonthly(_ d: SemiDesign, _ s: GameState) -> Double {
+        d.phase == .retired ? 0.10 : (superseded(d, s) ? 0.05 : 0.01)
+    }
+
+    /// Holding cost a month as a share of the bank's wafer cost (storage, retest, the capital tied up).
+    static let dieCarryMonthly = 0.015
+    /// Dies beyond this many days of packaging are surplus.
+    static let dieBankTargetDays = 60.0
+
+    /// What other packagers pay per known-good die: well under its wafer cost (they take the packaging risk and the
+    /// die is a part they never designed for) — about what the wafer would have earned as foundry service — and less
+    /// once a newer generation is out.
+    static func kgdPrice(_ d: SemiDesign, _ s: GameState) -> Double { dieCost(d, s) * (superseded(d, s) ? 0.25 : 0.4) }
+
+    /// What the die bank is worth at known-good-die prices.
+    static func dieBankValue(_ d: SemiDesign, _ s: GameState) -> Double { d.dieBank.reduce(0, +) * kgdPrice(d, s) }
+
+    /// Daily: dies in the bank age (a generation behind they go faster), cost money to hold, and — unless you hold
+    /// them — the surplus beyond two months of packaging is sold to other packagers as known-good die.
+    static func dieBank(_ s: inout GameState) {
+        for i in s.semi.designs.indices {
+            let d = s.semi.designs[i]
+            let bank = d.dieBank.reduce(0, +)
+            guard bank > 1, d.inProduction || d.phase == .retired else { continue }
+            let cost = dieCost(d, s)
+            let carry = bank * cost * dieCarryMonthly / 30.4
+            spend(&s, carry, chips: true)
+            s.semi.month.dieCarry += carry
+            s.semi.designs[i].cost += carry
+            let lost = bank * dieLossMonthly(d, s) / 30.4
+            var sold = 0.0
+            if !s.semi.holdExcessDies {
+                let surplus = d.phase == .retired ? bank : bank - dieBankTargetDays * diesPackedDay(d, s)
+                if surplus > 0 { sold = min(bank - lost, surplus * 0.5 / 30.4) }
+            }
+            let out = min(bank, lost + sold)
+            let keep = bank > 0 ? 1 - out / bank : 1
+            for b in 0..<3 { s.semi.designs[i].dieBank[b] *= keep }
+            s.semi.designs[i].diesScrapped += lost
+            s.semi.month.diesScrapped += lost
+            guard sold > 0 else { continue }
+            let rev = sold * kgdPrice(d, s)
+            s.cash += rev
+            s.month.revChips += rev
+            s.lifetimeRevenue += rev
+            s.semi.month.revenue += rev
+            s.semi.month.kgdRevenue += rev
+            s.semi.month.kgdDies += sold
+            s.semi.designs[i].kgdSold += sold
+            s.semi.designs[i].revenue += rev
+        }
+    }
+
+    /// The share of a fab's wafers its product can use when packaging is the bottleneck: enough dies, with the
+    /// bookings', to keep packaging busy (plus 10%). Nil when there's nothing to change.
+    static func suggestedFabShare(_ fab: SemiFab, _ s: GameState) -> Double? {
+        guard fab.open(s.date), let id = fab.designID, let d = s.semi.designs.first(where: { $0.id == id && $0.inProduction && $0.node == fab.node }) else { return nil }
+        let use = diesPackedDay(d, s)
+        guard use > 0, dieBankDays(d, s) > 45 else { return nil }
+        var booked = 0.0
+        for src in sources(d, s) where src.price > 0 { booked += src.wafersDay * src.yield.diesPerWafer * src.yield.good }
+        let y = fabYield(d, fab: fab, s)
+        let full = fab.wafersMonth * fabRamp(fab, s) / 30.4 * ownFabFactor(s, fab) * y.diesPerWafer * y.good
+        guard full > 0 else { return nil }
+        let share = (clamp((use * 1.1 - booked) / full, 0, 1) * 20).rounded(.down) / 20
+        return share < fab.productShare - 0.049 ? share : nil
     }
 
     static func fabsDaily(_ s: inout GameState) {

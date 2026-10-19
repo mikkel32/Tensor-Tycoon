@@ -385,6 +385,13 @@ enum ForecastEngine {
             c += 0.02
             drivers.append(ForecastDriver(name: "Scaling ladder (tuned hyperparameters)", value: 0.02, kind: .gain))
         }
+        // 3.8: alien tech past the frontier has diminishing returns.
+        let uncharted = alienOvershoot(c, d, s)
+        if uncharted < -0.005 {
+            c += uncharted
+            drivers.append(ForecastDriver(name: "Uncharted regime", value: uncharted, kind: .penalty,
+                                          detail: "More than \(Fmt.trim(alienFreeLead, 1)) past the best model anyone has without alien tech (\(Fmt.trim(alienReference(s), 2))), nobody has the evals, data or hyperparameters for where you are: each further step is worth less"))
+        }
         f.c = c
         f.bugRisk = bugRisk(d, state: s, covered: covered, novelCount: novel.count)
         f.drivers = drivers
@@ -393,6 +400,33 @@ enum ForecastEngine {
         let lRaw = loss(paramsB: d.activeParamsB, tokensT: effectiveTokens(d.tokensT, unique: unique2))
         f.finalLoss = E + (lRaw - E) * pow(10, -gamma * (f.algo + f.data))
         return f
+    }
+
+    // MARK: Alien tech past the frontier (3.8)
+
+    /// Lead over the frontier an alien-tech model keeps in full.
+    static let alienFreeLead = 0.5
+    /// Scale of the diminishing returns beyond it: an extra lead x is worth k·ln(1 + x/k).
+    static let alienLeadScale = 0.5
+
+    /// Whether a design runs on alien tech: the alien architecture, or alien chips.
+    static func usesAlienTech(_ d: ModelDesign) -> Bool { d.mixer == .alien || AlienFab.isAlienChip(d.accelID) }
+
+    /// The best capability reached without alien tech: the world's frontier, the best rival model, and your own best
+    /// model that doesn't use alien tech.
+    static func alienReference(_ s: GameState) -> Double {
+        let rival = s.competitors.flatMap(\.models).map(\.c).max() ?? -9
+        let own = s.models.filter { !usesAlienTech($0.design) }.map(\.c).max() ?? -9
+        return max(Macro.frontier(s.year), rival, own)
+    }
+
+    /// The (negative) correction for an alien-tech model forecast at `c`: a lead past `alienReference` beyond
+    /// `alienFreeLead` counts k·ln(1 + x/k) instead of x — +1 becomes +0.55, +2 becomes +0.8, +4 becomes +1.1.
+    static func alienOvershoot(_ c: Double, _ d: ModelDesign, _ s: GameState) -> Double {
+        guard usesAlienTech(d) else { return 0 }
+        let x = c - alienReference(s) - alienFreeLead
+        guard x > 0 else { return 0 }
+        return alienLeadScale * log(1 + x / alienLeadScale) - x
     }
 
     // MARK: Uncertainty

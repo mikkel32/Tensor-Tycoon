@@ -268,7 +268,30 @@ extension Semis {
         let last = s.semi.history.first
         if let last, last.chips > 0, last.bottleneck == "packaging" || last.bottleneck == "HBM" {
             out.append(AdvisorItem(id: "semi-bottleneck", level: .info, symbol: "shippingbox.fill", title: "Chip output is limited by \(last.bottleneck)",
-                                   detail: "Good dies are piling up in the die bank. Sign more \(last.bottleneck == "HBM" ? "HBM" : "packaging") capacity.", screen: .semiconductors))
+                                   detail: "Good dies are piling up in the die bank. Sign more \(last.bottleneck == "HBM" ? "HBM" : "packaging") capacity, or make fewer dies.", screen: .semiconductors))
+        }
+        // 3.8: a die bank that only grows costs money and loses value.
+        for d in s.semi.designs where (d.inProduction || d.phase == .retired) && d.dieBank.reduce(0, +) > 1_000 {
+            let days = dieBankDays(d, s)
+            guard days > dieBankTargetDays else { continue }
+            let bank = d.dieBank.reduce(0, +)
+            let carry = bank * dieCost(d, s) * dieCarryMonthly
+            let loss = dieLossMonthly(d, s)
+            let held = days.isFinite ? "\(Fmt.trim(days / 30.4, 1)) months of packaging" : "nothing is packaging them"
+            out.append(AdvisorItem(id: "semi-diebank-\(d.id)", level: days > 180 ? .warning : .info, symbol: "square.stack.3d.up.fill",
+                                   title: "\(Fmt.count(bank)) \(d.name) dies waiting (\(held))",
+                                   detail: "Holding them costs \(Fmt.money(carry))/month and \(Fmt.pct(loss, decimals: 0)) of them age out a month\(superseded(d, s) ? " — a newer generation is out" : ""). Sign more packaging, give the fab's spare wafers to foundry customers"
+                                       + (s.semi.holdExcessDies ? ", or sell the surplus to other packagers as known-good die (about \(Fmt.money(kgdPrice(d, s))) a die)." : "; the surplus beyond two months sells to other packagers at about \(Fmt.money(kgdPrice(d, s))) a die."),
+                                   screen: .semiconductors))
+        }
+        for f in s.semi.fabs {
+            guard let want = suggestedFabShare(f, s), let d = s.semi.designs.first(where: { $0.id == f.designID }) else { continue }
+            let fs = foundryServicePrice(f, s)
+            let extra = f.wafersMonth * fabRamp(f, s) * ownFabFactor(s, f) * (f.productShare - want) * fs.fill * fs.price
+            out.append(AdvisorItem(id: "semi-fabshare-\(f.id)", level: .info, symbol: "slider.horizontal.3",
+                                   title: "Set \(f.name) to \(Fmt.pct(want, decimals: 0)) for \(d.name)",
+                                   detail: "Packaging only takes about \(Fmt.count(diesPackedDay(d, s) * 30.4)) dies a month. The rest of the wafers would earn about \(Fmt.money(extra))/month as foundry service instead of piling up in the die bank.",
+                                   screen: .semiconductors, fix: .fabShare(f.id, want), fixLabel: "Set \(Fmt.pct(want, decimals: 0))"))
         }
         for bk in s.semi.bookings where bk.end > s.date && GameCalendar.daysBetween(s.date, bk.end) <= 45 {
             out.append(AdvisorItem(id: "semi-book-\(bk.id)", level: .info, symbol: "calendar.badge.clock",
@@ -574,8 +597,9 @@ extension GameState {
         return nil
     }
 
-    mutating func setSemiPolicy(keepShare: Double? = nil, allowRivals: Bool? = nil, allowSovereigns: Bool? = nil) {
+    mutating func setSemiPolicy(keepShare: Double? = nil, allowRivals: Bool? = nil, allowSovereigns: Bool? = nil, holdExcessDies: Bool? = nil) {
         if let keepShare { semi.keepShare = clamp(keepShare, 0, 1) }
+        if let holdExcessDies { semi.holdExcessDies = holdExcessDies }
         if let allowRivals { semi.allowRivals = allowRivals }
         if let allowSovereigns { semi.allowSovereigns = allowSovereigns }
     }

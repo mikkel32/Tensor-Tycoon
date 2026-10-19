@@ -17,7 +17,10 @@ import Foundation
 ///     error rate    ε    = E-weighted clamp(0.35 × exp(−0.8 × (agenticX − 8)), 0.01, 0.6)
 ///     supervision   σ    = min(1, supervisor capacity / (5% of the specialists)); a smarter supervisor covers more
 ///     caught        κ    = 1 − exp(−6v) × (1 − 0.5σ)
-///     quality       Q    = (1 − 1.2 ε(1 − κ) − 0.2 εκ) / (1 − 1.2 ε)    (vs a plain swarm; ≤ 1.25)
+///     hand-offs     k    = 1 + 0.35 log10(max(1, E/100))              work built on work: errors compound k times
+///     quality       Q    = (1 − 1.2 ε(1 − κ) − 0.2 εκ)^k / (1 − 1.2 ε)  (vs a plain swarm, one hand-off; ≤ 2)
+///                          so a big organisation of error-prone models loses most of its output to compounding errors
+///                          unless it verifies: with ε high, a moderate v (10–30%) maximises W; with ε low, v ≈ 0 does
 ///     exponent      α    = min(0.98, Swarms.coordination + 0.02σ)
 ///     overhead      Ω    = min(0.5, 0.05 log2(teams) + 0.035 max(0, log10(E/100)) × (1 − 0.7σ))
 ///     tools         F    = 1 − weight × (1 − funded)                  funded = budget / (cost per worker-day × W)
@@ -114,6 +117,8 @@ enum AgentOrgs {
         var caught = 0.0
         var slip = 0.0
         var quality = 1.0
+        /// Hand-offs work passes through (errors compound across them).
+        var depth = 1.0
         var supervision = 0.0
         var alpha = 0.0
         var overhead = 0.0
@@ -189,10 +194,10 @@ enum AgentOrgs {
         e.overhead = min(0.5, 0.05 * log2(Double(max(1, specialistTeams)))
                          + 0.035 * max(0, log10(max(1, e.effective) / 100)) * (1 - 0.7 * e.supervision))
         e.working = e.effective * (1 - e.verification)
-        e.caught = 1 - exp(-6 * e.verification) * (1 - 0.5 * e.supervision)
+        e.depth = depth(effective: e.effective)
+        e.caught = caught(e.verification, supervision: e.supervision)
         e.slip = e.errorRate * (1 - e.caught)
-        let q0 = max(0.1, 1 - 1.2 * e.errorRate)
-        e.quality = min(1.25, max(0.05, 1 - 1.2 * e.slip - 0.2 * e.errorRate * e.caught) / q0)
+        e.quality = quality(errorRate: e.errorRate, caught: e.caught, depth: e.depth)
         e.naive = e.perAgent * e.effective
         guard e.working >= 1 else { return e }
         let pre = e.perAgent * pow(e.working, e.alpha) * e.quality * (1 - e.overhead)
@@ -204,6 +209,34 @@ enum AgentOrgs {
         e.tools = 1 - tool.weight * (1 - funded)
         e.workforce = pre * e.tools
         return e
+    }
+
+    // MARK: Verification
+
+    /// 3.8: hand-offs a piece of work passes through before it ships — one for a small team, more as the organisation
+    /// grows (work built on other agents' work), so errors compound.
+    static func depth(effective: Double) -> Double { 1 + 0.35 * max(0, log10(max(1, effective) / 100)) }
+
+    /// Share of errors caught before they ship.
+    static func caught(_ v: Double, supervision: Double) -> Double { 1 - exp(-6 * v) * (1 - 0.5 * supervision) }
+
+    /// Useful output per unit of working time against a plain swarm (unverified, unsupervised, one hand-off).
+    /// Each hand-off keeps 1 − 1.2 × (errors that slip) − 0.2 × (errors caught, which cost rework).
+    static func quality(errorRate eps: Double, caught k: Double, depth: Double) -> Double {
+        let step = max(0.05, 1 - 1.2 * eps * (1 - k) - 0.2 * eps * k)
+        return min(2, pow(step, depth) / max(0.1, 1 - 1.2 * eps))
+    }
+
+    /// Output with verification share v, relative to none (everything else equal): (1 − v)^α × Q(v) / Q(0).
+    static func verificationGain(_ v: Double, _ e: Eval) -> Double {
+        let q = quality(errorRate: e.errorRate, caught: caught(v, supervision: e.supervision), depth: e.depth)
+        let q0 = quality(errorRate: e.errorRate, caught: caught(0, supervision: e.supervision), depth: e.depth)
+        return pow(1 - v, max(0.5, e.alpha)) * q / max(1e-9, q0)
+    }
+
+    /// The verification share (in the slider's 5% steps) that gets the most useful output from this organisation.
+    static func bestVerification(_ e: Eval) -> Double {
+        stride(from: 0.0, through: 0.5, by: 0.05).max { verificationGain($0, e) < verificationGain($1, e) } ?? 0
     }
 
     /// Effort per activity: everything to the only one unlocked; with several, 60% to the focus and the rest shared.
@@ -406,9 +439,18 @@ enum AgentOrgs {
                      "Agentic skill × fit \(Fmt.trim(e.fit, 2))× (skills and domains; \(domains): \(e.edge >= 0 ? "+" : "")\(Fmt.trim(e.edge, 1)) points vs its level)"))
         rows.append(("Scaling", "N^\(Fmt.trim(e.alpha, 2))",
                      "\(Fmt.count(e.working)) agents do the work of \(Fmt.count(pow(max(1, e.working), e.alpha))) independent ones"))
+        let best = bestVerification(e)
+        let advice: String
+        if abs(best - e.verification) < 0.025 {
+            advice = "about the best share for these models"
+        } else {
+            let gain = verificationGain(best, e) / max(1e-9, verificationGain(e.verification, e)) - 1
+            advice = "\(Fmt.pct(best, decimals: 0)) would give \(gain >= 0.005 ? "+\(Fmt.pct(gain, decimals: 0))" : "about the same") output"
+        }
         rows.append(("Verification", "−\(Fmt.pct(e.verification, decimals: 0)) time",
-                     "Catches \(Fmt.pct(e.caught, decimals: 0)) of a \(Fmt.pct(e.errorRate, decimals: 0)) error rate; \(Fmt.pct(e.slip, decimals: 1)) slips through"))
-        rows.append(("Quality", "×\(Fmt.trim(e.quality, 2))", "Against an unverified, unsupervised swarm of the same models"))
+                     "Catches \(Fmt.pct(e.caught, decimals: 0)) of a \(Fmt.pct(e.errorRate, decimals: 0)) error rate; \(Fmt.pct(e.slip, decimals: 1)) slips through · \(advice)"))
+        rows.append(("Quality", "×\(Fmt.trim(e.quality, 2))",
+                     "Against an unverified, unsupervised swarm of the same models. Work passes through \(Fmt.trim(e.depth, 1)) hand-offs here, so errors that slip compound"))
         rows.append(("Supervision", Fmt.pct(e.supervision, decimals: 0),
                      e.supervision >= 1 ? "Fully staffed: +0.02 to the exponent, less overhead, fewer errors and less drift"
                                         : "Supervisors for \(Fmt.pct(supervisionTarget, decimals: 0)) of the specialists give full supervision"))

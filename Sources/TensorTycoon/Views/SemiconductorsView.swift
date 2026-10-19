@@ -646,6 +646,10 @@ private struct FlowCard: View {
             if src.isEmpty { Text("No wafers: book some at a foundry or assign a fab.").font(.caption).foregroundStyle(.orange) }
             Text("Die bank: \(d.dieBank.enumerated().map { "\(SemiCatalog.binNames[$0.offset]) \(Fmt.count($0.element))" }.joined(separator: ", ")) dies · HBM in stock: \(Fmt.count(s.semi.hbmStock)) stacks · packaging yield \(Fmt.pct(Semis.packYield(s), decimals: 1))")
                 .font(.caption).foregroundStyle(.secondary)
+            if d.dieBank.reduce(0, +) > 1 {
+                let days = Semis.dieBankDays(d, s)
+                Why("The bank holds \(days.isFinite ? "\(Fmt.trim(days / 30.4, 1)) months" : "more than packaging takes") of packaging. Holding a die costs \(Fmt.pct(Semis.dieCarryMonthly, decimals: 1)) of its wafer cost a month and \(Fmt.pct(Semis.dieLossMonthly(d, s), decimals: 0)) age out a month\(Semis.superseded(d, s) ? " (a newer generation is out)" : ""). Surplus beyond two months \(s.semi.holdExcessDies ? "stays in the bank" : "goes to other packagers as known-good die at about \(Fmt.money(Semis.kgdPrice(d, s))) a die")\(d.kgdSold > 0 ? " — \(Fmt.count(d.kgdSold)) sold so far" : "").")
+            }
             if let fsw = SemiCatalog.foundryByID["fsw"] {
                 let uc = Semis.unitCost(d, foundry: fsw, s)
                 Why("One good chip costs about \(Fmt.money(uc.total)) to make at \(fsw.name) today: wafer \(Fmt.money(uc.wafer)) + packaging \(Fmt.money(uc.pack)) + HBM \(Fmt.money(uc.hbm)) + test \(Fmt.money(uc.test)).")
@@ -812,6 +816,7 @@ private struct SalesPolicyCard: View {
             Text("Rival labs are a quarter of the market. Every chip they buy adds to their fleet — and to their next models: \(armed.isEmpty ? "none have bought from you yet" : armed.map { "\($0.def.name) \(Fmt.count(s.semi.buyers[$0.id] ?? 0)) chips" }.joined(separator: ", ")).")
                 .font(.caption).foregroundStyle(.secondary)
             Toggle("Sell to sovereign AI funds", isOn: Binding(get: { s.semi.allowSovereigns }, set: { v in store.mutate { $0.setSemiPolicy(allowSovereigns: v) } }))
+            Toggle("Sell surplus dies to other packagers (known-good die)", isOn: Binding(get: { !s.semi.holdExcessDies }, set: { v in store.mutate { $0.setSemiPolicy(holdExcessDies: !v) } }))
             Text(rules.china ? "Export controls: no sales to Chinese buyers\(rules.gulfHalf ? "; Gulf sales need licences (half the demand)" : "")." : "No export controls on your chips right now.")
                 .font(.caption).foregroundStyle(rules.china ? .orange : .secondary)
             Why("Supplier reputation \(Int(Semis.reputation(s) * 100))/100 = 5 + 15 × log10(1 + chips shipped / 50k)\(s.semi.repHit > 0 ? " − \(Int(s.semi.repHit * 100)) for late orders" : ""). Buyers need to trust your software stack before they switch.")

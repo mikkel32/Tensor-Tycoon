@@ -29,6 +29,8 @@ struct SemiState: Codable, Hashable, DefaultValue {
     @D var allowRivals: Bool = false
     /// Sovereign funds may buy (export rules permitting).
     @D var allowSovereigns: Bool = true
+    /// 3.8: keep surplus dies in the die bank instead of selling them to other packagers as known-good die.
+    @D var holdExcessDies: Bool = false
     /// What happened, newest first (capped).
     @D var log: [SemiEvent] = []
     /// This month's books, and the last 24 months.
@@ -124,6 +126,9 @@ struct SemiDesign: Codable, Identifiable, Hashable {
     @D var wafersDone: Double = 0
     /// Good dies waiting for packaging, by bin.
     @D var dieBank: [Double] = [0, 0, 0]
+    /// 3.8: dies written off in the bank (aged out, or a generation behind), and sold as known-good die, lifetime.
+    @D var diesScrapped: Double = 0
+    @D var kgdSold: Double = 0
     /// Finished chips: reserved for your fleet, and for customers, by bin.
     @D var stockMine: [Double] = [0, 0, 0]
     @D var stockSale: [Double] = [0, 0, 0]
@@ -276,8 +281,13 @@ struct SemiMonth: Codable, Hashable, DefaultValue {
     @D var packDays: Int = 0
     @D var hbmDays: Int = 0
     @D var waferDays: Int = 0
+    /// 3.8: holding the die bank (storage, test, capital), dies written off, and surplus dies sold as known-good die.
+    @D var dieCarry: Double = 0
+    @D var diesScrapped: Double = 0
+    @D var kgdDies: Double = 0
+    @D var kgdRevenue: Double = 0
 
-    var costs: Double { wafersCost + packCost + hbmCost + teamCost + designCost + fabCost + penalties }
+    var costs: Double { wafersCost + packCost + hbmCost + teamCost + designCost + fabCost + penalties + dieCarry }
 
     /// What held output back most this month ("wafers", "packaging", "HBM" or "" when nothing is in production).
     var bottleneck: String {

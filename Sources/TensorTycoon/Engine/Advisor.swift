@@ -24,6 +24,8 @@ enum AdvisorFix: Hashable {
     case leaseCapacity(String, Double, Int)
     /// Handled by the app: open this decision.
     case openDecision(UUID)
+    /// 3.8: set a fab's share for its product (the rest goes to foundry customers).
+    case fabShare(UUID, Double)
 }
 
 /// Your chief of staff: a short, prioritised list of things that need your attention right now, most with a fix.
@@ -367,6 +369,10 @@ enum Advisor {
         case .leaseCapacity(let loc, let mw, let years):
             return s.leaseCapacity(locationID: loc, mw: mw, years: years, cooling: s.year >= 2023 ? .liquid : .air)
         case .openDecision:
+            return nil
+        case .fabShare(let id, let share):
+            guard s.semi.fabs.contains(where: { $0.id == id }) else { return "That fab is gone." }
+            s.setFabShare(id, share: share)
             return nil
         }
     }
