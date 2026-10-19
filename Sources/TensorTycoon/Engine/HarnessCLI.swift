@@ -31,6 +31,7 @@ enum HarnessCLI {
             return bad == 0 ? 0 : 1
         }
         if args.contains("--forecast-check") { BalanceHarness.forecastCheck(); return 0 }
+        if args.contains("--photo-check") { return PhotoHarness.main() }   // 3.4: photo credits and honest labels
         if let era = arg(after: "--strategy", "2022") { BalanceHarness.strategy(era: era); return 0 }
         if let era = arg(after: "--industry", "2017") { BalanceHarness.industry(era: era); return 0 }
         if args.contains("--scale") { BalanceHarness.scale(); return 0 }

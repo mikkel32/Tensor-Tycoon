@@ -62,11 +62,14 @@ enum Sim {
 
     // MARK: - News helper
 
+    /// `illustrative`: the photo stands in for the story's subject (e.g. `Accelerator.photoIsStandIn`, the player's own
+    /// office), so the feed labels it.
     static func news(_ s: inout GameState, _ title: String, _ body: String, _ cat: NewsCategory,
-                     image: String? = nil, important: Bool = false, good: Bool? = nil) {
+                     image: String? = nil, important: Bool = false, good: Bool? = nil, illustrative: Bool = false) {
         // The photo is a pure function of the headline (ImagePicker never draws from the game's RNG).
         s.news.insert(NewsItem(date: s.date, title: title, body: body, category: cat,
-                               image: ImagePicker.illustrate(image, title: title, category: cat), important: important, good: good), at: 0)
+                               image: ImagePicker.illustrate(image, title: title, category: cat), important: important, good: good,
+                               illustrative: illustrative && image != nil), at: 0)
         if s.news.count > 400 { s.news.removeLast(s.news.count - 400) }
         s.unreadNews += 1
     }
@@ -81,13 +84,14 @@ enum Sim {
                 if a.available > ym {
                     news(&s, "\(a.vendor.rawValue) announces \(a.name)",
                          "\(a.fact) Expected availability: \(a.available.label). \(Fmt.memory(a.memoryGB)) \(a.memoryType), \(Fmt.trim(a.bandwidthTBs, 1)) TB/s, \(Fmt.tflops(a.best)) \(a.bestPrecisionLabel).",
-                         .hardware, image: a.image)
+                         .hardware, image: a.image, illustrative: a.photoIsStandIn)
                 }
             }
             if a.available <= ym && !s.availableHardware.contains(a.id) {
                 s.availableHardware.insert(a.id)
                 let how = a.purchasable ? "Orders are open" : "Available to rent on \(a.cloudProvider)"
-                news(&s, "\(a.name) is now available", "\(how). \(a.fact)", .hardware, image: a.image, important: a.cls == .datacenter || a.cls == .tpu, good: true)
+                news(&s, "\(a.name) is now available", "\(how). \(a.fact)", .hardware, image: a.image, important: a.cls == .datacenter || a.cls == .tpu, good: true,
+                     illustrative: a.photoIsStandIn)
             }
         }
     }
@@ -136,7 +140,7 @@ enum Sim {
             let name = HardwareCatalog.get(o.accelID)?.name ?? o.accelID
             let site = s.sites.first { $0.id == o.siteID }?.name ?? "your site"
             news(&s, "Delivered: \(Fmt.int(o.count))× \(name)", "Racked, cabled and burned in at \(site). They're ready for work.",
-                 .company, image: HardwareCatalog.get(o.accelID)?.image, good: true)
+                 .company, image: HardwareCatalog.get(o.accelID)?.image, good: true, illustrative: HardwareCatalog.get(o.accelID)?.photoIsStandIn ?? false)
         }
         mergeOwned(&s)
     }

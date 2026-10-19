@@ -834,6 +834,10 @@ struct NewsItem: Codable, Identifiable, Hashable {
     var image: String? = nil
     var important = false
     var good: Bool? = nil
+    /// The photo stands in for what the story is about (a chip shown with a photo of a related one, a roadmap chip,
+    /// the player's own office or site), so the feed marks it "Illustrative". Stock photos are marked whatever this
+    /// says (`ImagePicker.isIllustrative`).
+    @D var illustrative: Bool = false
 }
 
 struct DecisionOption: Codable, Hashable {

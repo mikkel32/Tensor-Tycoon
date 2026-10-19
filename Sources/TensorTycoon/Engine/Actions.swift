@@ -30,7 +30,8 @@ extension GameState {
             : (Semis.isSemiChip(a.id) ? Semis.take(&self, a.id, count: count) : Economy.leadTimeDays(a, self))
         orders.append(HardwareOrder(accelID: accelID, count: count, siteID: siteID, unitCost: unit - rebate / Double(count), ordered: date,
                                     arrives: GameCalendar.addDays(date, days)))
-        Sim.news(&self, "Ordered \(Fmt.int(count))× \(a.name)", "\(Fmt.money(total)) paid. Delivery in about \(days) days to \(site.name).", .company, image: a.image)
+        Sim.news(&self, "Ordered \(Fmt.int(count))× \(a.name)", "\(Fmt.money(total)) paid. Delivery in about \(days) days to \(site.name).", .company, image: a.image,
+                 illustrative: a.photoIsStandIn)
         return nil
     }
 
@@ -65,7 +66,7 @@ extension GameState {
         let end = term.months.map { GameCalendar.addMonths(date, $0) }
         rentals.append(Rental(accelID: accelID, count: count, hourly: hourly, term: term, start: date, end: end))
         Sim.news(&self, "Rented \(Fmt.int(count))× \(a.name)", "\(term.rawValue) at \(Fmt.price(hourly))/chip-hour (\(Fmt.money(hourly * 24 * 30.4 * Double(count)))/month).",
-                 .company, image: a.image)
+                 .company, image: a.image, illustrative: a.photoIsStandIn)
         return nil
     }
 
@@ -105,7 +106,7 @@ extension GameState {
             sites.append(Site(name: name, kind: .colo, locationID: locationID, capacityKW: capacityKW, cooling: cooling, powerDeal: power,
                               opened: date, ready: ready, capex: 0, monthlyFee: setup))
             Sim.news(&self, "Signed colocation lease: \(name)", "\(Fmt.watts(capacityKW * 1000)) in \(loc.name), ready in 30 days. \(Fmt.money(setup))/month.",
-                     .company, image: loc.image)
+                     .company, image: loc.image, illustrative: true)
         case .datacenter:
             let mw = capacityKW / 1000
             let cap = Campus.siteCapMW(loc, power, self)
@@ -262,7 +263,7 @@ extension GameState {
                      .policy, important: true, good: false)
         }
         Sim.news(&self, "Training started: \(d.name)", "\(Fmt.params(d.paramsB)) params on \(Fmt.tokens(d.tokensT)) tokens using \(Fmt.int(d.chips))× \(a.name). \(Fmt.flops(pre)) FLOPs.",
-                 .company, image: a.image)
+                 .company, image: a.image, illustrative: a.photoIsStandIn)
         return nil
     }
 
@@ -616,7 +617,8 @@ extension GameState {
         cash -= fitout
         month.capex += fitout
         officeLevel += 1
-        Sim.news(&self, "Moved into: \(next.name)", "Room for \(Fmt.int(next.capacity)) people. Rent \(Fmt.money(next.monthly))/month.", .company, image: next.image, good: true)
+        Sim.news(&self, "Moved into: \(next.name)", "Room for \(Fmt.int(next.capacity)) people. Rent \(Fmt.money(next.monthly))/month.", .company, image: next.image, good: true,
+                 illustrative: true)
         return nil
     }
 

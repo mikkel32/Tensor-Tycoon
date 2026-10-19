@@ -420,17 +420,21 @@ enum CountryCatalog {
 extension LocationCatalog {
     static let european: [Location] = [
         Location(id: "dk_jutland", name: "Fredericia, Denmark", region: "Nordics", powerPrice: 0.078, pueDelta: -0.07, buildSpeed: 0.9,
-                 gridCapMW: 700, coloFee: 165, image: "hq_dk_wind",
-                 blurb: "Wind-powered Jutland: wind PPAs, cold air and waste heat sold to the district-heating grid. Hyperscalers already build here."),
+                 gridCapMW: 700, coloFee: 165, image: "dc_foulum",
+                 blurb: "Wind-powered Jutland: wind PPAs, cold air and waste heat sold to the district-heating grid. Hyperscalers already build here.",
+                 photoShowsPlace: true),
         Location(id: "fr_rhone", name: "Rhône Valley, France", region: "France", powerPrice: 0.082, pueDelta: -0.02, buildSpeed: 0.85,
-                 gridCapMW: 1_500, coloFee: 160, image: "nuclear",
-                 blurb: "Next to the Rhône's nuclear plants: EDF sells long-term nuclear contracts here and the grid was built for heavy industry."),
+                 gridCapMW: 1_500, coloFee: 160, image: "loc_rhone",
+                 blurb: "Next to the Rhône's nuclear plants: EDF sells long-term nuclear contracts here and the grid was built for heavy industry.",
+                 photoShowsPlace: true),
         Location(id: "it_milan", name: "Milan, Italy", region: "Italy", powerPrice: 0.140, pueDelta: 0.03, buildSpeed: 0.75,
-                 gridCapMW: 700, coloFee: 175, image: "dc_hall",
-                 blurb: "Italy's datacenter hub with great connectivity to southern Europe, but gas-indexed power is expensive, solar contracts help and the grid queue is long."),
+                 gridCapMW: 700, coloFee: 175, image: "hq_milan",
+                 blurb: "Italy's datacenter hub with great connectivity to southern Europe, but gas-indexed power is expensive, solar contracts help and the grid queue is long.",
+                 photoShowsPlace: true),
         Location(id: "ro_bucharest", name: "Bucharest, Romania", region: "Romania", powerPrice: 0.105, pueDelta: 0.02, buildSpeed: 1.05,
-                 gridCapMW: 400, coloFee: 105, image: "server_room",
-                 blurb: "Cheap land and labour, quick construction and a hydro-and-nuclear grid with hydro contracts on offer. A smaller grid and hot summers."),
+                 gridCapMW: 400, coloFee: 105, image: "hq_bucharest",
+                 blurb: "Cheap land and labour, quick construction and a hydro-and-nuclear grid with hydro contracts on offer. A smaller grid and hot summers.",
+                 photoShowsPlace: true),
     ]
 }
 

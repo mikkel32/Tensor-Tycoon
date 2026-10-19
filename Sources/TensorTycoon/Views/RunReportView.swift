@@ -196,6 +196,9 @@ struct RunReportSheet: View {
                 .frame(maxWidth: .infinity)
                 .clipped()
                 .overlay(LinearGradient(colors: [.black.opacity(0.15), .black.opacity(0.88)], startPoint: .top, endPoint: .bottom))
+                // The report's text sits bottom-leading, so the photo's caption goes top-trailing.
+                .acceleratorPhotoLabel(accel, alignment: .topTrailing)
+                .illustrativePhoto(accel == nil, key: "supercomputer", alignment: .topTrailing)
             HStack(alignment: .bottom) {
                 VStack(alignment: .leading, spacing: 5) {
                     HStack(spacing: 6) {

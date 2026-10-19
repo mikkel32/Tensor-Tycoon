@@ -65,13 +65,19 @@ struct MainMenuView: View {
                 .font(.title3)
                 .foregroundStyle(.white.opacity(0.85))
             UpdateStatusLine()
-            // 3.5: challenge-mode scenarios
-            Button { showChallenges = true } label: {
-                Label("Challenges: curated starts with a goal and a score", systemImage: "flag.checkered")
+            HStack(spacing: 10) {
+                // 3.5: challenge-mode scenarios
+                Button { showChallenges = true } label: {
+                    Label("Challenges: curated starts with a goal and a score", systemImage: "flag.checkered")
+                }
+                .sheet(isPresented: $showChallenges) { ScenarioPickerSheet() }
+                Button { store.openPhotoCredits() } label: {
+                    Label("Photo credits", systemImage: "photo.on.rectangle")
+                }
+                .help("Who took each photo in the game, its licence and what it shows")
             }
             .buttonStyle(.bordered)
             .environment(\.colorScheme, .dark)
-            .sheet(isPresented: $showChallenges) { ScenarioPickerSheet() }
         }
     }
 

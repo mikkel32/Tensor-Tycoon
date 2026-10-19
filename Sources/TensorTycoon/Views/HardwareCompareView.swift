@@ -2,37 +2,16 @@ import SwiftUI
 
 // MARK: - Honest photo labels
 
-extension Accelerator {
-    /// The chip doesn't ship as real hardware (a roadmap projection, a fictional part, your own or alien silicon), so
-    /// its photo is an illustration, never a picture of the thing itself.
-    var photoIsIllustrative: Bool {
-        if vendor == .custom { return true }
-        guard representativeImage else { return false }
-        return name.localizedCaseInsensitiveContains("roadmap") || fact.localizedCaseInsensitiveContains("roadmap")
-            || fact.localizedCaseInsensitiveContains("fictional")
-    }
-
-    /// A pill for the photo: "Illustrative" for chips that don't exist yet, "Similar hardware" for real chips shown with
-    /// a stand-in photo, nothing for a photo of the chip itself.
-    var photoLabel: (text: String, help: String)? {
-        if photoIsIllustrative {
-            return ("Illustrative", "Not a photo of this chip: it's a roadmap projection or your own design, so the picture is a stand-in.")
-        }
-        if representativeImage {
-            return ("Similar hardware", "A photo of closely related hardware; no freely licensed photo of this exact chip was available.")
-        }
-        return nil
-    }
-}
-
-/// The photo pill for an accelerator's picture (nothing when the photo shows the chip itself).
+/// The photo pill for an accelerator's picture (nothing when the photo shows the chip itself). The label logic
+/// lives with the catalog (`Accelerator.photoLabel` in ImagePicker.swift) so news items can use it too; small
+/// thumbnails use `.acceleratorPhotoLabel(_:)`, which shrinks to a badge.
 struct AcceleratorPhotoLabel: View {
     let accel: Accelerator
 
     var body: some View {
         if let l = accel.photoLabel {
-            PhotoPill(text: l.text, symbol: accel.photoIsIllustrative ? "paintbrush.pointed.fill" : "photo")
-                .help(l.help)
+            PhotoPill(text: l.text, symbol: l.symbol)
+                .help(ImageLibrary.tooltip(accel.image, illustrative: true, prefix: l.help))
                 .accessibilityLabel("\(l.text) photo")
         }
     }

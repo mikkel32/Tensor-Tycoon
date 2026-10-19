@@ -192,13 +192,13 @@ struct Era: Identifiable, Sendable {
             start: GameCalendar.date(2017, 7, 3), cash: 3_000_000, image: "p100_die",
             blurb: "The Transformer paper just dropped. V100s are brand new, TPU v2 is coming. Nobody knows that scale is all you need — yet."),
         Era(id: "2020", title: "The Scaling Era", subtitle: "June 2020",
-            start: GameCalendar.date(2020, 6, 1), cash: 8_000_000, image: "a100",
+            start: GameCalendar.date(2020, 6, 1), cash: 8_000_000, image: "hpc_summit",
             blurb: "A100s are shipping and a 175B-parameter model is about to stun the world. Rates are near zero and VCs are hungry."),
         Era(id: "2022", title: "The ChatGPT Moment", subtitle: "September 2022",
             start: GameCalendar.date(2022, 9, 1), cash: 15_000_000, image: "h100_stack",
             blurb: "H100s are about to ship. In three months a chatbot will reach 100M users. Will it be yours?"),
         Era(id: "2026", title: "The Gigawatt Race", subtitle: "October 2026",
-            start: GameCalendar.date(2026, 10, 15), cash: 40_000_000, image: "gb200_rack",
+            start: GameCalendar.date(2026, 10, 15), cash: 40_000_000, image: "hgx_b200",
             blurb: "Today. Rubin is shipping, TPU 8t/8i are imminent and labs measure clusters in gigawatts. Find your niche or out-build the giants."),
     ]
 }

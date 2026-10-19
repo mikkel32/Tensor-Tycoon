@@ -468,7 +468,7 @@ extension GameState {
         sites.append(site)
         Sim.news(&self, "Leased \(Fmt.watts(mw * 1e6)) in \(loc.name)",
                  "\(years)-year \(toOwn ? "lease-to-own" : "wholesale lease") at \(Fmt.money(rate))/kW-month (\(Fmt.money(rate * mw * 1000))/month at full size). First \(Fmt.watts(first * 1e6)) \(ready.gameMonth)\(ramped ? ", the rest in quarterly tranches" : "").",
-                 .company, image: loc.image)
+                 .company, image: loc.image, illustrative: true)
         return nil
     }
 

@@ -556,7 +556,7 @@ private struct FabRow: View {
         let total = Double(max(1, GameCalendar.daysBetween(fab.started, fab.opens)))
         let done = Double(GameCalendar.daysBetween(fab.started, s.date))
         VStack(alignment: .leading, spacing: 4) {
-            IllustrativeBanner(key: ImagePicker.pick(fab.open(s.date) ? .fab : .construction, seed: fab.name), height: 70)
+            IllustrativeBanner(key: ImagePicker.pick(fab.open(s.date) ? .fab : .fabConstruction, seed: fab.name), height: 70)
             HStack {
                 Text(fab.name).font(.callout.weight(.semibold))
                 Pill(text: SemiCatalog.node(fab.node).short, color: .indigo)
