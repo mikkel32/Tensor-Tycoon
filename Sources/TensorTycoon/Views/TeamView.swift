@@ -22,10 +22,10 @@ struct TeamView: View {
                         HStack {
                             Text("Headcount").font(.caption)
                             Spacer()
-                            Text("\(s.employees.count) / \(office.capacity)").font(.caption.monospacedDigit())
+                            Text("\(HQ.staffCount(s, office: "")) / \(office.capacity)").font(.caption.monospacedDigit())   // 3.4 overhaul: headquarters only
                         }
-                        Meter(value: Double(s.employees.count) / Double(office.capacity), tint: s.employees.count >= office.capacity ? .orange : .green)
-                        Text("Rent \(Fmt.money(office.monthly))/mo · payroll \(Fmt.money(Economy.payrollYear(s) / 12))/mo").font(.caption).foregroundStyle(.secondary)
+                        Meter(value: Double(HQ.staffCount(s, office: "")) / Double(office.capacity), tint: HQ.staffCount(s, office: "") >= office.capacity ? Theme.warning : Theme.good)
+                        Text("Rent \(Fmt.money(office.monthly + HQ.satelliteRent(s)))/mo · payroll \(Fmt.money(Economy.payrollYear(s) / 12))/mo").font(.caption).foregroundStyle(.secondary)
                         HQSummaryLine(state: s)   // 3.5: headquarters
                         if let next {
                             Button("Move to \(next.name) (\(next.capacity) seats, \(Fmt.money(next.monthly))/mo)") {
@@ -62,6 +62,7 @@ struct TeamView: View {
                 }
             }
 
+            SatelliteOfficesCard(state: s)   // 3.4 overhaul: offices in other cities
             NotablePeopleCard()   // 3.4: your people the industry knows by name
             HStack {
                 Text("Candidates").font(.title3.weight(.semibold))

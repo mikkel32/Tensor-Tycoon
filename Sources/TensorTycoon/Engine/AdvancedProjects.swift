@@ -95,7 +95,7 @@ enum AdvancedProjects {
         let strict = w.strictness.indices.contains(a.region.index) ? w.strictness[a.region.index] : 30
         let concernMult = 1 + a.kind.concernSensitivity * (w.concern - 25) / 50
         let rulesMult = 1 + a.kind.rulesSensitivity * (strict - 40) / 60
-        return budgetScale(s.year) * a.budget * clamp(concernMult * rulesMult, 0.5, 2.2) * Nations.agencyFactor(s, a.region)   // 3.7: sovereign-AI programmes
+        return budgetScale(s.year) * a.budget * clamp(concernMult * rulesMult, 0.5, 2.2) * Nations.agencyFactor(s, a.region, country: a.country)   // 3.7: sovereign-AI programmes (3.4 overhaul: a national agency follows its country's)
             * leverFactor(a, s)
     }
 
@@ -103,7 +103,8 @@ enum AdvancedProjects {
     /// councils compute subsidies): ×0.75 at 0, ×1 at 50, ×1.25 at 100.
     static func leverFactor(_ a: AgencyDef, _ s: GameState) -> Double {
         guard let l = a.lever, s.nations.ready else { return 1 }
-        return clamp(1 + 0.25 * (s.nations.level(a.region, l) - 50) / 50, 0.75, 1.25)
+        let level = a.country.isEmpty ? s.nations.level(a.region, l) : Nations.level(s, country: a.country, l)   // 3.4 overhaul: national dials
+        return clamp(1 + 0.25 * (level - 50) / 50, 0.75, 1.25)
     }
 
     /// Agencies size what they offer to the lab they're talking to: a ten-person startup sees smaller lots, a lab with

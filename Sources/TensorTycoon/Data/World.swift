@@ -103,10 +103,10 @@ enum PowerDeal: String, Codable, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    /// Whether this deal is open to you (the Superconducting Grid mega-project brings fusion forward).
+    /// Whether this deal is open to you. Fusion arrives on the same date as fusion power contracts (3.4 overhaul: the
+    /// Civilisational stage's pull-in counted for contracts but not here).
     func available(_ s: GameState) -> Bool {
-        if self == .fusion && XenoScience.megaDone(s, "supergrid") && s.year >= 2029 { return true }
-        if self == .fusion { return s.year >= availableFrom - Science.fusionPullIn(s) }   // 3.6: fusion-control discoveries
+        if self == .fusion { return PowerKind.fusionOpen(s, from: availableFrom) }
         return s.year >= availableFrom
     }
 

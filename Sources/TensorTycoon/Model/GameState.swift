@@ -68,6 +68,10 @@ struct Employee: Codable, Identifiable, Hashable {
     var equity: Double = 0
     @D var trait: String = ""
     @D var promoted: Bool = false
+    /// 3.4 overhaul: the satellite office they work in (HQState.satellites ID); empty = headquarters.
+    @D var office: String = ""
+    /// Hired from abroad into headquarters, on the international rate rather than local pay.
+    @D var relocated: Bool = false
 }
 
 struct Candidate: Codable, Identifiable, Hashable {
@@ -81,6 +85,9 @@ struct Candidate: Codable, Identifiable, Hashable {
     var expires: Date
     var bio: String
     @D var trait: String = ""
+    /// 3.4 overhaul: the satellite office hiring them (empty = headquarters), and whether they'd relocate from abroad.
+    @D var office: String = ""
+    @D var relocated: Bool = false
 }
 
 // MARK: - Hardware

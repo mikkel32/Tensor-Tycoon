@@ -59,7 +59,7 @@ enum Market {
         let frontier = Macro.frontier(y)
         let chatOn = s.chatMoment != nil
         var snap = MarketSnapshot()
-        let size = Macro.marketSize(y) * s.market.hype * s.difficulty.demandMultiplier
+        let size = Macro.marketSize(y) * s.market.hype * s.difficulty.demandMultiplier * Nations.demandFactor(s)   // 3.4 overhaul: regional recessions
         let split = Macro.segmentSplit(y, chatMoment: chatOn)
         snap.marketSize = size
         snap.apiRevenuePool = size * split.api / 365

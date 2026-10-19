@@ -52,7 +52,7 @@ enum Campus {
             let kw = min(left, max(site.phaseKW, 1_000))
             let months = s.buildMonths(mw: kw / 1000, loc: site.location, power: site.powerDeal) * 0.35
             let ready = GameCalendar.addDays(cursor, max(30, Int(months * 30.4)))
-            out.append((kw, kw / 1000 * capexPerMW(site.cooling, s), cursor, ready, false))
+            out.append((kw, kw / 1000 * capexPerMW(site.cooling, s, location: site.locationID), cursor, ready, false))
             cursor = ready
             left -= kw
         }
@@ -62,6 +62,12 @@ enum Campus {
     /// Construction cost per MW: shell, substation, cooling (chips not included).
     static func capexPerMW(_ c: Cooling, _ s: GameState) -> Double {
         c.capexPerMW * (s.year > 2024 ? 1.15 : 1)
+    }
+
+    /// What building a MW costs you at `location`: less at home where your country's incentives apply (3.4 overhaul:
+    /// taken off each phase as it's paid for; campuses you buy, retrofits and on-site plants pay full price).
+    static func capexPerMW(_ c: Cooling, _ s: GameState, location: String) -> Double {
+        capexPerMW(c, s) * HQ.buildCost(s, location: location)
     }
 
     /// One phase up to 400 MW; bigger campuses are split into up to eight phases.
@@ -89,7 +95,7 @@ enum Campus {
         let site = s.sites[i]
         guard site.kind == .datacenter, site.plannedKW > 0, site.expanding == 0, site.isReady(s.date) else { return }
         let kw = min(site.plannedKW, max(site.phaseKW, 1_000))
-        let capex = kw / 1000 * capexPerMW(site.cooling, s)
+        let capex = kw / 1000 * capexPerMW(site.cooling, s, location: site.locationID)
         guard capex <= s.cash else {
             if !site.phaseBlocked {
                 s.sites[i].phaseBlocked = true
@@ -102,6 +108,7 @@ enum Campus {
         s.cash -= capex
         s.month.capex += capex
         s.sites[i].capex += capex
+        HQ.noteIncentive(&s, gross: kw / 1000 * capexPerMW(site.cooling, s), net: capex)
         s.sites[i].plannedKW -= kw
         s.sites[i].expanding = kw
         s.sites[i].phaseBlocked = false

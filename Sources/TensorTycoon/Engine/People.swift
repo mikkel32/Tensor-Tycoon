@@ -19,15 +19,17 @@ enum People {
                   "Wrote an influential responsible scaling policy.", "Former security engineer specialising in model abuse."],
     ]
 
-    static func makeCandidate(_ s: inout GameState, role: Role? = nil, star: Bool? = nil) -> Candidate {
+    /// A candidate for `office` ("" = headquarters; otherwise a satellite office's ID). `relocated`: someone moving to
+    /// headquarters from abroad, on the international rate (3.4 overhaul).
+    static func makeCandidate(_ s: inout GameState, role: Role? = nil, star: Bool? = nil, office: String = "", relocated: Bool = false) -> Candidate {
         var roles: [Role] = [.researcher, .researcher, .mlEngineer, .mlEngineer, .infra, .data, .sales, .safety]
         if s.bonuses.has(.customSilicon) && s.year > 2018 { roles.append(.chipDesigner) }
-        roles += HQ.extraRoles(s)   // 3.5: what the local ecosystem produces
+        roles += HQ.extraRoles(s, office: office)   // 3.5: what the local ecosystem produces
         let r = role ?? s.rng.pick(roles)
         let isStar = star ?? s.rng.chance(0.06)
         let pull = r == .researcher ? (s.publication == .open ? 4.0 : s.publication == .secret ? -5.0 : 0) : 0
-        let skill = isStar ? s.rng.range(85, 99) : clamp(45 + pull + s.traits.hiring + HQ.skillBonus(s, r) + s.rng.gaussian() * 15, 15, 90)
-        var salary = Macro.salary(r, s.year) * pow(skill / 50, 1.6) * HQ.salaryFactor(s, star: isStar)
+        let skill = isStar ? s.rng.range(85, 99) : clamp(45 + pull + s.traits.hiring + HQ.skillBonus(s, r, office: office) + s.rng.gaussian() * 15, 15, 90)
+        var salary = Macro.salary(r, s.year) * pow(skill / 50, 1.6) * HQ.payFactor(s, office: office, star: isStar, relocated: relocated)
         if isStar && s.year > 2024.5 && r == .researcher { salary *= s.rng.range(3, 12) }   // 2025 talent wars
         let equity = isStar ? s.rng.range(0.05, 0.6) : s.rng.range(0, 0.05)
         let name = "\(s.rng.pick(NameBank.first)) \(s.rng.pick(NameBank.last))"
@@ -39,13 +41,36 @@ enum People {
             c.trait = t.rawValue
             c.salary = (c.salary * (1 + (t.multiplier - 1) * 0.4) / 1000).rounded() * 1000
         }
+        if relocated {
+            c.relocated = true
+            c.bio += " Would relocate from abroad, on international pay."
+        }
+        if !office.isEmpty {
+            c.office = office
+            c.bio += " Based in \(HQ.officeName(s, office))."
+        }
         return c
     }
 
+    /// Tops up the job market: headquarters first (local candidates up to the city's pool, then people willing to
+    /// relocate as your name carries), then each satellite office from its own city's pool (3.4 overhaul).
     static func refreshCandidates(_ s: inout GameState) {
         s.candidates.removeAll { $0.expires < s.date }
-        let target = Int((Double(HQ.candidateTarget(s, 8 + min(8, s.employees.count / 20))) * Nations.candidateFactor(s)).rounded())   // 3.7: talent visas
-        while s.candidates.count < target { s.candidates.append(makeCandidate(&s)) }
+        let visas = Nations.candidateFactor(s)   // 3.7: talent visas
+        let t = HQ.candidateTargets(s, 8 + min(8, HQ.staffCount(s, office: "") / 20))
+        let target = Int((Double(t.total) * visas).rounded())
+        let local = Int((Double(t.local) * visas).rounded())
+        while s.candidates.filter({ $0.office.isEmpty }).count < target {
+            let locals = s.candidates.filter { $0.office.isEmpty && !$0.relocated }.count
+            s.candidates.append(makeCandidate(&s, relocated: locals >= local))
+        }
+        let open = Set(s.hq.satellites.map(\.id.uuidString))
+        s.candidates.removeAll { !$0.office.isEmpty && !open.contains($0.office) }
+        for o in s.hq.satellites {
+            let key = o.id.uuidString
+            let want = HQ.satelliteTarget(s, o)
+            while s.candidates.filter({ $0.office == key }).count < want { s.candidates.append(makeCandidate(&s, office: key)) }
+        }
     }
 
     static func monthly(_ s: inout GameState) {
@@ -56,7 +81,8 @@ enum People {
         let momentum = (s.history.last?.revenue ?? 0) > (s.history.dropLast().last?.revenue ?? 0) ? 1.0 : -0.5
         var poached: [Employee] = []
         for i in s.employees.indices {
-            let market = Macro.salary(s.employees[i].role, s.year) * pow(s.employees[i].skill / 50, 1.6) * HQ.salaryFactor(s, star: s.employees[i].star)
+            let e = s.employees[i]
+            let market = Macro.salary(e.role, s.year) * pow(e.skill / 50, 1.6) * HQ.payFactor(s, office: e.office, star: e.star, relocated: e.relocated)
             let payRatio = s.employees[i].salary / max(market, 1)
             var m = s.employees[i].morale
             m += (payRatio - 1) * 6 + momentum + (crowded ? -4 : 0) + (s.cash < 0 ? -10 : 0)
@@ -64,7 +90,7 @@ enum People {
             s.employees[i].morale = clamp(m, 0, 100)
             // Rival labs poach unhappy, highly skilled people (never the loyal ones)
             var risk = (s.employees[i].skill / 100) * max(0, 0.6 - s.employees[i].morale / 100) * 0.12 + (s.employees[i].star ? 0.01 : 0)
-            risk *= HQ.poachFactor(s)   // 3.5: big labs abroad recruit harder where pay is lower
+            risk *= HQ.poachFactor(s, office: e.office)   // 3.5: big labs abroad recruit harder where pay is lower
             if s.employees[i].talent == .loyal { risk = 0 }
             if s.rng.chance(risk) { poached.append(s.employees[i]) }
         }
@@ -151,7 +177,7 @@ enum Events {
 
         // Copyright lawsuit
         if y >= 2023, let m = released.first(where: { $0.usedShadowData && !$0.lawsuitResolved }),
-           s.rng.chance(0.07 * s.market.copyrightHeat * (s.lawsPassed.contains("liability") ? 1.5 : 1)) {
+           s.rng.chance(0.07 * s.market.copyrightHeat * (s.lawsPassed.contains("liability") ? 1.5 : 1) * Nations.dataLawsuitFactor(s)) {   // 3.4 overhaul: data rules at home
             let rr = Economy.runRate(s)
             let fine = clamp(max(5e6, rr * 0.25), 5e6, 1.5e9) * (y > 2025.6 ? 1.5 : 1) * Policy.fineFactor(s)
             addDecision(&s, kind: "lawsuit", title: "Authors sue over pirated training data",
