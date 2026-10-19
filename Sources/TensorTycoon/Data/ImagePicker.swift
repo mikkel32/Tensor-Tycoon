@@ -242,4 +242,3 @@ enum ImagePicker {
         return h
     }
 }
-}
