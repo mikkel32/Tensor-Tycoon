@@ -66,7 +66,7 @@ enum PowerKind: String, Codable, CaseIterable, Identifiable, Sendable {
 
     func available(_ s: GameState) -> Bool {
         if self == .fusion && XenoScience.megaDone(s, "supergrid") && s.year >= 2029 { return true }
-        if self == .fusion { return s.year >= availableFrom - Science.fusionPullIn(s) - Progression.fusionPullIn(s) }   // 3.6: fusion-control discoveries; 3.7: Civilisational stage
+        if self == .fusion { return Science.has(.fusionPower, s) || s.year >= availableFrom - Science.fusionPullIn(s) - Progression.fusionPullIn(s) }   // 3.6: fusion-control discoveries (the burning-plasma unlock opens it outright); 3.7: Civilisational stage
         return s.year >= availableFrom
     }
 
@@ -219,6 +219,13 @@ enum Power {
     /// Purchase agreements and on-site generation are the hedge.
     static func gridMultiplier(_ s: GameState) -> Double { 1 + 0.4 * max(0, s.world.gridStress - 30) / 70 * AdvancedProjects.gridFactor(s) }   // grid programmes
 
+    /// Everything that cuts what your datacenters' power costs, multiplied — culture perks, alien materials,
+    /// infrastructure agent teams, energy discoveries, cooling programmes — with a floor: a campus still pays for at
+    /// least a tenth of its power. The power bill (Sim.dailyCosts) and purchase-agreement settlement (`settle`) both use it.
+    static func billFactor(_ s: GameState) -> Double {
+        max(0.1, max(0.5, 1 - s.traits.power) * XenoScience.powerFactor(s) * AgentOrgs.powerFactor(s) * Science.powerFactor(s) * AdvancedProjects.powerFactor(s))
+    }
+
     static func summary(_ s: GameState) -> PowerSummary {
         var p = PowerSummary()
         for site in s.sites {
@@ -265,7 +272,7 @@ enum Power {
         let size = 0.8 + 0.4 * min(1, mw / max(1, loc.gridCap(s.year)))
         let stress = 1 + s.world.gridStress / 150
         let rules = Policy.buildFactor(s) * XenoScience.buildFactor(s)
-        return max(3, base * era * size * stress * rules)
+        return max(3, base * era * size * stress * rules * Science.queueFactor(s))   // energy discoveries: flexible load connects sooner
     }
 
     /// Months from signing to first power.
@@ -366,7 +373,7 @@ enum Power {
             // Take-or-pay: the rest is sold into the market at 70% of the local wholesale price.
             delta += left * 24 * (c.location.powerPrice * grid * 0.7 - c.priceMWh / 1000)
         }
-        delta *= max(0.5, 1 - s.traits.power) * XenoScience.powerFactor(s) * Science.powerFactor(s) * AdvancedProjects.powerFactor(s)   // 3.6: energy discoveries; cooling programmes
+        delta *= billFactor(s)   // the same factors as the power bill itself (Sim.dailyCosts)
         s.cash += delta
         s.month.costPower -= delta
     }
