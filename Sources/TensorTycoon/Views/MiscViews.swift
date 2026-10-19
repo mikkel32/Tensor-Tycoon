@@ -185,19 +185,22 @@ struct CreditsView: View {
                 .foregroundStyle(.secondary)
             }
             Card {
-                CardHeader("Photos (Wikimedia Commons)", symbol: "photo.on.rectangle", subtitle: "All freely licensed (CC0, public domain, CC BY or CC BY-SA). Some chips without free photos use a representative image of the same family; photos shown with your own sites, fabs and deals are illustrative.")
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 330), spacing: 12)], spacing: 12) {
+                CardHeader("Photos (Wikimedia Commons)", symbol: "photo.on.rectangle", subtitle: "All \(ImageCredits.all.count) photos are freely licensed (CC0, public domain, CC BY or CC BY-SA). Photos standing in for chips without a free photo, for future, custom or alien hardware, and for your own sites, fabs, labs and deals are marked \"Illustrative\".")
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 340), spacing: 12)], spacing: 12) {
                     ForEach(ImageCredits.all) { c in
-                        HStack(spacing: 10) {
-                            Photo(key: c.id).frame(width: 72, height: 48).clipShape(.rect(cornerRadius: 6))
+                        HStack(alignment: .top, spacing: 10) {
+                            Photo(key: c.id, size: .icon).frame(width: 72, height: 48).clipShape(.rect(cornerRadius: 6))
                             VStack(alignment: .leading, spacing: 1) {
-                                Text(c.title).font(.caption.weight(.semibold)).lineLimit(1)
+                                Text(c.subject).font(.caption.weight(.semibold)).lineLimit(1).help(c.title)
                                 Text("\(c.author) · \(c.license)").font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                                Label("Restrictions: \(c.restrictions)", systemImage: c.restrictions == "none" ? "checkmark.circle" : "info.circle")
+                                    .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                                 if let url = URL(string: c.page) {
-                                    Link("View on Commons", destination: url).font(.caption2).help(c.page)
+                                    Link("View on Commons", destination: url).font(.caption2).help(c.attribution)
                                 }
                             }
                         }
+                        .accessibilityElement(children: .combine)
                     }
                 }
             }
