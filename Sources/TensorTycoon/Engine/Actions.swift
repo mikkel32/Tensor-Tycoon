@@ -394,6 +394,8 @@ extension GameState {
                 spent += c
                 models[i].safety = min(100, models[i].safety + 3)
                 safetyScore = min(100, safetyScore + 1)
+                // 3.4: a full system card with a red-team report is the model's dangerous-capability evaluation.
+                if researched.contains("evals_rsp") { models[i].evaluated = true }
             }
             gain = Launches.adjustGain(gain, plan, rank: rank, lift: Families.generationLift(self, models[i]))
             // A second launch within 90 days of the last gets half the attention.

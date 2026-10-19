@@ -98,16 +98,26 @@ enum Semis {
 
     // MARK: Nodes
 
-    /// When `node` opens at `f` (its lag behind the leading foundry).
-    static func opens(_ n: ProcessNode, _ f: Foundry) -> Double { n.launch + f.lag }
+    /// The 2D-channel node (3.6: a science unlock can bring it forward).
+    static let twoDNode = "x2d"
 
-    static func offered(_ n: ProcessNode, _ f: Foundry, _ y: Double) -> Bool { y >= opens(n, f) && y <= n.launch + 16 }
+    /// When a node exists. Every node arrives on its industry date, except the 2D-channel node, which a lab that
+    /// reproduces the 2D transistor (`Science.has(.twoDProcess)`) gets a year after its discovery.
+    static func launch(_ n: ProcessNode, _ s: GameState) -> Double {
+        guard n.id == twoDNode, let d = Science.unlockDate(.twoDProcess, s) else { return n.launch }
+        return min(n.launch, d.decimalYear + 1)
+    }
+
+    /// When `node` opens at `f` (its lag behind the leading foundry).
+    static func opens(_ n: ProcessNode, _ f: Foundry, _ s: GameState) -> Double { launch(n, s) + f.lag }
+
+    static func offered(_ n: ProcessNode, _ f: Foundry, _ s: GameState) -> Bool { s.year >= opens(n, f, s) && s.year <= launch(n, s) + 16 }
 
     /// Nodes you can start a design on: open somewhere within two years, and not hopelessly old.
     static func designable(_ s: GameState) -> [ProcessNode] {
         let y = s.year
         let newest = SemiCatalog.nodes.filter { $0.launch <= y }.map(\.launch).max() ?? 2015
-        return SemiCatalog.nodes.filter { $0.launch <= y + 2 && $0.launch >= newest - 6 }
+        return SemiCatalog.nodes.filter { launch($0, s) <= y + 2 && launch($0, s) >= newest - 6 }
     }
 
     /// Defect density across the industry for a node in year `y`: five times the mature level at launch, falling as the
@@ -192,7 +202,7 @@ enum Semis {
     /// Expected yield of a design at a foundry if it went into production today (for planning).
     static func previewYield(node: String, die: String, foundry f: Foundry, _ s: GameState, at y: Double? = nil) -> Yield {
         let n = SemiCatalog.node(node)
-        let yy = max(y ?? s.year, n.launch + f.lag)
+        let yy = max(y ?? s.year, opens(n, f, s))
         let d0 = industryD0(n, yy) * f.d0Factor * 2 * AdvancedProjects.defectFactor(s) * AgentOrgs.defectFactor(s)   // fab process-control programmes; 3.9 agents
         return yield(d0: d0, area: SemiCatalog.die(die).area, wafersDone: 0, why: "")
     }
@@ -540,7 +550,7 @@ enum Semis {
     /// shrinks when wafers are scarce.
     static func waferCap(_ f: Foundry, _ n: ProcessNode, _ s: GameState) -> (value: Double, why: String) {
         let y = s.year
-        let age = y - opens(n, f)
+        let age = y - opens(n, f, s)
         let ramp = clamp(0.3 + 0.35 * age, 0.3, 3)
         let tight = tightness("wafer", y)
         let rel = 1 + 0.5 * log10(1 + (s.semi.foundryWafers[f.id] ?? 0) / 10_000)
@@ -681,7 +691,7 @@ enum Semis {
     static func foundryServicePrice(_ f: SemiFab, _ s: GameState) -> (price: Double, fill: Double) {
         let n = SemiCatalog.node(f.node)
         let market = waferPrice(n, SemiCatalog.foundryByID["fsw"]!, s.year)
-        let age = s.year - n.launch
+        let age = s.year - launch(n, s)
         return (market * 0.6, 0.7 * clamp(1 - (age - 6) / 6, 0.2, 1))
     }
 
@@ -772,7 +782,7 @@ enum Semis {
 
     /// Where a node can be made right now (for tape-out).
     static func tapeoutFoundry(_ n: ProcessNode, _ s: GameState) -> Foundry? {
-        SemiCatalog.foundries.first { offered(n, $0, s.year) && foundryBlocker($0, n, s) == nil }
+        SemiCatalog.foundries.first { offered(n, $0, s) && foundryBlocker($0, n, s) == nil }
     }
 
     static func advance(_ s: inout GameState, _ i: Int) {
@@ -788,7 +798,7 @@ enum Semis {
         case .physical:
             let n = SemiCatalog.node(d.node)
             guard let f = tapeoutFoundry(n, s) else {
-                s.semi.designs[i].waiting = "Ready to tape out; waiting for a foundry to open \(n.short) (first in \(Fmt.trim(n.launch, 1)))."
+                s.semi.designs[i].waiting = "Ready to tape out; waiting for a foundry to open \(n.short) (first in \(Fmt.trim(launch(n, s), 1)))."
                 s.semi.designs[i].phaseDaysLeft = 7
                 return
             }

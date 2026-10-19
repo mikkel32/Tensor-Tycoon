@@ -500,7 +500,7 @@ extension GameState {
     mutating func bookWafers(foundry: String, node: String, wafersMonth: Double, months: Int, startDelayMonths: Int, designID: UUID?) -> String? {
         guard let f = SemiCatalog.foundryByID[foundry] else { return "Unknown foundry." }
         let n = SemiCatalog.node(node)
-        guard Semis.offered(n, f, year) else { return "\(f.name) doesn't offer \(n.short) yet (from \(Fmt.trim(Semis.opens(n, f), 1)))." }
+        guard Semis.offered(n, f, self) else { return "\(f.name) doesn't offer \(n.short) yet (from \(Fmt.trim(Semis.opens(n, f, self), 1)))." }
         if let why = Semis.foundryBlocker(f, n, self) { return why }
         if wafersMonth < 100 { return "Foundries won't book fewer than 100 wafers a month." }
         let cap = Semis.waferCap(f, n, self).value - Semis.waferBooked(self, foundry: foundry, node: node)
@@ -604,7 +604,7 @@ extension GameState {
         guard let st = SemiCatalog.siteByID[site] else { return "Pick a site." }
         if let why = Progression.blocker(self, .fabs) { return why }   // 3.8: Hyperscaler
         let n = SemiCatalog.node(node)
-        if n.launch > year { return "Nobody can build a \(n.short) fab before the node exists (\(Fmt.trim(n.launch, 1)))." }
+        if Semis.launch(n, self) > year { return "Nobody can build a \(n.short) fab before the node exists (\(Fmt.trim(Semis.launch(n, self), 1)))." }
         if HQ.region(self) == .china && market.exportControls && st.region != .china && n.density > 1.0 { return "Export controls: tool makers won't ship leading-edge tools to a Chinese company's fab abroad." }
         if HQ.region(self) == .china && market.exportControls && n.density > 1.8 { return "Export controls: you can't buy EUV tools for anything finer than 5 nm." }
         let cost = Semis.fabCost(n, wafers: wafersMonth) * Progression.fabFactor(self)   // 3.7: Hyperscaler stage
@@ -783,7 +783,7 @@ extension Semis {
         if let t = s.semi.teams.first, teamBusy(s, t.id) == nil,
            !s.semi.designs.contains(where: { $0.phase.rawValue < SemiPhase.production.rawValue }),
            let fsw = SemiCatalog.foundryByID["fsw"],
-           let node = SemiCatalog.nodes.filter({ offered($0, fsw, s.year) && foundryBlocker(fsw, $0, s) == nil }).last {
+           let node = SemiCatalog.nodes.filter({ offered($0, fsw, s) && foundryBlocker(fsw, $0, s) == nil }).last {
             let newest = s.semi.designs.filter { $0.qualified != nil }.max { $0.qualified! < $1.qualified! }
             if newest == nil || (s.year - (newest?.qualified?.decimalYear ?? 0) > 1.0 && s.cash > 3e9) {
                 let die = s.year >= 2025 ? "quad" : (s.year >= 2021 ? "dual" : "large")
@@ -835,7 +835,7 @@ extension Semis {
     /// packaging and HBM still to be had (no point making dies nobody can package), and those contracts signed.
     static func botBook(_ s: inout GameState, _ i: Int) {
         let d = s.semi.designs[i]
-        guard let f = SemiCatalog.foundries.first(where: { offered(SemiCatalog.node(d.node), $0, s.year) && foundryBlocker($0, SemiCatalog.node(d.node), s) == nil }) else { return }
+        guard let f = SemiCatalog.foundries.first(where: { offered(SemiCatalog.node(d.node), $0, s) && foundryBlocker($0, SemiCatalog.node(d.node), s) == nil }) else { return }
         let n = SemiCatalog.node(d.node)
         let toQualify = d.inProduction ? 0.0 : d.phaseDaysLeft + (d.phase == .tapeout ? 75 : 0)
         let y = previewYield(node: d.node, die: d.die, foundry: f, s, at: s.year + toQualify / 365)

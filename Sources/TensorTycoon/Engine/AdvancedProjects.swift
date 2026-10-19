@@ -161,7 +161,7 @@ enum AdvancedProjects {
     }
 
     /// Public budgets shrink when the economy does: each point of growth below trend in the agency's region cuts its AI
-    /// budget by 6% (25% at most). Hook: when Nations keeps an explicit regional recession state, read it here.
+    /// budget by 6% (25% at most). The region's growth already carries its recessions (`Nations.recessionDepth`).
     static func recessionFactor(_ s: GameState, _ r: Region) -> Double {
         guard s.nations.ready else { return 1 }
         let gap = s.nations.economy(r).gdpGrowth - Nations.baseGrowth(r, s.year)

@@ -142,9 +142,14 @@ enum Launches {
         case .light:
             add("Safety posture", "A short card: +5% buzz, but researchers and the public mark you down\(top3 ? ", concern rises and the EU takes note" : "").", false)
         case .thorough:
-            add("Safety posture", "\(Fmt.money(redTeamCost(s))): +3 model safety, public +1.5, researchers +1.5, every government +1\(top3 ? ", concern eases" : "").", true)
+            add("Safety posture", thoroughText(s, top3: top3), true)
         }
         return out
+    }
+
+    private static func thoroughText(_ s: GameState, top3: Bool) -> String {
+        let evals = s.researched.contains("evals_rsp") ? " It counts as the model's dangerous-capability evaluation (EU AI Act)." : ""
+        return "\(Fmt.money(redTeamCost(s))): +3 model safety, public +1.5, researchers +1.5, every government +1\(top3 ? ", concern eases" : "")." + evals
     }
 
     /// How hot a launch can run for a model at this rank (1 = new #1).

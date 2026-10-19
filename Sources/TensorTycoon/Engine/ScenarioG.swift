@@ -246,7 +246,7 @@ extension ScenarioHarness {
         s.setSemiPolicy(allowRivals: false)
 
         // MARK: Improve the design: the next generation on a newer node, and the rules for a port
-        let newer = SemiCatalog.nodes.filter { Semis.offered($0, fsw, s.year) && Semis.nodeIndex($0.id) > Semis.nodeIndex(dA.node) }.last
+        let newer = SemiCatalog.nodes.filter { Semis.offered($0, fsw, s) && Semis.nodeIndex($0.id) > Semis.nodeIndex(dA.node) }.last
         r.expect("a newer node is open at Formosa", newer != nil, "\(Fmt.trim(s.year, 1))")
         guard let nodeB = newer else { return r }
         let open = Semis.designable(s).map(\.id)
@@ -271,7 +271,7 @@ extension ScenarioHarness {
             return r
         }
         let toQB = tB.phaseDaysLeft + 75
-        let fB = SemiCatalog.foundries.first { Semis.offered(SemiCatalog.node(nodeB.id), $0, s.year) } ?? fsw
+        let fB = SemiCatalog.foundries.first { Semis.offered(SemiCatalog.node(nodeB.id), $0, s) } ?? fsw
         let capB = Semis.waferCap(fB, SemiCatalog.node(nodeB.id), s).value - Semis.waferBooked(s, foundry: fB.id, node: nodeB.id)
         let wafersB = (min(1_000, capB) / 100).rounded(.down) * 100
         r.expect("scale: book \(Int(wafersB)) wafers a month for B (A had 400)", wafersB > 400 && s.bookWafers(foundry: fB.id, node: nodeB.id, wafersMonth: wafersB, months: 24,
