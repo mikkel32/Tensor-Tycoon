@@ -259,7 +259,8 @@ private struct SiteCard: View {
         let ready = site.isReady(s.date)
         let batches = s.owned.filter { $0.siteID == site.id }
         VStack(alignment: .leading, spacing: 0) {
-            Photo(key: ready ? (site.kind == .datacenter ? site.location.image : site.kind.image) : "dc_construction")
+            Photo(key: ready ? (site.kind == .datacenter ? ImagePicker.sitePhoto(location: site.location.image, seed: site.name) : site.kind.image)
+                             : ImagePicker.pick(.construction, seed: site.name))
                 .frame(height: 130).frame(maxWidth: .infinity).clipped()
                 .overlay(LinearGradient(colors: [.clear, .black.opacity(0.65)], startPoint: .center, endPoint: .bottom))
                 .overlay(alignment: .bottomLeading) {
@@ -272,6 +273,8 @@ private struct SiteCard: View {
                 .overlay(alignment: .topTrailing) {
                     if !ready {
                         PhotoPill(text: "\(site.kind == .colo ? "Handed over" : "Online") \(site.ready.gameShort)", color: .orange, symbol: "hammer.fill").padding(10)
+                    } else if site.kind != .garage {
+                        PhotoPill(text: "Illustrative photo", symbol: "photo").padding(10)
                     }
                 }
             VStack(alignment: .leading, spacing: 10) {
@@ -654,6 +657,7 @@ private struct ListingTile: View {
         let l = listing
         let f = clamp(share, l.minStake, 1)
         VStack(alignment: .leading, spacing: 6) {
+            IllustrativeBanner(key: l.image, height: 76)
             HStack {
                 Image(systemName: l.seller.symbol).foregroundStyle(.secondary)
                 Text(l.name).font(.headline).lineLimit(1)
@@ -816,6 +820,7 @@ private struct PowerDealCard: View {
                     .onChange(of: kind) { _, k in
                         if let l = k.locations, !l.contains(locationID), let first = l.first { locationID = first }
                     }
+                    IllustrativeBanner(key: kind.image, height: 90)
                     Text(kind.blurb).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     if kind.onSite {
                         Picker("Campus", selection: $siteID) {

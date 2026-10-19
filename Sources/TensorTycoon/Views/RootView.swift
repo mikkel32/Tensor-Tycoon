@@ -347,7 +347,7 @@ struct DecisionSheet: View {
         let left = decision.deadline.map { GameCalendar.daysBetween(store.game.date, $0) }
         let fallback = Alerts.inboxDefaults[decision.kind] ?? (decision.options.count - 1)
         VStack(alignment: .leading, spacing: 0) {
-            if let img = decision.image {
+            if let img = ImagePicker.illustrate(decision.image, title: decision.title, fill: false) {
                 Photo(key: img, thumb: false)
                     .frame(height: 170)
                     .clipped()

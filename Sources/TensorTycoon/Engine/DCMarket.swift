@@ -49,6 +49,8 @@ struct DCListing: Codable, Identifiable, Hashable {
 
     var location: Location { LocationCatalog.byID[locationID] ?? LocationCatalog.all[0] }
     var perMW: Double { price / max(mw, 0.001) }
+    /// An illustrative photo: a powered shell still being built shows a construction site.
+    var image: String { readyDays > 0 ? ImagePicker.pick(.construction, seed: name) : ImagePicker.sitePhoto(location: location.image, seed: name) }
 }
 
 /// What to build a site for.

@@ -87,6 +87,9 @@ struct FunCalendarCard: View {
     var body: some View {
         Card {
             CardHeader("Coming up", symbol: "calendar", subtitle: "Conferences (papers) and challenges (your best released model enters)")
+            if let next = Conferences.upcoming(state, count: 1).first {
+                IllustrativeBanner(key: next.0.image, height: 90)
+            }
             ForEach(FunStyle.calendar(state)) { e in
                 HStack(spacing: 10) {
                     Image(systemName: e.symbol)
@@ -117,6 +120,7 @@ struct HackathonCard: View {
         Card {
             CardHeader("Hackathon week", symbol: "party.popper.fill",
                        subtitle: "Costs a week of research (\(Fmt.trim(Hackathons.cost(state), 0)) points) and \(Fmt.money(Hackathons.cashCost(state))) of pizza")
+            IllustrativeBanner(key: ImagePicker.pick(.hackathon, seed: "hackathon \(state.date.ym.year)"), height: 80)
             if let h = running {
                 Label("\(h.theme.title): \(h.people) people hacking until \(h.ends.gameShort)", systemImage: "hourglass")
                     .font(.callout)

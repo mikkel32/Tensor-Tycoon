@@ -181,7 +181,7 @@ enum Conferences {
             if s.monthsAtTop > 0 || s.valuation > richest {
                 Events.addDecision(&s, kind: keynoteKind, title: "Meridian \(year) wants \(s.founderName) for the keynote",
                                    body: "Twenty thousand researchers in a hall in \(v.city) on \(date(v, year).gameShort), and a live stream everyone in the industry watches. The organisers want the lab of the year on stage.",
-                                   image: "sf_skyline",
+                                   image: v.image,
                                    options: [DecisionOption(label: "Give the keynote yourself", detail: "Brand and public trust up. Live demos can go wrong."),
                                              DecisionOption(label: "Send your best researcher", detail: "Researchers love it. Less of a splash."),
                                              DecisionOption(label: "Decline", detail: "Someone else gets the stage.")],
@@ -207,7 +207,7 @@ enum Conferences {
         options.append(DecisionOption(label: "Sit this one out", detail: "Nothing leaves the building."))
         Events.addDecision(&s, kind: cfpKind, title: "Call for papers: \(v.short) \(year)",
                            body: "\(v.name), \(v.city), \(date(v, year).gameShort). \(v.blurb) Your team has something worth sending.",
-                           image: nil, options: options, ref: ref)
+                           image: v.image, options: options, ref: ref)
     }
 
     static func resolveCFP(_ s: inout GameState, _ d: Decision, option: Int) {
@@ -300,7 +300,7 @@ enum Conferences {
                 edition.bestLab = "player"
                 edition.bestTitle = p.title
                 Sim.news(&s, "Best paper at \(v.short)! \"\(p.title)\"", "The award goes to \(s.companyName). Applications to your research team double overnight. Brand +3.",
-                         .research, image: "sf_skyline", important: true, good: true)
+                         .research, image: v.image, important: true, good: true)
                 Achievements.unlock(&s, "best_paper")
                 Alerts.raise(&s, .milestone, key: "best|\(key)", title: "Best paper at \(v.short) \(year)", body: "\"\(p.title)\" wins the award.",
                              screen: .events, celebrate: true, cooldown: 0)
@@ -321,7 +321,7 @@ enum Conferences {
             edition.bestLab = lab
             edition.bestTitle = title(s, topic: topic, key: "rival|\(key)")
             Sim.news(&s, "\(v.short) \(year): best paper to \(Fun.labName(s, lab))", "\"\(edition.bestTitle)\". \(edition.accepted.values.reduce(0, +)) papers from the big labs this year; \(mine == nil ? "none from you" : "one from you").",
-                     .competitor)
+                     .competitor, image: v.image)
             if Voices.cooled(&s, "fun.best.lab", days: 100) {
                 var vars = Voices.labVars(s, lab)
                 vars["venue"] = v.short
@@ -343,7 +343,7 @@ enum Conferences {
                 Sim.news(&s, glitch ? "\(s.founderName)'s Meridian keynote: the demo froze" : "\(s.founderName) closes Meridian with the keynote",
                          glitch ? "Ninety seconds of a spinning wheel in front of twenty thousand people. The talk was good; the clip of the frozen screen is better known."
                                 : "A packed hall, a demo that worked first time and a clip that does the rounds for a week. Brand +2.",
-                         .company, image: "sf_skyline", important: !glitch, good: !glitch)
+                         .company, image: v.image, important: !glitch, good: !glitch)
                 Fun.post(&s, "fun.keynote", labs: ["player"], vars: [:], key: "keynote|\(key)", importance: 0.6, count: 2)
             } else if plan == "scientist|\(year)" {
                 edition.keynote = "player"
@@ -431,12 +431,12 @@ enum Contests {
             if result.grand {
                 Achievements.unlock(&s, "grand_prize")
                 Sim.news(&s, "🏆 \(top.model) claims the \(c.name) grand prize", "\(c.grandGoal): done, with a score of \(Fmt.trim(top.score, 1)) against a bar of \(Fmt.trim(theBar, 1)). \(Fmt.money(prize)) in prize money, and a clip the whole world shares. The organisers are already raising the bar.",
-                         .company, image: "supercomputer", important: true, good: true)
+                         .company, image: c.image, important: true, good: true)
                 Alerts.raise(&s, .milestone, key: "grand|\(key)", title: "\(c.name): grand prize claimed", body: "\(top.model) did it: \(Cast.lowerFirst(c.grandGoal)).",
                              screen: .events, celebrate: true, cooldown: 0)
             } else {
                 Sim.news(&s, "\(top.model) wins \(c.name) \(year)", "First of \(entries.count) labs (\(Fmt.trim(top.score, 1)); the grand prize needs \(Fmt.trim(theBar, 1))). \(Fmt.money(prize)) in prize money. Brand +1.5.",
-                         .company, image: "supercomputer", good: true)
+                         .company, image: c.image, good: true)
             }
             var vars: [String: String] = ["contest": c.name, "model": top.model, "prize": Fmt.money(prize), "labname": s.companyName, "grand": c.grandGoal]
             vars["lab"] = s.companyName
@@ -451,7 +451,7 @@ enum Contests {
         }
         if result.grand {
             Sim.news(&s, "\(winner) claims the \(c.name) grand prize", "\(top.model): \(Cast.lowerFirst(c.grandGoal)), \(Fmt.trim(top.score, 1)) against a bar of \(Fmt.trim(theBar, 1)).\(placing)",
-                     .competitor, image: "supercomputer", important: true, good: false)
+                     .competitor, image: c.image, important: true, good: false)
             var vars = Voices.labVars(s, top.lab)
             vars["contest"] = c.name
             vars["model"] = top.model
@@ -591,7 +591,7 @@ enum Hackathons {
             s.fun.hackathons[i].headline = head
             s.fun.hackathons[i].detail = detail
         }
-        Sim.news(&s, head, detail, .company, image: tier == 2 ? "garage" : nil, important: tier == 2, good: tier > 0)
+        Sim.news(&s, head, detail, .company, image: tier == 2 ? "garage" : ImagePicker.pick(.hackathon, seed: head), important: tier == 2, good: tier > 0)
     }
 }
 

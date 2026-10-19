@@ -400,7 +400,7 @@ enum FacilityKind: String, Codable, CaseIterable, Identifiable, Sendable {
     var image: String {
         switch self {
         case .secureLab: "server_room"
-        case .restrictedCompute: "supercomputer"
+        case .restrictedCompute: "hpc_frontier"
         case .clearedHall: "dc_hall"
         }
     }

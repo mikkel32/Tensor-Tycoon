@@ -40,9 +40,15 @@ enum PowerKind: String, Codable, CaseIterable, Identifiable, Sendable {
     var image: String {
         switch self {
         case .solar: "solar_farm"
-        case .nuclearRestart, .smr: "nuclear"
-        case .gasTurbines: "generator"
-        default: "substation"
+        case .wind: "power_wind"
+        case .hydro: "power_hydro"
+        case .geothermal: "power_geothermal"
+        case .nuclearRestart: "power_nuclear2"
+        case .smr: "nuclear"
+        case .gasTurbines: "power_gas"
+        case .fusion: "power_fusion"
+        case .battery: "power_battery"
+        case .interconnect: "power_lines"
         }
     }
 

@@ -185,7 +185,7 @@ struct CreditsView: View {
                 .foregroundStyle(.secondary)
             }
             Card {
-                CardHeader("Photos (Wikimedia Commons)", symbol: "photo.on.rectangle", subtitle: "All freely licensed. Some chips without free photos use a representative image of the same family.")
+                CardHeader("Photos (Wikimedia Commons)", symbol: "photo.on.rectangle", subtitle: "All freely licensed (CC0, public domain, CC BY or CC BY-SA). Some chips without free photos use a representative image of the same family; photos shown with your own sites, fabs and deals are illustrative.")
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 330), spacing: 12)], spacing: 12) {
                     ForEach(ImageCredits.all) { c in
                         HStack(spacing: 10) {
@@ -194,7 +194,7 @@ struct CreditsView: View {
                                 Text(c.title).font(.caption.weight(.semibold)).lineLimit(1)
                                 Text("\(c.author) · \(c.license)").font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                                 if let url = URL(string: c.page) {
-                                    Link("View on Commons", destination: url).font(.caption2)
+                                    Link("View on Commons", destination: url).font(.caption2).help(c.page)
                                 }
                             }
                         }
