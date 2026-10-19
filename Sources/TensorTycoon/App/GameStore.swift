@@ -246,7 +246,7 @@ final class GameStore {
     @discardableResult
     func act(_ success: String? = nil, _ action: (inout GameState) -> String?) -> Bool {
         guard state != nil else { return false }
-        if let err = action(&state!) {
+        if let err = StableID.drawing({ action(&state!) }) {
             show(err, error: true)
             return false
         }
@@ -257,7 +257,7 @@ final class GameStore {
 
     func mutate(_ action: (inout GameState) -> Void) {
         guard state != nil else { return }
-        action(&state!)
+        StableID.drawing { action(&state!) }
         refreshDerived()
     }
 
@@ -321,7 +321,11 @@ final class GameStore {
         s.idStream = StableID.current
         if !force && Date().timeIntervalSince(lastSave) < 12 { return }
         lastSave = Date()
-        Self.saveQueue.async { Self.write(s, to: url) }
+        Self.saveQueue.async { [weak self] in
+            if let err = Self.write(s, to: url) {
+                DispatchQueue.main.async { MainActor.assumeIsolated { self?.show("Couldn't save the game: \(err)", error: true) } }
+            }
+        }
         if let broke = HallOfFame.record(s) { show(broke) }   // 3.5: records across games
     }
 
@@ -330,14 +334,18 @@ final class GameStore {
         guard var s = state, let url = currentSaveURL else { return }
         s.idStream = StableID.current
         lastSave = Date()
-        Self.saveQueue.sync { Self.write(s, to: url) }
+        if let err = Self.saveQueue.sync(execute: { Self.write(s, to: url) }) { show("Couldn't save the game: \(err)", error: true) }
     }
 
-    private nonisolated static func write(_ s: GameState, to url: URL) {
-        let enc = JSONEncoder()
-        enc.dateEncodingStrategy = .secondsSince1970
-        if let data = try? enc.encode(s) {
-            try? data.write(to: url, options: .atomic)
+    /// Writes a save; returns why it failed, if it did.
+    @discardableResult
+    private nonisolated static func write(_ s: GameState, to url: URL) -> String? {
+        do {
+            let data = try SaveCoding.encoder().encode(s)
+            try data.write(to: url, options: .atomic)
+            return nil
+        } catch {
+            return error.localizedDescription
         }
     }
 
@@ -416,8 +424,7 @@ final class GameStore {
     nonisolated static func listSaves() -> [SaveInfo] {
         let fm = FileManager.default
         guard let files = try? fm.contentsOfDirectory(at: saveDirectory, includingPropertiesForKeys: [.contentModificationDateKey]) else { return [] }
-        let dec = JSONDecoder()
-        dec.dateDecodingStrategy = .secondsSince1970
+        let dec = SaveCoding.decoder()
         return files.filter { $0.pathExtension == "json" }.compactMap { url in
             guard let data = try? Data(contentsOf: url), let s = try? dec.decode(GameState.self, from: data),
                   s.version >= GameState.currentVersion else { return nil }
@@ -432,11 +439,12 @@ final class GameStore {
         pauseReason = nil
         launchRunID = nil
         focusRunID = nil
-        let dec = JSONDecoder()
-        dec.dateDecodingStrategy = .secondsSince1970
+        let dec = SaveCoding.decoder()
         do {
             let data = try Data(contentsOf: url)
+            SaveRepairs.reset()
             var s = try dec.decode(GameState.self, from: data)
+            let repaired = SaveRepairs.taken()
             StableID.resume(s)   // 3.7: a loaded game keeps drawing IDs where it left off
             Self.migrate(&s)
             BenchmarkCatalog.resetCache()
@@ -445,21 +453,12 @@ final class GameStore {
             refreshDerived()
             screen = .dashboard
             setSpeed(0)
+            if !repaired.isEmpty {
+                // A part of the save this version couldn't read was reset rather than refusing the whole file.
+                show("Some of this save couldn't be read and was reset: \(repaired.prefix(3).joined(separator: ", "))\(repaired.count > 3 ? " and \(repaired.count - 3) more" : "").", error: true)
+            }
         } catch {
             show("Couldn't load save: \(error.localizedDescription)", error: true)
-        }
-    }
-
-    /// Loads a save with this build and plays 90 days on a copy; the file itself is never written.
-    /// `TensorTycoon --check-save <file>` exits 0 when the save loads and plays (used before releasing an update).
-    static func checkSave(_ url: URL) -> Int32 {
-        do {
-            let result = try SaveMigration.check(Data(contentsOf: url), name: url.lastPathComponent)
-            print(result.report)
-            return result.current ? 0 : 2
-        } catch {
-            print("FAILED \(url.lastPathComponent): \(error)")
-            return 1
         }
     }
 

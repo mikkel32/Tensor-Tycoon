@@ -11,6 +11,13 @@ import Foundation
 enum StableID {
     /// SplitMix64 position of the stream; 0 = not seeded (random UUIDs).
     nonisolated(unsafe) private static var position: UInt64 = 0
+    /// IDs come from the stream only while the game itself runs: simulating a day, creating or migrating a game, or
+    /// carrying out the player's actions (`drawing`). Anything else built on the main thread — the previews screens
+    /// compute while they draw (a distilled tier, a chip project, an organisation) — gets a random UUID, so how often
+    /// a screen redraws can't change the game.
+    nonisolated(unsafe) private static var drawDepth = 0
+    /// Headless harnesses: every ID is the game's.
+    nonisolated(unsafe) static var alwaysDraw = false
 
     /// Where the stream stands (saved with the game so a loaded game continues it).
     static var current: UInt64 { position }
@@ -27,6 +34,13 @@ enum StableID {
         position = s.idStream != 0 ? s.idStream : (mix(s.rng.state ^ 0x0DE7_E2A1_51AB_1E1D) | 1)
     }
 
+    /// Runs `body` with IDs drawn from the stream (the game simulating or acting).
+    static func drawing<T>(_ body: () throws -> T) rethrows -> T {
+        drawDepth += 1
+        defer { drawDepth -= 1 }
+        return try body()
+    }
+
     /// Runs `body` without moving the stream (what-if simulations on copies of the game).
     static func isolated<T>(_ body: () throws -> T) rethrows -> T {
         let saved = position
@@ -35,7 +49,7 @@ enum StableID {
     }
 
     static func next() -> UUID {
-        guard position != 0, Thread.isMainThread else { return UUID() }
+        guard position != 0, Thread.isMainThread, alwaysDraw || drawDepth > 0 else { return UUID() }
         position &+= 0x9E37_79B9_7F4A_7C15
         let a = mix(position)
         position &+= 0x9E37_79B9_7F4A_7C15

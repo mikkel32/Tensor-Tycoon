@@ -390,6 +390,8 @@ struct TrainCheckpoint: Codable, Identifiable, Hashable {
     @D var projected: Double = 0
     @D var projectedLow: Double = 0
     @D var projectedHigh: Double = 0
+    /// 3.4: learning-rate quality credited up to this checkpoint (nil in older saves), restored on a rollback.
+    @D var lrCredit: Double? = nil
 }
 
 enum LRSchedule: Int, Codable, CaseIterable, Identifiable {
@@ -484,8 +486,23 @@ struct TrainingRun: Codable, Identifiable, Hashable {
     @D var plan: RunPlan? = nil
     /// Where the cluster's peak compute actually went, day by day (TrainingExperience).
     @D var ledger: RunLedger = RunLedger()
+    /// 3.4: the learning rate's quality effect, earned over pre-training: each stretch of progress counts at the
+    /// learning rate it was trained with, so switching to Aggressive late only helps the part still to come.
+    @D var lrCredit: Double = 0
+    /// Pre-training progress the credit covers so far.
+    @D var lrCreditTo: Double = 0
+    /// 3.4: where `qualityPenalty` came from, for the results screen (older saves have only the total).
+    @D var penaltySpikes: Double = 0
+    @D var penaltyBug: Double = 0
+    @D var penaltySDC: Double = 0
+    /// What a silent bug would have cost had it not been fixed (kept after the fix zeroes `bugPenalty`).
+    @D var bugFixedPenalty: Double = 0
+    /// The player was told about the bug and chose to ship it.
+    @D var bugIgnored: Bool = false
 
     var schedule: LRSchedule { LRSchedule(rawValue: lr) ?? .standard }
+    /// Learning-rate quality the finished model would carry if the current learning rate held to the end.
+    var lrCreditAtEnd: Double { lrCredit + max(0, 1 - lrCreditTo) * schedule.qualityBonus }
     var interval: Double { checkpointEvery > 0 ? checkpointEvery : 0.1 }
 
     var progress: Double { flopsTotal > 0 ? min(1, flopsDone / flopsTotal) : 0 }
@@ -513,6 +530,11 @@ struct RunForecast: Codable, Hashable {
     var tier: String
     var comparable: String
     var finalLoss: Double
+    /// 3.4: the learning-rate quality included in `c` and the index band (0 in older saves, whose forecasts left it out).
+    @D var lrBonus: Double = 0
+
+    /// The forecast without the learning rate's effect, which the run earns separately as it trains.
+    var baseC: Double { c - lrBonus }
 }
 
 /// A completed scaling ladder: small proxy runs that validate a recipe up to some compute.

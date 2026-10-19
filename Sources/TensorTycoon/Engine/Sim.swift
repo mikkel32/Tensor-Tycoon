@@ -4,6 +4,10 @@ enum Sim {
     // MARK: - Daily tick
 
     static func advanceDay(_ s: inout GameState) {
+        StableID.drawing { simulateDay(&s) }
+    }
+
+    private static func simulateDay(_ s: inout GameState) {
         guard s.gameOver == nil else { return }
         let oldMonth = s.date.ym
         s.date = GameCalendar.addDays(s.date, 1)

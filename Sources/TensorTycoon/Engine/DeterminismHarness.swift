@@ -41,9 +41,7 @@ enum DeterminismHarness {
 
     static func resumed(_ s: GameState, days: Int) -> UInt64 {
         guard let data = encode(s) else { return 0 }
-        let dec = JSONDecoder()
-        dec.dateDecodingStrategy = .secondsSince1970
-        guard var t = try? dec.decode(GameState.self, from: data) else { return 0 }
+        guard var t = try? SaveCoding.decoder().decode(GameState.self, from: data) else { return 0 }
         StableID.resume(t)
         SaveMigration.migrate(&t)
         BenchmarkCatalog.resetCache()
@@ -58,8 +56,7 @@ enum DeterminismHarness {
     }
 
     static func encode(_ s: GameState) -> Data? {
-        let enc = JSONEncoder()
-        enc.dateEncodingStrategy = .secondsSince1970
+        let enc = SaveCoding.encoder()
         enc.outputFormatting = [.sortedKeys]
         return try? enc.encode(s)
     }

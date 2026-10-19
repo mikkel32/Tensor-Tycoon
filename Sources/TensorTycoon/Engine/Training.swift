@@ -47,13 +47,16 @@ enum Training {
         let d = run.design
         let f = ForecastEngine.forecast(d, state: s, dataSources: run.dataSnapshot.isEmpty ? s.dataSources.sorted() : run.dataSnapshot)   // 3.6: the run's own data
         let set = Leaderboard.indexSet(s)
-        let band = ForecastEngine.indexBand(f, design: d, set: set)
+        // The forecast includes the learning rate's effect, like the Model Lab and the pre-training review show it.
+        var withLR = f
+        withLR.c += run.schedule.qualityBonus
+        let band = ForecastEngine.indexBand(withLR, design: d, set: set)
         let released = Leaderboard.entries(s, set: set, includeUnreleased: false)
         let top = released.filter { !$0.isPlayer }.map(\.index).max() ?? 0
-        run.forecast = RunForecast(c: f.c, sigma: f.sigma, index: band.mean, indexLow: band.low, indexHigh: band.high,
+        run.forecast = RunForecast(c: withLR.c, sigma: f.sigma, index: band.mean, indexLow: band.low, indexHigh: band.high,
                                    tier: ForecastEngine.tier(index: band.mean, top: top),
                                    comparable: RealModels.closest(index: band.mean, set: set).map { "\($0.name) (\($0.lab), \($0.date.label))" } ?? "—",
-                                   finalLoss: f.finalLoss)
+                                   finalLoss: f.finalLoss, lrBonus: run.schedule.qualityBonus)
         // Experiments (estimated under `toyCost`) run quietly: no incidents, so no silent bug either.
         if run.kind == .full, let est = Physics.estimate(d, state: s, lr: run.schedule, interval: run.interval) {
             run.toy = est.toy
@@ -384,6 +387,7 @@ enum Training {
         for i in s.runs.indices where s.runs[i].status == .running || s.runs[i].status == .postTraining {
             let d = s.runs[i].design
             guard let accel = HardwareCatalog.get(d.accelID) else { continue }
+            creditLR(&s.runs[i])
             let schedule = s.runs[i].schedule
             let full = s.runs[i].kind == .full
             // Experiments get no mid-run incidents. Their dice are still rolled (at zero odds) to keep the rng stream.
@@ -432,6 +436,7 @@ enum Training {
                 s.runs[i].sdcCaught += sdc * ops.sdcCaught
                 s.runs[i].sdcMissed += sdc * (1 - ops.sdcCaught)
                 s.runs[i].qualityPenalty += sdc * (1 - ops.sdcCaught) * sdcPenalty
+                s.runs[i].penaltySDC += sdc * (1 - ops.sdcCaught) * sdcPenalty
                 if cov > 0.2 && Int(s.runs[i].sdcCaught) / 10 > before / 10 {
                     runLog(&s, i, "Ops agents have quarantined \(Int(s.runs[i].sdcCaught)) nodes that were silently corrupting gradients.")
                 }
@@ -458,6 +463,7 @@ enum Training {
                     }
                 }
                 s.runs[i].flopsDone += perDay
+                creditLR(&s.runs[i])
                 if full { s.runs[i].ledger.useful += perDay }
                 s.lifetimeFLOPs += perDay
                 let frac = s.runs[i].progress
@@ -510,6 +516,16 @@ enum Training {
         }
         s.runs[i].postTrainDone = s.runs[i].stages.enumerated().filter { !$0.element.isPre && $0.offset < s.runs[i].stageIndex }
             .reduce(0) { $0 + $1.element.flops } + s.runs[i].stageDone
+    }
+
+    /// Credits the learning rate's quality effect for the pre-training progress made since the last credit, at the
+    /// learning rate in force now. Progress lost to a rewind is taken back at today's rate; a rollback to a checkpoint
+    /// restores the checkpoint's exact credit instead (`rollback`).
+    static func creditLR(_ run: inout TrainingRun) {
+        let f = run.progress
+        guard f != run.lrCreditTo else { return }
+        run.lrCredit += (f - run.lrCreditTo) * run.schedule.qualityBonus
+        run.lrCreditTo = f
     }
 
     /// Whether an incident decision of `kind` about run `i` is still waiting for the player.
@@ -624,8 +640,8 @@ enum Training {
         guard let fc = run.forecast else { return (0, 0, 0) }
         let f = ForecastEngine.forecast(run.design, state: s, dataSources: run.dataSnapshot)
         let set = Leaderboard.indexSet(s)
-        let known = -run.qualityPenalty + run.schedule.qualityBonus - (run.bugFound ? run.bugPenalty * 0.25 : 0)
-        let mean = fc.c + run.revealMean + known
+        let known = -run.qualityPenalty + run.lrCreditAtEnd - (run.bugFound ? run.bugPenalty * 0.25 : 0)
+        let mean = fc.baseC + run.revealMean + known
         let extra = (run.dReasoning, run.dCode, run.dChat, run.dSafety, run.dLang)
         func idx(_ c: Double, _ k: String) -> Double {
             ForecastEngine.index(ForecastEngine.profile(f, design: run.design, key: k, c: c, extra: extra), set: set)
@@ -637,6 +653,7 @@ enum Training {
     // MARK: Checkpoints
 
     static func saveCheckpoint(_ s: inout GameState, _ i: Int) {
+        creditLR(&s.runs[i])
         let run = s.runs[i]
         let f = run.progress
         observe(&s, i, frac: f)
@@ -645,7 +662,7 @@ enum Training {
         partial.instruct = false
         partial.reasoning = false
         let fc = ForecastEngine.forecast(partial, state: s, dataSources: run.dataSnapshot)
-        let c = fc.c + trueDeviation(s.runs[i], at: f) + run.schedule.qualityBonus * f
+        let c = fc.c + trueDeviation(s.runs[i], at: f) + run.lrCredit
         let p = ForecastEngine.profile(fc, design: partial, key: "\(run.id.uuidString)-\(Int(f * 1000))", c: c)
         let set = Leaderboard.indexSet(s)
         let idx = BenchmarkCatalog.index(p, set: set)
@@ -655,6 +672,7 @@ enum Training {
         cp.projected = proj.0
         cp.projectedLow = proj.1
         cp.projectedHigh = proj.2
+        cp.lrCredit = run.lrCredit
         s.runs[i].saved.append(cp)
         let ahead = s.runs[i].revealMean
         let trend = abs(ahead) < 0.02 ? "right on forecast" : (ahead > 0 ? "tracking ahead of forecast" : "tracking behind forecast")
@@ -838,12 +856,14 @@ enum Training {
                 runLog(&s, i, "Rolled back and lowered the learning rate.")
             case 1:
                 s.runs[i].qualityPenalty += 0.03
+                s.runs[i].penaltySpikes += 0.03
                 runLog(&s, i, "Skipped the bad batch (×0.93 quality).")
             default:
                 if s.rng.chance(0.55) {
                     runLog(&s, i, "Pushed through — the loss recovered on its own. Phew.")
                 } else {
                     s.runs[i].qualityPenalty += 0.12
+                    s.runs[i].penaltySpikes += 0.12
                     if let last = s.runs[i].loss.last {
                         s.runs[i].loss.append(LossPoint(tokensT: last.tokensT + 0.0001, loss: last.loss * 1.06, pred: last.pred, gnorm: 2))
                     }
@@ -859,15 +879,19 @@ enum Training {
                     s.runs[i].flopsDone = 0; s.runs[i].loss = []
                 }
                 s.runs[i].bugFound = true
+                s.runs[i].bugFixedPenalty = s.runs[i].bugPenalty
                 s.runs[i].bugPenalty = 0
                 runLog(&s, i, "Rolled back to before the bug and fixed it.")
             case 1:
                 s.runs[i].bugFound = true
                 s.runs[i].qualityPenalty += s.runs[i].bugPenalty * 0.25
+                s.runs[i].penaltyBug += s.runs[i].bugPenalty * 0.25
+                s.runs[i].bugFixedPenalty = s.runs[i].bugPenalty
                 s.runs[i].bugPenalty = 0
                 runLog(&s, i, "Hot-fixed. Some damage remains.")
             default:
                 s.runs[i].bugOnset = min(s.runs[i].bugOnset, s.runs[i].progress - 0.15)
+                s.runs[i].bugIgnored = true
                 runLog(&s, i, "Ignored the bug. The model will carry it.")
             }
         case "contamination":
@@ -908,7 +932,10 @@ enum Training {
                 s.runs[i].flopsDone = max(0, s.runs[i].flopsDone - lost)
             }
             if option == 0 {
-                s.cash -= Double(s.runs[i].design.chips) * 400
+                let swap = Double(s.runs[i].design.chips) * 400
+                s.cash -= swap
+                s.month.costOther += swap
+                s.runs[i].cost += swap
                 s.runs[i].lostHours += 48
                 runLog(&s, i, "Swapped the bad nodes after two days of downtime. Back to normal.")
             } else {
@@ -949,6 +976,8 @@ enum Training {
     static func rollback(_ s: inout GameState, _ i: Int, to cp: TrainCheckpoint) {
         TrainingExperience.rewound(&s, i, max(0, s.runs[i].flopsDone - cp.flopsDone) + (s.runs[i].status == .postTraining ? s.runs[i].postTrainDone : 0))
         s.runs[i].flopsDone = cp.flopsDone
+        s.runs[i].lrCredit = cp.lrCredit ?? cp.fraction * s.runs[i].schedule.qualityBonus
+        s.runs[i].lrCreditTo = s.runs[i].progress
         s.runs[i].loss.removeAll { $0.tokensT > cp.tokensT + 1e-9 }
         s.runs[i].saved.removeAll { $0.fraction > cp.fraction + 1e-9 && $0.forkedModelID == nil }
         if s.runs[i].status == .postTraining {
@@ -978,11 +1007,12 @@ enum Training {
 
     static func finishRun(_ s: inout GameState, _ i: Int) {
         let b = s.bonuses
+        creditLR(&s.runs[i])
         let run = s.runs[i]
         let d = run.design
         let fc = ForecastEngine.forecast(d, state: s, dataSources: run.dataSnapshot)
-        let base = run.forecast?.c ?? fc.c
-        let c = base + trueDeviation(run, at: 1) + run.schedule.qualityBonus
+        let base = run.forecast?.baseC ?? fc.c
+        let c = base + trueDeviation(run, at: 1) + run.lrCreditAtEnd
         var model = AIModel(name: d.name, design: d, created: s.date, c: c, reasoning: d.reasoning && b.has(.reasoning),
                             reasoningBoost: fc.reasoning + run.dReasoning - (run.rewardHacked ? 0.05 : 0),
                             codeBoost: fc.code + run.dCode, arenaBonus: 75 * (fc.chat + run.dChat) + (d.vision ? 8 : 0) + (d.audio ? 6 : 0),
@@ -995,7 +1025,7 @@ enum Training {
         model.usedShadowData = fc.usesShadowData
         model.tuned = d.benchmarkTuning || run.contaminated
         model.safety = clamp(fc.safety + run.dSafety, 0, 100)
-        model.cForecast = base
+        model.cForecast = run.forecast?.c ?? base
         model.forecastSigma = run.forecast?.sigma ?? fc.sigma
         model.keyTech = fc.keyTech
         model.apiPrice = max(0.01, (Macro.referencePrice(c: c, y: s.year) * s.market.apiPricePressure * 0.85 * 1000).rounded() / 1000)

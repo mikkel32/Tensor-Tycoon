@@ -359,7 +359,12 @@ struct RunReportSheet: View {
         var rows: [(String, String, Color)] = []
         if run.interruptions > 0 { rows.append(("bolt.trianglebadge.exclamationmark", "\(run.interruptions) hardware interruptions cost \(Fmt.trim(run.lostHours, 0)) cluster-hours", .orange)) }
         if run.spikes > 0 { rows.append(("waveform.path.ecg", "\(run.spikes) loss spike\(run.spikes == 1 ? "" : "s")", .orange)) }
-        if run.bugPenalty > 0 || run.bugFound { rows.append(("ladybug.fill", run.bugFound ? "A silent bug was found and fixed" : "A silent bug was never found", run.bugFound ? .secondary : .red)) }
+        if run.bugIgnored {
+            rows.append(("ladybug.fill", "A silent bug was found, and shipped anyway", .red))
+        } else if run.bugPenalty > 0 || run.bugFound {
+            rows.append(("ladybug.fill", run.bugFound ? (run.penaltyBug > 0 ? "A silent bug was hot-fixed; the damage already done stayed" : "A silent bug was found and fixed") : "A silent bug was never found",
+                         run.bugFound ? (run.penaltyBug > 0 ? .orange : .secondary) : .red))
+        }
         if run.contaminated { rows.append(("drop.triangle.fill", "Benchmark contamination left in: scores flatter it", .red)) }
         if run.sycophantic { rows.append(("hand.thumbsup.fill", "Shipped sycophantic: preference tuning made it a flatterer", .red)) }
         if run.rewardHacked { rows.append(("exclamationmark.lock.fill", "Reward-hacked reasoning RL", .red)) }
@@ -549,15 +554,29 @@ private struct ForecastVerdict: View {
         let luck = run.epsilon
         out.append(Factor(id: "Run luck", detail: "Seed, data order and how well the hyperparameters transferred to full scale",
                           value: compute(luck), good: abs(luck) < 0.01 ? nil : luck > 0))
-        if run.bugPenalty > 0 {
-            out.append(Factor(id: run.bugFound ? "Silent bug — caught" : "Silent bug — never found",
-                              detail: run.bugFound ? "Found from the loss curve and fixed before it did lasting damage" : "A data or code bug quietly hurt every token after it appeared",
-                              value: run.bugFound ? "fixed" : compute(-run.bugPenalty), good: run.bugFound ? nil : false))
+        if run.bugPenalty > 0 && !run.bugFound {
+            out.append(Factor(id: run.bugIgnored ? "Silent bug — ignored" : "Silent bug — never found",
+                              detail: run.bugIgnored ? "Your engineers found it and you shipped on schedule; it hurt every token after it appeared"
+                                                     : "A data or code bug quietly hurt every token after it appeared",
+                              value: compute(-run.bugPenalty), good: false))
+        } else if run.bugFound {
+            let saved = run.bugFixedPenalty - run.penaltyBug
+            out.append(Factor(id: run.penaltyBug > 0 ? "Silent bug — hot-fixed" : "Silent bug — caught",
+                              detail: run.penaltyBug > 0 ? "Fixed mid-run; the damage already done stayed\(saved > 0.001 ? " (fixing it saved \(compute(saved)))" : "")"
+                                                         : "Found from the loss curve and fixed\(run.bugFixedPenalty > 0.001 ? ": left alone it would have cost \(compute(-run.bugFixedPenalty))" : " before it did lasting damage")",
+                              value: run.penaltyBug > 0 ? compute(-run.penaltyBug) : "fixed", good: run.penaltyBug > 0 ? false : nil))
         }
-        if run.qualityPenalty > 0.001 {
-            out.append(Factor(id: "Instabilities", detail: "\(run.spikes) loss spike\(run.spikes == 1 ? "" : "s") and rollbacks left scars", value: compute(-run.qualityPenalty), good: false))
+        // Older saves only kept the total; the part nobody itemised shows as instabilities, as it did before.
+        let other = run.qualityPenalty - run.penaltySpikes - run.penaltyBug - run.penaltySDC
+        if run.penaltySpikes > 0.001 || other > 0.001 {
+            out.append(Factor(id: "Instabilities", detail: "\(run.spikes) loss spike\(run.spikes == 1 ? "" : "s") you trained through left scars",
+                              value: compute(-(run.penaltySpikes + max(0, other))), good: false))
         }
-        let sched = run.schedule.qualityBonus
+        if run.penaltySDC > 0.001 {
+            out.append(Factor(id: "Silent data corruption", detail: "\(Int(run.sdcMissed)) nodes quietly corrupted gradients before anyone caught them",
+                              value: compute(-run.penaltySDC), good: false))
+        }
+        let sched = run.lrCreditTo > 0 ? run.lrCredit : run.schedule.qualityBonus
         if abs(sched) > 0.001 {
             out.append(Factor(id: "Learning-rate schedule", detail: run.schedule.detail, value: compute(sched), good: sched > 0))
         }

@@ -32,6 +32,10 @@ enum NewGame {
 
     static func create(_ settings: NewGameSettings, seed: UInt64 = UInt64.random(in: 1...UInt64.max)) -> GameState {
         StableID.seed(seed)   // 3.7: the game's IDs come from its seed, so a seed always plays the same game
+        return StableID.drawing { build(settings, seed: seed) }
+    }
+
+    private static func build(_ settings: NewGameSettings, seed: UInt64) -> GameState {
         let era = Era.all.first { $0.id == settings.eraID } ?? Era.all[2]
         let start = era.start
         var s = GameState(companyName: settings.companyName.isEmpty ? "Tensor Labs" : settings.companyName,

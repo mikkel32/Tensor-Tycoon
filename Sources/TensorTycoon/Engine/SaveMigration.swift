@@ -3,6 +3,10 @@ import Foundation
 /// Brings saves from older versions up to date, and checks that a save loads and plays.
 enum SaveMigration {
     static func migrate(_ s: inout GameState) {
+        StableID.drawing { upgrade(&s) }
+    }
+
+    private static func upgrade(_ s: inout GameState) {
         // Labs founded during the game (3.4) must resolve before anything reads their definitions.
         CompetitorCatalog.register(s.customLabs)
         if s.agentPrice <= 0 { s.agentPrice = 100 }
@@ -65,12 +69,13 @@ enum SaveMigration {
         Progression.bootstrap(&s)
     }
 
-    /// Decodes a save, migrates it and plays 90 days on a copy, resolving decisions with their first option.
+    /// Decodes a save, migrates it and plays 90 days on a copy, resolving decisions with their first option
+    /// (except offers to buy the company, which it turns down so the check plays the whole 90 days).
     /// Returns a one-line report and whether the save is current.
     static func check(_ data: Data, name: String) throws -> (report: String, current: Bool) {
-        let dec = JSONDecoder()
-        dec.dateDecodingStrategy = .secondsSince1970
-        var s = try dec.decode(GameState.self, from: data)
+        SaveRepairs.reset()
+        var s = try SaveCoding.decoder().decode(GameState.self, from: data)
+        let repaired = SaveRepairs.taken()
         StableID.resume(s)   // 3.7: the save keeps its ID stream, so a check plays the same way every time
         migrate(&s)
         BenchmarkCatalog.resetCache()
@@ -79,12 +84,15 @@ enum SaveMigration {
         for _ in 0..<90 where s.gameOver == nil {
             for _ in 0..<10 {
                 guard let d = s.decisions.first else { break }
-                s.resolveDecision(d.id, option: 0)
+                s.resolveDecision(d.id, option: d.kind == "acquisition" ? d.options.count - 1 : 0)
             }
             Sim.advanceDay(&s)
         }
-        let report = "OK \(name): \(s.companyName), \(start.gameShort) → \(s.date.gameShort), save v\(s.version), "
+        // Re-encoding must work too (a save that loads but can't be written back would be lost at the next autosave).
+        _ = try SaveCoding.encoder().encode(s)
+        let report = "\(repaired.isEmpty ? "OK" : "REPAIRED") \(name): \(s.companyName), \(start.gameShort) → \(s.date.gameShort), save v\(s.version), "
             + "cash \(Fmt.money(s.cash)), valuation \(Fmt.money(s.valuation)), \(s.models.count) models\(s.gameOver.map { " (game over: \($0))" } ?? "")"
-        return (report, s.version >= GameState.currentVersion)
+            + (repaired.isEmpty ? "" : "\n  reset to defaults because they couldn't be read: " + repaired.joined(separator: ", "))
+        return (report, s.version >= GameState.currentVersion && repaired.isEmpty)
     }
 }
