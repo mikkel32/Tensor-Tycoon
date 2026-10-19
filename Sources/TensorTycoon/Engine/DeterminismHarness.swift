@@ -6,7 +6,9 @@ import Foundation
 ///
 /// Plays the playtest bot for `days` (default 240) in each era twice with the same seed, in this process, and
 /// compares a digest of the whole saved game; a third game with another seed must differ. Then saves the first game,
-/// loads it back and plays on, twice, and compares again. Exits 1 on any mismatch.
+/// loads it back and plays on, twice, and compares again. A last game plays from a European headquarters with the
+/// bot's optional systems switched on (advanced projects, science labs), so their daily code is checked too. Exits 1
+/// on any mismatch.
 /// (Cross-process determinism, which also catches Set / Dictionary iteration order, is checked by running a playtest
 /// twice and diffing the output.)
 enum DeterminismHarness {
@@ -15,16 +17,20 @@ enum DeterminismHarness {
         let years = Double(days) / 365.25
         print("== Determinism: same seed, same game (\(days) days per era) ==")
         var failed = false
-        for era in ["2017", "2022", "2026"] {
-            let one = play(era, seed: 11, years: years)
-            let two = play(era, seed: 11, years: years)
-            let other = play(era, seed: 12, years: years)
+        let games: [(label: String, era: String, flags: [String])] = [
+            ("2017", "2017", []), ("2022", "2022", []), ("2026", "2026", []),
+            ("2022, Copenhagen, more systems", "2022", ["hq=dk:copenhagen", "advproj", "science"]),
+        ]
+        for (label, era, flags) in games {
+            let one = play(era, seed: 11, years: years, flags: flags)
+            let two = play(era, seed: 11, years: years, flags: flags)
+            let other = play(era, seed: 12, years: years, flags: flags)
             let same = one.digest == two.digest, differs = one.digest != other.digest
             // A saved game, loaded and played on, plays the same way every time.
             let r1 = resumed(one.state, days: 30), r2 = resumed(one.state, days: 30)
             let resumes = r1 == r2
             if !(same && differs && resumes) { failed = true }
-            print("  \(era): seed 11 \(hex(one.digest)) / \(hex(two.digest)) \(same ? "same" : "MISMATCH") · "
+            print("  \(label): seed 11 \(hex(one.digest)) / \(hex(two.digest)) \(same ? "same" : "MISMATCH") · "
                   + "seed 12 \(hex(other.digest)) \(differs ? "differs" : "SAME (seed ignored?)") · "
                   + "save, load, 30 days ×2 \(resumes ? "same" : "MISMATCH")")
         }
@@ -32,8 +38,8 @@ enum DeterminismHarness {
         if failed { exit(1) }
     }
 
-    static func play(_ era: String, seed: UInt64, years: Double) -> (digest: UInt64, state: GameState) {
-        _ = PTPlay.play(era: era, seed: seed, years: years, mode: "quiet", flags: [])
+    static func play(_ era: String, seed: UInt64, years: Double, flags: [String] = []) -> (digest: UInt64, state: GameState) {
+        _ = PTPlay.play(era: era, seed: seed, years: years, mode: "silent", flags: Set(flags))
         var s = PTPlay.lastState!
         s.idStream = StableID.current   // as a save would record it
         return (digest(s), s)

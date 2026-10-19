@@ -227,7 +227,7 @@ enum PTPlay {
         var idleChipDays = 0.0, rentedChipDays = 0.0
         let researched0 = s.researched.count
 
-        if mode != "quiet" {
+        if mode != "quiet" && mode != "silent" {
             print("\n================ \(era) era · seed \(seed) · \(Int(years)) years ================")
             let top = Leaderboard.entries(s, includeUnreleased: false).max { $0.index < $1.index }
             print("Start \(s.date.gameShort) in \(HQ.place(s)): cash \(m(s.cash)), \(s.owned.first.map { "\($0.count)× \($0.accelID)" } ?? "no chips"), \(s.employees.count) staff, "
@@ -339,10 +339,12 @@ enum PTPlay {
         sum.stages = s.progression.reached.sorted { $0.key < $1.key }.map { k, v in
             "\(CompanyStage(rawValue: k)?.title ?? "?") \(Fmt.trim(Double(d(start, v)) / 30.44, 0))mo"
         }   // 3.7
-        if mode != "quiet" { printGame(rows, sum, bot, s, mode: mode) }
-        if mode != "quiet" || flags.contains(where: { $0.hasPrefix("hq=") }) { print(hqSummary(s)) }   // 3.4 overhaul
-        if flags.contains("advproj") { for line in AdvancedProjects.report(s) { print(line) } }
-        if flags.contains("science") { scienceSummary(s, seed: seed) }
+        if mode != "quiet" && mode != "silent" { printGame(rows, sum, bot, s, mode: mode) }
+        if mode != "silent" {   // `silent`: harnesses that only want the final state
+            if mode != "quiet" || flags.contains(where: { $0.hasPrefix("hq=") }) { print(hqSummary(s)) }   // 3.4 overhaul
+            if flags.contains("advproj") { for line in AdvancedProjects.report(s) { print(line) } }
+            if flags.contains("science") { scienceSummary(s, seed: seed) }
+        }
         lastState = s
         return sum
     }
