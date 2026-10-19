@@ -491,7 +491,7 @@ private struct ExpandRow: View {
         case .colo: return "+\(Fmt.money(site.location.coloFee * expandKW * (site.cooling == .air ? 1 : 1.35)))/mo"
         case .datacenter:
             let months = s.buildMonths(mw: expandKW / 1000 / Double(Campus.phases(mw: expandKW / 1000)), loc: site.location, power: site.powerDeal) * 0.6
-            return "\(Fmt.money(expandKW / 1000 * Campus.capexPerMW(site.cooling, s))) · first power ~\(Fmt.trim(months, 0)) mo"
+            return "\(Fmt.money(expandKW / 1000 * Campus.capexPerMW(site.cooling, s, location: site.locationID))) · first power ~\(Fmt.trim(months, 0)) mo"
         default: return ""
         }
     }
@@ -1073,16 +1073,23 @@ struct BuildSiteSheet: View {
                         let phaseMW = mw / Double(n)
                         let first = s.buildMonths(mw: phaseMW, loc: loc, power: power)
                         let totalMonths = first + Double(n - 1) * first * 0.35
-                        SpecRow(label: "Construction cost", value: Fmt.money(mw * Campus.capexPerMW(cooling, s)))
-                        SpecRow(label: "Per MW", value: Fmt.money(Campus.capexPerMW(cooling, s)))
+                        // 3.4 overhaul: the home build incentive comes off each phase's price.
+                        let perMW = Campus.capexPerMW(cooling, s, location: locationID)
+                        let incentive = 1 - HQ.buildCost(s, location: locationID)
+                        let saved = mw * Campus.capexPerMW(cooling, s) * incentive
+                        SpecRow(label: "Construction cost", value: Fmt.money(mw * perMW))
+                        if incentive > 0 {
+                            SpecRow(label: HQ.country(s).adjective + " build incentive", value: "−" + Fmt.money(saved) + " (−" + Fmt.pct(incentive, decimals: 0) + ")", tone: .good)
+                        }
+                        SpecRow(label: "Per MW", value: Fmt.money(perMW))
                         if n > 1 {
                             SpecRow(label: "Phases", value: "\(n) × \(Fmt.watts(phaseMW * 1e6))")
-                            SpecRow(label: "First phase", value: "\(Fmt.money(phaseMW * Campus.capexPerMW(cooling, s))) · \(Fmt.trim(first, 1)) months")
+                            SpecRow(label: "First phase", value: "\(Fmt.money(phaseMW * perMW)) · \(Fmt.trim(first, 1)) months")
                             SpecRow(label: "Fully built", value: "~\(Fmt.trim(totalMonths, 0)) months")
                         } else {
                             SpecRow(label: "Build time", value: "\(Fmt.trim(first, 1)) months")
                         }
-                        SpecRow(label: "Maintenance", value: "\(Fmt.money(mw * Campus.capexPerMW(cooling, s) * 0.015))/yr")
+                        SpecRow(label: "Maintenance", value: "\(Fmt.money(mw * perMW * 0.015))/yr")
                     }
                     let pue = kind == .colo ? cooling.basePUE + 0.07 + loc.pueDelta * 0.5 : cooling.basePUE + loc.pueDelta
                     let price = loc.powerPrice * power.priceMultiplier * (kind == .colo ? 1.1 : 1)

@@ -52,11 +52,11 @@ enum NationLever: String, Codable, CaseIterable, Identifiable, Sendable {
     /// What it does in the game, in one line.
     var effect: String {
         switch self {
-        case .subsidy: "At home: chips and cloud a little cheaper. Everywhere: AI adoption a little faster."
-        case .sovereign: "Agencies there spend more on AI contracts; home labs get the inside track."
-        case .exports: "Labs in countries it targets pay more for chips."
-        case .data: "Slows consumer adoption; lifts the value of licensed data."
-        case .safety: "Rules there tighten faster after incidents; enterprise buyers trust audited labs."
+        case .subsidy: "At home: chips and cloud a little cheaper, more grant offers. Everywhere: AI adoption a little faster."
+        case .sovereign: "Agencies there spend more on AI contracts; home labs get the inside track and more national-contract offers."
+        case .exports: "Labs in the countries it targets pay more for chips (US: China; Europe, UK, Japan/Korea: China, through chipmaking tools; China: everyone, through critical minerals)."
+        case .data: "Slows consumer adoption. At home, licensed data costs more and scraped data draws more lawsuits."
+        case .safety: "Rules there tighten faster after incidents. At home, enterprise buyers favour labs with a strong safety record."
         case .visas: "At home: more candidates on the market."
         case .energy: "Datacenter power there costs less (or more, when it's restrictive)."
         }
@@ -256,7 +256,63 @@ struct NationsState: Codable, DefaultValue {
     /// Rival notes (specialisations and reactions), newest first.
     @D var rivalLog: [NationNote] = []
 
+    // 3.4 overhaul: countries, recessions and dated policy events
+    /// The country layer under the EU: each headquarters country's own dials (CountryCatalog ID → policy).
+    @D var countries: [String: CountryPolicy] = [:]
+    /// Regional recessions, oldest first (the last few are kept for the timeline).
+    @D var recessions: [Recession] = []
+    /// Dated real-world policy events already applied (CountryEvents IDs).
+    @D var events: Set<String> = []
+
     func strategy(_ r: Region) -> NationStrategy { strategies.indices.contains(r.index) ? strategies[r.index] : NationStrategy() }
     func economy(_ r: Region) -> NationEconomy { economies.indices.contains(r.index) ? economies[r.index] : NationEconomy() }
     func level(_ r: Region, _ l: NationLever) -> Double { strategy(r).level(l) }
+}
+
+// MARK: - 3.4 overhaul: the country layer, recessions
+
+/// One headquarters country's AI policy under its region (the EU sets data, safety and export rules for all four;
+/// the national government sets its own funding, sovereign programme, talent and energy policy on top). Reviewed each
+/// January after the region.
+struct CountryPolicy: Codable, Hashable {
+    /// The country's dials, NationLever order, 0–100: the region's level plus `offsets`.
+    @D var levels: [Double] = []
+    /// How far the country sits from its region on each dial: its character, moved by events, your partnerships and
+    /// the year's politics.
+    @D var offsets: [Double] = []
+    /// What dated events and your partnerships added, fading 30% a year.
+    @D var boost: [Double] = []
+    /// Why the dials moved at the last review, biggest first.
+    @D var reasons: [String] = []
+    /// Pushes from dated events since the last review ("lever|delta|why"), explained at the next one.
+    @D var pending: [String] = []
+    @D var reviewed: Int = 0
+    /// One row per January.
+    @D var history: [CountryYear] = []
+
+    func level(_ l: NationLever) -> Double? { levels.indices.contains(l.index) ? levels[l.index] : nil }
+}
+
+/// A country's January, for the trend on the Nations page.
+struct CountryYear: Codable, Hashable {
+    var year: Int
+    @D var levels: [Double] = []
+    /// Attractiveness (0–100) as it stood that January.
+    @D var appeal: Double = 0
+}
+
+/// A regional recession: GDP growth falls by `depth` points from `start` to `end`.
+struct Recession: Codable, Hashable {
+    /// Region raw value.
+    var region: String
+    var start: Date
+    var end: Date
+    /// Percentage points off growth.
+    var depth: Double
+    /// Why it started, for the news and the timeline ("after the market correction").
+    @D var cause: String = ""
+    /// Its end has been announced.
+    @D var over: Bool = false
+
+    func active(_ d: Date) -> Bool { d >= start && d < end }
 }

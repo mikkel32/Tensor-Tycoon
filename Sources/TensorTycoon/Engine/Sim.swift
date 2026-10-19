@@ -501,7 +501,7 @@ enum Sim {
         }
         power *= max(0.5, 1 - s.traits.power) * XenoScience.powerFactor(s) * AgentOrgs.powerFactor(s) * Science.powerFactor(s) * AdvancedProjects.powerFactor(s)   // 3.6: infrastructure teams; energy discoveries; cooling programmes
         let sites = s.sites.reduce(0) { $0 + $1.monthlyFee } / 30.4
-        let office = Economy.office(s, s.officeLevel).monthly / 30.4   // 3.5: local rent
+        let office = (Economy.office(s, s.officeLevel).monthly + HQ.satelliteRent(s)) / 30.4   // 3.5: local rent; 3.4 overhaul: satellite offices
         let payroll = Economy.payrollYear(s) / 365
         let data = Economy.dataMonthlyCost(s) / 30.4
         let marketing = s.marketingBudget / 30.4

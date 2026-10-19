@@ -115,18 +115,20 @@ extension GameState {
             // Big campuses come online a phase at a time; each phase is paid for when it starts.
             let n = Campus.phases(mw: mw)
             let phaseMW = mw / Double(n)
-            let capex = phaseMW * Campus.capexPerMW(cooling, self)
+            let capex = phaseMW * Campus.capexPerMW(cooling, self, location: locationID)   // 3.4 overhaul: the home incentive, net
             if capex > cash { return n > 1 ? "The first phase costs \(Fmt.money(capex)); you have \(Fmt.money(cash))." : "Building this costs \(Fmt.money(capex)); you have \(Fmt.money(cash))." }
             let months = buildMonths(mw: phaseMW, loc: loc, power: power)
             cash -= capex
             month.capex += capex
+            HQ.noteIncentive(&self, gross: phaseMW * Campus.capexPerMW(cooling, self), net: capex)
             let ready = GameCalendar.addDays(date, Int(months * 30.4))
             var site = Site(name: name, kind: .datacenter, locationID: locationID, capacityKW: phaseMW * 1000, cooling: cooling, powerDeal: power,
                             opened: date, ready: ready, capex: capex, monthlyFee: 0)
             site.plannedKW = (mw - phaseMW) * 1000
             site.phaseKW = phaseMW * 1000
             sites.append(site)
-            let phasesNote = n > 1 ? " Built in \(n) phases of \(Fmt.watts(phaseMW * 1e6)); the first is energised \(ready.gameMonth), about \(Fmt.money(mw * Campus.capexPerMW(cooling, self))) in all." : " \(Fmt.money(capex)), online \(ready.gameMonth)."
+            let incentive = HQ.buildCost(self, location: locationID) < 1 ? " \(HQ.country(self).adjective) incentives take \(Fmt.pct(1 - HQ.buildCost(self, location: locationID), decimals: 0)) off each phase." : ""
+            let phasesNote = (n > 1 ? " Built in \(n) phases of \(Fmt.watts(phaseMW * 1e6)); the first is energised \(ready.gameMonth), about \(Fmt.money(mw * Campus.capexPerMW(cooling, self, location: locationID))) in all." : " \(Fmt.money(capex)), online \(ready.gameMonth).") + incentive
             Voices.groundbreaking(&self, site: name, mw: mw, place: loc.name, title: "Breaking ground: \(name)",
                                   body: "\(Fmt.watts(mw * 1e6)) \(cooling.rawValue.lowercased())-cooled campus in \(loc.name) on \(power.rawValue.lowercased()).\(phasesNote)")
         }
@@ -134,7 +136,7 @@ extension GameState {
     }
 
     func buildMonths(mw: Double, loc: Location, power: PowerDeal) -> Double {
-        var m = (7 + min(22, mw * 0.025)) / loc.buildSpeed * market.buildDelay * Policy.buildFactor(self) * XenoScience.buildFactor(self)
+        var m = (7 + min(22, mw * 0.025)) / loc.buildSpeed * market.buildDelay * Policy.buildFactor(self, location: loc.id) * XenoScience.buildFactor(self)   // 3.4 overhaul: US permitting law on US soil only
         m /= Campus.speedup(year)
         if power == .gas { m *= 0.7 }
         if power == .smr || power == .fusion { m *= 0.85 }
@@ -164,7 +166,7 @@ extension GameState {
             let phase = addKW / Double(n)
             let first = min(addKW, phase)
             if site.expanding == 0 && site.plannedKW == 0 && site.isReady(date) {
-                let capex = first / 1000 * Campus.capexPerMW(site.cooling, self)
+                let capex = first / 1000 * Campus.capexPerMW(site.cooling, self, location: site.locationID)
                 if capex > cash { return n > 1 ? "The first phase costs \(Fmt.money(capex))." : "This expansion costs \(Fmt.money(capex))." }
             }
             sites[i].plannedKW += addKW
@@ -235,18 +237,20 @@ extension GameState {
         run.autoRollback = autoRollback
         Training.prepare(&run, state: &self)
         runs.append(run)
-        // Compute-threshold regulation (real thresholds: US EO 14110 10^26, EU AI Act 10^25)
-        if pre >= 1e26 && year >= 2023.83 && year < 2025.06 {
+        // Compute-threshold regulation (real thresholds: US EO 14110 10^26, EU AI Act 10^25). US rules reach a US lab, or a
+        // run mostly on US soil (3.4 overhaul); the EU AI Act reaches any model sold in the EU.
+        let usLaw = Policy.runUnderUSLaw(self, accelID: d.accelID, chips: d.chips)
+        if pre >= 1e26 && year >= 2023.83 && year < 2025.06 && usLaw {
             cash -= 1_500_000
             month.costOther += 1_500_000
             Sim.news(&self, "Training run reported to the US government", "Runs above 10^26 FLOPs must be reported under the October 2023 executive order. Compliance cost: $1.5M.",
                      .policy, important: false)
         }
-        if pre >= 1e26 && lawsPassed.contains("transparency") {
+        if pre >= 1e26 && lawsPassed.contains("transparency") && usLaw {
             cash -= 2_000_000
             month.costOther += 2_000_000
         }
-        if pre >= 1e27 && lawsPassed.contains("compute_licensing") {
+        if pre >= 1e27 && lawsPassed.contains("compute_licensing") && usLaw {
             cash -= 25_000_000
             month.costOther += 25_000_000
             Sim.news(&self, "Federal compute licence granted for \(d.name)", "Runs above 10^27 FLOP need a licence: $25M.", .policy)
@@ -550,6 +554,7 @@ extension GameState {
         guard let i = candidates.firstIndex(where: { $0.id == candidateID }) else { return "Not found." }
         if employees.count >= Economy.officeCapacity(self) { return "Your office is full. Upgrade it on the Team page." }
         let c = candidates[i]
+        if let e = HQ.seatError(self, c) { return e }   // 3.4 overhaul: each office has its own desks
         let bonus = c.salary * 0.15
         if bonus > cash { return "You can't afford the signing bonus (\(Fmt.money(bonus)))." }
         cash -= bonus
@@ -560,6 +565,8 @@ extension GameState {
         }
         var e = Employee(name: c.name, role: c.role, skill: c.skill, salary: c.salary, morale: 80, hired: date, star: c.star, equity: c.equity)
         e.trait = c.trait
+        e.office = c.office
+        e.relocated = c.relocated
         employees.append(e)
         candidates.remove(at: i)
         return nil

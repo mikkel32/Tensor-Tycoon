@@ -108,6 +108,7 @@ enum Stakeholders {
         if sites > 0 { add("Your datacenters there", min(6, 3 * Double(sites))) }
         if let until = s.world.ties[r.rawValue], until > s.date { add("Sovereign AI deal", 5) }
         add("Government programmes", AdvancedProjects.standingBonus(s, r))   // 3.5
+        add("National partnerships", HQ.partnershipStanding(s, r))   // 3.4 overhaul: compute centres and chairs you fund
         return (clamp(50 + parts.reduce(0) { $0 + $1.value }, 5, 95), parts)
     }
 

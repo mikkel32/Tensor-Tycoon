@@ -259,7 +259,8 @@ enum World {
         var deltas: [String: Double] = [:]
         if concern != 0 { w.concern = clamp(w.concern + concern, 0, 100); deltas["concern"] = concern }
         if mood != 0 { w.sentiment = clamp(w.sentiment + mood, 0, 100); deltas["mood"] = mood }
-        for (r, v) in regions where w.strictness.indices.contains(r.index) {
+        for (r, v0) in regions where w.strictness.indices.contains(r.index) {
+            let v = v0 > 0 ? v0 * Nations.safetyResponse(s, r) : v0   // 3.4 overhaul: a strict safety regime tightens harder
             w.strictness[r.index] = clamp(w.strictness[r.index] + v, 0, 100)
             deltas[r.rawValue] = v
         }
@@ -364,7 +365,10 @@ enum World {
     static func apply(_ w: inout WorldState, _ i: Impact, _ s: GameState) {
         w.concern = clamp(w.concern + i.concern, 0, 100)
         w.sentiment = clamp(w.sentiment + i.mood, 0, 100)
-        for (r, v) in i.strict where w.strictness.indices.contains(r.index) { w.strictness[r.index] = clamp(w.strictness[r.index] + v, 0, 100) }
+        for (r, v) in i.strict where w.strictness.indices.contains(r.index) {
+            let d = v > 0 ? v * Nations.safetyResponse(s, r) : v   // 3.4 overhaul: a strict safety regime tightens harder after incidents
+            w.strictness[r.index] = clamp(w.strictness[r.index] + d, 0, 100)
+        }
         w.gridShock += i.grid
         for (sector, v) in i.boost where w.boosts.indices.contains(sector.index) { w.boosts[sector.index] += v }
         if let lab = i.lab, let t = w.labTrust[lab] { w.labTrust[lab] = clamp(t + i.trust, 0, 100) }

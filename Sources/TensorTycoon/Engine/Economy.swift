@@ -78,7 +78,7 @@ enum Economy {
         let decayed = max(a.rentFloor, base * pow(0.78, age))
         let mult = a.cls == .consumer ? (s.market.consumerGPUPrice + s.market.rentPrice) / 2 : s.market.rentPrice
         return decayed * mult * (1 - dealDiscount(a, s)) * (1 - Partners.discount(a, s)) * (1 - s.traits.hardware)
-            * (s.lawsPassed.contains("nairr") ? 0.95 : 1) * Nations.chipFactor(s)   // 3.7
+            * (s.lawsPassed.contains("nairr") && HQ.region(s) == .us ? 0.95 : 1) * Nations.chipFactor(s)   // 3.7; 3.4 overhaul: the US research cloud serves US labs
     }
 
     static func resaleValue(_ a: Accelerator, _ s: GameState, unitCost: Double, purchased: Date) -> Double {
@@ -187,7 +187,7 @@ enum Economy {
         let cutoff = GameCalendar.addDays(s.date, -90)
         let recent = s.orders.filter { $0.accelID == a.id && $0.ordered > cutoff }.reduce(0) { $0 + $1.count }
             + s.orderLog.filter { $0.accelID == a.id && $0.ordered > cutoff }.reduce(0) { $0 + $1.count }
-        let cap = quarterlyProduction(a, s) * allocationShare(a, s)
+        let cap = quarterlyProduction(a, s) * allocationShare(a, s) * Nations.exportCapFactor(s)   // 3.4 overhaul: the 2025 diffusion rule's Tier 2
         return max(max(64, a.minOrder * 2), Int(cap) - recent)
     }
 
@@ -344,7 +344,11 @@ enum Economy {
 
     static func debt(_ s: GameState) -> Double { s.loans.reduce(0) { $0 + $1.balance } + s.corp.debts.reduce(0) { $0 + $1.balance } }
 
-    static func payrollYear(_ s: GameState) -> Double { s.employees.reduce(0) { $0 + $1.salary } * max(0.5, 1 + s.traits.payroll) * HQ.payrollFactor(s) }
+    /// 3.4 overhaul: each office pays its own country's employer on-costs.
+    static func payrollYear(_ s: GameState) -> Double {
+        guard !s.hq.satellites.isEmpty else { return s.employees.reduce(0) { $0 + $1.salary } * max(0.5, 1 + s.traits.payroll) * HQ.payrollFactor(s) }
+        return s.employees.reduce(0) { $0 + $1.salary * HQ.payrollFactor(s, office: $1.office) } * max(0.5, 1 + s.traits.payroll)
+    }
 
     static let officeLevels: [(name: String, capacity: Int, monthly: Double, image: String)] = [
         ("Garage", 6, 0, "garage"),
@@ -355,10 +359,13 @@ enum Economy {
         ("Mega campus", 15_000, 25_000_000, "nvidia_hq"),
     ]
 
-    static func officeCapacity(_ s: GameState) -> Int { officeLevels[min(s.officeLevel, officeLevels.count - 1)].capacity }
+    /// Desks at headquarters plus every satellite office (3.4 overhaul).
+    static func officeCapacity(_ s: GameState) -> Int { officeLevels[min(s.officeLevel, officeLevels.count - 1)].capacity + HQ.satelliteSeats(s) }
 
     static func dataMonthlyCost(_ s: GameState) -> Double {
-        s.dataSources.sorted().compactMap { DataCatalog.byID[$0] }.reduce(0) { $0 + $1.monthly } + DataEconomy.monthlyCost(s)   // 3.6: data economy; 3.7: fixed order
+        let catalog = s.dataSources.sorted().compactMap { DataCatalog.byID[$0] }.reduce(0) { $0 + $1.monthly }   // 3.7: fixed order
+        let f = Nations.dataPriceFactor(s)   // 3.4 overhaul: data rules at home price licensed data
+        return catalog + DataEconomy.monthlyCost(s) + (f == 1 ? 0 : (catalog + DataEconomy.licenceMonthly(s)) * (f - 1))   // 3.6: data economy
     }
 
     // MARK: Revenue & valuation

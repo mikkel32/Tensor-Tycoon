@@ -107,9 +107,9 @@ enum DCMarket {
         interpolate([(2016, 6), (2020, 15), (2023, 50), (2025, 200), (2027, 600), (2030, 2_000), (2033, 5_000), (2036, 12_000)], at: y)
     }
 
-    /// Existing capacity is worth more when building new is hard.
-    static func scarcity(_ s: GameState) -> Double {
-        (s.lawsPassed.contains("dc_moratorium") ? 1.25 : 1) * (1 + s.world.gridStress / 600) * clamp(s.market.hype, 0.85, 1.1)
+    /// Existing capacity is worth more when building new is hard (a US moratorium only lifts prices on US soil).
+    static func scarcity(_ s: GameState, location: String) -> Double {
+        (s.lawsPassed.contains("dc_moratorium") && Region.of(location: location) == .us ? 1.25 : 1) * (1 + s.world.gridStress / 600) * clamp(s.market.hype, 0.85, 1.1)
     }
 
     /// Refresh the listings at the start of each month (hashed rolls: no draws on the game's random numbers).
@@ -176,7 +176,7 @@ enum DCMarket {
         case .crypto: (.air, 0.55, -0.05, 0)
         case .developer: (liquid, 0.92, 0.03, 120 + Int(roll(s, k + "|days") * 420))
         }
-        let price = mw * Campus.capexPerMW(cooling, s) * factor * scarcity(s) * (0.92 + 0.16 * roll(s, k + "|px"))
+        let price = mw * Campus.capexPerMW(cooling, s) * factor * scarcity(s, location: locationID) * (0.92 + 0.16 * roll(s, k + "|px"))
         let place = (LocationCatalog.byID[locationID]?.name ?? locationID).split(separator: ",").first.map(String.init) ?? locationID
         let name: String = switch seller {
         case .crypto: "\(place) mine conversion"
@@ -198,14 +198,14 @@ enum DCMarket {
         let cool = cooling == .air ? 1.0 : (cooling == .liquid ? 1.2 : 1.3)
         let here = s.sites.filter { $0.kind == .colo && $0.locationID == loc.id }.reduce(0) { $0 + $1.capacityKW + $1.rampKW } / 1000
         let tight = 1 + (here + mw) / max(1, loc.gridCap(s.year) * 4)
-        let rules = s.lawsPassed.contains("dc_moratorium") ? 1.15 : 1
+        let rules = s.lawsPassed.contains("dc_moratorium") && Region.of(location: loc.id) == .us ? 1.15 : 1
         return loc.coloFee * era * size * term * cool * tight * rules * (toOwn ? 1.25 : 1)
     }
 
     /// Days until a leased block is handed over: small cages next month, big blocks built to suit.
     static func leaseLeadDays(mw: Double, _ loc: Location, _ s: GameState) -> Int {
         let base: Double = mw <= 5 ? 30 : (mw <= 50 ? 60 : (mw <= 300 ? 150 : (mw <= 1_000 ? 300 : 300 + (mw - 1_000) / 1_000 * 120)))
-        let slow = Policy.buildFactor(s) * s.market.buildDelay * XenoScience.buildFactor(s) / Campus.speedup(s.year) / loc.buildSpeed
+        let slow = Policy.buildFactor(s, location: loc.id) * s.market.buildDelay * XenoScience.buildFactor(s) / Campus.speedup(s.year) / loc.buildSpeed
         return Int(mw <= 5 ? base : max(30, base * slow))
     }
 
@@ -360,13 +360,14 @@ enum DCMarket {
                 let n = Campus.phases(mw: per)
                 let first = s.buildMonths(mw: per / Double(n), loc: loc, power: deal)
                 let full = first + Double(n - 1) * first * 0.35
-                let capex = mw * Campus.capexPerMW(cooling, s)
+                let capex = mw * Campus.capexPerMW(cooling, s, location: loc.id)   // 3.4 overhaul: home incentive, net
                 let pue = cooling.basePUE + loc.pueDelta
                 let powerMonth = mw * 1000 * 0.8 * pue * 24 * 30.4 * loc.powerPrice * deal.priceMultiplier * grid
                 let score = capex + first * waitCost + (template == .training ? 60 : 36) * powerMonth
-                let q = CapacityQuote(kind: .build, locationID: loc.id, mw: mw, power: deal, cooling: cooling, upfront: (mw / Double(sites)) / Double(n) * Campus.capexPerMW(cooling, s) * Double(sites),
+                let incentive = HQ.buildCost(s, location: loc.id) < 1 ? " Includes \(HQ.country(s).adjective) build incentives (−\(Fmt.pct(1 - HQ.buildCost(s, location: loc.id), decimals: 0)))." : ""
+                let q = CapacityQuote(kind: .build, locationID: loc.id, mw: mw, power: deal, cooling: cooling, upfront: (mw / Double(sites)) / Double(n) * Campus.capexPerMW(cooling, s, location: loc.id) * Double(sites),
                                       monthly: powerMonth + capex * 0.015 / 12, monthsToFirst: first, monthsToFull: full, sites: sites,
-                                      note: "\(sites > 1 ? "\(sites) campuses" : "One campus") on \(deal.rawValue.lowercased())\(n > 1 ? ", \(n) phases each" : ""). \(Fmt.money(capex)) in all; first phase paid now.")
+                                      note: "\(sites > 1 ? "\(sites) campuses" : "One campus") on \(deal.rawValue.lowercased())\(n > 1 ? ", \(n) phases each" : ""). \(Fmt.money(capex)) in all; first phase paid now.\(incentive)")
                 if best == nil || score < best!.1 { best = (q, score) }
             }
         }

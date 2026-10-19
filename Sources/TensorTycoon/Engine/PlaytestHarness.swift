@@ -7,7 +7,8 @@ import Foundation
 ///
 /// flags (comma-separated, optional): cautious (20% of cash per run, current-gen chips only, slow hiring, no research
 /// compute, no growth rounds), norent (never rents: garage GPUs only), hard / easy (difficulty), noresearchcompute,
-/// autorollback, noquick.
+/// autorollback, noquick, hq=<country>[:<city>] (headquarters, e.g. hq=fr:grenoble; unknown places print a warning),
+/// lean (half the usual training budget: smaller models), coding (specialist coding models).
 ///
 /// Output: a monthly table (every 3rd month unless mode is `full`), an event log, every training run (plan vs actual
 /// days, forecast vs actual capability), a summary of pacing metrics, and `CSV,` rows for offline aggregation.
@@ -202,6 +203,12 @@ enum PTPlay {
         if let hq = flags.first(where: { $0.hasPrefix("hq=") })?.dropFirst(3).split(separator: ":") {   // 3.5: e.g. hq=fr:grenoble
             settings.hqCountry = hq.first.map(String.init) ?? "us"
             settings.hqCity = hq.count > 1 ? String(hq[1]) : ""
+            // 3.4 overhaul: say so when the flag names a place the game doesn't know (it falls back to a default).
+            if CountryCatalog.byID[settings.hqCountry] == nil {
+                print("WARNING: unknown hq=\(settings.hqCountry) (known: \(CountryCatalog.all.map(\.id).joined(separator: ", "))); playing from San Francisco")
+            } else if !settings.hqCity.isEmpty, !CountryCatalog.get(settings.hqCountry).cities.contains(where: { $0.id == settings.hqCity }) {
+                print("WARNING: unknown city \(settings.hqCity) for hq=\(settings.hqCountry) (known: \(CountryCatalog.get(settings.hqCountry).cities.map(\.id).joined(separator: ", "))); using \(CountryCatalog.get(settings.hqCountry).cities[0].id)")
+            }
         }
         var s = NewGame.create(settings, seed: seed)
         var bot = PTBot()
@@ -223,7 +230,7 @@ enum PTPlay {
         if mode != "quiet" {
             print("\n================ \(era) era · seed \(seed) · \(Int(years)) years ================")
             let top = Leaderboard.entries(s, includeUnreleased: false).max { $0.index < $1.index }
-            print("Start \(s.date.gameShort): cash \(m(s.cash)), \(s.owned.first.map { "\($0.count)× \($0.accelID)" } ?? "no chips"), \(s.employees.count) staff, "
+            print("Start \(s.date.gameShort) in \(HQ.place(s)): cash \(m(s.cash)), \(s.owned.first.map { "\($0.count)× \($0.accelID)" } ?? "no chips"), \(s.employees.count) staff, "
                   + "world #1 \(top.map { "\($0.model) idx \(Fmt.score($0.index))" } ?? "NONE (empty leaderboard)"), frontier c \(Fmt.trim(Macro.frontier(s.year), 2))")
         }
 
@@ -333,6 +340,7 @@ enum PTPlay {
             "\(CompanyStage(rawValue: k)?.title ?? "?") \(Fmt.trim(Double(d(start, v)) / 30.44, 0))mo"
         }   // 3.7
         if mode != "quiet" { printGame(rows, sum, bot, s, mode: mode) }
+        if mode != "quiet" || flags.contains(where: { $0.hasPrefix("hq=") }) { print(hqSummary(s)) }   // 3.4 overhaul
         if flags.contains("advproj") { for line in AdvancedProjects.report(s) { print(line) } }
         if flags.contains("science") { scienceSummary(s, seed: seed) }
         lastState = s
@@ -598,7 +606,7 @@ enum PTPlay {
             }
             return
         }
-        let budget = trainingBudget(s)
+        let budget = trainingBudget(s) * (bot.flags.contains("lean") ? 0.5 : 1)   // 3.4 overhaul: `lean` trains smaller, cheaper models
         guard budget > 20_000, s.date >= bot.nextPlan else { return }
         var best: (d: ModelDesign, a: Accelerator, c: Double, cost: Double, days: Double)? = nil
         let owned = Set(s.owned.map(\.accelID))
@@ -615,7 +623,8 @@ enum PTPlay {
             // so shrink the cluster until it looks healthy.
             var found: (ModelDesign, Physics.Estimate)? = nil
             for _ in 0..<14 where n >= 1 {
-                let dz = design(s, a, chips: n, days: trainDays, name: "x", b: b)
+                var dz = design(s, a, chips: n, days: trainDays, name: "x", b: b)
+                if bot.flags.contains("coding") { dz.objective = .coding }   // 3.4 overhaul: specialist coding models
                 guard Physics.trainingMemory(dz, accel: a, bonuses: b).ok, let est = Physics.estimate(dz, state: s) else { break }
                 if est.goodput >= 0.6 && est.days < 150 { found = (dz, est); break }
                 bot.lowGoodputSkips += 1
@@ -640,7 +649,8 @@ enum PTPlay {
         guard have >= 1 else { return }
         bot.runN += 1
         let name = "PT-\(bot.runN)"
-        let dz = design(s, pick.a, chips: min(have, pick.d.chips), days: trainDays, name: name, b: b)
+        var dz = design(s, pick.a, chips: min(have, pick.d.chips), days: trainDays, name: name, b: b)
+        if bot.flags.contains("coding") { dz.objective = .coding }
         if let err = s.startTraining(dz, lr: .standard, checkpointEvery: 0.1, autoRollback: bot.flags.contains("autorollback")) {
             bot.log.append("\(s.date.gameShort) start error: \(err)")
             return
@@ -785,13 +795,14 @@ enum PTPlay {
     static let roleMix: [(Role, Double)] = [(.researcher, 0.40), (.mlEngineer, 0.25), (.infra, 0.10), (.data, 0.10), (.sales, 0.10), (.safety, 0.05)]
 
     static func hiring(_ s: inout GameState, _ bot: inout PTBot) {
-        // Office first.
-        if s.employees.count >= Economy.officeCapacity(s) - 1, s.officeLevel + 1 < Economy.officeLevels.count {
-            let next = Economy.officeLevels[s.officeLevel + 1]
+        // Office first (headquarters at local rent; satellites have their own desks).
+        if HQ.staffCount(s, office: "") >= Economy.office(s, s.officeLevel).capacity - 1, s.officeLevel + 1 < Economy.officeLevels.count {
+            let next = Economy.office(s, s.officeLevel + 1)
             if next.monthly * 3 < s.cash * 0.05 && next.monthly < max(s.cash / 40, Economy.runRate(s) / 12 * 0.1) {
                 if s.upgradeOffice() == nil { bot.actions += 1; bot.events.append("office → \(next.name)") }
             }
         }
+        satellites(&s, &bot)   // 3.4 overhaul
         var hired: [String] = []
         let maxHires = bot.flags.contains("cautious") ? 1 : max(2, s.employees.count / 4)
         for _ in 0..<maxHires {
@@ -804,7 +815,7 @@ enum PTPlay {
                 let have = Double(s.employees.filter { $0.role == r }.count)
                 if f * n - have > deficit { deficit = f * n - have; role = r }
             }
-            let pool = s.candidates.filter { $0.role == role && payroll + $0.salary <= allowance && $0.salary * 0.15 < s.cash * 0.02 }
+            let pool = s.candidates.filter { $0.role == role && payroll + $0.salary <= allowance && $0.salary * 0.15 < s.cash * 0.02 && HQ.hasSeat(s, $0) }
             guard let c = pool.max(by: { $0.skill / pow($0.salary, 0.5) < $1.skill / pow($1.salary, 0.5) }) else { break }
             if s.hire(c.id) == nil { hired.append("\(c.role.rawValue) \(Int(c.skill))") }
         }
@@ -812,6 +823,38 @@ enum PTPlay {
             bot.actions += 1
             bot.events.append("hired \(hired.count)")
         }
+    }
+
+    /// 3.4 overhaul: with a thin local talent pool (never in San Francisco), a growing lab opens satellite offices in
+    /// deeper pools once it can easily afford them, and adds desks as they fill.
+    static func satellites(_ s: inout GameState, _ bot: inout PTBot) {
+        guard !HQ.isDefault(s) else { return }
+        for o in s.hq.satellites where HQ.staffCount(s, office: o.id.uuidString) >= o.seats - 5 && o.seats < HQ.satelliteMaxSeats
+            && HQ.satelliteExpandCost(o) < s.cash * 0.01 {
+            if s.expandSatellite(o.id) == nil { bot.actions += 1; bot.events.append("\(HQ.officeName(s, o.id.uuidString)) office +\(HQ.satelliteStep) desks") }
+        }
+        let local = HQ.country(s).talentPool * HQ.city(s).talent
+        guard local < 0.8, s.employees.count >= 40, s.hq.satellites.count < 2 else { return }
+        if let last = s.hq.satellites.map(\.opened).max(), GameCalendar.daysBetween(last, s.date) < 540 { return }
+        let options = [("fr", "paris"), ("us", "sf"), ("it", "milan")].filter { pair in
+            !(pair.0 == s.hqCountry && pair.1 == s.hqCity) && !s.hq.satellites.contains { $0.country == pair.0 && $0.city == pair.1 }
+        }
+        guard let first = options.first, HQ.satelliteOpenCost(s, country: first.0, city: first.1) < s.cash * 0.02 else { return }
+        let (c, city) = first
+        if s.openSatellite(country: c, city: city) == nil { bot.actions += 1; bot.events.append("opened an office in \(CountryCatalog.get(c).city(city).name)") }
+    }
+
+    /// 3.4 overhaul: what home gave and took over the game, for per-headquarters comparisons.
+    static func hqSummary(_ s: GameState) -> String {
+        let tax = s.history.reduce(0) { $0 + $1.taxes }
+        let years = max(0.1, Double(GameCalendar.daysBetween(s.startDate, s.date)) / 365)
+        let h = s.hq
+        let sats = s.hq.satellites.map { "\(HQ.officeName(s, $0.id.uuidString)) \(HQ.staffCount(s, office: $0.id.uuidString))/\($0.seats)" }
+        return "  HQ \(HQ.place(s)): tax paid \(m(tax)) · R&D relief \(m(h.rdCredits))\(h.rdCarry > 1 ? " (+\(m(h.rdCarry)) carried)" : "")"
+            + " · grants \(m(h.grants)) + compute \(m(h.computeGrants)) (\(h.grantOffers) offers, \(Fmt.trim(Double(h.grantOffers) / years, 2))/yr)"
+            + " · build incentives \(m(h.rebates)) · national contracts \(h.contracts) (\(m(h.contractRevenue)))"
+            + (h.minimumTax > 0 ? " · minimum tax \(m(h.minimumTax))" : "") + " · partnerships \(h.partnerships)"
+            + " · staff \(HQ.staffCount(s, office: "")) at HQ\(sats.isEmpty ? "" : ", offices: " + sats.joined(separator: ", ")) · safety \(Int(s.safetyScore))"
     }
 
     static let perkOrder = ["r1", "c1", "p1", "r2", "p2", "c2", "f1", "r3", "p3", "c3", "r4", "p4", "c4", "f2", "f3", "f4", "s1", "s2", "s3", "s4"]

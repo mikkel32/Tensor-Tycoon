@@ -9,6 +9,7 @@ import SwiftUI
 struct NationsView: View {
     @Environment(GameStore.self) private var store
     @State private var selected: Region? = nil
+    @State private var country: String? = nil
 
     var body: some View {
         let s = store.game
@@ -29,6 +30,13 @@ struct NationsView: View {
                     NationDetailCard(state: s, region: region)
                     NationsTimelineCard(state: s, region: region)
                 }
+                // 3.4 overhaul: the country layer, attractiveness and your national partnerships
+                let picked = country ?? (HQ.isDefault(s) ? "fr" : s.hqCountry)
+                CountriesCard(state: s, selected: picked) { country = $0 }
+                CardGrid(minWidth: 340, maxColumns: 2) {
+                    CountryDetailCard(state: s, id: picked)
+                    NationalPartnershipsCard(state: s)
+                }
             }
         }
     }
@@ -47,10 +55,12 @@ private struct NationsHeadline: View {
         let share = econ.reduce(0) { $0 + $1.0.aiShare * $1.1 }
         let invest = econ.reduce(0) { $0 + $1.0.aiInvestment }
         let auto = econ.reduce(0) { $0 + $1.0.automation * $1.1 }
+        let recessions = Region.allCases.filter { Nations.recessionDepth(state, $0) > 0 }
         KPIRow(minWidth: 190) {
             StatTile(title: "Your home: \(home.short)", value: st.stance.isEmpty ? "—" : st.stance, detail: "Reviewed January \(st.reviewed)",
                      symbol: "house.fill", tint: .accentColor)
-            StatTile(title: "World GDP growth", value: "\(Fmt.trim(gdp, 1))%", detail: "Weighted by AI spending", symbol: "chart.line.uptrend.xyaxis", tint: gdp >= 2 ? .green : .orange)
+            StatTile(title: "World GDP growth", value: "\(Fmt.trim(gdp, 1))%", detail: recessions.isEmpty ? "Weighted by AI spending" : "Recession in \(recessions.map(\.short).joined(separator: ", "))",
+                     symbol: "chart.line.uptrend.xyaxis", tint: recessions.isEmpty && gdp >= 2 ? Theme.good : Theme.warning)
             StatTile(title: "AI share of GDP", value: "\(Fmt.trim(share, 1))%", detail: "Across the seven regions", symbol: "cpu.fill", tint: .purple)
             StatTile(title: "AI investment", value: Fmt.money(invest) + "/yr", detail: "Public and private", symbol: "banknote.fill", tint: .blue)
             StatTile(title: "Out of work to automation", value: "\(Fmt.trim(auto, 2))%", detail: "Of the workforce", symbol: "person.2.fill",
@@ -174,7 +184,14 @@ private struct NationsTable: View {
                             .frame(width: 46)
                         }
                         Spacer()
-                        Text("\(Fmt.trim(e.gdpGrowth, 1))%").font(.caption.monospacedDigit()).frame(width: 48, alignment: .trailing)
+                        HStack(spacing: 2) {
+                            if Nations.recessionDepth(state, r) > 0 {
+                                Image(systemName: Tone.bad.symbol).font(.caption2).foregroundStyle(Theme.bad).accessibilityLabel("Recession")
+                                    .help("In recession: growth −\(Fmt.trim(Nations.recessionDepth(state, r), 1)) points")
+                            }
+                            Text("\(Fmt.trim(e.gdpGrowth, 1))%").font(.caption.monospacedDigit())
+                        }
+                        .frame(width: 48, alignment: .trailing)
                         Text("\(Fmt.trim(e.aiShare, 1))%").font(.caption.monospacedDigit()).frame(width: 54, alignment: .trailing)
                         Text("\(Fmt.trim(e.automation, 2))%").font(.caption.monospacedDigit()).frame(width: 54, alignment: .trailing)
                     }
@@ -240,10 +257,13 @@ private struct NationsTimelineCard: View {
     var body: some View {
         let notes = state.nations.timeline.filter { $0.who == region.rawValue }.prefix(10)
         Card {
-            CardHeader("\(region.short) strategy, year by year", symbol: "calendar", subtitle: "Each January's review, newest first")
+            CardHeader("\(region.short) strategy, year by year", symbol: "calendar", subtitle: "Each January's review and any recessions, newest first")
             ForEach(Array(notes.enumerated()), id: \.offset) { _, note in
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text("\(note.date.ym.year)").font(.caption.monospacedDigit().weight(.semibold)).frame(width: 40, alignment: .leading)
+                    Text(note.kind == "recession" ? note.date.gameMonth : "\(note.date.ym.year)").font(.caption.monospacedDigit().weight(.semibold)).frame(width: 64, alignment: .leading)
+                    if note.kind == "recession" {
+                        Image(systemName: "chart.line.downtrend.xyaxis").font(.caption2).foregroundStyle(Theme.warning).accessibilityLabel("Recession")
+                    }
                     Text(note.text).font(.caption).fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -411,7 +431,9 @@ struct NationsCard: View {
                     HStack(spacing: 6) {
                         Text(e.title).font(.caption)
                         Spacer()
-                        Text(e.value).font(.caption.monospacedDigit().weight(.semibold)).foregroundStyle(e.good == true ? .green : .red)
+                        Image(systemName: e.good == true ? Tone.good.symbol : Tone.bad.symbol).font(.caption2)
+                            .foregroundStyle(e.good == true ? Theme.good : Theme.bad).accessibilityLabel(e.good == true ? "Helps you" : "Hurts you")
+                        Text(e.value).font(.caption.monospacedDigit().weight(.semibold))
                     }
                 }
                 if let r = n.rivalLog.first, GameCalendar.daysBetween(r.date, s.date) <= 120 {
@@ -426,5 +448,128 @@ struct NationsCard: View {
                 Text("Strategies are set at the end of the month.").font(.callout).foregroundStyle(.secondary)
             }
         }
+    }
+}
+
+// MARK: - 3.4 overhaul: countries
+
+/// The headquarters countries side by side: how attractive each is for an AI lab right now, how that moved since last
+/// January, and the biggest reasons.
+private struct CountriesCard: View {
+    let state: GameState
+    let selected: String
+    let pick: (String) -> Void
+
+    var body: some View {
+        let s = state
+        Card {
+            CardHeader("Countries", symbol: "mappin.and.ellipse",
+                       subtitle: "Attractiveness for an AI lab, 0–100: a summary of what the game charges and pays you there today (costs, tax, talent, capital, public money, power, the economy, chip access). Click a country for its own dials.")
+            ForEach(CountryCatalog.all) { c in
+                let a = Nations.appeal(s, c.id)
+                let last = s.nations.countries[c.id]?.history.dropLast().last?.appeal
+                let change = last.map { a.value - $0 }
+                Button { pick(c.id) } label: {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        FlagView(id: c.id).frame(width: 21, height: 14)
+                        Text(c.name).font(.callout.weight(c.id == selected ? .semibold : .regular)).frame(width: 120, alignment: .leading)
+                        Text("\(Int(a.value.rounded()))").font(.callout.monospacedDigit().weight(.semibold)).frame(width: 32, alignment: .trailing)
+                        Meter(value: a.value / 100, tint: c.id == s.hqCountry ? Color.accentColor : Theme.neutral, height: 5).frame(width: 90)
+                        if let change, abs(change) >= 0.5 {
+                            Label(Fmt.signed(change, 0), systemImage: change > 0 ? "arrow.up.right" : "arrow.down.right")
+                                .font(.caption.monospacedDigit()).foregroundStyle(change > 0 ? Theme.good : Theme.bad)
+                                .frame(width: 56, alignment: .leading)
+                        } else {
+                            Text("—").font(.caption).foregroundStyle(.tertiary).frame(width: 56, alignment: .leading)
+                        }
+                        Text(Self.reasons(a.parts))
+                            .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                            .help(Self.reasons(a.parts, count: 8))
+                        Spacer(minLength: 0)
+                        if c.id == s.hqCountry { Pill("Home", tone: .accent) }
+                    }
+                    .padding(.vertical, 2)
+                    .background(c.id == selected ? Color.accentColor.opacity(0.08) : Color.clear)
+                }
+                .buttonStyle(.plain)
+            }
+            Text("Change is against the last January review. The US is its own region; the four European countries set their own funding, sovereign programme, talent and energy policy on top of the EU's rules.")
+                .font(.caption2).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// "Cost of a hire +17 · Corporate tax +5 · …"
+    static func reasons(_ parts: [(label: String, value: Double)], count: Int = 3) -> String {
+        parts.prefix(count).map { p in p.label + " " + Fmt.signed(p.value, 0) }.joined(separator: " · ")
+    }
+}
+
+/// One country: its dials against its region's, why they moved, what makes it attractive or not, and its dated events.
+private struct CountryDetailCard: View {
+    let state: GameState
+    let id: String
+
+    var body: some View {
+        let s = state
+        let c = CountryCatalog.get(id)
+        let cp = s.nations.countries[id]
+        let a = Nations.appeal(s, id)
+        Card {
+            CardHeader("\(c.name): attractiveness \(Int(a.value.rounded()))", symbol: "flag.fill",
+                       subtitle: c.character.isEmpty ? "The US sets its own rules as a region." : "National dials on top of the \(c.region.short)'s, reviewed each January")
+            ForEach(Array(a.parts.enumerated()), id: \.offset) { _, p in
+                HStack(spacing: 8) {
+                    Text(p.label).font(.caption).frame(width: 220, alignment: .leading)
+                    Image(systemName: p.value > 0 ? Tone.good.symbol : Tone.bad.symbol).font(.caption2)
+                        .foregroundStyle(p.value > 0 ? Theme.good : Theme.bad).accessibilityLabel(p.value > 0 ? "Helps" : "Hurts")
+                    Text(Fmt.signed(p.value, 1)).font(.caption.monospacedDigit())
+                }
+            }
+            if !c.character.isEmpty {
+                Divider()
+                let region = s.nations.strategy(c.region)
+                ForEach(NationLever.allCases) { l in
+                    let v = Nations.level(s, country: id, l)
+                    let r = region.level(l)
+                    HStack(spacing: 8) {
+                        Image(systemName: l.symbol).foregroundStyle(NationsTint.lever(l)).frame(width: 18)
+                        Text(l.title).font(.caption.weight(.semibold)).frame(width: 150, alignment: .leading)
+                        Text("\(Int(v.rounded()))").font(.caption.monospacedDigit()).frame(width: 28, alignment: .trailing)
+                        Text("\(c.region.short) \(Int(r.rounded()))").font(.caption2.monospacedDigit()).foregroundStyle(.secondary).frame(width: 52, alignment: .leading)
+                        if c.characterWhy.indices.contains(l.index), !c.characterWhy[l.index].isEmpty {
+                            Text(c.characterWhy[l.index]).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                    }
+                }
+                if let cp, !cp.reasons.isEmpty {
+                    Text("Why it moved in January \(cp.reviewed)").font(.caption.weight(.semibold))
+                    ForEach(Array(cp.reasons.prefix(4).enumerated()), id: \.offset) { _, line in
+                        Text("• " + line).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                if let h = cp?.history, h.count >= 2 {
+                    Text(Self.trend(h))
+                        .font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+                }
+            }
+            let notes = s.nations.timeline.filter { $0.who == id }.prefix(6)
+            if !notes.isEmpty {
+                Divider()
+                ForEach(Array(notes.enumerated()), id: \.offset) { _, n in
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(n.date.gameShort).font(.caption2.monospacedDigit()).foregroundStyle(.tertiary).frame(width: 82, alignment: .leading)
+                        if n.kind == "event" { Pill("Real event", tone: .info) }
+                        Text(n.text).font(.caption).fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                Text("Dates and descriptions of real events are facts; how far they move the dials is a game estimate.")
+                    .font(.caption2).foregroundStyle(.tertiary)
+            }
+        }
+    }
+
+    /// "Attractiveness by January: 2023 61 · 2024 63 · …"
+    static func trend(_ h: [CountryYear]) -> String {
+        "Attractiveness by January: " + h.suffix(8).map { y in "\(y.year) \(Int(y.appeal.rounded()))" }.joined(separator: " · ")
     }
 }
