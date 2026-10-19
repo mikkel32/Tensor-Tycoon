@@ -678,6 +678,8 @@ struct AIModel: Codable, Identifiable, Hashable {
     @D var qat: Bool = false
     /// 3.4: went through a dangerous-capability evaluation before release.
     @D var evaluated: Bool = false
+    /// 3.4: when commissioned evaluations of a trained model report (Evaluations).
+    @D var evalDue: Date? = nil
     @D var rsiGeneration: Int = 0
     @D var preview: Bool = false
     @D var safeguards: Bool = false

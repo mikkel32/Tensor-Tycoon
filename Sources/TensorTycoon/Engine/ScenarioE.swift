@@ -50,7 +50,7 @@ extension ScenarioHarness {
         r.expect("no cluster first at launch", !TrainingExperience.has(s, "chips_100k"))
 
         // Train, answering incidents the careful way and intervening once or twice.
-        var diagnosed = false, extended = false, clone: GameState? = nil, sawFirstAfterQuarter = false
+        var diagnosed = false, extended = false, clone: GameState? = nil, sawFirstAfterQuarter = false, forkID: UUID? = nil
         var forecastBeforeExtend = 0.0
         for _ in 0..<500 {
             guard let cur = run(), cur.status != .done, cur.status != .cancelled else { break }
@@ -119,6 +119,17 @@ extension ScenarioHarness {
         // The run ended early in the copy: the estimate the command centre showed against what happened.
         if var t = clone, let early = t.runs.first(where: { $0.id == runID }), let preview = TrainingInterventions.stopPreview(t, early) {
             let cost0 = early.cost
+            // A preview forked from the newest checkpoint skips the run's evaluation stage: it can be evaluated afterwards.
+            if let cp = early.saved.last, t.forkCheckpoint(runID, checkpoint: cp.id) == nil, let fork = t.models.last {
+                r.expect("a forked preview starts unevaluated", !Evaluations.isEvaluated(t, fork))
+                let cash = t.cash, price = Evaluations.cost(t, fork)
+                r.expect("evaluations can be commissioned for it", t.evaluateModel(fork.id) == nil, Evaluations.blocker(t, fork) ?? "")
+                r.expect("evaluations are paid for", abs(cash - t.cash - price) < 1, Fmt.money(price))
+                r.expect("evaluations can't be commissioned twice", t.evaluateModel(fork.id) != nil)
+                forkID = fork.id
+            } else {
+                r.expect("a checkpoint can be forked", false, "\(early.saved.count) checkpoints")
+            }
             r.expect("end pre-training early", t.endPretrainingEarly(runID) == nil)
             for _ in 0..<300 {
                 guard let c = t.runs.first(where: { $0.id == runID }), c.status != .done else { break }
@@ -136,6 +147,11 @@ extension ScenarioHarness {
                 _ = cost0
             } else {
                 r.expect("early-ended run finishes", false)
+            }
+            // The forked preview's evaluations, three weeks on.
+            for _ in 0...Evaluations.days { Sim.advanceDay(&t); t.decisions.removeAll() }
+            if let id = forkID, let fork = t.models.first(where: { $0.id == id }) {
+                r.expect("evaluations report within \(Evaluations.days) days", fork.evaluated && fork.evalDue == nil)
             }
         }
 
