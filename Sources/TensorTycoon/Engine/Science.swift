@@ -688,6 +688,7 @@ enum Science {
     /// The follow-ups on offer for a discovery (patent first: it's what happens if you don't answer).
     static func choices(_ s: GameState, _ d: SciProjectDef) -> [SciChoice] {
         var out: [SciChoice] = [.patent, .secret, .publish, .spinout]
+        if AdvancedProjects.publicationBlock(s, d.field) != nil { out.removeAll { $0 == .publish } }   // 3.8: Secret government work in the field
         if feedable(s, d) != nil { out.append(.moonshot) }
         return out
     }
@@ -913,6 +914,12 @@ enum Science {
     /// next such window (checked daily).
     @discardableResult
     static func publish(_ s: inout GameState, _ d: SciProjectDef, title: String) -> Bool {
+        // 3.8: classified work in the field holds the paper (Secret: until it ends; controlled: pre-publication review).
+        if AdvancedProjects.paperHeld(&s, key: d.id, field: d.field) {
+            s.science.toPublish.removeAll { $0 == d.id }
+            s.science.toPublish.append(d.id)   // to the back of the queue: other papers go first
+            return false
+        }
         for (v, date) in Conferences.upcoming(s, count: 6) {
             let left = GameCalendar.daysBetween(s.date, date)
             guard left > Conferences.reviewLead + 1, left < Conferences.cfpLead else { continue }

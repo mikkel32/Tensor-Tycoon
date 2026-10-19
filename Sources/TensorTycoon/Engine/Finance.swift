@@ -231,7 +231,7 @@ enum Monthly {
         s.brand = clamp(s.brand + marketingBoost * 0.5 + min(2, sales * 0.2) + leader + (s.reliability - 0.9) * 5 + s.traits.brand, 0, 100)
 
         // Safety score: team + research + released models
-        let safetyTeam = s.employees.filter { $0.role == .safety }.reduce(0.0) { $0 + $1.weight }
+        let safetyTeam = s.workforce(.safety)
         let released = s.releasedModels
         let modelSafety = released.isEmpty ? 40 : released.map(\.safety).reduce(0, +) / Double(released.count)
         s.safetyScore = clamp(modelSafety * 0.6 + b.safety * 0.4 + min(25, safetyTeam * 4) + 10 * s.swarmSafety + s.traits.safety * 0.5

@@ -46,6 +46,8 @@ enum Feature: String, Sendable, CaseIterable {
     case chat, rlhf, dpo, reasoning, prm, extremeRL, toolUse, agents, computerUse, distillation
     case modelParallel, sharding, scalingLaws, immersion, multiSite, syntheticData
     case autoResearch, rsi, aiControl, customSilicon, latentReasoning, loopedDepth
+    /// 3.8: a family sells through one router (Market).
+    case modelRouting
 }
 
 /// Skill dimensions of a model beyond raw capability (all in "effective capability" units).
@@ -813,7 +815,7 @@ enum ResearchCatalog {
           [.coordination(0.01), .skill(.chat, 0.03)],
           "Jun 2024: layers of models refining each other's answers. Open models alone hit 65% on AlpacaEval 2.0 against GPT-4o's 57.5%."),
         r("model_routing", "Model Routing", .inference, 2024.5, 1_300, ["distillation"],
-          [.throughput(0.12), .apiDemand(0.04)],
+          [.unlock(.modelRouting), .throughput(0.04)],
           "RouteLLM (Jul 2024): a trained router sends easy queries to cheap models — 85% lower cost at 95% of GPT-4's quality. GPT-5 shipped behind one."),
         r("pruning_distill", "Prune & Distill", .inference, 2024.55, 1_700, ["distillation"],
           [.distill(0.1), .throughput(0.06)],
@@ -1256,6 +1258,7 @@ enum ResearchCatalog {
         case .customSilicon: "Custom Silicon lab"
         case .latentReasoning: "Latent reasoning"
         case .loopedDepth: "Recurrent depth"
+        case .modelRouting: "Family routing: one API endpoint sends each request to the family member that suits it (+12% demand for a family of two or more)"
         }
     }
 }

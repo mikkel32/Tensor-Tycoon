@@ -116,6 +116,8 @@ struct NationNote: Codable, Hashable {
 /// What a rival lab specialises in.
 enum RivalFocus: String, Codable, CaseIterable, Identifiable, Sendable {
     case coding, science, robotics, consumer, enterprise, sovereign, openWeights
+    /// 3.8: its own silicon, and small cheap models.
+    case hardware, efficient
 
     var id: String { rawValue }
 
@@ -128,6 +130,8 @@ enum RivalFocus: String, Codable, CaseIterable, Identifiable, Sendable {
         case .enterprise: "Enterprise"
         case .sovereign: "Sovereign AI"
         case .openWeights: "Open weights"
+        case .hardware: "Own silicon"
+        case .efficient: "Efficient models"
         }
     }
 
@@ -141,6 +145,8 @@ enum RivalFocus: String, Codable, CaseIterable, Identifiable, Sendable {
         case .enterprise: "enterprise"
         case .sovereign: "sovereign AI"
         case .openWeights: "open weights"
+        case .hardware: "its own chips"
+        case .efficient: "small, cheap models"
         }
     }
 
@@ -153,6 +159,8 @@ enum RivalFocus: String, Codable, CaseIterable, Identifiable, Sendable {
         case .enterprise: "building.2.fill"
         case .sovereign: "building.columns.fill"
         case .openWeights: "lock.open.fill"
+        case .hardware: "cpu.fill"
+        case .efficient: "leaf.fill"
         }
     }
 
@@ -166,6 +174,8 @@ enum RivalFocus: String, Codable, CaseIterable, Identifiable, Sendable {
         case .enterprise: [.knowledge, .agents]
         case .sovereign: [.knowledge, .coding]
         case .openWeights: [.knowledge, .reasoning]
+        case .hardware: [.hardware, .architecture]
+        case .efficient: [.coding, .multilingual]
         }
     }
 
@@ -179,6 +189,8 @@ enum RivalFocus: String, Codable, CaseIterable, Identifiable, Sendable {
         case .enterprise: ["operator", "health"]
         case .sovereign: ["government"]
         case .openWeights: []
+        case .hardware: []
+        case .efficient: ["tutor"]
         }
     }
 
@@ -192,6 +204,8 @@ enum RivalFocus: String, Codable, CaseIterable, Identifiable, Sendable {
         case .enterprise: "Stronger Operator and Healthcare products; bids for more government work."
         case .sovereign: "Wins its home government's contracts and sells a Government & Defence line."
         case .openWeights: "Gives strong models away: API prices across the market stay under pressure."
+        case .hardware: "Designs its own accelerators: its compute gets about 20% cheaper over two years, and it sells chips to other labs."
+        case .efficient: "Ships smaller models at a steep discount: it wins price-sensitive API buyers from everyone, you included."
         }
     }
 }

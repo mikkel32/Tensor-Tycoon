@@ -283,7 +283,7 @@ private struct LabBusinessCard: View {
         let c = comp
         let backed = RivalEconomy.parent(c, state) != nil
         Card {
-            CardHeader("Money, compute & people", symbol: "building.columns.fill", subtitle: backed ? "Its backer pays the bills its revenue doesn't" : "Revenue and investors pay for everything")
+            CardHeader("Money, compute & people", symbol: "building.columns.fill", subtitle: backed ? "Its backer pays what its revenue doesn't, from a yearly budget" : "Revenue and investors pay for everything")
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), alignment: .leading), count: 3), alignment: .leading, spacing: 10) {
                 ForEach(Self.figures(c, state)) { f in LabMini(label: f.label, value: f.value) }
             }
@@ -308,13 +308,31 @@ private struct LabBusinessCard: View {
         var growth = "—"
         if let g = RivalEconomy.growth(c) { growth = (g >= 1 ? "+" : "−") + "\(Int(abs(g - 1) * 100))%" }
         var runway = "—"
-        if !backed { runway = RivalEconomy.runwayMonths(c).map { "\(Int($0)) mo" } ?? "Profitable" }
-        return [
+        let book = s.rivalBooks[c.id] ?? RivalBook()
+        // 3.8: a parent-funded lab has real cash too (what its backer has put in, less what it spent).
+        runway = RivalEconomy.runwayMonths(c).map { "\(Int($0)) mo" } ?? "Profitable"
+        if backed && book.parentBudget > 0, let r = RivalEconomy.runwayMonths(c) {
+            let burn = max(1, c.costMonth - (c.revenueHistory.last ?? 0))
+            runway = "\(Int(r)) mo + \(Int(book.parentBudget / burn)) mo of budget"
+        }
+        var extra: [Figure] = []
+        if backed {
+            extra.append(Figure(label: "Backer's budget left", value: "\(Fmt.money(book.parentBudget)) of \(Fmt.money(book.annualBudget))"))
+        }
+        extra.append(Figure(label: "R&D toward next breakthrough", value: "\(Fmt.money(book.rdPool)) / \(Fmt.money(RivalEconomy.techniqueCost(s.year)))"))
+        extra.append(Figure(label: "Own breakthroughs", value: "\(book.techniques) · \((s.rivalTech[c.id] ?? []).count) secret techniques"))
+        if book.chipsSold > 0 { extra.append(Figure(label: "Chips sold / mo", value: "\(Fmt.count(book.chipsSold)) H100e")) }
+        // 3.8: what its specialisation does to the models it ships now.
+        let shift = Capabilities.focusShift(s, lab: c.id, at: s.year).filter { $0.1 > 0 }
+        if let top = shift.first, let f = Nations.focus(s, c.id) {
+            extra.append(Figure(label: "Specialisation edge", value: "+\(Fmt.trim(top.1 * 10, 1)) pts \(f.domains.map { $0.short.lowercased() }.joined(separator: ", ")), −\(Fmt.trim(top.1 / 3 * 10, 1)) elsewhere"))
+        }
+        return extra + [
             Figure(label: "Revenue / yr", value: Fmt.money(c.revenueRun)),
             Figure(label: "Growth (yoy)", value: growth),
             Figure(label: "Valuation", value: Fmt.money(c.valuation)),
             Figure(label: "× revenue", value: c.revenueRun > 1e6 ? "\(Int(c.valuation / c.revenueRun))×" : "—"),
-            Figure(label: "Cash", value: backed ? "Backer" : Fmt.money(c.cash)),
+            Figure(label: "Cash", value: Fmt.money(c.cash)),
             Figure(label: "Runway", value: runway),
             Figure(label: "Compute", value: "\(Fmt.count(c.computeH100e)) H100e"),
             Figure(label: "Share of rivals' compute", value: field > 0 ? Fmt.pct(c.computeH100e / field, decimals: 1) : "—"),
@@ -498,6 +516,13 @@ private struct LabDealsList: View {
     let comp: CompetitorState
     let state: GameState
 
+    static func dealText(_ d: ComputeCommitment) -> String {
+        if d.h100e > 0 {
+            return "Rents \(Fmt.count(d.h100e)) H100e of your leased chips in full · \(Fmt.money(d.monthly))/month · \(d.monthsLeft) months left"
+        }
+        return "Buys \(Fmt.money(d.monthly))/month of your compute · \(d.monthsLeft) months left"
+    }
+
     var body: some View {
         let s = state
         let id = comp.id
@@ -506,7 +531,7 @@ private struct LabDealsList: View {
         let alien = s.alienArchs.filter { a in a.licenses.contains { $0.buyerID == id } }
         let armed = Xeno.rivalC(s, id, at: s.date)
         ForEach(deals) { d in
-            Label("Buys \(Fmt.money(d.monthly))/month of your compute · \(d.monthsLeft) months left", systemImage: "server.rack").font(.caption)
+            Label(Self.dealText(d), systemImage: "server.rack").font(.caption)
         }
         ForEach(licenses) { l in
             Label("Licensed your \(ResearchCatalog.byID[l.techID]?.name ?? "technique") · \(Fmt.money(l.royaltyMonthly))/month", systemImage: "doc.text.fill").font(.caption)

@@ -875,7 +875,7 @@ private struct InterventionsPanel: View {
             return run.endedEarlyAt > 0 ? "Ended at \(Int(run.endedEarlyAt * 100))% of the original plan."
                                         : "Stop pre-training where it is, decay the learning rate and move on to post-training."
         }
-        var t = "Index ≈ \(Fmt.score(p.indexNow)) if it stops now, against ≈ \(Fmt.score(p.indexPlanned)) as planned. "
+        var t = "Index ≈ \(Fmt.score(p.indexNow)) (80%: \(Fmt.score(p.indexLow))–\(Fmt.score(p.indexHigh))) if it stops now, against ≈ \(Fmt.score(p.indexPlanned)) as planned. "
         t += "Saves \(Fmt.days(p.daysLeft)) and \(Fmt.money(p.costLeft))."
         if p.decayShare > 0 {
             t += " The learning rate decays over a final \(Int(p.decayShare * 100))%."

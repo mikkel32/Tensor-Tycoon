@@ -133,13 +133,14 @@ private struct ModelCard: View {
                     Button("Open-source the weights") { store.act("Weights released") { $0.release(m.id, api: m.api, openWeights: true) } }
                 }
             }
+            evaluationRow(m, s)   // 3.4: dangerous-capability evaluations
             if !m.preview {
                 // 3.5: model families
                 HStack {
                     Button("Distil a tier…") { familySheet = .distill(m.id) }
                         .help("Train a smaller, much cheaper student from this model")
                     Button("Post-train…") { familySheet = .postTrain(m.id) }
-                        .help("Reasoning RL, agentic training, safety tuning, long context or a specialisation, as a point release")
+                        .help("Reasoning RL, agentic training, safety tuning or long context as a point release — or fork a coding, science, medicine, reasoning, vision & voice or robotics specialist into its family")
                 }
             }
             Button("Retire model…", role: .destructive) { confirmRetire = true }
@@ -154,13 +155,40 @@ private struct ModelCard: View {
         }
     }
 
+    /// Whether the model has been through dangerous-capability evaluations, and the button that commissions them.
+    @ViewBuilder
+    private func evaluationRow(_ m: AIModel, _ s: GameState) -> some View {
+        if Evaluations.isEvaluated(s, m) {
+            Label("Capability evaluations on record", systemImage: "checkmark.shield")
+                .font(.caption).foregroundStyle(.secondary)
+        } else if let due = m.evalDue {
+            Label("Evaluations under way: results \(due.gameShort)", systemImage: "hourglass")
+                .font(.caption).foregroundStyle(.secondary)
+        } else {
+            let why = Evaluations.blocker(s, m)
+            Button(evaluationTitle(m, s)) { store.act("Evaluations commissioned for \(m.name)") { $0.evaluateModel(m.id) } }
+                .disabled(why != nil)
+                .help(why ?? evaluationHelp(s))
+        }
+    }
+
+    private func evaluationTitle(_ m: AIModel, _ s: GameState) -> String {
+        "Commission evaluations (\(Fmt.money(Evaluations.cost(s, m))), \(Evaluations.days) days)"
+    }
+
+    private func evaluationHelp(_ s: GameState) -> String {
+        let law = s.market.euAIAct ? " The EU AI Act fines near-frontier models shipped without them." : ""
+        return "Red-teamers and outside evaluators test it for dangerous capabilities: +3 safety." + law
+    }
+
     @ViewBuilder
     private func servingPanel(_ m: AIModel, _ s: GameState) -> some View {
         let b = s.bonuses
         let pools = store.derived.pools
         let load = m.capacityTokensDay > 0 ? m.demandTokensDay / m.capacityTokensDay : 0
         let dailyCost = m.deployments.reduce(0.0) { acc, d in acc + (HardwareCatalog.get(d.accelID).map { Economy.chipDailyCost($0, count: d.chips, state: s) } ?? 0) }
-        let costPerM = m.capacityTokensDay > 0 ? dailyCost / m.capacityTokensDay * 1e6 : 0
+        // 3.8: per 1M tokens sold: a reasoning model's servers also generate its thinking tokens.
+        let costPerM = m.capacityTokensDay > 0 ? dailyCost / m.capacityTokensDay * 1e6 * Families.thinkingTokens(m, b) : 0
         let ref = Macro.referencePrice(c: m.c, y: s.year) * s.market.apiPricePressure
 
         HStack(alignment: .top, spacing: 18) {
@@ -173,8 +201,16 @@ private struct ModelCard: View {
                     }
                 }
                 .pickerStyle(.segmented)
-                Text("Lower precision halves memory and boosts speed; costs a little quality (−\(Fmt.trim(Physics.servingPenalty(m.servingPrecision), 2)) c).")
+                Text("Lower precision halves memory and boosts speed; costs a little quality (−\(Fmt.trim(Physics.servingPenalty(m), 2)) c\(m.qat ? ", cut by its quantisation-aware training" : "")).")
                     .font(.caption).foregroundStyle(.secondary)
+                if m.reasoning {
+                    // 3.8: test-time compute — how long it thinks before answering.
+                    Picker("Reasoning effort", selection: Binding(get: { m.effort }, set: { e in store.act("Reasoning effort: \(e.label.lowercased())") { $0.setReasoningEffort(m.id, e) } })) {
+                        ForEach(ReasoningEffort.allCases) { e in Text(e.label).tag(e) }
+                    }
+                    .pickerStyle(.segmented)
+                    Text(Self.effortText(m, b)).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
                 ForEach(m.deployments) { d in
                     if let a = HardwareCatalog.get(d.accelID) {
                         DeploymentRow(model: m, dep: d, accel: a, state: s)
@@ -208,7 +244,7 @@ private struct ModelCard: View {
                     Metric(label: "Tokens/sec per user", value: m.tps > 0 ? "\(Int(m.tps))" : "—", symbol: "speedometer")
                     Metric(label: "Capacity / day", value: Fmt.count(m.capacityTokensDay), symbol: "square.stack.3d.up")
                     Metric(label: "Demand / day", value: Fmt.count(m.demandTokensDay), symbol: "person.3")
-                    Metric(label: "Serving cost / 1M", value: costPerM > 0 ? Fmt.price(costPerM) : "—", symbol: "bolt")
+                    Metric(label: m.reasoning ? "Serving cost / 1M sold" : "Serving cost / 1M", value: costPerM > 0 ? Fmt.price(costPerM) : "—", symbol: "bolt")
                     Metric(label: "API revenue / day", value: Fmt.money(m.revenueDay), symbol: "dollarsign")
                     Metric(label: "Gross margin", value: m.revenueDay > 0 ? Fmt.pct((m.revenueDay - dailyCost) / m.revenueDay, decimals: 0) : "—", symbol: "percent")
                 }
@@ -220,6 +256,13 @@ private struct ModelCard: View {
                     }
                     Meter(value: min(load, 1), tint: load > 1 ? .red : (load > 0.85 ? .orange : .green))
                     if load > 1 { Text("Over capacity: requests are failing and users are churning. Add chips!").font(.caption).foregroundStyle(.red) }
+                }
+                // 3.8: which kinds of API work it wins.
+                let segs = Market.segments(of: m.id, store.derived.snapshot)
+                if m.api && !segs.isEmpty {
+                    Text(Self.segmentText(segs))
+                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                        .help("Its share of each kind of API work. Buyers pick models on the domains the work needs: a coding specialist wins coding traffic from a stronger generalist.")
                 }
                 if m.api {
                     Toggle(isOn: Binding(get: { m.autoPrice }, set: { v in store.mutate { $0.setAutoPrice(m.id, v) } })) {
@@ -243,6 +286,20 @@ private struct ModelCard: View {
             }
             .frame(width: 420)
         }
+    }
+
+    /// 3.8: what the reasoning effort costs and buys (built here: long strings are slow to type-check in views).
+    static func effortText(_ m: AIModel, _ b: ResearchBonuses) -> String {
+        var t = "\(m.effort.blurb) It now generates \(Fmt.trim(Families.thinkingTokens(m, b), 2)) tokens per token of answer"
+        if b.thinkingEfficiency > 0.005 {
+            t += " (thinking-efficiency research saves \(Fmt.pct(min(0.8, b.thinkingEfficiency), decimals: 0)) of the thinking)"
+        }
+        t += ": chat traffic needs that much more capacity, and every API token sold costs that much more to serve."
+        return t
+    }
+
+    static func segmentText(_ segs: [(segment: APISegment, share: Double)]) -> String {
+        "API segments: " + segs.prefix(5).map { "\($0.segment.label) \(Fmt.pct($0.share, decimals: 1))" }.joined(separator: " · ")
     }
 
     private func applyPrice(_ m: AIModel) {

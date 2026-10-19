@@ -91,6 +91,7 @@ enum People {
             // Rival labs poach unhappy, highly skilled people (never the loyal ones)
             var risk = (s.employees[i].skill / 100) * max(0, 0.6 - s.employees[i].morale / 100) * 0.12 + (s.employees[i].star ? 0.01 : 0)
             risk *= HQ.poachFactor(s, office: e.office)   // 3.5: big labs abroad recruit harder where pay is lower
+            risk *= AdvancedProjects.poachFactor(s, s.employees[i].id)   // 3.8: defence contractors want cleared staff
             if s.employees[i].talent == .loyal { risk = 0 }
             if s.rng.chance(risk) { poached.append(s.employees[i]) }
         }
@@ -156,7 +157,7 @@ enum Events {
         // Jailbreak scandal → decision
         if consumer || !released.isEmpty {
             let unsafe = released.contains { $0.unsafeRelease }
-            let p = 0.06 * (1 - s.safetyScore / 100) * (consumer ? 1.5 : 1) * (unsafe ? 2.5 : 1)
+            let p = 0.06 * (1 - s.safetyScore / 100) * (consumer ? 1.5 : 1) * (unsafe ? 2.5 : 1) * Capabilities.incidentFactor(s)   // 3.8: calibration, limited-access testing
             if s.rng.chance(p), let m = (unsafe ? released.filter(\.unsafeRelease) : released).randomElement(using: &s.rng) {
                 addDecision(&s, kind: "jailbreak", title: "\(m.name) jailbreak goes viral",
                             body: "Users found a prompt that makes \(m.name) produce dangerous instructions. Journalists are asking for comment.",

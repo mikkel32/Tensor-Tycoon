@@ -64,11 +64,36 @@ enum Families {
         case .voice: 1.0
         case .social: 0.7
         case .robotics: 1.2
+        case .hardware: 1.2
+        case .reliability: 1.15
+        case .calibration: 1.0
+        case .architecture: 1.1
+        case .multilingual: 1.3
         }
     }
 
     /// The size part of the gap: 0.75 log-compute per decade of parameters, as with open-weights size variants.
     static let sizeGapPerDecade = 0.75
+
+    /// 3.8: the one distillation rule (Model Families and the Model Lab's distil mode both use it). The capability a
+    /// student loses against its teacher (log10 effective compute; 0.1 = one point on average across domains): 0.75 per
+    /// decade fewer parameters, ×0.8 with logit distillation (Knowledge Distillation research), up to −40% with
+    /// distillation-quality research, ×1.15 / 1 / 0.88 for light, standard or heavy distillation data.
+    static func distillGap(teacherParamsB: Double, studentParamsB: Double, bonuses b: ResearchBonuses, data: DistillData = .standard) -> Double {
+        let f = clamp(studentParamsB / max(teacherParamsB, 1e-6), 1e-4, 1)
+        let tech = b.has(.distillation) ? 0.8 : 1.0
+        let quality = 1 - 0.4 * min(1, b.distill)
+        return sizeGapPerDecade * log10(1 / f) * tech * quality * data.gapFactor
+    }
+
+    /// 3.8: what a student keeps of its teacher's per-domain know-how (`domainBonus`, CapDomain order): the teacher's,
+    /// minus the domain's share of the gap (knowledge is lost first, social style last). The Model Lab's distil mode
+    /// should give its students the same.
+    static func studentDomainBonus(teacher t: AIModel, gap: Double) -> [Double] {
+        CapDomain.allCases.map { dom in
+            (dom.index < t.domainBonus.count ? t.domainBonus[dom.index] : 0) - (retentionWeight(dom) - 1) * gap
+        }
+    }
 
     struct DistillPlan {
         var tier: FamilyTier
@@ -113,23 +138,27 @@ enum Families {
         let activeB = t.design.activeParamsB * f
         let tokensT = min(max(t.design.tokensT, 0.001), activeB * data.tokensPerParam / 1000)
         // The student trains (6 FLOPs per active parameter per token); the teacher scores a quarter of the tokens.
-        let flops = (6 * activeB + 0.5 * t.design.activeParamsB) * 1e9 * tokensT * 1e12
+        // 3.8: a family that has distilled before reuses its teacher-output pipeline (filters, prompts, cached
+        // generations): the teacher's part costs half.
+        let pipeline = reusesPipeline(s, t) ? 0.5 : 1
+        let flops = (6 * activeB + 0.5 * t.design.activeParamsB * pipeline) * 1e9 * tokensT * 1e12
         let day = perDay(s, accelID: accelID, chips: chips, bonuses: b)
         let days = day > 0 ? flops / day + 1 : .infinity
         let dailyCost = HardwareCatalog.get(accelID).map { Economy.chipDailyCost($0, count: chips, state: s) } ?? 0
 
         let sizeGap = sizeGapPerDecade * log10(1 / f)
         let logit = b.has(.distillation)
-        let tech = logit ? 0.8 : 1.0
         let quality = 1 - 0.4 * min(1, b.distill)
-        let gap = sizeGap * tech * quality * data.gapFactor
+        let gap = distillGap(teacherParamsB: t.design.paramsB, studentParamsB: paramsB, bonuses: b, data: data)
         var lines: [String] = []
         lines.append("Size: the student has \(Fmt.pct(f, decimals: f < 0.05 ? 1 : 0)) of the teacher's parameters (\(Fmt.params(paramsB))): \(Fmt.trim(sizeGapPerDecade, 2)) × log10(1 / \(Fmt.trim(f, 3))) = \(Fmt.trim(sizeGap, 2)) gap.")
         lines.append(logit ? "Technique: logit distillation (Knowledge Distillation research) ×0.80 — the student learns the teacher's whole output distribution."
                            : "Technique: synthetic-data distillation ×1.00 — the student only sees the teacher's answers. Knowledge Distillation research makes it ×0.80.")
         if b.distill > 0.001 { lines.append("Distillation research (+\(Fmt.pct(b.distill, decimals: 0)) quality): ×\(Fmt.trim(quality, 2)).") }
         lines.append("Data: \(data.label.lowercased()), \(Int(data.tokensPerParam)) tokens per student parameter (\(Fmt.tokens(tokensT))): ×\(Fmt.trim(data.gapFactor, 2)).")
-        lines.append("Gap = \(Fmt.trim(gap, 2)) log-compute: about \(Fmt.trim(gap * 10, 1)) capability points on average. Each domain loses that times its weight (knowledge ×1.4 … social ×0.7).")
+        lines.append("Gap = \(Fmt.trim(gap, 2)) log-compute: about \(Fmt.trim(gap * 10, 1)) capability points on average (the student runs on \(Fmt.pct(pow(10, -gap), decimals: 0)) of the teacher's effective compute). Each domain loses that times its weight (knowledge ×1.4 … social ×0.7).")
+        if pipeline < 1 { lines.append("Pipeline: \(famName(s, t)) has distilled before, so the teacher-output pipeline is reused (teacher compute ×0.5).") }
+        lines.append("Know-how: the student learns what \(t.name) knew when it was trained, not research done since.")
 
         func serve(_ m: AIModel) -> Double {
             var d = m.design
@@ -145,6 +174,7 @@ enum Families {
         else if chips <= 0 { blocker = "Pick free chips for the job (Compute Fleet frees them up)." }
         else if !days.isFinite { blocker = "Those chips can't run the job." }
         else if s.families.jobs.contains(where: { $0.kind == .distill && $0.modelID == t.id && $0.tier == tier.rawValue }) { blocker = "A \(tier.label) distillation of \(t.name) is already running." }
+        else if tier.isSpecialist || tier == .flagship { blocker = "Distil a size tier (Core, Spark or Mote); specialists are forked with a specialisation pass." }
         return DistillPlan(tier: tier, data: data, studentParamsB: paramsB, studentActiveB: activeB, tokensT: tokensT, flops: flops, perDay: day,
                            days: days, dailyCost: dailyCost, cost: days.isFinite ? dailyCost * days : .infinity, gap: gap,
                            technique: logit ? "Logit distillation" : "Synthetic-data distillation", lines: lines,
@@ -177,9 +207,15 @@ enum Families {
         m.cForecast = m.c
         m.forecastSigma = 0
         m.teacherID = t.id
-        m.domainBonus = CapDomain.allCases.map { dom in
-            (dom.index < t.domainBonus.count ? t.domainBonus[dom.index] : 0) - (retentionWeight(dom) - 1) * p.gap
-        }
+        m.domainBonus = studentDomainBonus(teacher: t, gap: p.gap)
+        // 3.8: the student inherits the teacher's passes (so they don't run at full strength again), what they gave up
+        // (so a merge can still win half of it back) and the teacher's know-how — not research done since.
+        m.passes = t.passes
+        m.passesSinceMerge = t.passesSinceMerge
+        m.tradeoffDomains = t.tradeoffDomains
+        m.tradeoffChat = t.tradeoffChat
+        m.knowHow = Capabilities.knowHow(t, s)
+        m.effort = t.effort
         m.apiPrice = max(0.001, (Macro.referencePrice(c: m.c, y: s.year) * s.market.apiPricePressure * 0.85 * 1000).rounded() / 1000)
         m.autoPrice = true
         return m
@@ -231,19 +267,63 @@ enum Families {
     static func passFlops(_ s: GameState, _ m: AIModel, _ pass: PostTrainPass) -> Double {
         let b = s.bonuses
         let base = max(Physics.pretrainFLOPs(m.design), 1e18)
-        let discount = pass == .reasoningRL ? (1 - b.rlEfficiency) : (1 - b.postTrainCost)
+        let discount = pass == .reasoningRL || pass == .specReasoning ? (1 - b.rlEfficiency) : (1 - b.postTrainCost)
         let first = pass == .reasoningRL && !m.reasoning ? 1.25 : 1
-        return base * pass.computeShare * max(0.2, discount) * first
+        return base * pass.computeShare * max(0.2, discount) * first * recipeFactor(s, m, pass) * previewFactor(s, m)
     }
 
+    /// 3.8: a family's recipe. A pass an earlier member of the model's family already ran is half price: the data,
+    /// environments and graders exist.
+    static func recipeFactor(_ s: GameState, _ m: AIModel, _ pass: PostTrainPass) -> Double {
+        inRecipe(s, m, pass) ? 0.5 : 1
+    }
+
+    static func inRecipe(_ s: GameState, _ m: AIModel, _ pass: PostTrainPass) -> Bool {
+        guard !m.passes.contains(pass.rawValue), let f = family(of: m.id, s) else { return false }
+        return f.members.contains { mem in mem.modelID != m.id && (model(mem.modelID, s)?.passes.contains(pass.rawValue) ?? false) }
+    }
+
+    /// The passes in a model's family recipe it hasn't run yet.
+    static func recipe(_ s: GameState, for m: AIModel) -> [PostTrainPass] {
+        PostTrainPass.allCases.filter { !$0.forks && inRecipe(s, m, $0) }
+    }
+
+    /// 3.8: a research preview's feedback (Launches): the first pass after it costs 30% less.
+    static func previewFactor(_ s: GameState, _ m: AIModel) -> Double {
+        guard let r = s.launches.last(where: { $0.modelID == m.id }), r.plan.strategy == .researchPreview,
+              m.passes.count == r.passesAtLaunch else { return 1 }
+        return 0.7
+    }
+
+    /// 3.8: whether the model's family has distilled a tier before (its teacher-output pipeline exists).
+    static func reusesPipeline(_ s: GameState, _ t: AIModel) -> Bool {
+        guard let f = family(of: t.id, s) else { return false }
+        return f.members.contains { mem in !mem.tier.isSpecialist && mem.tier != .flagship }
+    }
+
+    static func famName(_ s: GameState, _ m: AIModel) -> String { family(of: m.id, s)?.name ?? suggestedName(m) }
+
     static func passBlocker(_ s: GameState, _ m: AIModel, _ pass: PostTrainPass) -> String? {
-        let b = s.bonuses
+        // 3.8: specialisations fork a new family member instead of changing the model.
+        if pass.forks { return forkBlocker(s, m, pass) }
         if m.retired { return "\(m.name) is retired." }
         if m.preview { return "Preview checkpoints can't be post-trained: finish the run first." }
-        if s.families.jobs.contains(where: { $0.modelID == m.id && $0.kind != .distill }) { return "\(m.name) is already being post-trained." }
+        if s.families.jobs.contains(where: { $0.modelID == m.id && ($0.kind == .postTrain || $0.kind == .merge) }) { return "\(m.name) is already being post-trained." }
+        return passBlockerRequirements(s, m, pass)
+    }
+
+    /// What a pass needs: research, and a model it can work on.
+    static func passBlockerRequirements(_ s: GameState, _ m: AIModel, _ pass: PostTrainPass) -> String? {
+        let b = s.bonuses
         switch pass {
-        case .reasoningRL: if !b.has(.reasoning) { return "Research reasoning RL first." }
+        case .reasoningRL, .specReasoning: if !b.has(.reasoning) { return "Research reasoning RL first." }
         case .agentic: if !b.has(.toolUse) { return "Research tool use first." }
+        case .specMultimodal:
+            if !b.has(.vision) { return "Research Vision-Language Models first." }
+            if m.design.vision && (m.design.audio || !b.has(.audio)) && m.passes.contains(pass.rawValue) { return "\(m.name) already sees and hears." }
+        case .specRobotics:
+            if !s.researched.contains("vla") { return "Research Vision-Language-Action Models first." }
+            if !m.design.vision { return "A robotics specialist needs a model that sees: fork a vision & voice specialist first." }
         case .longContext:
             guard let next = contextSteps[m.design.contextK] else { return "Already at the longest context window." }
             if next >= 1000 && !b.has(.context1m) { return "Research 1M Context first." }
@@ -340,10 +420,55 @@ enum Families {
         case .specMedicine:
             domain(.knowledge, 0.15 * k)
             domain(.science, 0.1 * k)
+            domain(.calibration, 0.05 * k)
             safety(3 * k, "careful, hedged answers")
             domain(.coding, -0.05 * k)
             domain(.agents, -0.04 * k)
             chat(-0.02 * k, "narrower")
+        case .specReasoning:
+            let g = 0.2 * max(0.1, b.rl) * k
+            m.reasoningBoost += g
+            gains.append("Reasoning skill +\(Fmt.trim(g, 2))")
+            if !m.reasoning {
+                m.reasoning = true
+                m.design.reasoning = true
+                if m.design.rlLevel == .off { m.design.rlLevel = .standard }
+                gains.append("Becomes a reasoning model")
+            }
+            domain(.math, 0.12 * k)
+            domain(.reasoning, 0.08 * k)
+            domain(.calibration, 0.04 * k)
+            domain(.social, -0.06 * k)
+            domain(.voice, -0.04 * k)
+            chat(-0.05 * k, "long, careful answers")
+            if m.effort != .high {
+                m.effort = .high
+                costs.append("Thinks at high effort by default: far more tokens per answer")
+            }
+        case .specMultimodal:
+            if !m.design.vision {
+                m.design.vision = true
+                gains.append("Learns to see: images, screens and documents")
+            }
+            if b.has(.audio) && !m.design.audio {
+                m.design.audio = true
+                gains.append("Learns to listen and speak")
+            }
+            m.visSkill += 0.05 * k
+            domain(.vision, 0.12 * k)
+            domain(.voice, 0.06 * k)
+            domain(.knowledge, -0.02 * k)
+            m.efficiencyBoost -= 0.05
+            costs.append("Vision and audio encoders: about 5% less serving throughput")
+        case .specRobotics:
+            let fm = b.researched.contains("robot_fm") ? 0.2 : 0
+            domain(.robotics, (0.3 + fm) * k)
+            domain(.vision, 0.04 * k)
+            domain(.agents, 0.03 * k)
+            domain(.knowledge, -0.05 * k)
+            domain(.social, -0.05 * k)
+            domain(.coding, -0.04 * k)
+            chat(-0.03 * k, "trained on robot logs, not conversation")
         }
         if k < 0.99 { costs.append("Repeat pass: \(Fmt.pct(k, decimals: 0)) of the first one's effect") }
         m.passes.append(pass.rawValue)
@@ -358,6 +483,10 @@ enum Families {
         let days = day > 0 ? flops / day + 1 : .infinity
         let dailyCost = HardwareCatalog.get(accelID).map { Economy.chipDailyCost($0, count: chips, state: s) } ?? 0
         var after = m
+        // 3.8: what the model knows after the pass: its own know-how, caught up on the pass's domains only.
+        after.knowHow = Capabilities.knowHow(m, s)
+        let now = Capabilities.researchDomains(s)
+        for d in pass.refreshes where now[d.index] > after.knowHow[d.index] { after.knowHow[d.index] = now[d.index] }
         let (gains, costs) = apply(pass, to: &after, bonuses: b)
         var blocker = passBlocker(s, m, pass)
         if blocker == nil && chips <= 0 { blocker = "Pick free chips for the job (Compute Fleet frees them up)." }
@@ -407,6 +536,7 @@ enum Families {
                 case .distill: finishDistill(&s, j)
                 case .postTrain: finishPass(&s, j)
                 case .merge: finishMerge(&s, j)
+                case .fork: finishFork(&s, j)
                 }
             }
         }
@@ -427,7 +557,8 @@ enum Families {
             let live = members(f, s).filter { $0.model.released }
             let tiers = Set(live.map(\.member.tier)).count
             let lead = flagship(f, s).map { clamp(($0.c - frontier + 0.5) / 0.5, 0, 1) } ?? 0
-            let target = live.isEmpty ? 10 : 20 + 12 * Double(tiers) + 20 * lead
+            // 3.8: a name that has shipped several generations carries more weight.
+            let target = live.isEmpty ? 10 : 20 + 12 * Double(tiers) + 20 * lead + 4 * Double(min(3, max(0, f.generation - 1)))
             s.families.families[fi].brand += (min(100, target) - f.brand) * 0.02
         }
     }
@@ -505,7 +636,10 @@ enum Families {
     static func finishPass(_ s: inout GameState, _ j: ModelJob) {
         guard let i = s.models.firstIndex(where: { $0.id == j.modelID }), let pass = j.passValue else { return }
         let b = s.bonuses
+        // 3.8: keep what the model knew; the pass then teaches only the techniques of its own domains.
+        Capabilities.ensureKnowHow(&s, i)
         let (gains, costs) = apply(pass, to: &s.models[i], bonuses: b)
+        Capabilities.refresh(&s, i, domains: pass.refreshes)
         setVersion(&s.models[i], s.models[i].version + 1)
         s.families.passes += 1
         rescore(&s, i)
@@ -518,6 +652,7 @@ enum Families {
 
     static func finishMerge(_ s: inout GameState, _ j: ModelJob) {
         guard let i = s.models.firstIndex(where: { $0.id == j.modelID }) else { return }
+        Capabilities.ensureKnowHow(&s, i)
         merge(&s.models[i])
         s.families.merges += 1
         rescore(&s, i)
@@ -533,7 +668,9 @@ enum Families {
         s.models[i].index = BenchmarkCatalog.index(Leaderboard.profile(s.models[i]), set: set)
         let top = Leaderboard.entries(s, set: set, includeUnreleased: false).filter { !$0.isPlayer }.map(\.index).max() ?? 0
         s.models[i].tier = ForecastEngine.tier(index: s.models[i].index, top: top)
-        s.domainScores[s.models[i].id.uuidString] = Capabilities.playerScores(s.models[i], research: Capabilities.researchDomains(s))
+        // 3.8: scored on its own know-how snapshot, never on research done since it was trained.
+        Capabilities.ensureKnowHow(&s, i)
+        s.domainScores[s.models[i].id.uuidString] = Capabilities.playerScores(s.models[i], research: s.models[i].knowHow)
         Capabilities.refreshLabs(&s)
         Milestones.check(&s, newModels: [], announce: true)
     }
@@ -563,8 +700,15 @@ enum Families {
               !s.families.families[fi].has(m.id) else { return }
         s.families.families[fi].members.append(FamilyMember(modelID: m.id, tier: .flagship, joined: s.date))
         s.families.families[fi].generation += 1
-        Sim.news(&s, "\(m.name) is the new \(s.families.families[fi].name) flagship",
-                 "Generation \(s.families.families[fi].generation) of the family. Distil fresh tiers from it on Model Families when it's released.", .company)
+        let f = s.families.families[fi]
+        // 3.8: the family's foundations carry over: its post-training recipe runs at half cost on the new flagship,
+        // its distillation pipeline is reused, and its name lifts the launch.
+        let recipe = recipe(s, for: m).map { $0.label.lowercased() }
+        var body = "Generation \(f.generation) of the family."
+        if !recipe.isEmpty { body += " The family's recipe — \(recipe.joined(separator: ", ")) — runs at half cost on it (Model Families)." }
+        if reusesPipeline(s, m) { body += " Distilling fresh tiers reuses the family's pipeline: the teacher's share of the compute is halved." }
+        body += " A family brand of \(Int(f.brand.rounded())) carries over to its launch and its API demand."
+        Sim.news(&s, "\(m.name) is the new \(f.name) flagship", body, .company)
     }
 
     // MARK: Serving and the market
@@ -603,6 +747,105 @@ enum Families {
     /// of the day, and without this a new tier and the capacity delegate chase each other's lag forever).
     static func servesToday(_ s: GameState, _ m: AIModel) -> Bool {
         !m.deployments.isEmpty && !s.families.families.isEmpty && tier(of: m.id, s) != nil
+    }
+
+    /// 3.8: tokens a model generates for every token of answer. Reasoning models think first: 1 + 1.2 × (1 − thinking
+    /// efficiency research) × the effort's scale — 2.2× at medium effort before any research, as low as 1.1× with
+    /// "fewer thinking tokens" research at low effort. Chat traffic pays it in serving capacity; API buyers pay for answers,
+    /// so it's a serving cost there (Economy.servingCostPerM).
+    static func thinkingTokens(_ m: AIModel, _ b: ResearchBonuses) -> Double {
+        guard m.reasoning else { return 1 }
+        return 1 + 1.2 * (1 - clamp(b.thinkingEfficiency, 0, 0.8)) * m.effort.tokenScale
+    }
+
+    /// 3.8: a family flagship of a later generation launches on the family's name: up to +45% brand gain at
+    /// generation 4 with a full family brand.
+    static func generationLift(_ s: GameState, _ m: AIModel) -> Double {
+        guard let f = family(of: m.id, s), f.tier(of: m.id) == .flagship, f.generation >= 2 else { return 1 }
+        return 1 + 0.15 * Double(min(3, f.generation - 1)) * clamp(f.brand, 0, 100) / 100
+    }
+
+    // MARK: Forks
+
+    /// A copy of `t` to specialise: same weights and know-how, none of its servers, sales or launches.
+    static func forked(_ t: AIModel, name: String, date: Date) -> AIModel {
+        var m = t
+        m.name = name
+        m.design.name = name
+        m.created = date
+        m.released = false
+        m.releaseDate = nil
+        m.api = false
+        m.openWeights = false
+        m.deployments = []
+        m.demandTokensDay = 0
+        m.servedTokensDay = 0
+        m.capacityTokensDay = 0
+        m.revenueDay = 0
+        m.tps = 0
+        m.version = 0
+        m.passesSinceMerge = 0
+        m.teacherID = t.id
+        m.preview = false
+        m.safeguards = false
+        m.unsafeRelease = false
+        m.autoPrice = true
+        m.keyTech = t.keyTech.filter { $0 != "Specialised" } + ["Specialised"]
+        return m
+    }
+
+    static func forkBlocker(_ s: GameState, _ m: AIModel, _ pass: PostTrainPass) -> String? {
+        guard let tier = pass.tier else { return "That pass upgrades a model in place." }
+        if m.retired { return "\(m.name) is retired." }
+        if m.preview { return "Preview checkpoints can't be forked: finish the run first." }
+        if s.families.jobs.contains(where: { $0.kind == .fork && $0.modelID == m.id && $0.pass == pass.rawValue }) { return "A \(tier.label) fork of \(m.name) is already running." }
+        if let f = family(of: m.id, s), f.members.contains(where: { $0.tier == tier && (model($0.modelID, s).map { !$0.retired } ?? false) }) {
+            return "\(f.name) already has a \(tier.label) specialist. Retire it first, or post-train it."
+        }
+        switch pass {
+        case .specCode, .specScience, .specMedicine:
+            if !m.design.instruct { return "Base models need instruction tuning before targeted post-training." }
+        default: break
+        }
+        return passBlockerRequirements(s, m, pass)
+    }
+
+    /// A finished fork joins the family as a specialist tier and (by default) goes on sale with servers of its own.
+    static func finishFork(_ s: inout GameState, _ j: ModelJob) {
+        guard let ti = s.models.firstIndex(where: { $0.id == j.modelID }), let pass = j.passValue, let tier = pass.tier else { return }
+        let b = s.bonuses
+        Capabilities.ensureKnowHow(&s, ti)
+        let parent = s.models[ti]
+        let fi = ensureFamily(&s, for: parent, id: j.familyID)
+        var m = forked(parent, name: j.name, date: s.date)
+        m.id = StableID.next()
+        let (gains, costs) = apply(pass, to: &m, bonuses: b)
+        m.cForecast = m.c
+        m.forecastSigma = 0
+        s.models.append(m)
+        let mi = s.models.count - 1
+        Capabilities.refresh(&s, mi, domains: pass.refreshes)
+        s.families.families[fi].members.append(FamilyMember(modelID: m.id, tier: tier, joined: s.date))
+        s.families.passes += 1
+        rescore(&s, mi)
+        let fresh = s.models[mi]
+        s.models[mi].apiPrice = max(Treasury.minPrice(fresh, s), Treasury.targetPrice(fresh, s))
+        let famName = s.families.families[fi].name
+        var body = "Forked from \(parent.name) and specialised: \(gains.joined(separator: ", "))."
+            + (costs.isEmpty ? "" : " Trade-offs: \(costs.joined(separator: ", ")).") + " \(parent.name) itself is unchanged."
+        if j.autoLaunch, s.release(fresh.id, api: true, openWeights: false, plan: LaunchPlan(), by: "family") == nil {
+            var chips = 0
+            if let a = HardwareCatalog.get(j.accelID) {
+                let k = Physics.chipsPerReplica(fresh, accel: a, precision: fresh.servingPrecision, bonuses: b)
+                let per = Physics.capacity(fresh, deployment: Deployment(accelID: a.id, chips: k), bonuses: b)
+                let want = max(1, Int((0.25 * parent.servedTokensDay / max(per, 1)).rounded(.up)))
+                chips = min(Economy.freeChips(s, a.id) / k, want) * k
+                if chips > 0 { _ = s.deploy(fresh.id, accelID: a.id, chips: chips) }
+            }
+            body += chips > 0 ? " On sale with an API on \(Fmt.int(chips)) chips." : " On sale with an API; give it chips on Models & Serving."
+        }
+        Sim.news(&s, "\(fresh.name) joins the \(famName) family", body, .company, image: "server_room", good: true)
+        Alerts.raise(&s, .milestone, key: "fork-\(fresh.id.uuidString)", title: "\(fresh.name) is ready", body: body, screen: .families, celebrate: true, cooldown: 0)
     }
 
     /// Models a family keeps on the books: delegates don't retire tiers of a lineup.
@@ -706,7 +949,7 @@ extension GameState {
     @discardableResult
     mutating func startDistill(_ teacherID: UUID, tier: FamilyTier, data: DistillData, accelID: String, chips: Int, autoLaunch: Bool = true) -> String? {
         guard let t = models.first(where: { $0.id == teacherID }) else { return "Not found." }
-        guard tier != .flagship else { return "Pick a smaller tier." }
+        guard tier != .flagship, !tier.isSpecialist else { return "Pick a smaller tier." }
         if chips > Economy.freeChips(self, accelID) { return "Only \(Fmt.int(Economy.freeChips(self, accelID))) chips of that type are free." }
         let plan = Families.distillPlan(self, teacher: t, tier: tier, data: data, accelID: accelID, chips: chips)
         if let e = plan.blocker { return e }
@@ -717,9 +960,10 @@ extension GameState {
         return nil
     }
 
-    /// Run a post-training pass on one of your models.
+    /// Run a post-training pass on one of your models (a specialisation forks a new family member instead).
     @discardableResult
     mutating func startPostTrain(_ modelID: UUID, pass: PostTrainPass, accelID: String, chips: Int) -> String? {
+        if pass.forks { return startFork(modelID, pass: pass, accelID: accelID, chips: chips) }
         guard let m = models.first(where: { $0.id == modelID }) else { return "Not found." }
         if chips > Economy.freeChips(self, accelID) { return "Only \(Fmt.int(Economy.freeChips(self, accelID))) chips of that type are free." }
         let plan = Families.passPlan(self, model: m, pass: pass, accelID: accelID, chips: chips)
@@ -727,6 +971,33 @@ extension GameState {
         families.jobs.append(ModelJob(kind: .postTrain, modelID: m.id, familyID: Families.family(of: m.id, self)?.id,
                                       name: "\(Families.baseName(m.name)) \(Families.versionLabel(m.version + 1)): \(pass.label.lowercased())",
                                       pass: pass.rawValue, accelID: accelID, chips: chips, flops: plan.flops, started: date))
+        return nil
+    }
+
+    /// 3.8: fork a model into a specialist that joins its family (the model itself is untouched).
+    @discardableResult
+    mutating func startFork(_ modelID: UUID, pass: PostTrainPass, accelID: String, chips: Int, autoLaunch: Bool = true) -> String? {
+        guard let m = models.first(where: { $0.id == modelID }) else { return "Not found." }
+        guard let tier = pass.tier else { return "That pass upgrades a model in place." }
+        if chips > Economy.freeChips(self, accelID) { return "Only \(Fmt.int(Economy.freeChips(self, accelID))) chips of that type are free." }
+        let plan = Families.passPlan(self, model: m, pass: pass, accelID: accelID, chips: chips)
+        if let e = plan.blocker { return e }
+        let fi = Families.ensureFamily(&self, for: m)
+        let name = Families.tierName(self, family: families.families[fi].name, tier: tier)
+        families.jobs.append(ModelJob(kind: .fork, modelID: m.id, familyID: families.families[fi].id, name: name, tier: tier.rawValue,
+                                      pass: pass.rawValue, accelID: accelID, chips: chips, flops: plan.flops, started: date, autoLaunch: autoLaunch))
+        return nil
+    }
+
+    /// 3.8: how long a deployed reasoning model thinks. Rescored on its own know-how (no new research comes with it).
+    @discardableResult
+    mutating func setReasoningEffort(_ modelID: UUID, _ effort: ReasoningEffort) -> String? {
+        guard let i = models.firstIndex(where: { $0.id == modelID }) else { return "Not found." }
+        guard models[i].reasoning else { return "\(models[i].name) isn't a reasoning model." }
+        guard models[i].effort != effort else { return nil }
+        Capabilities.ensureKnowHow(&self, i)
+        models[i].effort = effort
+        Families.rescore(&self, i)
         return nil
     }
 
@@ -742,7 +1013,7 @@ extension GameState {
         return nil
     }
 
-    private func jobs(for modelID: UUID) -> Bool { families.jobs.contains { $0.modelID == modelID && $0.kind != .distill } }
+    private func jobs(for modelID: UUID) -> Bool { families.jobs.contains { $0.modelID == modelID && ($0.kind == .postTrain || $0.kind == .merge) } }
 
     mutating func cancelModelJob(_ id: UUID) { families.jobs.removeAll { $0.id == id } }
 

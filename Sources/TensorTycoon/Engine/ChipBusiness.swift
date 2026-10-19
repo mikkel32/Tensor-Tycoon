@@ -164,11 +164,13 @@ enum ChipBusiness {
         s.leaseRevenueToday = 0
         guard !s.leases.isEmpty else { return }
         let occ = occupancy(s, leasedH100e: leasedH100e(s))
+        let committed = RivalEconomy.committedH100e(s)   // 3.8: chips a rival has rented in full under a compute commitment
         var revenue = 0.0
         var chips = 0
         for (id, n) in s.leases.sorted(by: { $0.key < $1.key }) where n > 0 {   // 3.7: fixed order (float sums)
             guard let a = HardwareCatalog.get(id) else { continue }
-            revenue += Double(n) * listRate(a, s) * 24 * occ * (1 - platformFee)
+            let full = min(Double(n), (committed[id] ?? 0) / RivalEconomy.h100e(a))
+            revenue += ((Double(n) - full) * occ + full) * listRate(a, s) * 24 * (1 - platformFee)
             chips += n
         }
         s.leaseRevenueToday = revenue

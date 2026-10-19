@@ -171,6 +171,23 @@ struct LaunchReportSheet: View {
             StatTile(title: "Leaderboard", value: "#\(rep.rank)", detail: "index \(Fmt.score(rep.index))\(rep.leads > 0 ? " · \(rep.leads) new lead\(rep.leads == 1 ? "" : "s")" : "")",
                      symbol: "trophy", tint: .yellow)
         }
+        // 3.8: the model as the market met it, and what the launch moved.
+        if !rep.architecture.isEmpty {
+            section("The model in the market", symbol: "cube.transparent") {
+                SpecRow(label: "Architecture", value: rep.architecture)
+                SpecRow(label: "Price / 1M tokens", value: rep.pricePerM > 0 ? Fmt.price(rep.pricePerM) : "not on the API")
+                SpecRow(label: "Serving cost / 1M", value: rep.servingPerM > 0 ? Fmt.price(rep.servingPerM) : "—")
+                SpecRow(label: "Tokens per second", value: rep.tokensPerSec > 0 ? "\(Int(rep.tokensPerSec.rounded()))" : "—")
+                SpecRow(label: "Your API share", value: "\(Fmt.pct(rep.apiShareBefore, decimals: 1)) → \(Fmt.pct(rep.apiShare, decimals: 1))")
+                if !rep.segments.isEmpty {
+                    SpecRow(label: "API segments it wins", value: rep.segments.joined(separator: " · "))
+                }
+                if !rep.powers.isEmpty {
+                    Text("Powers: \(rep.powers.joined(separator: ", ")).").font(.callout).fixedSize(horizontal: false, vertical: true)
+                }
+                ForEach(rep.moves, id: \.self) { Text($0).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
+            }
+        }
         section("The press", symbol: "newspaper", tone: rep.pressTone) {
             if rep.quotes.isEmpty {
                 Text("Nobody went on the record this week.").font(.callout).foregroundStyle(.secondary)

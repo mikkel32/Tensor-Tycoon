@@ -100,6 +100,8 @@ extension Candidate {
 /// How you put a model into the world. 3.7: the launch strategy of a `LaunchPlan` (Launches explains each one's effects).
 enum LaunchStyle: String, Codable, CaseIterable, Identifiable, Sendable {
     case standard, stealth, staged, keynote, openWeights, enterprise, government, blitz
+    /// 3.8
+    case researchPreview, limitedAccess
     var id: String { rawValue }
 
     var title: String {
@@ -112,6 +114,8 @@ enum LaunchStyle: String, Codable, CaseIterable, Identifiable, Sendable {
         case .enterprise: "Enterprise-first"
         case .government: "Government-first"
         case .blitz: "Benchmark-first"
+        case .researchPreview: "Research preview"
+        case .limitedAccess: "Limited-access testing"
         }
     }
 
@@ -125,6 +129,8 @@ enum LaunchStyle: String, Codable, CaseIterable, Identifiable, Sendable {
         case .enterprise: "briefcase.fill"
         case .government: "building.columns.fill"
         case .blitz: "chart.bar.xaxis"
+        case .researchPreview: "flask.fill"
+        case .limitedAccess: "person.badge.shield.checkmark.fill"
         }
     }
 
@@ -138,6 +144,8 @@ enum LaunchStyle: String, Codable, CaseIterable, Identifiable, Sendable {
         case .enterprise: "Design partners and contracts before the public: more enterprise leads and investor confidence, a slow public start."
         case .government: "Briefings and sovereign partners first: governments warm to you and sovereign offers come sooner; critics grumble."
         case .blitz: "Publish full evals first: big brand win if you're #1, backlash if you're not top 3."
+        case .researchPreview: "Nearly free and capped while researchers try it: their feedback makes the next post-training pass cheaper, but rivals get to study (and distil) it."
+        case .limitedAccess: "Trusted testers only for 30 days: no revenue, but safer and fewer incidents later. Then it goes on general sale."
         }
     }
 }

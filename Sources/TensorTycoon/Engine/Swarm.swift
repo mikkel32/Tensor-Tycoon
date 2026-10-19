@@ -234,6 +234,13 @@ enum Swarms {
                 alignmentStep(&s, i, model: m, b)
                 continue
             }
+            // 3.8: a swarm seconded to a government programme works for the programme, not its mission (no labour revenue).
+            if AdvancedProjects.swarmSeconded(s, sw.id) {
+                s.swarms[i].workforce = 0
+                s.swarms[i].output = 0
+                alignmentStep(&s, i, model: m, b)
+                continue
+            }
             effAgents[sw.mission, default: 0] += eff
             let q = quality(m, s, mission: sw.mission) * sw.experience
             qualitySum[sw.mission, default: 0] += eff * q

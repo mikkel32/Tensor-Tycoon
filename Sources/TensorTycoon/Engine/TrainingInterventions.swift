@@ -208,6 +208,12 @@ enum TrainingInterventions {
         /// Projected index if pre-training ended today, and if it ran as planned.
         var indexNow: Double
         var indexPlanned: Double
+        /// The 80% range of the index if it ended today: what the checkpoints so far can't yet tell apart.
+        var indexLow: Double
+        var indexHigh: Double
+        /// The capability (log10 effective compute) it would end at, and its uncertainty (1σ).
+        var c: Double
+        var sigma: Double
         /// Days and money the rest of pre-training would take.
         var daysLeft: Double
         var costLeft: Double
@@ -247,14 +253,19 @@ enum TrainingInterventions {
         let c = f.c + run.revealMean + known
         let set = Leaderboard.indexSet(s)
         let extra = (run.dReasoning, run.dCode, run.dChat, run.dSafety, run.dLang)
-        let now = ForecastEngine.index(ForecastEngine.profile(f, design: partial, key: "stop", c: c, extra: extra), set: set)
+        func idx(_ c: Double, _ k: String) -> Double {
+            ForecastEngine.index(ForecastEngine.profile(f, design: partial, key: k, c: c, extra: extra), set: set)
+        }
+        let now = idx(c, "stop")
+        let sd = max(run.revealSigma, 0.01)
         let planned = Training.projectedIndex(s, run).0
         let perDay = Training.dailyFlops(run, state: s) * Sim.checkpointOverhead(run.interval)
         let left = max(0, run.flopsTotal - run.flopsDone)
         let days = perDay > 0 ? left / perDay : .infinity
         let chipDay = HardwareCatalog.get(run.design.accelID).map { Economy.chipDailyCost($0, count: run.design.chips, state: s) } ?? 0
         _ = fc
-        return StopPreview(indexNow: now, indexPlanned: planned, daysLeft: days, costLeft: days.isFinite ? days * chipDay : .infinity,
+        return StopPreview(indexNow: now, indexPlanned: planned, indexLow: idx(c - 1.28 * sd, "stopl"), indexHigh: idx(c + 1.28 * sd, "stoph"),
+                           c: c, sigma: sd, daysLeft: days, costLeft: days.isFinite ? days * chipDay : .infinity,
                            schedulePenalty: plan.penalty, decayShare: plan.decay)
     }
 

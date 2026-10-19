@@ -231,7 +231,7 @@ enum ForecastEngine {
                 f.penalties.append("FP4 training noise (×0.91)")
             }
             // Team: careful hyperparameter work
-            let team = s.employees.filter { $0.role == .researcher || $0.role == .mlEngineer }.reduce(0.0) { $0 + $1.weight }
+            let team = s.workforce(.researcher) + s.workforce(.mlEngineer)
             let teamGain = 0.03 * min(1, team / 8)
             algo += teamGain
             let culture = s.traits.algo
@@ -243,7 +243,7 @@ enum ForecastEngine {
 
             // Data quality
             var data = b.dataAlgo + sources.reduce(0) { $0 + $1.quality }
-            let dataTeam = s.employees.filter { $0.role == .data }.reduce(0.0) { $0 + $1.weight }
+            let dataTeam = s.workforce(.data)
             data += 0.08 * min(1, dataTeam / 3)
             switch d.dataMix {
             case .balanced: break
@@ -365,7 +365,7 @@ enum ForecastEngine {
         var vis = d.vision ? b.skill(.vis) : 0
         if plan.active { lang += plan.dLang; longctx += plan.dLongctx; vis += plan.dVis }
         var safety = 25 + b.safety + (d.safetyTraining ? 15 : 0) + (d.rlhf ? 5 : 0)
-        let safetyTeam = s.employees.filter { $0.role == .safety }.reduce(0.0) { $0 + $1.weight }
+        let safetyTeam = s.workforce(.safety)
         safety += 20 * min(1, safetyTeam / 4)
         safety += s.traits.safety
         if d.mixer == .alien {
@@ -486,7 +486,7 @@ enum ForecastEngine {
                 novel.append(name)
             }
         }
-        let team = s.employees.filter { $0.role == .researcher || $0.role == .mlEngineer }.reduce(0.0) { $0 + $1.weight }
+        let team = s.workforce(.researcher) + s.workforce(.mlEngineer)
         let teamSig = 0.05 * max(0, 1 - team / 6)
         let covered = s.scalingFits.contains { $0.signature == d.recipeSignature && flops <= $0.maxCompute * pow(10, 3.7) }
         var sigma = sqrt(base * base + ext * ext + novelSq * (covered ? 0.16 : 1) + teamSig * teamSig)
@@ -503,7 +503,7 @@ enum ForecastEngine {
 
     static func bugRisk(_ d: ModelDesign, state s: GameState, covered: Bool, novelCount: Int) -> Double {
         let b = s.bonuses
-        let engineers = s.employees.filter { $0.role == .mlEngineer }.reduce(0.0) { $0 + $1.weight }
+        let engineers = s.workforce(.mlEngineer)
         var p = 0.18 + 0.04 * Double(novelCount)
         p *= b.bugKeep
         if covered { p *= 0.4 }

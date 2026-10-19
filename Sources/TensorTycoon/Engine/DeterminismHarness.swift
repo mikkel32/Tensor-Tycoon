@@ -20,6 +20,7 @@ enum DeterminismHarness {
         let games: [(label: String, era: String, flags: [String])] = [
             ("2017", "2017", []), ("2022", "2022", []), ("2026", "2026", []),
             ("2022, Copenhagen, more systems", "2022", ["hq=dk:copenhagen", "advproj", "science", "data"]),
+            ("2026, government and classified work", "2026", ["advproj", "classified"]),   // 3.8
         ]
         for (label, era, flags) in games {
             let one = play(era, seed: 11, years: years, flags: flags)

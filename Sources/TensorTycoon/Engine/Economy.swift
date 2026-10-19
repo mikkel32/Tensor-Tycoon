@@ -322,7 +322,8 @@ enum Economy {
             cost = chipDailyCost(a, count: replica.chips, state: s)
             cap = Physics.capacity(m, deployment: replica, bonuses: b)
         }
-        return cap > 0 ? cost / cap * 1e6 : 0
+        // 3.8: per 1M tokens sold; a reasoning model also generates its thinking tokens (Families.thinkingTokens).
+        return cap > 0 ? cost / cap * 1e6 * Families.thinkingTokens(m, b) : 0
     }
 
     static func siteLoadKW(_ s: GameState, _ siteID: UUID) -> Double {
@@ -332,7 +333,7 @@ enum Economy {
             acc + (HardwareCatalog.get(o.accelID).map(chipKW) ?? 0) * Double(o.count)
         }
         let sublet: Double = s.sites.first { $0.id == siteID }?.subleasedKW ?? 0   // 3.5: space rented to a tenant
-        return chips + sublet
+        return chips + sublet + AdvancedProjects.siteFacilityKW(s, site: siteID)   // 3.8: cleared halls, restricted compute, programme spaces
     }
 
     static func hardwareValue(_ s: GameState) -> Double {
