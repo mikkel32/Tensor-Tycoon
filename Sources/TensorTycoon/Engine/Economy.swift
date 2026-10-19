@@ -254,6 +254,18 @@ enum Economy {
         }
     }
 
+    /// Chips you own that sit at a site still under construction: they count for nothing until it opens.
+    /// One entry per site and chip, soonest site first.
+    static func waitingChips(_ s: GameState) -> [(site: Site, accelID: String, count: Int)] {
+        var out: [(site: Site, accelID: String, count: Int)] = []
+        for site in s.sites where !site.isReady(s.date) {
+            var byChip: [String: Int] = [:]
+            for b in s.owned where b.siteID == site.id { byChip[b.accelID, default: 0] += b.count }
+            for (id, n) in byChip.sorted(by: { $0.key < $1.key }) where n > 0 { out.append((site, id, n)) }
+        }
+        return out.sorted { $0.site.ready < $1.site.ready }
+    }
+
     static func pool(_ s: GameState, _ accelID: String) -> ComputePool? {
         pools(s).first { $0.accel.id == accelID }
     }

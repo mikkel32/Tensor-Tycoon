@@ -21,6 +21,9 @@ struct TensorTycoonApp: App {
         if let i = args.firstIndex(of: "--check-save"), i + 1 < args.count {
             exit(GameStore.checkSave(URL(fileURLWithPath: args[i + 1])))
         }
+        if let i = args.firstIndex(of: "--replay-save") {
+            exit(ReplayHarness.main(Array(args.dropFirst(i + 1))))
+        }
         if let i = args.firstIndex(of: "--verify-update"), i + 3 < args.count {
             exit(UpdateSelfTest.verifyLocal(zip: args[i + 1], version: args[i + 2], signatureFile: args[i + 3]))
         }

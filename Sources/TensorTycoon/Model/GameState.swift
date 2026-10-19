@@ -1130,6 +1130,10 @@ struct GameState: Codable {
     @D var signatureRPToday: Double = 0
     /// The research director keeps the queue full.
     @D var autoResearch: Bool = false
+    /// Queue entries the director added. What you queue yourself goes ahead of them, so a cheap pick of yours
+    /// never waits behind a year-long one of its.
+    @D var directorQueued: Set<String> = []
+    @D var directorQueueTracked: Bool = false
     @D var researchFocus: String = ""
     @D var eurekas: Int = 0
     /// Unique breakthrough ID → mastery level (1–3).

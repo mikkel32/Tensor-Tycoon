@@ -436,6 +436,12 @@ struct AcceleratorDetail: View {
                                 .buttonStyle(.borderless).font(.caption)
                                 .disabled(best < 1)
                         }
+                        if !site.isReady(s.date) {
+                            Label("\(site.name) is still being built and opens \(site.ready.gameShort) (in \(Fmt.days(site.ready.timeIntervalSince(s.date) / 86_400))). Chips bought for it sit unused until then and lose resale value meanwhile.",
+                                  systemImage: "exclamationmark.triangle.fill")
+                                .font(.caption.weight(.semibold)).foregroundStyle(.orange)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                     }
                     let total = buy * Double(qty)
                     HStack {

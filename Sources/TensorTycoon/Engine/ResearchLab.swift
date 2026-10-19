@@ -75,6 +75,12 @@ enum ResearchLab {
         }
         let missing = item.prereqs.filter { !s.researched.contains($0) }
         if !missing.isEmpty {
+            // A prerequisite you can't research (a secret you don't hold, or one still locked) would be queued,
+            // dropped and queued again every day, and nothing would ever move: drop this entry instead.
+            guard !missing.contains(where: { blocked(s, $0) }) else {
+                s.researchQueue.removeFirst()
+                return nil
+            }
             s.researchQueue.removeAll { missing.contains($0) }
             s.researchQueue.insert(contentsOf: missing, at: 0)
             return nil
@@ -82,6 +88,15 @@ enum ResearchLab {
         let cost = Sim.researchCost(item, year: s.year)
         let mult = max(0.1, item.category == .frontier ? 1 + s.traits.frontierRP : 1) * FoundingKit.categorySpeed(s, item)
         return (max(0, (cost - (s.researchProgress[entry] ?? 0)) / mult), mult)
+    }
+
+    /// True if a technique can't be researched now or through its prerequisites.
+    static func blocked(_ s: GameState, _ id: String, depth: Int = 0) -> Bool {
+        guard depth < 12, let item = ResearchCatalog.byID[id] else { return true }
+        if s.researched.contains(id) { return false }
+        if item.isExotic && !s.exoticOwned.contains(id) { return true }
+        if !XenoScience.researchUnlocked(id, s) { return true }
+        return item.prereqs.contains { blocked(s, $0, depth: depth + 1) }
     }
 
     // MARK: Completion
@@ -247,10 +262,20 @@ enum ResearchLab {
 
     static func fillQueue(_ s: inout GameState) {
         var added = 0
+        s.directorQueued.formIntersection(s.researchQueue)
         while s.researchQueue.count < 2 && added < 3, let next = pick(s) {
             s.researchQueue.append(next)
+            s.directorQueued.insert(next)
             added += 1
         }
+    }
+
+    /// Queues something you picked: ahead of the director's picks, behind your own earlier ones.
+    static func enqueueByPlayer(_ s: inout GameState, _ entry: String) {
+        s.researchQueue.removeAll { $0 == entry }
+        s.directorQueued.remove(entry)
+        let at = s.researchQueue.firstIndex { s.directorQueued.contains($0) } ?? s.researchQueue.count
+        s.researchQueue.insert(entry, at: at)
     }
 
     /// Year from which the director sees the projected late-game research and the frontier programmes.
@@ -513,7 +538,7 @@ extension GameState {
         if year < p.opens { return "\(p.name) opens in \(Int(p.opens))." }
         if !researched.contains(p.prereq) { return "Research \(ResearchCatalog.byID[p.prereq]?.name ?? p.prereq) first." }
         if researchQueue.contains(p.entry) { return nil }
-        researchQueue.append(p.entry)
+        ResearchLab.enqueueByPlayer(&self, p.entry)
         return nil
     }
 
@@ -523,7 +548,7 @@ extension GameState {
         if level >= Breakthroughs.maxMastery { return "\(item.name) is already fully mastered." }
         let entry = Breakthroughs.refineID(id)
         if researchQueue.contains(entry) { return nil }
-        researchQueue.append(entry)
+        ResearchLab.enqueueByPlayer(&self, entry)
         return nil
     }
 
@@ -533,7 +558,7 @@ extension GameState {
             !researched.contains(item.id) && !researchQueue.contains(item.id) && item.year <= year
                 && item.category != .frontier && XenoScience.researchUnlocked(item.id, self)
         }.sorted { Sim.researchCost($0, year: year) < Sim.researchCost($1, year: year) }
-        researchQueue.append(contentsOf: picks.map(\.id))
+        for item in picks { ResearchLab.enqueueByPlayer(&self, item.id) }
         return picks.count
     }
 

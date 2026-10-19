@@ -473,7 +473,7 @@ extension GameState {
         guard !researched.contains(id), !researchQueue.contains(id), let item = ResearchCatalog.byID[id] else { return }
         if item.isExotic && !exoticOwned.contains(id) { return }
         if !XenoScience.researchUnlocked(id, self) { return }
-        researchQueue.append(id)
+        ResearchLab.enqueueByPlayer(&self, id)
     }
 
     /// Techniques a rival lab is known to be working on that you could still hire your way into.

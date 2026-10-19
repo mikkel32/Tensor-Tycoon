@@ -53,6 +53,7 @@ enum NewGame {
         s.signatureLevel = 1
         s.signatureShare = SignatureSecret.defaultShare
         s.autoResearch = true
+        s.directorQueueTracked = true
         s.researchFocus = ResearchFocus.balanced.rawValue
         s.pauseConfigured = true
         s.pauseKinds = Alerts.defaultPauseKinds
