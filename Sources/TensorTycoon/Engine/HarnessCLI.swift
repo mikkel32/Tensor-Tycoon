@@ -31,6 +31,7 @@ enum HarnessCLI {
             return bad == 0 ? 0 : 1
         }
         if args.contains("--forecast-check") { BalanceHarness.forecastCheck(); return 0 }
+        if args.contains("--photo-check") { return PhotoHarness.main() }   // 3.4: photo credits and honest labels
         if let era = arg(after: "--strategy", "2022") { BalanceHarness.strategy(era: era); return 0 }
         if let era = arg(after: "--industry", "2017") { BalanceHarness.industry(era: era); return 0 }
         if args.contains("--scale") { BalanceHarness.scale(); return 0 }
@@ -39,9 +40,12 @@ enum HarnessCLI {
         if let a = rest(after: "--playtest") { PlaytestHarness.main(a); return 0 }
         if let a = rest(after: "--determinism") { DeterminismHarness.main(a); return 0 }
         if let a = rest(after: "--scenarios") { return ScenarioHarness.main(a) }
+        if args.contains("--finance-check") { return FinanceHarness.main() }   // 3.8: books, valuation, debt, payouts, tax, crises, stages
         if let era = arg(after: "--experience", "2024") { BalanceHarness.experience(era: era); return 0 }
         if let era = arg(after: "--ventures", "2026") { BalanceHarness.ventures(era: era); return 0 }
         if let era = arg(after: "--simulate", "2022") { BalanceHarness.run(era: era); return 0 }
+        if let y = arg(after: "--data-value", "2025") { PTPlay.dataValue(year: Int(y) ?? 2025); return 0 }   // what datasets are worth to a coding model
+        if args.contains("--data-check") { return PTPlay.dataCheck() == 0 ? 0 : 1 }   // data economy and science rules, scripted
         StableID.alwaysDraw = false
         return nil
     }

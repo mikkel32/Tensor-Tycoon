@@ -91,7 +91,7 @@ private struct NewsRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 14) {
             if let img = item.image {
-                Photo(key: img, illustrative: ImagePicker.isIllustrative(img)).frame(width: 120, height: 76).clipShape(.rect(cornerRadius: 10))
+                Photo(key: img, illustrative: item.illustrative || ImagePicker.isIllustrative(img)).frame(width: 120, height: 76).clipShape(.rect(cornerRadius: 10))
             } else {
                 Image(systemName: item.category.symbol)
                     .font(.title2)
@@ -185,25 +185,117 @@ struct CreditsView: View {
                 .foregroundStyle(.secondary)
             }
             Card {
-                CardHeader("Photos (Wikimedia Commons)", symbol: "photo.on.rectangle", subtitle: "All \(ImageCredits.all.count) photos are freely licensed (CC0, public domain, CC BY or CC BY-SA). Photos standing in for chips without a free photo, for future, custom or alien hardware, and for your own sites, fabs, labs and deals are marked \"Illustrative\".")
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 340), spacing: 12)], spacing: 12) {
-                    ForEach(ImageCredits.all) { c in
-                        HStack(alignment: .top, spacing: 10) {
-                            Photo(key: c.id, size: .icon).frame(width: 72, height: 48).clipShape(.rect(cornerRadius: 6))
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(c.subject).font(.caption.weight(.semibold)).lineLimit(1).help(c.title)
-                                Text("\(c.author) · \(c.license)").font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-                                Label("Restrictions: \(c.restrictions)", systemImage: c.restrictions == "none" ? "checkmark.circle" : "info.circle")
-                                    .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-                                if let url = URL(string: c.page) {
-                                    Link("View on Commons", destination: url).font(.caption2).help(c.attribution)
-                                }
-                            }
-                        }
-                        .accessibilityElement(children: .combine)
-                    }
-                }
+                CardHeader("Photos (Wikimedia Commons)", symbol: "photo.on.rectangle", subtitle: PhotoCreditsList.summary)
+                PhotoCreditsList()
             }
         }
+    }
+}
+
+/// Every bundled photo's credit, filterable. Used on the Credits screen and in the Photo Credits sheet.
+struct PhotoCreditsList: View {
+    @State private var filter = ""
+
+    static var summary: String {
+        "All \(ImageCredits.all.count) photos are freely licensed for any use, including commercial (CC0, public domain, CC BY or CC BY-SA), and each is credited below with what it shows. Bundled copies are resized and re-encoded; any crop is noted. Photos standing in for chips without a free photo, for future, custom or alien hardware, and for your own sites, offices, fabs, labs and deals are marked \"Illustrative\" or \"Similar hardware\". CREDITS.txt in the app's Resources folder lists the same credits as plain text."
+    }
+
+    private var shown: [ImageCredit] {
+        let q = filter.trimmingCharacters(in: .whitespaces)
+        guard !q.isEmpty else { return ImageCredits.all }
+        return ImageCredits.all.filter { c in
+            [c.subject, c.author, c.license, c.title, c.restrictions].contains { $0.localizedCaseInsensitiveContains(q) }
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                TextField("Filter by subject, author or licence", text: $filter)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(maxWidth: 320)
+                Text("\(shown.count) of \(ImageCredits.all.count)").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+            }
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 360), spacing: 12)], spacing: 12) {
+                ForEach(shown) { PhotoCreditRow(credit: $0) }
+            }
+        }
+    }
+}
+
+/// One photo's credit: what it shows and who made it (two lines each, the full text on hover), the licence and its
+/// deed, reuse restrictions, how the bundled copy was edited, and the Commons page.
+struct PhotoCreditRow: View {
+    let credit: ImageCredit
+
+    var body: some View {
+        let c = credit
+        let byline = c.author + " · " + c.license
+        let unrestricted = c.restrictions == "none"
+        let restrictions: String = unrestricted ? "No restrictions" : c.restrictions.capitalizedFirst
+        HStack(alignment: .top, spacing: 10) {
+            Photo(key: c.id, size: .icon).frame(width: 72, height: 48).clipShape(.rect(cornerRadius: 6))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(c.subject).font(.caption.weight(.semibold)).lineLimit(2).help(c.subject)
+                Text(byline).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
+                    .help(byline + "\n" + c.title)
+                Label(restrictions, systemImage: unrestricted ? "checkmark.circle" : "info.circle")
+                    .font(.caption2).foregroundStyle(.secondary).lineLimit(2)
+                    .help("Reuse conditions: " + c.restrictions)
+                if c.modified != "none" {
+                    Label("Modified: " + c.modified, systemImage: "crop")
+                        .font(.caption2).foregroundStyle(.secondary).lineLimit(2)
+                        .help("The bundled copy differs from the Commons original: " + c.modified + ".")
+                }
+                HStack(spacing: 10) {
+                    if let url = URL(string: c.page) {
+                        Link("Commons page", destination: url).help(c.attribution)
+                    }
+                    if let deed = c.licenseURL {
+                        Link(PhotoCreditRow.shortURL(deed), destination: deed)
+                            .help(c.license + " licence deed")
+                    }
+                }
+                .font(.caption2)
+                .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+        }
+        .accessibilityElement(children: .contain)
+    }
+
+    /// "creativecommons.org/licenses/by-sa/4.0/" for a deed link's visible text.
+    static func shortURL(_ url: URL) -> String {
+        url.absoluteString.replacingOccurrences(of: "https://", with: "")
+    }
+}
+
+/// The photo credits on their own, so they can be read from the app menu with or without a game open.
+struct PhotoCreditsSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 6) {
+                Label("Photo Credits", systemImage: "photo.on.rectangle").font(.title2.weight(.bold))
+                Text(PhotoCreditsList.summary).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(20)
+            Divider()
+            ScrollView {
+                PhotoCreditsList()
+                    .padding(20)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            Divider()
+            HStack {
+                Spacer()
+                Button("Done") { dismiss() }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
+            }
+            .padding(16)
+        }
+        .frame(minWidth: 780, idealWidth: 940, minHeight: 560, idealHeight: 760)
     }
 }

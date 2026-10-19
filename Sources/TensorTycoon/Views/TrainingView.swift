@@ -420,6 +420,8 @@ private struct LadderChart: View {
             .chartXScale(type: .log)
             .chartYScale(domain: .automatic(includesZero: false))
             .chartXAxisLabel("Proxy tokens (T, log)")
+            .accessibilityLabel("Scaling ladder")
+            .accessibilityValue("\(points.count) proxy runs" + (points.last.map { ", the largest at loss \(Fmt.trim($0.loss, 3))" } ?? ""))
         }
     }
 }
@@ -637,6 +639,7 @@ private struct CommandCentre: View {
                 Photo(key: a.image)
                     .frame(width: 120, height: 80)
                     .clipShape(.rect(cornerRadius: 10))
+                    .acceleratorPhotoLabel(a)
             }
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 6) {
@@ -1042,6 +1045,7 @@ private struct OpsAssignSheet: View {
                 HStack {
                     Text("Coverage to add")
                     Slider(value: $target, in: 0.25...1, step: 0.05)
+                        .accessibilityLabel("Coverage to add").accessibilityValue(Fmt.pct(target, decimals: 0))
                     Text(Fmt.pct(target, decimals: 0)).monospacedDigit().frame(width: 50)
                 }
                 if let m = models.first(where: { $0.id == modelID }), !accelID.isEmpty {
@@ -1209,7 +1213,15 @@ struct ProjectionChart: View, Equatable {
             .chartXScale(domain: 0...100)
             .chartYScale(domain: .automatic(includesZero: false))
             .chartXAxisLabel("% of pre-training")
+            .accessibilityLabel("Projected capability")
+            .accessibilityValue(summary)
         }
+    }
+
+    private var summary: String {
+        guard let cp = checkpoints.last else { return "" }
+        let now = "projected index \(Fmt.score(cp.projected)) (\(Fmt.score(cp.projectedLow)) to \(Fmt.score(cp.projectedHigh))) at \(Int(cp.fraction * 100))%"
+        return forecast.map { now + ", launch forecast \(Fmt.score($0.index))" } ?? now
     }
 }
 
@@ -1222,6 +1234,8 @@ private struct GradNormChart: View {
         }
         .chartXAxis(.hidden)
         .chartYAxis { AxisMarks(values: .automatic(desiredCount: 2)) }   // 3.4: a scale, so a spike reads as a spike
+        .accessibilityLabel("Gradient norm")
+        .accessibilityValue(points.last.map { "\(Fmt.trim($0.gnorm, 2)), \(points.suffix(120).filter(\.spike).count) spikes recently" } ?? "")
     }
 }
 
@@ -1272,7 +1286,20 @@ struct LossChart: View, Equatable {
             }
             .chartYScale(domain: .automatic(includesZero: false))
             .chartXAxisLabel("Tokens seen (T)")
+            .accessibilityLabel("Training loss")
+            .accessibilityValue(summary)
         }
+    }
+
+    /// What VoiceOver reads for the chart: where the loss is against the forecast, and how many spikes so far.
+    private var summary: String {
+        guard let last = points.last else { return "" }
+        var parts = ["loss \(Fmt.trim(last.loss, 3)) after \(Fmt.tokens(last.tokensT))"]
+        if last.pred > 0 { parts.append("forecast \(Fmt.trim(last.pred, 3))") }
+        if let v = validation.last { parts.append("held-out \(Fmt.trim(v.l, 3))") }
+        let spikes = points.filter(\.spike).count
+        if spikes > 0 { parts.append("\(spikes) loss spike\(spikes == 1 ? "" : "s")") }
+        return parts.joined(separator: ", ")
     }
 }
 
@@ -1486,6 +1513,16 @@ struct ThroughputChart: View, Equatable {
             .chartYScale(domain: 0...80)
             .chartXAxisLabel("Last \(days.count) days")
             .chartYAxisLabel("% of peak")
+            .accessibilityLabel("Useful throughput, last \(days.count) days")
+            .accessibilityValue(summary)
         }
+    }
+
+    private var summary: String {
+        guard let d = days.last else { return "" }
+        let useful = d.peak > 0 ? d.useful / d.peak : 0
+        let stalled = days.filter { $0.spike || $0.useful == 0 }.count
+        return "today \(Fmt.pct(useful, decimals: 0)) of peak against \(Fmt.pct(d.mfu * d.goodput, decimals: 0)) expected"
+            + (stalled > 0 ? ", \(stalled) day\(stalled == 1 ? "" : "s") with a spike or a stall" : "")
     }
 }

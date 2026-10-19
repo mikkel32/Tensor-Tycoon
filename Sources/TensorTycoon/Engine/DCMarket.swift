@@ -199,7 +199,7 @@ enum DCMarket {
         let here = s.sites.filter { $0.kind == .colo && $0.locationID == loc.id }.reduce(0) { $0 + $1.capacityKW + $1.rampKW } / 1000
         let tight = 1 + (here + mw) / max(1, loc.gridCap(s.year) * 4)
         let rules = s.lawsPassed.contains("dc_moratorium") && Region.of(location: loc.id) == .us ? 1.15 : 1
-        return loc.coloFee * era * size * term * cool * tight * rules * (toOwn ? 1.25 : 1)
+        return loc.coloFee * era * size * term * cool * tight * rules * (toOwn ? 1.25 : 1) * Science.coloFactor(s)   // energy discoveries, passed on
     }
 
     /// Days until a leased block is handed over: small cages next month, big blocks built to suit.
@@ -468,7 +468,7 @@ extension GameState {
         sites.append(site)
         Sim.news(&self, "Leased \(Fmt.watts(mw * 1e6)) in \(loc.name)",
                  "\(years)-year \(toOwn ? "lease-to-own" : "wholesale lease") at \(Fmt.money(rate))/kW-month (\(Fmt.money(rate * mw * 1000))/month at full size). First \(Fmt.watts(first * 1e6)) \(ready.gameMonth)\(ramped ? ", the rest in quarterly tranches" : "").",
-                 .company, image: loc.image)
+                 .company, image: loc.image, illustrative: true)
         return nil
     }
 

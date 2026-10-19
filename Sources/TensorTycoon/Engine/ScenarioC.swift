@@ -16,8 +16,11 @@ extension ScenarioHarness {
         var lastProgress = 0.0, lastPartnerships = 0
         var jump: (before: Double, after: Double, date: Date)? = nil
         let months = hqPlay(&s, &bot, months: 84) { s, _ in
-            // A robotics lab in Turin as soon as it's affordable (the bot's science step then runs its projects).
-            if lab == nil, s.science.labs.isEmpty, s.cash > 20 * Science.capex(.robotics, site: "turin", s) {
+            // A robotics lab in Turin as soon as it's affordable (the bot's science step then runs its projects). If a
+            // funding round lands mid-month and the bot's own first lab comes first, the robotics lab is the second
+            // (a third needs the Hyperscaler stage).
+            if lab == nil, s.science.labs.count < 2, !s.science.labs.contains(where: { $0.kind == .robotics }),
+               s.cash > 20 * Science.capex(.robotics, site: "turin", s) {
                 if s.buildLab(.robotics, site: "turin", staff: 8) == nil { lab = s.science.labs.last?.id }
             }
             let now = s.researched.contains(research) ? cost : (s.researchProgress[research] ?? 0)
@@ -51,7 +54,7 @@ extension ScenarioHarness {
             r.expect("robotics lab produces results", done >= 1 || finds >= 1,
                      "\(l.name): \(mine.count) projects, \(done) done, \(finds) discoveries, licences \(hqMoney(s.science.licensing))")
         } else {
-            r.expect("robotics lab built", false)
+            r.expect("robotics lab built", false, "labs: \(s.science.labs.map(\.name).joined(separator: ", "))")
         }
         // Italian money rules.
         let lossMonths = months.filter { $0.pre <= 0 }

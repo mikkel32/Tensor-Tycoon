@@ -21,8 +21,8 @@ struct ScienceView: View {
                 StatTile(title: "Discoveries", value: "\(sc.discoveries.count)", detail: pending.isEmpty ? "\(sc.patents.count) patents" : "\(pending.count) awaiting a decision",
                          symbol: "sparkles", tint: .purple)
                 StatTile(title: "Last month", value: Fmt.money(sc.lastIncome - sc.lastCost),
-                         detail: "\(Fmt.money(sc.lastCost)) costs · \(Fmt.money(sc.lastIncome)) licences", symbol: "dollarsign.circle.fill",
-                         tint: sc.lastIncome >= sc.lastCost ? .green : .orange)
+                         detail: "\(Fmt.money(sc.lastCost)) costs · \(Fmt.money(sc.lastIncome)) licences and spin-outs", symbol: "dollarsign.circle.fill",
+                         tint: sc.lastIncome >= sc.lastCost ? Tone.good.color : Tone.warning.color)
             }
             ForEach(pending) { d in
                 Card {
@@ -30,7 +30,7 @@ struct ScienceView: View {
                         Image(systemName: "sparkles").font(.title2).foregroundStyle(.purple)
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Discovery: \(d.title)").font(.headline)
-                            Text("The report is in. Patent it, keep it secret, publish it, spin it out\(d.projectDef.flatMap { Science.feedable(s, $0) } != nil ? " or feed it to a moonshot" : ""). If you don't decide, it's patented.")
+                            Text(Self.pendingLine(s, d))
                                 .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                         }
                         Spacer()
@@ -38,6 +38,7 @@ struct ScienceView: View {
                     }
                 }
             }
+            EnergyReachCard(state: s)
             if sc.labs.isEmpty {
                 Card {
                     EmptyStateView(symbol: "testtube.2", title: "No laboratories yet",
@@ -66,11 +67,94 @@ struct ScienceView: View {
                     }
                 }
             }
+            TechnologiesCard(state: s)
+            BreakthroughsCard(state: s)
             IPPortfolioCard(state: s)
             RivalScienceCard(state: s)
             CompanyHistoryCard(state: s)
         }
         .sheet(item: $report) { d in DiscoveryReportSheet(id: d.id) }
+    }
+
+    static func pendingLine(_ s: GameState, _ d: SciDiscovery) -> String {
+        let options = Science.offered(s, d).map { $0.label.lowercased() }.joined(separator: ", ")
+        return "The report is in: " + options + ". If you don't decide, it's patented."
+    }
+}
+
+/// What your energy results do for you, owned hardware or not: the power bill, cloud and colocation prices, build
+/// time and the grid queue. Shown once you have an energy-type discovery.
+private struct EnergyReachCard: View {
+    let state: GameState
+    var body: some View {
+        let s = state
+        if Science.powerFactor(s) < 1 || Science.queueFactor(s) < 1 {
+            let rent = Self.monthlyRent(s)
+            Card {
+                CardHeader("What your energy results save", symbol: "bolt.fill",
+                           subtitle: "Owned datacenters pay less for power; providers pass part of the saving on to renters; new capacity comes sooner.")
+                KPIRow(minWidth: 150) {
+                    MetricTile(label: "Your power bill", value: "−\(Fmt.pct(1 - Science.powerFactor(s), decimals: 1))", symbol: "bolt.fill", tint: Tone.good.color)
+                    MetricTile(label: "Cloud rentals", value: "−\(Fmt.pct(1 - Science.cloudFactor(s), decimals: 2))", symbol: "cloud.fill", tint: Tone.good.color)
+                    MetricTile(label: "Colocation", value: "−\(Fmt.pct(1 - Science.coloFactor(s), decimals: 1))", symbol: "building.2.fill", tint: Tone.good.color)
+                    MetricTile(label: "Campus build time", value: "−\(Fmt.pct(1 - Science.buildFactor(s), decimals: 0))", symbol: "hammer.fill", tint: Tone.good.color)
+                    MetricTile(label: "Grid queue", value: "−\(Fmt.pct(1 - Science.queueFactor(s), decimals: 0))", symbol: "powerplug.fill", tint: Tone.good.color)
+                }
+                if rent > 0 {
+                    Text(Self.rebateLine(s, rent: rent)).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    static func monthlyRent(_ s: GameState) -> Double {
+        s.rentals.reduce(0) { $0 + $1.hourly * 24 * 30.4 * Double($1.count) }
+    }
+
+    static func rebateLine(_ s: GameState, rent: Double) -> String {
+        let saving = rent * (1 / Science.cloudFactor(s) - 1)
+        var t = "On your current rentals (" + Fmt.money(rent) + "/month) the cloud rebate is worth about "
+        t += Fmt.money(saving) + "/month; new rentals are priced with it."
+        return t
+    }
+}
+
+/// New technology categories your discoveries opened, and where each one shows.
+private struct TechnologiesCard: View {
+    /// "Opens with: <headline> (<field>, from <year>, grounded)."
+    static func needsLine(_ project: String) -> String {
+        guard let d = ScienceCatalog.projectByID[project] else { return "Opens with a discovery." }
+        var t = "Opens with: " + d.headline + " (" + ScienceCatalog.field(d.field).name
+        t += ", from \(Int(d.year)), "
+        t += d.speculative ? "speculative)." : "grounded)."
+        return t
+    }
+
+    let state: GameState
+    var body: some View {
+        let s = state
+        let open = ScienceCatalog.unlocks.filter { Science.has($0.unlock, s) }
+        if !open.isEmpty || !s.science.labs.isEmpty {
+            Card {
+                CardHeader("New technologies", symbol: "lock.open.fill",
+                           subtitle: "A few discoveries open something new rather than make a number better.")
+                ForEach(ScienceCatalog.unlocks, id: \.project) { u in
+                    let when = Science.unlockDate(u.unlock, s)
+                    HStack(alignment: .top, spacing: 10) {
+                        Image(systemName: when == nil ? "lock.fill" : "lock.open.fill")
+                            .foregroundStyle(when == nil ? Color.secondary : Tone.good.color).frame(width: 22)
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: 6) {
+                                Text(u.title).font(.callout.weight(.medium))
+                                if let when { Pill("Open since \(when.gameShort)", tone: .good) }
+                            }
+                            Text(when == nil ? Self.needsLine(u.project) : u.detail)
+                                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -137,6 +221,8 @@ private struct LabCard: View {
                         .confirmationDialog("Close the \(lab.name)?", isPresented: $confirmClose) {
                             Button("Close it", role: .destructive) { store.mutate { $0.closeLab(lab.id) } }
                             Button("Keep it", role: .cancel) {}
+                        } message: {
+                            Text("Its projects stop: discoveries they made stay yours at lab scale (at most half their full effect). Severance is three months' pay.")
                         }
                 }
                 .controlSize(.small)
@@ -190,6 +276,8 @@ private struct StartProjectList: View {
                             Pill(text: f.name, color: .secondary)
                             Pill(text: d.speculative ? "Speculative" : "Grounded", color: d.speculative ? .orange : .green)
                             if !lab.def.primary.contains(d.field) { Pill("Lab less suited", tone: .warning) }
+                            if d.year > s.year { Pill(text: "Opened early by your discoveries", color: .purple, symbol: "lock.open.fill") }
+                            if let u = ScienceCatalog.unlock(d.id) { Pill(text: "Unlocks: \(u.title)", color: .indigo, symbol: "sparkles") }
                         }
                         Text(d.pitch).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                         Text(d.basis).font(.caption2).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
@@ -346,6 +434,9 @@ private struct ProjectCard: View {
                         .confirmationDialog("Stop \(d.name)?", isPresented: $confirmCancel) {
                             Button("Stop it", role: .destructive) { store.mutate { $0.cancelScienceProject(p.id) } }
                             Button("Keep going", role: .cancel) {}
+                        } message: {
+                            Text(p.discovery == nil ? "Nothing is discovered yet: the money spent is gone."
+                                                    : "The discovery stays yours at lab scale — at most half its full effect, like a dead end — and the field learns nothing from it.")
                         }
                 }
                 .font(.caption)
@@ -450,9 +541,15 @@ struct DiscoveryReportSheet: View {
                     section("Technical significance", "atom", d.report.significance)
                     section("Commercial consequences", "chart.line.uptrend.xyaxis", d.report.commercial)
                     VStack(alignment: .leading, spacing: 4) {
-                        Label("Effects today (\(Int((d.level * 100).rounded()))% of full\(d.sciChoice == .secret && !d.rivalCaughtUp ? ", +20% while it's secret" : ""))", systemImage: "bolt.fill").font(.headline)
-                        ForEach(Science.effectLines(f.effect, strength: Science.strength(d), s), id: \.self) { line in
+                        Label(Self.effectsTitle(d), systemImage: "bolt.fill").font(.headline)
+                        ForEach(Science.effectLines(ScienceCatalog.effect(def), strength: Science.strength(d), s), id: \.self) { line in
                             Label(line, systemImage: "arrow.right").font(.callout)
+                        }
+                    }
+                    if let u = ScienceCatalog.unlock(def.id) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Label("New technology: \(u.title)", systemImage: "lock.open.fill").font(.headline)
+                            Text(u.detail).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                         }
                     }
                     section("Impact on your projects", "point.3.connected.trianglepath.dotted", d.report.impact)
@@ -470,15 +567,16 @@ struct DiscoveryReportSheet: View {
                         }
                     } else {
                         Text("Follow-up decision").font(.headline)
-                        ForEach(Science.choices(s, def), id: \.self) { c in
+                        ForEach(Science.offered(s, d), id: \.self) { c in
                             Button {
-                                store.mutate { $0.chooseDiscoveryFollowUp(d.id, c) }
+                                store.act("\(c.label): \(d.title)") { $0.chooseDiscoveryFollowUp(d.id, c) }
                             } label: {
                                 HStack(alignment: .top, spacing: 10) {
                                     Image(systemName: c.symbol).frame(width: 22)
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(c.label).font(.callout.weight(.semibold))
-                                        Text(Science.choiceDetail(c, def, s, scooped: !d.scooped.isEmpty)).font(.caption).foregroundStyle(.secondary)
+                                        Text(Science.blocker(s, d, c) ?? Science.choiceDetail(c, def, s, scooped: !d.scooped.isEmpty, level: d.level)).font(.caption)
+                                            .foregroundStyle(Science.blocker(s, d, c) == nil ? Color.secondary : Tone.warning.color)
                                             .fixedSize(horizontal: false, vertical: true)
                                     }
                                     Spacer()
@@ -509,6 +607,14 @@ struct DiscoveryReportSheet: View {
             Label(title, systemImage: symbol).font(.headline)
             Text(text).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         }
+    }
+
+    /// "Effects today (62% of full, +20% while it's secret)".
+    static func effectsTitle(_ d: SciDiscovery) -> String {
+        var t = "Effects today (\(Int((d.level * 100).rounded()))% of full"
+        if d.sciChoice == .secret && !d.rivalCaughtUp { t += ", +20% while it's secret" }
+        if d.labScaleOnly { t += ", lab scale only" }
+        return t + ")"
     }
 }
 
@@ -575,29 +681,180 @@ private struct RivalScienceCard: View {
     }
 }
 
-/// Training firsts and science results on one timeline.
+/// Unique AI breakthroughs from your research lab, each with its report and follow-up.
+private struct BreakthroughsCard: View {
+    let state: GameState
+    @State private var open: SciBreakthrough? = nil
+
+    var body: some View {
+        let s = state
+        if !s.science.breakthroughs.isEmpty {
+            Card {
+                CardHeader("Unique breakthroughs", symbol: "sparkles",
+                           subtitle: "Techniques only your lab has. Each has a report: what it does, what it's worth, how rivals respond — and a choice to publish, keep or license it.")
+                ForEach(s.science.breakthroughs.reversed()) { b in
+                    Button { open = b } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: "sparkles").foregroundStyle(.purple).frame(width: 22)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(b.title).font(.callout.weight(.medium))
+                                Text("\(Breakthroughs.rarity(b.tech).title) · \(b.date.gameShort)").font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            if b.choice.isEmpty { Pill(text: "Decide", color: .orange, symbol: "exclamationmark.circle") }
+                            else { Pill(text: Science.breakthroughChoiceLabel(b), color: .indigo) }
+                            Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+                        }
+                        .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                    Divider()
+                }
+            }
+            .sheet(item: $open) { b in BreakthroughReportSheet(id: b.id) }
+        }
+    }
+}
+
+/// A unique breakthrough's report and follow-up (publish, keep, license through `licenseExotic`).
+struct BreakthroughReportSheet: View {
+    @Environment(GameStore.self) private var store
+    @Environment(\.dismiss) private var dismiss
+    let id: UUID
+
+    var body: some View {
+        let s = store.game
+        if let b = s.science.breakthroughs.first(where: { $0.id == id }) {
+            let codes = Self.openCodes(s, b)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    HeroBanner(image: "wafer_closeup", height: 150) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack(spacing: 6) {
+                                PhotoPill(text: Breakthroughs.rarity(b.tech).title, symbol: "sparkles")
+                                PhotoPill(text: b.date.gameShort, symbol: "calendar")
+                            }
+                            Text(b.title).font(.title.weight(.bold))
+                            Text("Breakthrough report").font(.caption)
+                        }
+                    }
+                    section("Technical significance", "atom", b.report.significance)
+                    section("Commercial consequences", "chart.line.uptrend.xyaxis", b.report.commercial)
+                    section("Impact on your work", "point.3.connected.trianglepath.dotted", b.report.impact)
+                    section("Competitor responses", "binoculars.fill", b.report.competitors)
+                    Divider()
+                    if !b.choice.isEmpty {
+                        Label(Self.choiceLine(b), systemImage: "checkmark.seal.fill").font(.headline)
+                    }
+                    if !codes.isEmpty {
+                        Text("Follow-up decision").font(.headline)
+                        ForEach(codes, id: \.self) { code in
+                            Button {
+                                store.act(Science.breakthroughLabel(code, s)) { $0.chooseBreakthrough(b.id, code) }
+                            } label: {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(Science.breakthroughLabel(code, s)).font(.callout.weight(.semibold))
+                                    Text(Science.breakthroughDetail(code, tech: b.tech, s)).font(.caption).foregroundStyle(.secondary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(10)
+                                .background(Theme.insetFill, in: .rect(cornerRadius: Theme.Radius.inset))
+                                .contentShape(.rect)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    HStack {
+                        Spacer()
+                        Button("Close") { dismiss() }.keyboardShortcut(.cancelAction)
+                    }
+                }
+                .padding(22)
+            }
+            .frame(minWidth: 600, minHeight: 520)
+        } else {
+            Text("Report not found.").padding(40)
+        }
+    }
+
+    private func section(_ title: String, _ symbol: String, _ text: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Label(title, systemImage: symbol).font(.headline)
+            Text(text).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// The choices the breakthrough's open decision offers (none once it's answered).
+    static func openCodes(_ s: GameState, _ b: SciBreakthrough) -> [String] {
+        guard let id = b.decision, let dec = s.decisions.first(where: { $0.id == id }), let last = dec.ref.split(separator: "|").last else { return [] }
+        return last.split(separator: ",").map(String.init)
+    }
+
+    /// "Licensed to X (3 Mar 2027)", or published and also licensed.
+    static func choiceLine(_ b: SciBreakthrough) -> String {
+        var t = Science.breakthroughChoiceLabel(b)
+        if let when = b.choiceDate { t += " (" + when.gameShort + ")" }
+        if !b.licensee.isEmpty && b.choice != "license" { t += " · licensed to " + b.licensee }
+        return t
+    }
+}
+
+/// The company's history: one timeline of stages, deals, launches, training firsts, milestones, discoveries, unique
+/// breakthroughs and government programmes (`Science.companyHistory`), filterable by kind.
 struct CompanyHistoryCard: View {
     let state: GameState
+    @State private var kind = "all"
+    @State private var showAll = false
+
     var body: some View {
-        let items = Science.companyHistory(state)
+        let all = Science.companyHistory(state)
+        let items = all.filter { kind == "all" || $0.kind == kind }
         Card {
-            CardHeader("Company history", symbol: "clock.arrow.circlepath", subtitle: "Training firsts, labs and discoveries.")
-            if items.isEmpty {
-                Text("Nothing yet. Firsts in training and results from your labs land here.").font(.callout).foregroundStyle(.secondary)
+            CardHeader(title: "Company history", symbol: "clock.arrow.circlepath", subtitle: "Everything that made the company, newest first.") {
+                Picker("Show", selection: $kind) {
+                    Text("Everything").tag("all")
+                    ForEach(Science.historyKinds, id: \.kind) { k in Text(k.label).tag(k.kind) }
+                }
+                .frame(width: 180)
+                .labelsHidden()
             }
-            ForEach(items.reversed().prefix(40)) { e in
+            if items.isEmpty {
+                Text(all.isEmpty ? "Nothing yet. Launches, deals, training firsts, milestones and discoveries land here." : "Nothing of that kind yet.")
+                    .font(.callout).foregroundStyle(.secondary)
+            }
+            ForEach(Array(items.reversed().prefix(showAll ? 400 : 40))) { e in
                 HStack(spacing: 10) {
                     Image(systemName: e.symbol)
-                        .foregroundStyle(e.kind == "training" ? Color.blue : (e.kind == "lab" ? Color.teal : Color.purple))
+                        .foregroundStyle(Self.color(e.kind))
                         .frame(width: 22)
+                        .accessibilityLabel(Science.historyKinds.first { $0.kind == e.kind }?.label ?? e.kind)
                     VStack(alignment: .leading, spacing: 1) {
                         Text(e.title).font(.callout)
-                        if !e.detail.isEmpty { Text(e.detail).font(.caption).foregroundStyle(.secondary) }
+                        if !e.detail.isEmpty { Text(e.detail).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
                     }
                     Spacer()
                     Text(e.date.gameShort).font(.caption).foregroundStyle(.tertiary)
                 }
             }
+            if items.count > 40 {
+                Button(showAll ? "Show the latest 40" : "Show all \(items.count)") { showAll.toggle() }.buttonStyle(.link).font(.caption)
+            }
+        }
+    }
+
+    /// A colour per kind of entry (a category, not a verdict).
+    static func color(_ kind: String) -> Color {
+        switch kind {
+        case "company": .indigo
+        case "launch": .blue
+        case "training": .cyan
+        case "milestone": .orange
+        case "discovery": .purple
+        case "breakthrough": .pink
+        case "programme": .teal
+        case "finance": .mint
+        default: .secondary
         }
     }
 }

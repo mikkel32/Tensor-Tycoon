@@ -1,0 +1,1414 @@
+Tensor Tycoon: photo credits
+
+The game bundles 156 photos from Wikimedia Commons. Every one is free for any use, including
+commercial use, under the licence named below (CC0, public domain, CC BY or CC BY-SA). Bundled copies are
+resized and re-encoded with camera metadata removed; each entry says how, including any crop. CC BY-SA
+photos remain under CC BY-SA in their modified form. Full terms are on each file's Commons page.
+
+Restrictions: "trademarks visible" and "personality rights may apply" are not copyright restrictions but
+may limit some uses; "recent architecture (limited freedom of panorama)" marks a modern building in a
+country where the architect's rights can extend to photos of it.
+
+amd_instinct
+  Shows:        AMD Instinct MI325X accelerator module on display (CES 2025)
+  Title:        超级核显来袭！AMD新品现场体验 (2160p 60fps VP9-128kbit AAC)-00.06.51.561.png
+  Author:       极客湾Geekerwan
+  Licence:      CC BY 3.0 (https://creativecommons.org/licenses/by/3.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:%E8%B6%85%E7%BA%A7%E6%A0%B8%E6%98%BE%E6%9D%A5%E8%A2%AD%EF%BC%81AMD%E6%96%B0%E5%93%81%E7%8E%B0%E5%9C%BA%E4%BD%93%E9%AA%8C_(2160p_60fps_VP9-128kbit_AAC)-00.06.51.561.png
+  Restrictions: attribution required; trademarks visible
+  Modified:     cropped (top band removed to drop the channel watermark), resized to 1920 × 961 px, converted from PNG to JPEG
+
+amd_racks
+  Shows:        AMD Instinct MI300A and MI325X server boards in an exhibit case (CES 2025)
+  Title:        超级核显来袭！AMD新品现场体验 (2160p 60fps VP9-128kbit AAC)-00.06.31.698.png
+  Author:       极客湾Geekerwan
+  Licence:      CC BY 3.0 (https://creativecommons.org/licenses/by/3.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:%E8%B6%85%E7%BA%A7%E6%A0%B8%E6%98%BE%E6%9D%A5%E8%A2%AD%EF%BC%81AMD%E6%96%B0%E5%93%81%E7%8E%B0%E5%9C%BA%E4%BD%93%E9%AA%8C_(2160p_60fps_VP9-128kbit_AAC)-00.06.31.698.png
+  Restrictions: attribution required; trademarks visible
+  Modified:     cropped (left band removed to drop the channel watermark), resized to 1690 × 1080 px, converted from PNG to JPEG
+
+b200_rack
+  Shows:        NVIDIA DGX B200 system front panel
+  Title:        Grafica Nvidia B200.jpg
+  Author:       Javils00
+  Licence:      CC0 (https://creativecommons.org/publicdomain/zero/1.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Grafica_Nvidia_B200.jpg
+  Restrictions: trademarks visible
+  Modified:     re-encoded at 1920 × 1363 px
+
+biz_boardroom
+  Shows:        Meeting room of the HUB Ashdod start-up accelerator
+  Title:        HUB Ashdod accelerator meeting room at Kivunim Youth Centre.jpg
+  Author:       מקף־עברי
+  Licence:      CC0 (https://creativecommons.org/publicdomain/zero/1.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:HUB_Ashdod_accelerator_meeting_room_at_Kivunim_Youth_Centre.jpg
+  Restrictions: none
+  Modified:     resized to 1600 × 1068 px
+
+biz_expo
+  Shows:        Exhibition hall at Hannover Messe 2016
+  Title:        Hannover Messe 2016 (20).jpg
+  Author:       Bahnfrend
+  Licence:      CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Hannover_Messe_2016_(20).jpg
+  Restrictions: attribution required; share-alike; trademarks visible
+  Modified:     resized to 1600 px wide
+
+chiller
+  Shows:        Air-cooled liquid chiller
+  Title:        Air Cooled Liquid Chiller.jpg
+  Author:       Saud
+  Licence:      CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Air_Cooled_Liquid_Chiller.jpg
+  Restrictions: attribution required; share-alike
+  Modified:     resized to 1600 × 1067 px
+
+chip_chiplets
+  Shows:        AMD Ryzen chiplet package (infrared view)
+  Title:        AMD@7nm(12nmIO)@Zen2@Matisse@Ryzen 5 3600@100-000000031 BF 1923SUT 9HM6935R90062 DSCx2@Infrared.jpg
+  Author:       Fritzchens Fritz
+  Licence:      CC0 (https://creativecommons.org/publicdomain/zero/1.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:AMD@7nm(12nmIO)@Zen2@Matisse@Ryzen_5_3600@100-000000031_BF_1923SUT_9HM6935R90062_DSCx2@Infrared.jpg
+  Restrictions: none
+  Modified:     resized to 1592 px wide
+
+chip_dieshot
+  Shows:        Intel Broadwell-EP die shot
+  Title:        Intel Broadwell-EP Die Shot (Reshoot).jpg
+  Author:       cole8888
+  Licence:      CC BY-SA 2.0 (https://creativecommons.org/licenses/by-sa/2.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Intel_Broadwell-EP_Die_Shot_(Reshoot).jpg
+  Restrictions: attribution required; share-alike
+  Modified:     resized to 1494 px wide
+
+chip_hbm
+  Shows:        AMD Fiji GPU package: GPU, HBM stacks and interposer
+  Title:        AMD Fiji GPU package with GPU, HBM memory and interposer.jpg
+  Author:       C. Spille/pcgameshardware.de
+  Licence:      CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:AMD_Fiji_GPU_package_with_GPU,_HBM_memory_and_interposer.jpg
+  Restrictions: attribution required; share-alike
+  Modified:     resized to 1600 px wide
+
+chip_test
+  Shows:        Semiconductor wafer prober with test head
+  Title:        Wafer prober service configuration.jpg
+  Author:       Ixnayonthetimmay
+  Licence:      CC BY-SA 3.0 (https://creativecommons.org/licenses/by-sa/3.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Wafer_prober_service_configuration.jpg
+  Restrictions: attribution required; share-alike
+  Modified:     re-encoded
+
+city_beijing
+  Shows:        Zhongguancun tech district, Beijing, at dusk
+  Title:        Zhongguancun (29666870574).jpg
+  Author:       Ludger Heide
+  Licence:      CC BY-SA 2.0 (https://creativecommons.org/licenses/by-sa/2.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Zhongguancun_(29666870574).jpg
+  Restrictions: attribution required; share-alike
+  Modified:     resized to 1600 × 1197 px
+
+city_la_defense
+  Shows:        La Défense business district, Paris
+  Title:        La Défense, business district of Paris, 7 September 2020.jpg
+  Author:       Pierre Blaché from Paris, France
+  Licence:      CC0 (https://creativecommons.org/publicdomain/zero/1.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:La_D%C3%A9fense,_business_district_of_Paris,_7_September_2020.jpg
+  Restrictions: recent architecture (limited freedom of panorama)
+  Modified:     resized to 1600 px wide
+
+city_london
+  Shows:        City of London skyline
+  Title:        City of London skyline from London City Hall - Oct 2008 - Aligned.jpg
+  Author:       David Iliff (alignment: Colin, Kim Hansen)
+  Licence:      CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:City_of_London_skyline_from_London_City_Hall_-_Oct_2008_-_Aligned.jpg
+  Restrictions: attribution required; share-alike
+  Modified:     resized to 1600 px wide
+
+city_nyc
+  Shows:        Midtown Manhattan skyline at night
+  Title:        New York Midtown Skyline at night - Jan 2006 edit1.jpg
+  Author:       Diliff
+  Licence:      CC BY-SA 3.0 (https://creativecommons.org/licenses/by-sa/3.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:New_York_Midtown_Skyline_at_night_-_Jan_2006_edit1.jpg
+  Restrictions: attribution required; share-alike
+  Modified:     resized to 1280 px wide
+
+city_shenzhen
+  Shows:        Futian district skyline, Shenzhen
+  Title:        The panorama of Futian Shenzhen.jpg
+  Author:       Charlie fong
+  Licence:      CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:The_panorama_of_Futian_Shenzhen.jpg
+  Restrictions: attribution required; share-alike
+  Modified:     resized to 1600 × 538 px
+
+city_singapore
+  Shows:        Singapore central business district at dusk
+  Title:        Skylines of the Central Business District, Singapore at dusk.jpg
+  Author:       Basile Morin
+  Licence:      CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Skylines_of_the_Central_Business_District,_Singapore_at_dusk.jpg
+  Restrictions: attribution required; share-alike
+  Modified:     resized to 1600 px wide
+
+city_tokyo
+  Shows:        Shinjuku skyline, Tokyo
+  Title:        Shinjuku Skyline 2013.jpg
+  Author:       Dick Thomas Johnson
+  Licence:      CC BY 2.0 (https://creativecommons.org/licenses/by/2.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Shinjuku_Skyline_2013.jpg
+  Restrictions: attribution required
+  Modified:     resized to 1600 px wide
+
+cryo_lab
+  Shows:        Liquid-helium cryostat on an optical bench
+  Title:        Cryostat filled with liquid helium on an optical bench.jpg
+  Author:       Alkamid
+  Licence:      CC BY-SA 3.0 (https://creativecommons.org/licenses/by-sa/3.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Cryostat_filled_with_liquid_helium_on_an_optical_bench.jpg
+  Restrictions: attribution required; share-alike
+  Modified:     resized to 1064 px wide
+
+dc_ashburn
+  Shows:        Data-centre cluster in Ashburn, Virginia (aerial)
+  Title:        Data centers in Ashburn.jpg
+  Author:       Theodore Christopher
+  Licence:      CC0 (https://creativecommons.org/publicdomain/zero/1.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Data_centers_in_Ashburn.jpg
+  Restrictions: none
+  Modified:     re-encoded at 1920 × 1225 px
+
+dc_build_interior
+  Shows:        Data-centre hall during construction
+  Title:        Inside Google datacenter during construction (2007) - panoramio.jpg
+  Author:       erwinboogert
+  Licence:      CC BY-SA 3.0 (https://creativecommons.org/licenses/by-sa/3.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Inside_Google_datacenter_during_construction_(2007)_-_panoramio.jpg
+  Restrictions: attribution required; share-alike
+  Modified:     resized to 1600 px wide
+
+dc_cern
+  Shows:        CERN data-centre server hall
+  Title:        CERN Server 03.jpg
+  Author:       Florian Hirzinger
+  Licence:      CC BY-SA 3.0 (https://creativecommons.org/licenses/by-sa/3.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:CERN_Server_03.jpg
+  Restrictions: attribution required; share-alike
+  Modified:     resized to 1600 px wide
+
+dc_construction
+  Shows:        Data centre under construction, Wenatchee (aerial)
+  Title:        Wenatchee washington azure datacenter aerial 1.jpg
+  Author:       Tedder
+  Licence:      CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Wenatchee_washington_azure_datacenter_aerial_1.jpg
+  Restrictions: attribution required
+  Modified:     resized to 1600 × 1200 px
+
+dc_cooling_tower
+  Shows:        Data-centre rooftop cooling units
+  Title:        Data center cooling tower.jpg
+  Author:       Rsparks3
+  Licence:      CC0 (https://creativecommons.org/publicdomain/zero/1.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Data_center_cooling_tower.jpg
+  Restrictions: none
+  Modified:     re-encoded at 1920 × 1440 px
+
+dc_corridor
+  Shows:        Cold aisle between enclosed racks, Amravati data centre
+  Title:        Racks Amravati Data Center.jpg
+  Author:       PiDatacenters
+  Licence:      CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Racks_Amravati_Data_Center.jpg
+  Restrictions: attribution required; share-alike
+  Modified:     resized to 2000 × 1335 px
+
+dc_foulum
+  Shows:        Foulum data-centre construction site, Denmark
+  Title:        Foulum datacenter, panorama mod øst, 2016-10-01.jpg
+  Author:       Finn Årup Nielsen
+  Licence:      CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Foulum_datacenter,_panorama_mod_%C3%B8st,_2016-10-01.jpg
+  Restrictions: attribution required; share-alike
+  Modified:     resized to 2400 × 894 px
+
+dc_hall
+  Shows:        ARSAT data-centre hall, Argentina
+  Title:        Datacenter de ARSAT.jpg
+  Author:       IMarcoHerrera
+  Licence:      CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Datacenter_de_ARSAT.jpg
+  Restrictions: attribution required; share-alike
+  Modified:     resized to 2400 × 1602 px
+
+dc_liquid
+  Shows:        Peregrine warm-water liquid-cooled supercomputer, NREL
+  Title:        U.S. Department of Energy - Science - 298 029 005 (31681202785).jpg
+  Author:       U.S. Department of Energy from United States
+  Licence:      Public domain
+  Source:       https://commons.wikimedia.org/wiki/File:U.S._Department_of_Energy_-_Science_-_298_029_005_(31681202785).jpg
+  Restrictions: none
+  Modified:     resized to 1600 px wide
+
+dc_rows
+  Shows:        Rows of open server racks
+  Title:        Datacenter Server Racks (22370909788).jpg
+  Author:       Carl Lender from Sunrise, USA
+  Licence:      CC BY 2.0 (https://creativecommons.org/licenses/by/2.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Datacenter_Server_Racks_(22370909788).jpg
+  Restrictions: attribution required
+  Modified:     resized to 2400 × 1600 px
+
+dc_servers
+  Shows:        Wikimedia Foundation server racks
+  Title:        Wikimedia Foundation Servers-8055 35.jpg
+  Author:       Victor Grigas
+  Licence:      CC BY-SA 3.0 (https://creativecommons.org/licenses/by-sa/3.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Wikimedia_Foundation_Servers-8055_35.jpg
+  Restrictions: attribution required; share-alike
+  Modified:     resized to 1600 px wide
+
+dgx_spark
+  Shows:        NVIDIA DGX Spark desktop AI computer
+  Title:        Nvidia DGX Spark oblique view dllu.jpg
+  Author:       Daniel Lu (User:dllu)
+  Licence:      CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Nvidia_DGX_Spark_oblique_view_dllu.jpg
+  Restrictions: attribution required; share-alike; trademarks visible
+  Modified:     resized to 2400 × 1481 px
+
+dk_aarhus_uni
+  Shows:        Aarhus University Aula and university park in snow
+  Title:        Aarhus University Aula and park winter snow December 2023 Aarhus Denmark 01.jpg
+  Author:       Ciara Ní Riain
+  Licence:      CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Aarhus_University_Aula_and_park_winter_snow_December_2023_Aarhus_Denmark_01.jpg
+  Restrictions: attribution required
+  Modified:     resized to 1600 px wide
+
+dk_dtu
+  Shows:        DTU Space building, Technical University of Denmark, Lyngby
+  Title:        Technical University of Denmark, Building 328, 2015-10-30.JPG
+  Author:       Finn Årup Nielsen
+  Licence:      CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Technical_University_of_Denmark,_Building_328,_2015-10-30.JPG
+  Restrictions: attribution required; share-alike
+  Modified:     resized to 1600 px wide
+
+dk_odense_robotics
+  Shows:        Universal Robots (Odense) cobot stand at a trade fair
+  Title:        R-24 - Universal Robots.jpg
+  Author:       Toxophilus
+  Licence:      CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:R-24_-_Universal_Robots.jpg
+  Restrictions: attribution required; share-alike; trademarks visible
+  Modified:     resized to 1600 px wide
+
+dk_sdu_odense
+  Shows:        University of Southern Denmark campus, Odense
+  Title:        Syddansk Universitet Odense Campusvej mod syd.jpg
+  Author:       Søren Møller
+  Licence:      CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Syddansk_Universitet_Odense_Campusvej_mod_syd.jpg
+  Restrictions: attribution required; share-alike
+  Modified:     resized to 1600 px wide
+
+dojo_tile
+  Shows:        Tesla Dojo training tile
+  Title:        Tesla Dojo supercomputer tile.jpg
+  Author:       Steve Jurvetson
+  Licence:      CC BY 2.0 (https://creativecommons.org/licenses/by/2.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Tesla_Dojo_supercomputer_tile.jpg
+  Restrictions: attribution required
+  Modified:     resized to 1800 × 1414 px
+
+event_auditorium
+  Shows:        Auditorium at the 37th Chaos Communication Congress
+  Title:        37th Chaos Communication Congress hall Zuse 2023-12-30 01.jpg
+  Author:       Leonhard Lenz
+  Licence:      CC0 (https://creativecommons.org/publicdomain/zero/1.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:37th_Chaos_Communication_Congress_hall_Zuse_2023-12-30_01.jpg
+  Restrictions: none
+  Modified:     resized to 1600 px wide
+
+event_hackathon
+  Shows:        Participants at the Junction 2015 hackathon
+  Title:        Junction 2015.jpg
+  Author:       Vmuru
+  Licence:      CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Junction_2015.jpg
+  Restrictions: attribution required; share-alike; personality rights may apply
+  Modified:     resized to 1280 px wide
+
+event_hackathon2
+  Shows:        Participants at HackTX 2012
+  Title:        HackTX 2012 More Participants.jpg
+  Author:       Randymcking
+  Licence:      CC BY-SA 3.0 (https://creativecommons.org/licenses/by-sa/3.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:HackTX_2012_More_Participants.jpg
+  Restrictions: attribution required; share-alike; personality rights may apply
+  Modified:     resized to 1600 px wide
+
+event_hall
+  Shows:        Hall at the 37th Chaos Communication Congress
+  Title:        37th Chaos Communication Congress hall H 2023-12-30 01.jpg
+  Author:       Leonhard Lenz
+  Licence:      CC0 (https://creativecommons.org/publicdomain/zero/1.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:37th_Chaos_Communication_Congress_hall_H_2023-12-30_01.jpg
+  Restrictions: none
+  Modified:     resized to 1280 px wide
+
+fab_arizona_build
+  Shows:        TSMC Fab 21 under construction, Phoenix, Arizona (aerial, 2023)
+  Title:        231105-1 TSMC Fab 21 construction.jpg
+  Author:       Hunter Trick (TrickHunter)
+  Licence:      CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:231105-1_TSMC_Fab_21_construction.jpg
+  Restrictions: attribution required; share-alike
+  Modified:     resized to 1600 × 1200 px
+
+fab_cleanroom
+  Shows:        Cleanroom under yellow light, NASA Glenn
+  Title:        Clean room.jpg
+  Author:       NASA Glenn Research Center
+  Licence:      Public domain
+  Source:       https://commons.wikimedia.org/wiki/File:Clean_room.jpg
+  Restrictions: personality rights may apply
+  Modified:     re-encoded at 1920 × 1488 px
+
+fab_euv
+  Shows:        Extreme-ultraviolet lithography tool, Livermore
+  Title:        Extreme ultraviolet lithography tool.jpg
+  Author:       Lawrence Livermore National Laboratory
+  Licence:      Public domain
+  Source:       https://commons.wikimedia.org/wiki/File:Extreme_ultraviolet_lithography_tool.jpg
+  Restrictions: personality rights may apply
+  Modified:     re-encoded
+
+fab_steppers
+  Shows:        Lithography steppers in a cleanroom, LAAS
+  Title:        EVG-620 & MA-150 steppers at LAAS (FDLS 2007) 0430.jpg
+  Author:       Guillaume Paumier (user:guillom)
+  Licence:      CC BY-SA 3.0 (https://creativecommons.org/licenses/by-sa/3.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:EVG-620_%26_MA-150_steppers_at_LAAS_(FDLS_2007)_0430.jpg
+  Restrictions: attribution required; share-alike
+  Modified:     resized to 1600 px wide
+
+fab_tsmc18
+  Shows:        TSMC Fab 18, Southern Taiwan Science Park, Tainan
+  Title:        TSMC Fab 18 May 2025.jpg
+  Author:       4300streetcar
+  Licence:      CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:TSMC_Fab_18_May_2025.jpg
+  Restrictions: attribution required; trademarks visible
+  Modified:     resized to 1600 × 1067 px
+
+fab_wetbench
+  Shows:        Wet-etch bench in a cleanroom
+  Title:        WetEtchBench.jpg
+  Author:       Kristian Mølhave
+  Licence:      CC BY 2.5 (https://creativecommons.org/licenses/by/2.5/)
+  Source:       https://commons.wikimedia.org/wiki/File:WetEtchBench.jpg
+  Restrictions: attribution required
+  Modified:     resized to 1280 px wide
+
+fiber
+  Shows:        Spool of optical fibre cable
+  Title:        Optic fiber cables 01.jpg
+  Author:       SwarmCheng
+  Licence:      CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Optic_fiber_cables_01.jpg
+  Restrictions: attribution required; share-alike
+  Modified:     resized to 1600 × 1498 px
+
+fin_cbot
+  Shows:        Trading floor, Chicago Board of Trade building
+  Title:        Trading Floor in the Chicago Board of Trade Building.png
+  Author:       Fixedsun
+  Licence:      CC0 (https://creativecommons.org/publicdomain/zero/1.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Trading_Floor_in_the_Chicago_Board_of_Trade_Building.png
+  Restrictions: personality rights may apply
+  Modified:     resized to 1600 px wide, converted to JPEG
+
+fr_esrf
+  Shows:        European Synchrotron Radiation Facility (ESRF), Grenoble
+  Title:        ESRF Grenoble 1.JPG
+  Author:       Brücke-Osteuropa
+  Licence:      Public domain
+  Source:       https://commons.wikimedia.org/wiki/File:ESRF_Grenoble_1.JPG
+  Restrictions: none
+  Modified:     resized to 1600 px wide
+
+fr_grenoble_science
+  Shows:        Grenoble's scientific peninsula: ESRF and Minatec
+  Title:        Presqu'île scientifique - Grenoble 06-2021.jpg
+  Author:       Milky
+  Licence:      CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Presqu%27%C3%AEle_scientifique_-_Grenoble_06-2021.jpg
+  Restrictions: attribution required; share-alike; recent architecture (limited freedom of panorama)
+  Modified:     resized to 1600 px wide
+
+fr_minatec
+  Shows:        Minatec micro- and nanotechnology campus, Grenoble
+  Title:        Minatec @ Grenoble (7982305566).jpg
+  Author:       Guilhem Vellut from Annecy, France
+  Licence:      CC BY 2.0 (https://creativecommons.org/licenses/by/2.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Minatec_@_Grenoble_(7982305566).jpg
+  Restrictions: attribution required; recent architecture (limited freedom of panorama)
+  Modified:     resized to 1600 px wide
+
+garage
+  Shows:        Start-up office space in a converted garage
+  Title:        BMW Startup Garage Office 1.jpg
+  Author:       Marvel44
+  Licence:      CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:BMW_Startup_Garage_Office_1.jpg
+  Restrictions: attribution required; share-alike
+  Modified:     re-encoded at 1920 × 1440 px
+
+gb200_rack
+  Shows:        NVIDIA GB200 NVL rack
+  Title:        Nvidia DGX GB200.jpg
+  Author:       Pokiiri
+  Licence:      CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Nvidia_DGX_GB200.jpg
+  Restrictions: attribution required; share-alike; trademarks visible
+  Modified:     resized to 557 px wide
+
+generator
+  Shows:        Backup diesel generator outside a server room
+  Title:        Server room backup power generator - IMG 0451.jpg
+  Author:       Jemimus
+  Licence:      CC BY 2.0 (https://creativecommons.org/licenses/by/2.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Server_room_backup_power_generator_-_IMG_0451.jpg
+  Restrictions: attribution required
+  Modified:     resized to 960 px wide
+
+gov_assemblee
+  Shows:        Palais Bourbon, seat of the French National Assembly, Paris
+  Title:        Palais Bourbon, Paris 7e, NW View 140402 1.jpg
+  Author:       Daniel Vorndran / DXR
+  Licence:      CC BY-SA 3.0 (https://creativecommons.org/licenses/by-sa/3.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Palais_Bourbon,_Paris_7e,_NW_View_140402_1.jpg
+  Restrictions: attribution required; share-alike
+  Modified:     resized to 1600 × 959 px
+
+gov_capitol
+  Shows:        United States Capitol, west front
+  Title:        United States Capitol west front edit2.jpg
+  Author:       Architect of the Capitol (derivative work: O.J.)
+  Licence:      Public domain
+  Source:       https://commons.wikimedia.org/wiki/File:United_States_Capitol_west_front_edit2.jpg
+  Restrictions: none
+  Modified:     resized to 1280 px wide
+
+gov_eu_commission
+  Shows:        Berlaymont building, European Commission headquarters, Brussels
+  Title:        Berlaymont building 2022.jpg
+  Author:       Euro Pictures
+  Licence:      CC BY 2.0 (https://creativecommons.org/licenses/by/2.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Berlaymont_building_2022.jpg
+  Restrictions: attribution required
+  Modified:     resized to 1600 × 1080 px
+
+gov_folketinget
+  Shows:        Christiansborg Palace, seat of the Danish Parliament (Folketinget), Copenhagen
+  Title:        Christiansborg Slot Copenhagen 2014 01.jpg
+  Author:       Julian Herzog (Website)
+  Licence:      CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Christiansborg_Slot_Copenhagen_2014_01.jpg
+  Restrictions: attribution required
+  Modified:     resized to 1600 × 700 px
+
+gov_montecitorio
+  Shows:        Palazzo Montecitorio, seat of the Italian Chamber of Deputies, Rome
+  Title:        Palazzo Montecitorio Rom 2009.jpg
+  Author:       Manfred Heyde
+  Licence:      CC BY-SA 3.0 (https://creativecommons.org/licenses/by-sa/3.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Palazzo_Montecitorio_Rom_2009.jpg
+  Restrictions: attribution required; share-alike
+  Modified:     resized to 1600 × 1338 px
+
+gov_reichstag
+  Shows:        Reichstag building, Berlin
+  Title:        Reichstag building Berlin view from west before sunset.jpg
+  Author:       Jürgen Matern
+  Licence:      CC BY-SA 3.0 (https://creativecommons.org/licenses/by-sa/3.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Reichstag_building_Berlin_view_from_west_before_sunset.jpg
+  Restrictions: attribution required; share-alike
+  Modified:     resized to 1600 px wide
+
+gpu_blade_liquid
+  Shows:        Liquid-cooled GPU blade from MareNostrum 5, Barcelona (exhibit)
+  Title:        GPU blade with glycol cooling (54685994424).jpg
+  Author:       Steve Jurvetson
+  Licence:      CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:GPU_blade_with_glycol_cooling_(54685994424).jpg
+  Restrictions: attribution required
+  Modified:     resized to 1600 × 915 px
+
+gpu_cluster
+  Shows:        CSIRO GPU cluster racks
+  Title:        CSIRO ScienceImage 11313 The CSIRO GPU cluster at the data centre.jpg
+  Author:       division, CSIRO
+  Licence:      CC BY 3.0 (https://creativecommons.org/licenses/by/3.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:CSIRO_ScienceImage_11313_The_CSIRO_GPU_cluster_at_the_data_centre.jpg
+  Restrictions: attribution required
+  Modified:     re-encoded at 1920 × 1275 px
+
+grid_control
+  Shows:        Austrian Power Grid control centre, Vienna (exterior)
+  Title:        Uw-wien-suedost-Hauptschaltleitung.jpg
+  Author:       Wdwd
+  Licence:      CC BY-SA 3.0 (https://creativecommons.org/licenses/by-sa/3.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Uw-wien-suedost-Hauptschaltleitung.jpg
+  Restrictions: attribution required; share-alike; trademarks visible
+  Modified:     resized to 1600 px wide
+
+grid_control_room
+  Shows:        Grid dispatching control room of Creos Luxembourg, Heisdorf
+  Title:        Dispatching Heisdorf.jpg
+  Author:       Philippe HURLIN
+  Licence:      CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Dispatching_Heisdorf.jpg
+  Restrictions: attribution required; share-alike
+  Modified:     resized to 1600 × 1105 px
+
+groq_lpu
+  Shows:        Groq LPU v1 die
+  Title:        LPU-v1-die.jpg
+  Author:       Avivweinstein
+  Licence:      CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:LPU-v1-die.jpg
+  Restrictions: attribution required; share-alike
+  Modified:     re-encoded at 1280 × 1436 px
+
+h100_cards
+  Shows:        Four NVIDIA H100 PCIe cards side by side
+  Title:        NVIDIA H100 (极客湾Geekerwan) 004.png
+  Author:       极客湾Geekerwan
+  Licence:      CC BY 3.0 (https://creativecommons.org/licenses/by/3.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:NVIDIA_H100_(%E6%9E%81%E5%AE%A2%E6%B9%BEGeekerwan)_004.png
+  Restrictions: attribution required; trademarks visible
+  Modified:     cropped (top band removed to drop the channel watermark), resized to 1920 × 967 px, converted from PNG to JPEG
+
+h100_stack
+  Shows:        Four NVIDIA H100 PCIe cards, stacked
+  Title:        NVIDIA H100 (极客湾Geekerwan) 024.png
+  Author:       极客湾Geekerwan
+  Licence:      CC BY 3.0 (https://creativecommons.org/licenses/by/3.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:NVIDIA_H100_(%E6%9E%81%E5%AE%A2%E6%B9%BEGeekerwan)_024.png
+  Restrictions: attribution required; trademarks visible
+  Modified:     cropped (top band removed to drop the channel watermark), resized to 1920 × 967 px, converted from PNG to JPEG
+
+hgx_b200
+  Shows:        NVIDIA HGX B200 board in a DGX chassis
+  Title:        Nvidia DGX-B200-HGX.jpg
+  Author:       Pokiiri
+  Licence:      CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Nvidia_DGX-B200-HGX.jpg
+  Restrictions: attribution required; share-alike; trademarks visible
+  Modified:     re-encoded at 1920 × 1948 px
+
+hpc_control
+  Shows:        Network operations centre (Batelco, Bahrain)
+  Title:        Batelco Network Operations Centre (NOC).JPG
+  Author:       Masdestructive
+  Licence:      CC BY-SA 3.0 (https://creativecommons.org/licenses/by-sa/3.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Batelco_Network_Operations_Centre_(NOC).JPG
+  Restrictions: attribution required; share-alike; personality rights may apply
+  Modified:     resized to 1600 px wide
+
+hpc_frontier
+  Shows:        Frontier supercomputer, Oak Ridge
+  Title:        Frontier Supercomputer (2).jpg
+  Author:       OLCF at ORNL
+  Licence:      CC BY 2.0 (https://creativecommons.org/licenses/by/2.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Frontier_Supercomputer_(2).jpg
+  Restrictions: attribution required; trademarks visible
+  Modified:     resized to 1280 px wide
+
+hpc_marenostrum5
+  Shows:        MareNostrum 5 supercomputer racks with liquid-cooling lines, Barcelona Supercomputing Center
+  Title:        BSC MareNostrum 5 (54686085845).jpg
+  Author:       Steve Jurvetson
+  Licence:      CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:BSC_MareNostrum_5_(54686085845).jpg
+  Restrictions: attribution required
+  Modified:     resized to 2000 × 1500 px
+
+hpc_summit
+  Shows:        Summit supercomputer, Oak Ridge
+  Title:        Summit (supercomputer).jpg
+  Author:       Carlos Jones/ORNL
+  Licence:      CC BY 2.0 (https://creativecommons.org/licenses/by/2.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Summit_(supercomputer).jpg
+  Restrictions: attribution required; trademarks visible
+  Modified:     re-encoded at 1920 × 1536 px
+
+hq_aalborg
+  Shows:        Aalborg cityscape
+  Title:        Aalborg 2010 - 125 ubt.JPG
+  Author:       Tomasz Sienicki
+  Licence:      CC BY-SA 3.0 (https://creativecommons.org/licenses/by-sa/3.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Aalborg_2010_-_125_ubt.JPG
+  Restrictions: attribution required; share-alike
+  Modified:     resized to 1600 px wide
+
+hq_aarhus
+  Shows:        Aarhus skyline from Aarhus Ø
+  Title:        Aarhus skyline seen from Aarhus Ø.jpg
+  Author:       Kenny Arne Lang Antonsen
+  Licence:      CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Aarhus_skyline_seen_from_Aarhus_%C3%98.jpg
+  Restrictions: attribution required
+  Modified:     resized to 1600 px wide
+
+hq_bucharest
+  Shows:        Bucharest skyline
+  Title:        Bucharest-Skyline-01.jpg
+  Author:       seisdeagosto
+  Licence:      CC BY-SA 2.0 (https://creativecommons.org/licenses/by-sa/2.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Bucharest-Skyline-01.jpg
+  Restrictions: attribution required; share-alike
+  Modified:     re-encoded at 1920 × 1080 px
+
+hq_cluj
+  Shows:        Panorama of Cluj-Napoca
+  Title:        Cluj panorama 2026.jpg
+  Author:       Yerpo
+  Licence:      CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Cluj_panorama_2026.jpg
+  Restrictions: attribution required; share-alike
+  Modified:     cropped, resized to 1600 px wide
+
+hq_copenhagen
+  Shows:        Copenhagen harbour at sunset
+  Title:        Copenhagen Harbour at sunset.jpg
+  Author:       European Commission
+  Licence:      CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Copenhagen_Harbour_at_sunset.jpg
+  Restrictions: attribution required
+  Modified:     resized to 1600 px wide
+
+hq_dk_wind
+  Shows:        Danish offshore wind turbines and a sea fort
+  Title:        Danish Wind Turbines 4890894762.jpg
+  Author:       CGP Grey
+  Licence:      CC BY 2.0 (https://creativecommons.org/licenses/by/2.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Danish_Wind_Turbines_4890894762.jpg
+  Restrictions: attribution required
+  Modified:     resized to 2400 × 1594 px
+
+hq_grenoble
+  Shows:        Grenoble seen from the Bastille
+  Title:        Grenoble, vue de Bastille (1).jpg
+  Author:       Olivier Cleynen
+  Licence:      CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Grenoble,_vue_de_Bastille_(1).jpg
+  Restrictions: attribution required; share-alike
+  Modified:     resized to 1600 px wide
+
+hq_lyon
+  Shows:        Lyon's Part-Dieu district and the Alps
+  Title:        Lyon 1er - Place Bellevue - Vue sur le quartier de La Part-Dieu et les Alpes.jpg
+  Author:       Romainbehar
+  Licence:      CC0 (https://creativecommons.org/publicdomain/zero/1.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Lyon_1er_-_Place_Bellevue_-_Vue_sur_le_quartier_de_La_Part-Dieu_et_les_Alpes.jpg
+  Restrictions: recent architecture (limited freedom of panorama)
+  Modified:     resized to 1600 px wide
+
+hq_milan
+  Shows:        Piazza del Duomo, Milan, at dusk
+  Title:        Piazza del Duomo, Milano, Lombardia, Italia (39707850020).jpg
+  Author:       Romain Pontida
+  Licence:      CC BY-SA 2.0 (https://creativecommons.org/licenses/by-sa/2.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Piazza_del_Duomo,_Milano,_Lombardia,_Italia_(39707850020).jpg
+  Restrictions: attribution required; share-alike
+  Modified:     cropped (left part of the panorama trimmed), resized to 2400 × 964 px
+
+hq_odense
+  Shows:        Odense City Hall
+  Title:        Odense City Hall.jpg
+  Author:       Bo Jessen
+  Licence:      CC0 (https://creativecommons.org/publicdomain/zero/1.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Odense_City_Hall.jpg
+  Restrictions: none
+  Modified:     resized to 1600 px wide
+
+hq_paris
+  Shows:        Paris at sunset from the Eiffel Tower, towards Trocadéro and La Défense
+  Title:        Panorama from the Eiffel Tower at the sunset, Paris 20 April 2013.jpg
+  Author:       Alexander Kachkaev
+  Licence:      CC BY 2.0 (https://creativecommons.org/licenses/by/2.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Panorama_from_the_Eiffel_Tower_at_the_sunset,_Paris_20_April_2013.jpg
+  Restrictions: attribution required
+  Modified:     resized to 2400 × 1031 px
+
+hq_rome
+  Shows:        Rome skyline panorama
+  Title:        Rome skyline panorama.jpg
+  Author:       Nicholas Hartmann
+  Licence:      CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Rome_skyline_panorama.jpg
+  Restrictions: attribution required; share-alike
+  Modified:     cropped, resized to 1600 px wide
+
+hq_turin
+  Shows:        Turin skyline with the Mole Antonelliana
+  Title:        Turin skyline.jpg
+  Author:       Francesco Manzari
+  Licence:      CC BY-SA 2.0 (https://creativecommons.org/licenses/by-sa/2.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Turin_skyline.jpg
+  Restrictions: attribution required; share-alike
+  Modified:     resized to 1600 px wide
+
+hyperscale_campus
+  Shows:        Google data-centre campus, Council Bluffs, Iowa
+  Title:        Google Data Center, Council Bluffs Iowa (49062863796).jpg
+  Author:       Chad Davis
+  Licence:      CC BY 2.0 (https://creativecommons.org/licenses/by/2.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Google_Data_Center,_Council_Bluffs_Iowa_(49062863796).jpg
+  Restrictions: attribution required; trademarks visible
+  Modified:     resized to 2400 × 1350 px
+
+immersion
+  Shows:        Immersion-cooling demonstrator tank with servers (Bauman Moscow State Technical University)
+  Title:        Immersion cooling demonstrator by MGTU im Baumana during the "Armiya 2021" exhibition.jpg
+  Author:       Kirill Borisenko
+  Licence:      CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Immersion_cooling_demonstrator_by_MGTU_im_Baumana_during_the_%22Armiya_2021%22_exhibition.jpg
+  Restrictions: attribution required; share-alike
+  Modified:     cropped (trimmed to the tank), resized to 1600 × 1532 px
+
+industrial_cooling
+  Shows:        Industrial counterflow cooling towers
+  Title:        Industrial Counterflow Cooling Towers.jpg
+  Author:       Perfectvinod
+  Licence:      CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Industrial_Counterflow_Cooling_Towers.jpg
+  Restrictions: attribution required; share-alike
+  Modified:     resized to 1600 px wide
+
+it_robot_lab
+  Shows:        iCub humanoid production lab, IIT Genoa
+  Title:        P058324-119830 (cropped).jpg
+  Author:       Piero Cruciatti - European Commission
+  Licence:      CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:P058324-119830_(cropped).jpg
+  Restrictions: attribution required
+  Modified:     resized to 1600 px wide
+
+it_sapienza
+  Shows:        Faculty of Engineering, Sapienza University of Rome (San Pietro in Vincoli)
+  Title:        Facoltà di Ingegneria - Università La Sapienza - panoramio.jpg
+  Author:       pietro scerrato
+  Licence:      CC BY 3.0 (https://creativecommons.org/licenses/by/3.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Facolt%C3%A0_di_Ingegneria_-_Universit%C3%A0_La_Sapienza_-_panoramio.jpg
+  Restrictions: attribution required
+  Modified:     resized to 1600 × 1278 px
+
+it_turin_lingotto
+  Shows:        Rooftop test track of the former Fiat Lingotto factory, Turin
+  Title:        Visitors' sidewalk along former test track, Lingotto, Turin, Italy.jpg
+  Author:       Hartmut Schmidt Heidelberg
+  Licence:      CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Visitors%27_sidewalk_along_former_test_track,_Lingotto,_Turin,_Italy.jpg
+  Restrictions: attribution required; share-alike
+  Modified:     resized to 1600 px wide
+
+lab_anechoic
+  Shows:        Radio-frequency anechoic chamber, Democritus University of Thrace
+  Title:        Radio-frequency-anechoic-chamber-HDR-0a.jpg
+  Author:       Adamantios
+  Licence:      CC BY-SA 3.0 (https://creativecommons.org/licenses/by-sa/3.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Radio-frequency-anechoic-chamber-HDR-0a.jpg
+  Restrictions: attribution required; share-alike
+  Modified:     resized to 1600 × 1200 px
+
+lab_automation
+  Shows:        Chemical-genomics robot, NIH
+  Title:        Chemical Genomics Robot.jpg
+  Author:       Maggie Bartlett, National Human Genome Research Institute
+  Licence:      Public domain
+  Source:       https://commons.wikimedia.org/wiki/File:Chemical_Genomics_Robot.jpg
+  Restrictions: none
+  Modified:     re-encoded at 1920 × 1274 px
+
+lab_biology
+  Shows:        Tissue-culture work in a biology lab
+  Title:        Tissue Culture.jpg
+  Author:       Orla Keogh
+  Licence:      CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Tissue_Culture.jpg
+  Restrictions: attribution required; personality rights may apply
+  Modified:     resized to 2400 × 1600 px
+
+lab_chemistry
+  Shows:        Graduate chemistry teaching lab
+  Title:        Graduate Chemistry Laboratory (3964339373).jpg
+  Author:       JohnRH4
+  Licence:      CC BY-SA 2.0 (https://creativecommons.org/licenses/by-sa/2.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Graduate_Chemistry_Laboratory_(3964339373).jpg
+  Restrictions: attribution required; share-alike
+  Modified:     resized to 1600 px wide
+
+lab_electronics
+  Shows:        Oscilloscope, multimeter and power supply on a lab bench
+  Title:        Keysight InfiniiVision DSOX 4024A and digital multimeter and power supply in laboratory use.jpg
+  Author:       Radarvector
+  Licence:      CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Keysight_InfiniiVision_DSOX_4024A_and_digital_multimeter_and_power_supply_in_laboratory_use.jpg
+  Restrictions: attribution required; share-alike; trademarks visible
+  Modified:     re-encoded at 1920 × 1578 px
+
+lab_energy
+  Shows:        Prototype battery testing, Oak Ridge
+  Title:        Prototype battery testing (5113771331).jpg
+  Author:       Oak Ridge National Laboratory
+  Licence:      CC BY 2.0 (https://creativecommons.org/licenses/by/2.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Prototype_battery_testing_(5113771331).jpg
+  Restrictions: attribution required; personality rights may apply
+  Modified:     re-encoded at 1920 × 1280 px
+
+lab_materials
+  Shows:        Electron microscope in an R&D lab
+  Title:        Electron microscope in Seagate's R&D lab.jpg
+  Author:       Robert Scoble
+  Licence:      CC BY 2.0 (https://creativecommons.org/licenses/by/2.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Electron_microscope_in_Seagate%27s_R%26D_lab.jpg
+  Restrictions: attribution required; personality rights may apply
+  Modified:     resized to 2400 × 1600 px
+
+lab_physics
+  Shows:        LHC tunnel at CERN
+  Title:        CERN LHC Tunnel1.jpg
+  Author:       Julian Herzog
+  Licence:      CC BY-SA 3.0 (https://creativecommons.org/licenses/by-sa/3.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:CERN_LHC_Tunnel1.jpg
+  Restrictions: attribution required; share-alike
+  Modified:     re-encoded
+
+lab_robotics
+  Shows:        University robotics lab, Seattle
+  Title:        University of Washington - Bill and Melinda Gates Center for CSE - robotics lab 02.jpg
+  Author:       Joe Mabel
+  Licence:      CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:University_of_Washington_-_Bill_and_Melinda_Gates_Center_for_CSE_-_robotics_lab_02.jpg
+  Restrictions: attribution required; share-alike
+  Modified:     resized to 2400 × 1594 px
+
+lab_spectro
+  Shows:        Spectrometer on the CLARA accelerator, Daresbury Laboratory
+  Title:        CLARA Spectrometer, Daresbury Laboratory.jpg
+  Author:       Mystery Ray
+  Licence:      CC0 (https://creativecommons.org/publicdomain/zero/1.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:CLARA_Spectrometer,_Daresbury_Laboratory.jpg
+  Restrictions: none
+  Modified:     resized to 1600 px wide
+
+lab_tem
+  Shows:        Environmental transmission electron microscope, PNNL EMSL
+  Title:        Environmental Transmission Electron Microscope.jpg
+  Author:       Reneegas1
+  Licence:      CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Environmental_Transmission_Electron_Microscope.jpg
+  Restrictions: attribution required; share-alike; personality rights may apply
+  Modified:     resized to 1600 px wide
+
+loc_abilene
+  Shows:        Downtown Abilene, Texas, seen from the Enterprise Building
+  Title:        Abilene from the Enterprise Building.jpg
+  Author:       Flofor15
+  Licence:      CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Abilene_from_the_Enterprise_Building.jpg
+  Restrictions: attribution required; share-alike
+  Modified:     resized to 2400 × 1084 px
+
+loc_quebec
+  Shows:        Beauharnois hydroelectric station on the St. Lawrence, near Montréal
+  Title:        Centrale de Beauharnois - 2014.jpg
+  Author:       Gilles Douaire
+  Licence:      CC BY-SA 2.0 (https://creativecommons.org/licenses/by-sa/2.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Centrale_de_Beauharnois_-_2014.jpg
+  Restrictions: attribution required; share-alike
+  Modified:     resized to 2400 × 1800 px
+
+loc_reykjanes
+  Shows:        Reykjanes geothermal power station, Iceland
+  Title:        Reykjanes power station, taken from the hiking trail Reykjavegur, Iceland 19.jpg
+  Author:       Michal Klajban
+  Licence:      CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Reykjanes_power_station,_taken_from_the_hiking_trail_Reykjavegur,_Iceland_19.jpg
+  Restrictions: attribution required; share-alike
+  Modified:     resized to 2400 × 1361 px
+
+loc_rhone
+  Shows:        Bugey nuclear power plant on the Rhône plain, Ain, France
+  Title:        Centrale du Bugey.jpg
+  Author:       Spiritrespect
+  Licence:      CC BY-SA 3.0 (https://creativecommons.org/licenses/by-sa/3.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Centrale_du_Bugey.jpg
+  Restrictions: attribution required; share-alike
+  Modified:     re-encoded at 1920 × 1279 px
+
+loc_the_dalles
+  Shows:        Google data centre at The Dalles, Oregon, beside the Columbia River hills
+  Title:        Google Datacenter - The Dalles, Oregon (17832143871).jpg
+  Author:       Tony Webster from Minneapolis, Minnesota, United States
+  Licence:      CC BY 2.0 (https://creativecommons.org/licenses/by/2.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Google_Datacenter_-_The_Dalles,_Oregon_(17832143871).jpg
+  Restrictions: attribution required; trademarks visible
+  Modified:     resized to 2400 × 1522 px
+
+mac_studio
+  Shows:        Mac Studio desktop computer (2022)
+  Title:        Mac Studio (2022) front.jpg
+  Author:       Yasu (talk)
+  Licence:      CC BY-SA 3.0 (https://creativecommons.org/licenses/by-sa/3.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Mac_Studio_(2022)_front.jpg
+  Restrictions: attribution required; share-alike; trademarks visible
+  Modified:     resized to 2400 × 1600 px
+
+natlab_bnl
+  Shows:        Brookhaven National Laboratory (aerial)
+  Title:        Aerial View of Brookhaven National Laboratory.jpg
+  Author:       U.S. Department of Energy
+  Licence:      Public domain
+  Source:       https://commons.wikimedia.org/wiki/File:Aerial_View_of_Brookhaven_National_Laboratory.jpg
+  Restrictions: none
+  Modified:     cropped
+
+natlab_ornl
+  Shows:        Oak Ridge National Laboratory (aerial)
+  Title:        Oak Ridge National Laboratory Aerial View.jpg
+  Author:       Oak Ridge Office of Environmental Management, U.S. Department of Energy
+  Licence:      Public domain
+  Source:       https://commons.wikimedia.org/wiki/File:Oak_Ridge_National_Laboratory_Aerial_View.jpg
+  Restrictions: none
+  Modified:     resized to 1600 px wide
+
+network
+  Shows:        Switch rack at the DE-CIX internet exchange
+  Title:        DE-CIX GERMANY - Switch Rack (6218137120).jpg
+  Author:       Stefan Funke from Frankfurt, Germany
+  Licence:      CC BY-SA 2.0 (https://creativecommons.org/licenses/by-sa/2.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:DE-CIX_GERMANY_-_Switch_Rack_(6218137120).jpg
+  Restrictions: attribution required; share-alike; trademarks visible
+  Modified:     re-encoded at 1920 × 1434 px
+
+nuclear
+  Shows:        Cooling tower of the Gösgen nuclear plant
+  Title:        Cooling tower of the Gösgen Nuclear Power Plant, close view, Däniken, Solothurn.jpg
+  Author:       Christian David
+  Licence:      CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Cooling_tower_of_the_G%C3%B6sgen_Nuclear_Power_Plant,_close_view,_D%C3%A4niken,_Solothurn.jpg
+  Restrictions: attribution required; share-alike
+  Modified:     resized to 2400 × 1600 px
+
+nvidia_hq
+  Shows:        NVIDIA headquarters, Santa Clara
+  Title:        NVIDIA Headquarters.jpg
+  Author:       Coolcaesar
+  Licence:      CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:NVIDIA_Headquarters.jpg
+  Restrictions: attribution required; share-alike; trademarks visible
+  Modified:     resized to 2400 × 1468 px
+
+p100_die
+  Shows:        NVIDIA GP100 (Tesla P100) die photograph
+  Title:        Nvidia@16nm@Pascal@GP100@Tesla P100@T Taiwan 1912A1 PN9G70.S6W GP100-897-A1 DSC07797-DSC07839.jpg
+  Author:       Fritzchens Fritz
+  Licence:      CC0 (https://creativecommons.org/publicdomain/zero/1.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Nvidia@16nm@Pascal@GP100@Tesla_P100@T_Taiwan_1912A1_PN9G70.S6W_GP100-897-A1_DSC07797-DSC07839.jpg
+  Restrictions: none
+  Modified:     resized to 2000 × 1333 px
+
+power_battery
+  Shows:        Desert Sunlight battery energy storage system
+  Title:        Desert Sunlight Battery Energy Storage System (52945816430).jpg
+  Author:       Bureau of Land Management California
+  Licence:      Public domain
+  Source:       https://commons.wikimedia.org/wiki/File:Desert_Sunlight_Battery_Energy_Storage_System_(52945816430).jpg
+  Restrictions: none
+  Modified:     resized to 1600 px wide
+
+power_fusion
+  Shows:        Inside the JET tokamak (Joint European Torus)
+  Title:        Joint European Torus (6055833306).jpg
+  Author:       Kevan from London, England
+  Licence:      CC BY 2.0 (https://creativecommons.org/licenses/by/2.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Joint_European_Torus_(6055833306).jpg
+  Restrictions: attribution required
+  Modified:     cropped, resized to 1280 px wide
+
+power_gas
+  Shows:        Combined-cycle gas power plant, Marmaraereğlisi
+  Title:        Marmaraereğlisi Natural Gas Combined Cycle Power Plant.jpg
+  Author:       Harald the Bard
+  Licence:      CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Marmaraere%C4%9Flisi_Natural_Gas_Combined_Cycle_Power_Plant.jpg
+  Restrictions: attribution required; share-alike
+  Modified:     re-encoded
+
+power_geothermal
+  Shows:        Hellisheiði geothermal power plant, Iceland
+  Title:        The Hellisheiði Geothermal Power Plant, 2018, Iceland.jpg
+  Author:       Mathieu Neville
+  Licence:      CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:The_Hellishei%C3%B0i_Geothermal_Power_Plant,_2018,_Iceland.jpg
+  Restrictions: attribution required
+  Modified:     resized to 2400 × 1802 px
+
+power_hydro
+  Shows:        Hoover Dam intake towers
+  Title:        Hoover Dam, Nevada (Arizona-Nevada, USA) -- 2012 -- 6125.jpg
+  Author:       Dietmar Rabich
+  Licence:      CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Hoover_Dam,_Nevada_(Arizona-Nevada,_USA)_--_2012_--_6125.jpg
+  Restrictions: attribution required; share-alike
+  Modified:     cropped, resized to 1280 px wide
+
+power_lines
+  Shows:        High-voltage transmission tower and lines
+  Title:        High voltage transmission tower and lines. Auburn WA.jpg
+  Author:       Ron Clausen
+  Licence:      CC0 (https://creativecommons.org/publicdomain/zero/1.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:High_voltage_transmission_tower_and_lines._Auburn_WA.jpg
+  Restrictions: none
+  Modified:     re-encoded
+
+power_nuclear2
+  Shows:        Cooling towers of a nuclear power plant
+  Title:        Cooling towers of a nuclear power plant.jpg
+  Author:       Vsatinet
+  Licence:      CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Cooling_towers_of_a_nuclear_power_plant.jpg
+  Restrictions: attribution required; share-alike
+  Modified:     resized to 1600 px wide
+
+power_nuclear_build
+  Shows:        Vogtle Units 3 and 4 under construction beside the existing plant, Georgia (aerial, 2011)
+  Title:        Construction at Vogtle Nuclear Plant.jpg
+  Author:       Charles C Watson Jr
+  Licence:      CC BY-SA 3.0 (https://creativecommons.org/licenses/by-sa/3.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Construction_at_Vogtle_Nuclear_Plant.jpg
+  Restrictions: attribution required; share-alike
+  Modified:     resized to 1600 × 1194 px
+
+power_nuclear_control
+  Shows:        Control-room simulator of the Shearon Harris nuclear plant, North Carolina
+  Title:        Shearon Harris Nuclear Power Plant control room.jpg
+  Author:       RadioFan
+  Licence:      CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Shearon_Harris_Nuclear_Power_Plant_control_room.jpg
+  Restrictions: attribution required; share-alike
+  Modified:     cropped (ends of the panorama trimmed), resized to 2304 × 771 px
+
+power_offshore
+  Shows:        Barrow offshore wind farm
+  Title:        Barrow Offshore wind turbines NR.jpg
+  Author:       Andy Dingley (edit: Muhammad)
+  Licence:      CC BY-SA 3.0 (https://creativecommons.org/licenses/by-sa/3.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Barrow_Offshore_wind_turbines_NR.jpg
+  Restrictions: attribution required; share-alike
+  Modified:     resized to 1600 px wide
+
+power_substation_night
+  Shows:        Electrical substation at night, Vääksy
+  Title:        Substation in Vääksy at night.jpg
+  Author:       Unnerving duck
+  Licence:      CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Substation_in_V%C3%A4%C3%A4ksy_at_night.jpg
+  Restrictions: attribution required; share-alike
+  Modified:     resized to 1600 px wide
+
+power_wind
+  Shows:        Roscoe wind farm, West Texas
+  Title:        Roscoe Wind Farm in West Texas.jpg
+  Author:       Matthew T Rader
+  Licence:      CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Roscoe_Wind_Farm_in_West_Texas.jpg
+  Restrictions: attribution required; share-alike
+  Modified:     resized to 1600 px wide
+
+quantum_cryostat
+  Shows:        Quantum-computer cryostat in a lab (Alice & Bob)
+  Title:        Alice and Bob Cryostat.jpg
+  Author:       Nilhope
+  Licence:      CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Alice_and_Bob_Cryostat.jpg
+  Restrictions: attribution required; share-alike
+  Modified:     resized to 1111 px wide
+
+quantum_fridge
+  Shows:        Inside a dilution refrigerator, London Centre for Nanotechnology
+  Title:        Dilution Refrigerator (39016294284).jpg
+  Author:       UCL Mathematical & Physical Sciences from London, UK
+  Licence:      CC BY 2.0 (https://creativecommons.org/licenses/by/2.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Dilution_Refrigerator_(39016294284).jpg
+  Restrictions: attribution required
+  Modified:     resized to 1200 px wide
+
+quantum_ibm
+  Shows:        IBM Quantum System One, Ehningen
+  Title:        IBM Q system (Fraunhofer 2).jpg
+  Author:       IBM Research
+  Licence:      CC BY 2.0 (https://creativecommons.org/licenses/by/2.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:IBM_Q_system_(Fraunhofer_2).jpg
+  Restrictions: attribution required; trademarks visible
+  Modified:     resized to 1600 px wide
+
+rack_rear
+  Shows:        Rear of a server rack at NERSC
+  Title:        Rear of rack at NERSC data center - closeup.jpg
+  Author:       Derrick Coetzee from Berkeley, CA, USA
+  Licence:      CC0 (https://creativecommons.org/publicdomain/zero/1.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Rear_of_rack_at_NERSC_data_center_-_closeup.jpg
+  Restrictions: none
+  Modified:     resized to 1595 × 2400 px
+
+ro_ubb_cluj
+  Shows:        Babeș-Bolyai University headquarters, Cluj-Napoca
+  Title:        Universitatea Babes-Bolyai 2026.jpg
+  Author:       Yerpo
+  Licence:      CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Universitatea_Babes-Bolyai_2026.jpg
+  Restrictions: attribution required; share-alike
+  Modified:     resized to 1600 px wide
+
+ro_univ_bucharest
+  Shows:        University of Bucharest main building
+  Title:        Universitatea din Bucuresti din Piata Universitatii.jpg
+  Author:       claudiu nh from București, România
+  Licence:      CC BY-SA 2.0 (https://creativecommons.org/licenses/by-sa/2.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Universitatea_din_Bucuresti_din_Piata_Universitatii.jpg
+  Restrictions: attribution required; share-alike
+  Modified:     re-encoded
+
+robot_factory
+  Shows:        Robot welding line, BMW Leipzig body shop
+  Title:        BMW Leipzig MEDIA 050719 Download Karosseriebau max.jpg
+  Author:       BMW Werk Leipzig
+  Licence:      CC BY-SA 2.0 de (https://creativecommons.org/licenses/by-sa/2.0/de/)
+  Source:       https://commons.wikimedia.org/wiki/File:BMW_Leipzig_MEDIA_050719_Download_Karosseriebau_max.jpg
+  Restrictions: attribution required; share-alike
+  Modified:     resized to 1600 px wide
+
+robot_humanoid
+  Shows:        Humanoid robots at Science Square Tsukuba
+  Title:        Humanoid robot at Science Square Tsukuba.jpg
+  Author:       Syced
+  Licence:      CC0 (https://creativecommons.org/publicdomain/zero/1.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Humanoid_robot_at_Science_Square_Tsukuba.jpg
+  Restrictions: none
+  Modified:     cropped, resized to 1280 px wide
+
+robot_quadruped
+  Shows:        Boston Dynamics Spot quadruped robot
+  Title:        Spot by Boston Dynamics.jpg
+  Author:       Jonte
+  Licence:      CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Spot_by_Boston_Dynamics.jpg
+  Restrictions: attribution required; share-alike; trademarks visible
+  Modified:     resized to 1600 × 1067 px
+
+robot_robotaxi
+  Shows:        Waymo driverless Jaguar I-Pace robotaxi in San Francisco
+  Title:        Waymo Jaguar I-Pace in San Francisco 2023 dllu.jpg
+  Author:       Dllu
+  Licence:      CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Waymo_Jaguar_I-Pace_in_San_Francisco_2023_dllu.jpg
+  Restrictions: attribution required; trademarks visible
+  Modified:     resized to 1600 × 1200 px
+
+rtx_3090
+  Shows:        RTX 3090 and RTX 4090 graphics cards side by side
+  Title:        Size comparison between RTX 3090 and RTX 4090.jpg
+  Author:       Benlisquare
+  Licence:      CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Size_comparison_between_RTX_3090_and_RTX_4090.jpg
+  Restrictions: attribution required; share-alike; trademarks visible
+  Modified:     re-encoded at 1920 × 1593 px
+
+rtx_4090
+  Shows:        Asus ROG Strix RTX 4090 graphics card
+  Title:        Asus Strix RTX 4090.jpg
+  Author:       Benlisquare
+  Licence:      CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Asus_Strix_RTX_4090.jpg
+  Restrictions: attribution required; share-alike; trademarks visible
+  Modified:     re-encoded at 1920 × 1005 px
+
+rtx_5090
+  Shows:        Palit RTX 5090 graphics card
+  Title:        Palit GeForce RTX 5090 Gamerock 20250530 HOF4166 RAW-Export.png
+  Author:       PantheraLeo1359531
+  Licence:      CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Palit_GeForce_RTX_5090_Gamerock_20250530_HOF4166_RAW-Export.png
+  Restrictions: attribution required; trademarks visible
+  Modified:     resized to 960 px wide
+
+server_room
+  Shows:        Small server room with open racks
+  Title:        Server Room (22397102849).jpg
+  Author:       Carl Lender from Sunrise, USA
+  Licence:      CC BY 2.0 (https://creativecommons.org/licenses/by/2.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Server_Room_(22397102849).jpg
+  Restrictions: attribution required
+  Modified:     resized to 2400 × 1600 px
+
+sf_skyline
+  Shows:        Golden Gate Bridge and San Francisco at blue hour
+  Title:        Golden Gate Bridge and San Francisco skyline from Hawk Hill at Blue Hour dllu.jpg
+  Author:       Daniel L. Lu (user:dllu)
+  Licence:      CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Golden_Gate_Bridge_and_San_Francisco_skyline_from_Hawk_Hill_at_Blue_Hour_dllu.jpg
+  Restrictions: attribution required; share-alike
+  Modified:     cropped, resized to 2400 × 996 px
+
+solar_farm
+  Shows:        Solar farm at Krishnapuram (aerial)
+  Title:        Solar farm at Krishnapuram Tatipudi Water Works aerial view 01.jpg
+  Author:       Saiphani02
+  Licence:      CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Solar_farm_at_Krishnapuram_Tatipudi_Water_Works_aerial_view_01.jpg
+  Restrictions: attribution required; share-alike
+  Modified:     resized to 1600 × 900 px
+
+space_antenna
+  Shows:        Deep Space Network antenna complex, Canberra (aerial)
+  Title:        DSN Canberra complex.jpg
+  Author:       NASA - Jet Propulsion Laboratory
+  Licence:      Public domain
+  Source:       https://commons.wikimedia.org/wiki/File:DSN_Canberra_complex.jpg
+  Restrictions: none
+  Modified:     resized to 1600 px wide
+
+space_apollo_control
+  Shows:        Restored Apollo Mission Control room, Johnson Space Center
+  Title:        20180706 Apollo Mission Control Johnson Space Center 1.jpg
+  Author:       Balon Greyjoy
+  Licence:      CC0 (https://creativecommons.org/publicdomain/zero/1.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:20180706_Apollo_Mission_Control_Johnson_Space_Center_1.jpg
+  Restrictions: none
+  Modified:     resized to 1600 px wide
+
+space_chamber
+  Shows:        Inside NASA Johnson's Chamber A thermal-vacuum test chamber
+  Title:        Ramping Up For Johnson's Chamber A Test (16914892128).jpg
+  Author:       Chris Gunn
+  Licence:      Public domain
+  Source:       https://commons.wikimedia.org/wiki/File:Ramping_Up_For_Johnson%27s_Chamber_A_Test_(16914892128).jpg
+  Restrictions: none
+  Modified:     resized to 1600 px wide
+
+space_cleanroom
+  Shows:        GPM satellite assembly in a NASA Goddard cleanroom
+  Title:        GPM Assembly at NASA Goddard (7217592194).jpg
+  Author:       NASA Goddard Space Flight Center from Greenbelt, MD, USA
+  Licence:      Public domain
+  Source:       https://commons.wikimedia.org/wiki/File:GPM_Assembly_at_NASA_Goddard_(7217592194).jpg
+  Restrictions: personality rights may apply
+  Modified:     resized to 1600 px wide
+
+space_mirror
+  Shows:        James Webb Space Telescope mirror segments before cryogenic testing, Marshall
+  Title:        James Webb Primary Mirror.jpg
+  Author:       NASA/MSFC/David Higginbotham
+  Licence:      Public domain
+  Source:       https://commons.wikimedia.org/wiki/File:James_Webb_Primary_Mirror.jpg
+  Restrictions: personality rights may apply
+  Modified:     resized to 1600 px wide
+
+space_mission_control
+  Shows:        ESA ESOC mission control room, Darmstadt
+  Title:        ESOC control room ESA272863.jpg
+  Author:       European Space Agency
+  Licence:      CC BY-SA 3.0 igo (https://creativecommons.org/licenses/by-sa/3.0/igo/)
+  Source:       https://commons.wikimedia.org/wiki/File:ESOC_control_room_ESA272863.jpg
+  Restrictions: attribution required; share-alike; personality rights may apply
+  Modified:     resized to 1600 px wide
+
+stock_exchange
+  Shows:        Trading floor of the Frankfurt Stock Exchange
+  Title:        Frankfurt Stock Exchange (Ank Kumar) 03.jpg
+  Author:       Ank Kumar
+  Licence:      CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Frankfurt_Stock_Exchange_(Ank_Kumar)_03.jpg
+  Restrictions: attribution required; share-alike; trademarks visible
+  Modified:     resized to 2400 × 1600 px
+
+substation
+  Shows:        Electrical substation transformer, Muurame
+  Title:        Muurame electrical substation transformer.jpg
+  Author:       Antti Leppänen
+  Licence:      CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Muurame_electrical_substation_transformer.jpg
+  Restrictions: attribution required
+  Modified:     resized to 2400 × 1600 px
+
+supercomputer
+  Shows:        Sierra supercomputer, Lawrence Livermore
+  Title:        Sierra Supercomputer (48002385338).jpg
+  Author:       U.S. Department of Energy from United States
+  Licence:      Public domain
+  Source:       https://commons.wikimedia.org/wiki/File:Sierra_Supercomputer_(48002385338).jpg
+  Restrictions: none
+  Modified:     resized to 2400 × 1600 px
+
+tesla_p40
+  Shows:        NVIDIA Tesla P40 board with heatsink removed
+  Title:        Nvidia P40 with Heatsink Removed.jpg
+  Author:       Tim Sheerman-Chase
+  Licence:      CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Nvidia_P40_with_Heatsink_Removed.jpg
+  Restrictions: attribution required; trademarks visible
+  Modified:     resized to 2400 × 1600 px
+
+tpu_v3
+  Shows:        Google TPU v3 board
+  Title:        Tensor Processing Unit 3.0.jpg
+  Author:       Zinskauf
+  Licence:      CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Tensor_Processing_Unit_3.0.jpg
+  Restrictions: attribution required; share-alike; trademarks visible
+  Modified:     re-encoded at 1920 × 1369 px
+
+tpu_v4
+  Shows:        Google TPU v4 board (from the TPU v4 paper)
+  Title:        TPU v4 (cropped).png
+  Author:       Norman P. Jouppi, George Kurian, Sheng Li, Peter Ma, Rahul Nagarajan, Lifeng Nai, Nishant Patil, Suvinay  Subramanian, Andy Swing, Brian Towles, Cliff Young, Xiang Zhou, Zongwei Zhou, and David Patterson
+  Licence:      CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:TPU_v4_(cropped).png
+  Restrictions: attribution required
+  Modified:     resized to 960 px wide, converted to JPEG
+
+uae_barakah
+  Shows:        Barakah nuclear power plant under construction, Abu Dhabi, UAE (2017)
+  Title:        Barakah nuclear power plant.jpg
+  Author:       Wikiemirati
+  Licence:      CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:Barakah_nuclear_power_plant.jpg
+  Restrictions: attribution required; share-alike
+  Modified:     re-encoded at 1920 × 1547 px
+
+wafer
+  Shows:        12-inch silicon wafer with patterned dies
+  Title:        12-inch silicon wafer.jpg
+  Author:       Peellden
+  Licence:      CC BY-SA 3.0 (https://creativecommons.org/licenses/by-sa/3.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:12-inch_silicon_wafer.jpg
+  Restrictions: attribution required; share-alike
+  Modified:     re-encoded at 1920 × 1920 px
+
+wafer_closeup
+  Shows:        Close-up of dies on a silicon wafer
+  Title:        5C2A5953R - 49913961083 – Silicon Wafer 20200519.jpg
+  Author:       Rob Bulmahn
+  Licence:      CC BY 2.0 (https://creativecommons.org/licenses/by/2.0/)
+  Source:       https://commons.wikimedia.org/wiki/File:5C2A5953R_-_49913961083_%E2%80%93_Silicon_Wafer_20200519.jpg
+  Restrictions: attribution required
+  Modified:     resized to 2000 × 1333 px

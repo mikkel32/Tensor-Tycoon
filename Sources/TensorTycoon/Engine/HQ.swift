@@ -36,8 +36,10 @@ struct HQState: Codable, DefaultValue {
     @D var contractRevenue: Double = 0
     /// Priority GPU hours paid out by compute centres you co-fund, so far.
     @D var partnerCredits: Double = 0
-    /// The last monthly tax settlement as the tax code saw it: pre-tax profit, the tax charged (after relief and any
-    /// minimum-tax top-up) and the R&D relief (harness and scenario checks; the books close more after it).
+    /// The last monthly tax settlement as the tax code saw it: pre-tax profit, the taxable profit after losses carried
+    /// forward, the tax charged (after relief and any minimum-tax top-up) and the R&D relief (harness and scenario
+    /// checks; the books close more after it).
+    @D var taxProfit: Double = 0
     @D var taxBase: Double = 0
     @D var taxCharged: Double = 0
     @D var taxRelief: Double = 0
@@ -169,30 +171,31 @@ enum HQ {
         s.employees.filter { $0.role != .sales }.reduce(0) { $0 + $1.salary } / 12 * payrollFactor(s) * max(0.5, 1 + s.traits.payroll)
     }
 
-    /// The month's tax: corporate tax on profit, less the R&D relief the home country's scheme allows this month, plus
-    /// any minimum-tax top-up.
+    /// The month's tax: corporate tax on profit after losses carried forward, less the R&D relief the home country's
+    /// scheme allows this month, plus any minimum-tax top-up. Added to the month's taxes (a transfer-pricing audit
+    /// settled earlier in the month stays booked).
     static func settleTaxes(_ s: inout GameState, pre: Double) {
-        if isDefault(s) {
-            s.hq.taxBase = pre
-            s.hq.taxCharged = pre > 0 ? pre * 0.21 : 0
-            s.hq.taxRelief = 0
-            if pre > 0 {
-                let tax = pre * 0.21
-                s.month.taxes = tax
-                s.cash -= tax
+        let split = taxableAfterLosses(pre, pool: s.corp.lossPool)
+        s.corp.lossPool = split.pool
+        let tax = split.taxable * taxRate(s)
+        var net = tax
+        var relief = 0.0
+        if !isDefault(s) {
+            let c = country(s)
+            relief = rdRelief(&s, tax: tax, pre: pre)   // 3.4 overhaul: the real scheme, its caps and carry-forward
+            net = tax - relief + minimumTaxDue(&s, tax: tax - relief)   // 3.4 overhaul: Romania's minimum turnover tax
+            s.hq.rdCredits += relief
+            // A loss surrendered for Denmark's tax credit is paid out, so it isn't carried forward as well.
+            if pre < 0 && c.rdScheme == .lossRefund && relief > 0 {
+                s.corp.lossPool = max(0, s.corp.lossPool - relief / c.corporateTax)
             }
-            return
         }
-        let c = country(s)
-        let tax = max(0, pre) * c.corporateTax
-        let relief = rdRelief(&s, tax: tax, pre: pre)   // 3.4 overhaul: the real scheme, its caps and carry-forward
-        let net = tax - relief + minimumTaxDue(&s, tax: tax - relief)   // 3.4 overhaul: Romania's minimum turnover tax
-        s.hq.rdCredits += relief
-        s.hq.taxBase = pre
+        s.hq.taxProfit = pre
+        s.hq.taxBase = split.taxable
         s.hq.taxCharged = net
         s.hq.taxRelief = relief
         guard net != 0 else { return }
-        s.month.taxes = net
+        s.month.taxes += net
         s.cash -= net
     }
 
@@ -282,6 +285,14 @@ enum HQ {
                  "Turnover of \(Fmt.money(turnover)) in \(year) is over €50M, so the profit tax can't be less than 1% of it. Profit tax paid for the year: \(Fmt.money(paid)).",
                  .finance, good: false)
         return due
+    }
+
+    /// Profit left to tax once losses carried forward are used, and the pool afterwards: a loss adds to the pool,
+    /// a profit uses it up first.
+    static func taxableAfterLosses(_ pre: Double, pool: Double) -> (taxable: Double, pool: Double) {
+        if pre <= 0 { return (0, pool - pre) }
+        let used = min(pool, pre)
+        return (pre - used, pool - used)
     }
 
     // MARK: People

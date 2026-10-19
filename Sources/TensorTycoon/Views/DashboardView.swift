@@ -120,7 +120,8 @@ private struct TodayHeader: View {
         let day = GameCalendar.daysBetween(s.startDate, s.date) + 1
         let change = Agenda.revenueChange(s)
         VStack(spacing: 12) {
-            HeroBanner(image: heroImage(s), height: 150) {
+            // Your biggest site or your office: a stand-in photo, never the real thing.
+            HeroBanner(image: heroImage(s), height: 150, illustrative: true) {
                 HStack(alignment: .bottom) {
                     CompanyLogo(symbol: s.logoSymbol, color: Theme.logoColor(s.logoColor), size: 52)
                     VStack(alignment: .leading, spacing: 4) {
@@ -657,6 +658,14 @@ private struct BusinessCard: View {
     let state: GameState
     let derived: Derived
 
+    /// Last month's revenue, and the demand your go-to-market couldn't book (3.8).
+    private func profitDetail(_ last: MonthRecord?) -> String {
+        guard let last else { return "No month closed yet" }
+        var t = "Revenue \(Fmt.money(last.revenue))"
+        if last.revUnbooked > 1 { t += " · \(Fmt.money(last.revUnbooked)) unbooked" }
+        return t
+    }
+
     var body: some View {
         let s = state
         let d = derived
@@ -665,8 +674,12 @@ private struct BusinessCard: View {
         let best = d.board.filter(\.isPlayer).max { $0.index < $1.index }
         Collapsible("Business at a glance", symbol: "square.grid.2x2.fill", subtitle: "Users, tokens, seats and the rest", key: "business", open: true) {
             KPIRow(minWidth: 190) {
-                StatTile(title: "Last month's profit", value: signedMoney(profit), detail: last.map { "Revenue \(Fmt.money($0.revenue))" } ?? "No month closed yet",
+                StatTile(title: "Last month's profit", value: signedMoney(profit), detail: profitDetail(last),
                          symbol: profit >= 0 ? "arrow.up.forward" : "arrow.down.forward", tint: profit >= 0 ? Theme.good : Theme.warning)
+                let cap = Commercial.capacity(s)
+                StatTile(title: "You can book", value: "\(Fmt.money(cap.cap))/mo",
+                         detail: "API, chat, agents, contracts · limited by \(cap.limit.title)", symbol: "person.badge.plus",
+                         tint: (last?.revUnbooked ?? 0) > 1 ? Theme.warning : Theme.good)
                 StatTile(title: "Chat users", value: Fmt.count(s.consumerUsers), detail: "\(Fmt.count(s.paidUsers)) paying", symbol: "person.2.fill", tint: .pink)
                 StatTile(title: "API tokens a day", value: Fmt.count(s.models.reduce(0) { $0 + $1.servedTokensDay }),
                          detail: "Reliability \(Fmt.pct(s.reliability, decimals: 0))", symbol: "bolt.horizontal.fill", tint: .teal)
@@ -946,7 +959,8 @@ struct RevenueChart: View, Equatable {
              Bar(month: m.month, kind: "Product lines", value: m.revOther),
              Bar(month: m.month, kind: "Agents", value: m.revAgents),
              Bar(month: m.month, kind: "Compute & chips", value: m.revCloud + m.revChips),
-             Bar(month: m.month, kind: "Labor & licensing", value: m.revLabor + m.revLicensing)]
+             Bar(month: m.month, kind: "Labor & licensing", value: m.revLabor + m.revLicensing),
+             Bar(month: m.month, kind: "Contracts & divisions", value: m.revContracts + m.revGroup)]
         }
         if history.allSatisfy({ $0.revenue == 0 && $0.opex == 0 }) {
             EmptyStateView(symbol: "chart.bar", title: "No numbers yet", message: "Revenue and costs appear here as the weeks go by.")
@@ -964,7 +978,8 @@ struct RevenueChart: View, Equatable {
                 }
             }
             .chartForegroundStyleScale(["API": Color.teal, "Consumer": Color.pink, "Enterprise": Color.indigo, "Product lines": Color.mint,
-                                        "Agents": Color.orange, "Compute & chips": Color.green, "Labor & licensing": Color.purple])
+                                        "Agents": Color.orange, "Compute & chips": Color.green, "Labor & licensing": Color.purple,
+                                        "Contracts & divisions": Color.brown])
             .chartYAxis { AxisMarks { v in AxisGridLine(); AxisValueLabel { if let d = v.as(Double.self) { Text(Fmt.money(d, decimals: 0)) } } } }
             .chartLegend(position: .bottom, alignment: .leading)
         }

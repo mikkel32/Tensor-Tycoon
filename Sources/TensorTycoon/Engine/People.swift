@@ -188,15 +188,15 @@ enum Events {
                         amount: fine, ref: m.id.uuidString)
         }
 
-        // EU AI Act: near-frontier models without evals. Models trained from 3.4 on need their own evaluation stage;
-        // older ones count as evaluated once the lab has the research.
+        // EU AI Act: near-frontier models without evals. Models trained from 3.4 on need their own evaluation stage (or
+        // evaluations commissioned afterwards); older ones count as evaluated once the lab has the research.
         if s.market.euAIAct,
-           released.contains(where: { $0.c > Macro.frontier(y) - 0.4 && !($0.evaluated || (!$0.archV2 && s.researched.contains("evals_rsp"))) }),
+           released.contains(where: { $0.c > Macro.frontier(y) - 0.4 && !Evaluations.isEvaluated(s, $0) }),
            s.rng.chance(0.2) {
             let fine = max(2e6, Economy.runRate(s) * 0.03) * Policy.fineFactor(s)
             s.cash -= fine
             s.month.costOther += fine
-            Sim.news(&s, "EU fines \(s.companyName) \(Fmt.money(fine))", "Your general-purpose model shipped without the required risk evaluations. Research Dangerous-Capability Evals to comply.",
+            Sim.news(&s, "EU fines \(s.companyName) \(Fmt.money(fine))", s.researched.contains("evals_rsp") ? "Your general-purpose model shipped without the required risk evaluations. Commission evaluations for it from the Models screen, or train with the evaluation stage." : "Your general-purpose model shipped without the required risk evaluations. Research Dangerous-Capability Evals to comply.",
                      .policy, important: true, good: false)
         }
 
@@ -335,6 +335,7 @@ enum Events {
                 markLawsuit(&s, d.ref)
                 Sim.news(&s, "You won the copyright case", "The judge ruled training was fair use. Legal fees: \(Fmt.money(d.amount * 0.05)).", .policy, good: true)
                 s.cash -= d.amount * 0.05
+                s.month.costOther += d.amount * 0.05   // 3.8: legal fees are costs
             } else {
                 s.cash -= d.amount * 2
                 s.month.costOther += d.amount * 2

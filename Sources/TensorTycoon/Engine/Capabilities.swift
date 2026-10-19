@@ -264,6 +264,7 @@ enum Capabilities {
             guard let item = ResearchCatalog.byID[tech], item.year <= y + 0.3, let fx = effectsByID[tech] else { continue }
             for (d, v) in fx { e[d.index] += v }
         }
+        for (d, v) in Science.rivalKnowHow(s, lab: lab, at: y) { e[d.index] += v }   // their science results, and what you published
         return e
     }
 

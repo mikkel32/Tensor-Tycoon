@@ -392,6 +392,7 @@ enum Training {
     // MARK: Daily
 
     static func daily(_ s: inout GameState, _ b: ResearchBonuses) {
+        Evaluations.daily(&s)
         for i in s.runs.indices where s.runs[i].status == .running || s.runs[i].status == .postTraining {
             let d = s.runs[i].design
             guard let accel = HardwareCatalog.get(d.accelID) else { continue }

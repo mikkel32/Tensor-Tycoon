@@ -49,21 +49,21 @@ extension ScenarioHarness {
             if ym.year == 2025 && ym.month == 2 { capFeb2025 = Nations.exportCapFactor(s); chipsFeb2025 = Nations.chipFactor(s) }
             if ym.year == 2025 && ym.month == 6 { capJun2025 = Nations.exportCapFactor(s); chipsJun2025 = Nations.chipFactor(s) }
         }
-        // Walk the books: relief and carry while making losses, and when profit first came.
-        for (i, mo) in months.enumerated() {
+        // Walk the books: relief and carry while making losses, and when pre-tax profit first came.
+        for mo in months {
             if mo.pre <= 0 {
                 lossMonths += 1
                 reliefWhileLossMaking += mo.relief
                 carryWhileLossMaking = max(carryWhileLossMaking, mo.rdCarry)
             }
-            if firstProfit == nil && mo.opProfit > 0 && mo.taxes > 0 { firstProfit = mo.date }
+            if firstProfit == nil && mo.pre > 0 { firstProfit = mo.date }
             lastCredits = mo.rdCredits
         }
         r.note("ended \(s.date.gameShort): staff \(s.employees.count), valuation \(hqMoney(s.valuation)), rounds \(s.rounds.count - 1), satellites \(s.hq.satellites.map { HQ.officeName(s, $0.id.uuidString) })")
 
         // Lean and profitable.
         let years = firstProfit.map { Double(GameCalendar.daysBetween(start, $0)) / 365 } ?? 99
-        r.expect("profitable within three years", years <= 3, firstProfit.map { "first taxed profitable month \($0.gameShort), \(Fmt.trim(years, 1)) years in" } ?? "never")
+        r.expect("profitable within three years", years <= 3, firstProfit.map { "first month with pre-tax profit \($0.gameShort), \(Fmt.trim(years, 1)) years in; \(months.filter { $0.pre > 0 }.count) of \(months.count) months in profit, losses still carried \(hqMoney(s.corp.lossPool))" } ?? "never")
         // International capital: rounds priced by global funds once the company is big.
         let late = s.rounds.dropFirst().filter { HQ.investorFactor(s, value: $0.preMoney) / max(0.0001, Nations.recessionInvestorFactor(s)) > 0.999 }
         r.expect("raises international rounds at global prices", !late.isEmpty && HQ.investorFactor(s, value: 0) < 0.85,

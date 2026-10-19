@@ -99,12 +99,24 @@ enum ScenarioHarness {
         }
     }
 
+    /// Tops cash up to `floor` as new equity, so a scenario can keep playing without leaving the books unexplained.
+    static func fund(_ s: inout GameState, atLeast floor: Double) {
+        let add = floor - s.cash
+        guard add > 0 else { return }
+        s.cash += add
+        Books.post(&s, .equity, add)
+    }
+
     /// Checks every scenario makes: the game is still running and its numbers are finite.
     static func sanity(_ s: GameState, _ r: inout Report) {
         r.expect("game still running", s.gameOver == nil, s.gameOver ?? "")
         r.expect("cash and valuation finite", s.cash.isFinite && s.valuation.isFinite, "cash \(s.cash), valuation \(s.valuation)")
         r.expect("models finite", s.models.allSatisfy { $0.c.isFinite && $0.index.isFinite })
         r.expect("rival books finite", s.competitors.allSatisfy { $0.cash.isFinite && $0.valuation.isFinite })
+        // 3.8: the last closed month's cash is fully explained by its income statement, capex and categorised flows.
+        if let last = s.history.last, let res = Books.residual(s) {
+            r.expect("books reconcile", abs(res) <= Books.tolerance(last.cashEnd), "\(Fmt.money(res)) of cash unexplained in \(last.month.gameMonth)")
+        }
     }
 
     static func pending(_ id: String) -> Report {

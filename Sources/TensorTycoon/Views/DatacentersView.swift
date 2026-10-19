@@ -266,7 +266,8 @@ private struct SiteCard: View {
                 .overlay(alignment: .topTrailing) {
                     if !ready {
                         PhotoPill(text: "\(site.kind == .colo ? "Handed over" : "Online") \(site.ready.gameShort)", color: .orange, symbol: "hammer.fill").padding(10)
-                    } else if site.kind != .garage {
+                    } else {
+                        // Your garage too: the photo is somebody else's converted garage.
                         PhotoPill(text: "Illustrative photo", symbol: "photo").padding(10)
                     }
                 }
@@ -1020,6 +1021,7 @@ struct BuildSiteSheet: View {
                     Button { locationID = l.id } label: {
                         VStack(alignment: .leading, spacing: 0) {
                             Photo(key: l.image).frame(height: 60).frame(maxWidth: .infinity).clipped()
+                                .illustrativePhoto(!l.photoShowsPlace, key: l.image)
                             VStack(alignment: .leading, spacing: 2) {
                                 HStack {
                                     Text(l.name).font(.callout.weight(.semibold)).lineLimit(1)

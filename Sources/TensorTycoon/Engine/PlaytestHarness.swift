@@ -8,8 +8,9 @@ import Foundation
 /// flags (comma-separated, optional): cautious (20% of cash per run, current-gen chips only, slow hiring, no research
 /// compute, no growth rounds), norent (never rents: garage GPUs only), hard / easy (difficulty), noresearchcompute,
 /// autorollback, noquick, hq=<country>[:<city>] (headquarters, e.g. hq=fr:grenoble; unknown places print a warning),
-/// lean (half the usual training budget: smaller models), coding (specialist coding models), fillroles (when nobody
-/// fits the role furthest below its share, hire for the next short role instead of nobody).
+/// lean (half the usual training budget: smaller models), coding (specialist coding models), advproj (government
+/// programmes), science (science labs), data (the data economy: datasets, annotation, synthetic data, processing),
+/// fillroles (when nobody fits the role furthest below its share, hire for the next short role instead of nobody).
 ///
 /// Output: a monthly table (every 3rd month unless mode is `full`), an event log, every training run (plan vs actual
 /// days, forecast vs actual capability), a summary of pacing metrics, and `CSV,` rows for offline aggregation.
@@ -150,6 +151,10 @@ struct PTSummary {
     var idleAvg = 0.0
     /// 3.7: company stages reached, with the month of the game.
     var stages: [String] = []
+    /// 3.8: the largest month-close cash residual (Books.residual) and its month; the crises the game went through.
+    var worstResidual = 0.0
+    var worstResidualLabel = "-"
+    var crises: [String] = []
 }
 
 struct PTBot {
@@ -228,19 +233,23 @@ enum PTPlay {
         var idleChipDays = 0.0, rentedChipDays = 0.0
         let researched0 = s.researched.count
 
-        if mode != "quiet" {
+        if mode != "quiet" && mode != "silent" {
             print("\n================ \(era) era · seed \(seed) · \(Int(years)) years ================")
             let top = Leaderboard.entries(s, includeUnreleased: false).max { $0.index < $1.index }
             print("Start \(s.date.gameShort) in \(HQ.place(s)): cash \(m(s.cash)), \(s.owned.first.map { "\($0.count)× \($0.accelID)" } ?? "no chips"), \(s.employees.count) staff, "
                   + "world #1 \(top.map { "\($0.model) idx \(Fmt.score($0.index))" } ?? "NONE (empty leaderboard)"), frontier c \(Fmt.trim(Macro.frontier(s.year), 2))")
         }
 
+        let traceBooks = flags.contains("books")   // 3.8: print every step that moves cash the books can't explain
+        var ledger = traceBooks ? ledgerTotal(s) : 0
         act(&s, &bot)
+        if traceBooks { ledgerTrace(s, &ledger, "start actions") }
         for _ in 0..<totalDays {
             let month = s.date.ym
             let newsBefore = s.unreadNews
             let actionsBefore = bot.actions
             Sim.advanceDay(&s)
+            if traceBooks { ledgerTrace(s, &ledger, "day") }
             var stopped: String? = nil
             if s.pauseRequested {
                 s.pauseRequested = false
@@ -266,8 +275,10 @@ enum PTPlay {
                 decided += 1
             }
             resolve(&s, &bot)
+            if traceBooks { ledgerTrace(s, &ledger, "decisions") }
             if s.gameOver != nil { break }
             act(&s, &bot)
+            if traceBooks { ledgerTrace(s, &ledger, "actions") }
             if bot.actions == actionsBefore && decided == 0 { idle += 1 }
             for p in Economy.pools(s) where p.rented > 0 {
                 rentedChipDays += Double(p.rented)
@@ -337,15 +348,41 @@ enum PTPlay {
         sum.newsAvg = rows.isEmpty ? 0 : Double(rows.reduce(0) { $0 + $1.worldNews }) / Double(rows.count)
         sum.importantAvg = rows.isEmpty ? 0 : Double(rows.reduce(0) { $0 + $1.important }) / Double(rows.count)
 
+        if let w = Books.worstResidual(s) { sum.worstResidual = w.amount; sum.worstResidualLabel = w.month.gameMonth }   // 3.8
+        sum.crises = (s.corp.cycle.past.reversed() + s.corp.cycle.active).map { "\($0.kind.rawValue) \($0.start.gameMonth)–\($0.end.gameMonth) (\(Fmt.trim($0.severity, 2)))" }
         sum.stages = s.progression.reached.sorted { $0.key < $1.key }.map { k, v in
             "\(CompanyStage(rawValue: k)?.title ?? "?") \(Fmt.trim(Double(d(start, v)) / 30.44, 0))mo"
         }   // 3.7
-        if mode != "quiet" { printGame(rows, sum, bot, s, mode: mode) }
-        if mode != "quiet" || flags.contains(where: { $0.hasPrefix("hq=") }) { print(hqSummary(s)) }   // 3.4 overhaul
-        if flags.contains("advproj") { for line in AdvancedProjects.report(s) { print(line) } }
-        if flags.contains("science") { scienceSummary(s, seed: seed) }
+        if mode != "quiet" && mode != "silent" { printGame(rows, sum, bot, s, mode: mode) }
+        if mode != "silent" {   // `silent`: harnesses that only want the final state
+            if mode != "quiet" || flags.contains(where: { $0.hasPrefix("hq=") }) { print(hqSummary(s)) }   // 3.4 overhaul
+            if flags.contains("booking") {   // 3.8: what the go-to-market booked and turned away, month by month
+                for h in s.history where h.commercialRevenue > 0 || h.revUnbooked > 0 {
+                    print("BOOK \(h.month.gameMonth): booked \(m(h.commercialRevenue)) · unbooked \(m(h.revUnbooked)) (\(h.bookingLimit.isEmpty ? "-" : h.bookingLimit)) · staff \(h.headcount) · API share \(Fmt.pct(h.apiShare, decimals: 1))")
+                }
+            }
+            if flags.contains("advproj") { for line in AdvancedProjects.report(s) { print(line) } }
+            if flags.contains("science") { scienceSummary(s, seed: seed) }
+            if flags.contains("data") { dataSummary(s, seed: seed) }
+        }
         lastState = s
         return sum
+    }
+
+    // MARK: Books (3.8)
+
+    /// Everything the books haven't explained since the game began: closed months' residuals plus the open month's.
+    static func ledgerTotal(_ s: GameState) -> Double {
+        s.history.reduce(0) { $0 + (Books.residual($1, cashEnd: $1.cashEnd) ?? 0) } + (Books.openResidual(s) ?? 0)
+    }
+
+    /// Prints a step that moved cash without a matching entry, with the day's headlines to say what it was.
+    static func ledgerTrace(_ s: GameState, _ last: inout Double, _ step: String) {
+        let now = ledgerTotal(s)
+        defer { last = now }
+        guard abs(now - last) > Books.tolerance(s.cash) else { return }
+        let today = s.news.prefix { $0.date >= GameCalendar.addDays(s.date, -1) }.prefix(4).map(\.title).joined(separator: " | ")
+        print("LEDGER \(s.date.gameShort) [\(step)] unexplained \(Fmt.money(now - last)) (cash \(Fmt.money(s.cash))) · \(today)")
     }
 
     // MARK: Monthly row
@@ -479,6 +516,7 @@ enum PTPlay {
             if bot.flags.contains("advproj") { AdvancedProjects.botAct(&s) }   // 3.5: bid on one government contract at a time
             if bot.flags.contains("science") { science(&s) }   // 3.6: science labs (only with the flag)
         }
+        if bot.flags.contains("data") { dataBot(&s) }   // data economy: datasets, annotation, synthetic data, processing (only with the flag)
     }
 
     /// Make sure `n` chips of `id` are free, renting on demand if needed. Returns the free count afterwards.
@@ -829,6 +867,12 @@ enum PTPlay {
                 if order.isEmpty || (left[k].gap > 0 && bot.flags.contains("fillroles")) { order.append(left[k].role) }
                 left.remove(at: k)
             }
+            // 3.8: when the team is what holds bookings back, the first hire is a salesperson.
+            if hired.isEmpty, s.history.last?.bookingLimit == Commercial.Limit.team.rawValue, s.candidates.contains(where: { $0.role == .sales }) {
+                order.removeAll { $0 == .sales }
+                order.insert(.sales, at: 0)
+                if !bot.flags.contains("fillroles") { order = [.sales] }
+            }
             var pick: Candidate? = nil
             for role in order {
                 let pool = s.candidates.filter { c in
@@ -1057,6 +1101,7 @@ enum PTPlay {
         print("  min cash \(m(sum.minCash)) (\(sum.minCashLabel)) · days cash<0: \(sum.daysNegative) · raises \(sum.raises) for \(m(sum.raised)) · lowball term sheets declined \(sum.lowballs) · acquisition offers \(sum.acqOffers) (best \(m(sum.acqBest)))")
         print("  bot actions/mo \(Fmt.trim(sum.actionsAvg, 1)) · days/mo with nothing to do \(Fmt.trim(sum.idleAvg, 1)) · candidate designs skipped for goodput<60%: \(sum.lowGoodputSkips) · stalled runs cancelled: \(sum.cancelledStalls) · days waiting because nothing beats current model: \(sum.ceilingDays)")
         print("  valuation month-on-month: max jump ×\(Fmt.trim(sum.maxValJump, 1)), max drop \(Fmt.pct(sum.maxValDrop, decimals: 0)) · peak fleet \(sum.maxChips) chips (\(sum.maxChipsWhat))")
+        print("  books: worst month-close cash residual \(Fmt.money(sum.worstResidual)) (\(sum.worstResidualLabel)) · crises: \(sum.crises.isEmpty ? "none" : sum.crises.joined(separator: ", "))")   // 3.8
         for n in sum.notes.prefix(12) { print("  note: \(n)") }
         let top = sum.kinds.sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }.prefix(10).map { "\($0.key) \($0.value)" }.joined(separator: ", ")
         print("  decisions: \(sum.decisionsTotal) (\(Fmt.trim(Double(sum.decisionsTotal) / Double(max(1, sum.months)), 2))/mo, max \(sum.decisionMax) in \(sum.decisionMaxLabel)) · \(top)")
@@ -1087,6 +1132,8 @@ enum PTPlay {
         for s in all { for (k, v) in s.kinds { kinds[k, default: 0] += v } }
         print("  decision kinds: " + kinds.sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }.map { "\($0.key) \($0.value)" }.joined(separator: ", "))
         print("  end valuations \(all.map { m($0.end.valuation) }) · end rev/mo \(all.map { m($0.end.revenue) }) · end rank \(all.map(\.end.rank))")
+        print("  worst cash residual \(all.map { m($0.worstResidual) }) · max valuation jump \(all.map { "×" + Fmt.trim($0.maxValJump, 1) }) · min cash \(all.map { m($0.minCash) })")   // 3.8
+        print("  crises: " + all.map { "[" + $0.crises.joined(separator: ", ") + "]" }.joined(separator: " "))
         print("  stages reached: " + all.map { "[" + $0.stages.joined(separator: ", ") + "]" }.joined(separator: " "))   // 3.7
         var stops: [Int: Int] = [:], days: [Int: Int] = [:], causes: [String: Int] = [:]
         for s in all {

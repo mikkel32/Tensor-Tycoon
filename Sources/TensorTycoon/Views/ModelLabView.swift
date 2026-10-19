@@ -4,11 +4,16 @@ import SwiftUI
 struct LogSlider: View {
     @Binding var value: Double
     let range: ClosedRange<Double>
+    /// What VoiceOver reads: a log slider's raw position means nothing, so name it and say its value in units.
+    var label = "Amount"
+    var valueText = ""
 
     var body: some View {
         Slider(value: Binding(get: { log10(clamp(value, range.lowerBound, range.upperBound)) },
                               set: { value = pow(10, $0) }),
                in: log10(range.lowerBound)...log10(range.upperBound))
+            .accessibilityLabel(label)
+            .accessibilityValue(valueText.isEmpty ? Fmt.trim(value, 2) : valueText)
     }
 }
 
@@ -402,7 +407,7 @@ struct ModelLabView: View {
                             Spacer()
                             Text(Fmt.params(design.paramsB)).font(.body.monospacedDigit().weight(.semibold))
                         }
-                        LogSlider(value: $design.paramsB, range: 0.05...paramCap)
+                        LogSlider(value: $design.paramsB, range: 0.05...paramCap, label: "Total parameters", valueText: Fmt.params(design.paramsB))
                         if design.isMoE {
                             Text("\(Fmt.params(design.activeParamsB)) active per token").font(.caption).foregroundStyle(.secondary)
                         }
@@ -449,7 +454,7 @@ struct ModelLabView: View {
                             Spacer()
                             Text(Fmt.tokens(design.tokensT)).font(.body.monospacedDigit().weight(.semibold))
                         }
-                        LogSlider(value: $design.tokensT, range: 0.0005...tokenCap)
+                        LogSlider(value: $design.tokensT, range: 0.0005...tokenCap, label: design.mode == .scratch ? "Training tokens" : "Student tokens", valueText: Fmt.tokens(design.tokensT))
                         HStack {
                             let ratio = design.tokensT * 1000 / max(design.activeParamsB, 0.001)
                             Text(verbatim: "\(Int(ratio)) tokens per parameter").font(.caption).foregroundStyle(.secondary)
@@ -482,6 +487,7 @@ struct ModelLabView: View {
                         HStack {
                             Text("Synthetic share")
                             Slider(value: $design.syntheticShare, in: 0...0.5, step: 0.05)
+                                .accessibilityLabel("Synthetic share").accessibilityValue("\(Int(design.syntheticShare * 100)) percent")
                             Text("\(Int(design.syntheticShare * 100))%").monospacedDigit().frame(width: 40, alignment: .trailing)
                                 .foregroundStyle(design.syntheticShare > 0.3 ? .orange : .primary)
                         }
@@ -1044,6 +1050,7 @@ private struct TargetPlanner: View {
                 HStack {
                     Text("Target index")
                     Slider(value: $target, in: 5...99, step: 1)
+                        .accessibilityLabel("Target index").accessibilityValue(Fmt.score(target))
                     Text(Fmt.score(target)).font(.title3.weight(.bold).monospacedDigit()).frame(width: 50)
                 }
                 let base = ForecastEngine.profile(est.forecast, design: design, key: "plan")

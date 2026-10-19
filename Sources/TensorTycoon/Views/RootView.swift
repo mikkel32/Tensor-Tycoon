@@ -6,11 +6,14 @@ struct RootView: View {
 
     var body: some View {
         @Bindable var updater = updater
+        @Bindable var store = store
         ZStack(alignment: .bottom) {
             if store.state != nil {
                 GameShell()
             } else {
                 MainMenuView()
+                    // Help ▸ Photo Credits without a game (in a game it opens the Credits screen).
+                    .sheet(isPresented: $store.showPhotoCredits) { PhotoCreditsSheet() }
             }
             if let toast = store.toast {
                 ToastView(toast: toast)

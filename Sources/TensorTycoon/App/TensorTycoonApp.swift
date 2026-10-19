@@ -83,6 +83,8 @@ struct TensorTycoonApp: App {
                 Button("Tensor Tycoon Help & Glossary") { store.open(.help) }
                     .keyboardShortcut("?", modifiers: .command)
                     .disabled(store.state == nil)
+                // Works without a game: the licences travel with the app, not with a save.
+                Button("Photo Credits") { store.openPhotoCredits() }
             }
         }
     }

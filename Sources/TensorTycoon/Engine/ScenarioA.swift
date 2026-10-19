@@ -16,8 +16,10 @@ extension ScenarioHarness {
         var rank: Int
         var staff: Int
         var opProfit: Double
-        /// Pre-tax profit as the tax code saw it at the month's settlement (the books close more after it).
+        /// Pre-tax profit as the tax code saw it at the month's settlement (the books close more after it), and the
+        /// taxable profit left after losses carried forward.
         var pre: Double
+        var taxable: Double
         var rdCredits: Double
         var rdCarry: Double
         /// Tax charged at the settlement (after relief and any minimum-tax top-up), and the R&D relief in it.
@@ -38,7 +40,7 @@ extension ScenarioHarness {
                 guardDays += 1
             }
             let h = s.history.last
-            out.append(HQMonth(date: s.date, rank: hqRank(s), staff: s.employees.count, opProfit: (h?.revenue ?? 0) - (h?.opex ?? 0), pre: s.hq.taxBase,
+            out.append(HQMonth(date: s.date, rank: hqRank(s), staff: s.employees.count, opProfit: (h?.revenue ?? 0) - (h?.opex ?? 0), pre: s.hq.taxProfit, taxable: s.hq.taxBase,
                                rdCredits: s.hq.rdCredits, rdCarry: s.hq.rdCarry, taxes: s.hq.taxCharged, relief: s.hq.taxRelief))
             if s.gameOver != nil { break }
         }
@@ -93,25 +95,29 @@ extension ScenarioHarness {
         return ratios.reduce(0, +) / Double(max(1, ratios.count))
     }
 
-    /// Tax charged plus R&D relief over the last `n` profitable months, against the pre-tax profit the tax code
-    /// settled on: the statutory rate the game actually applied.
-    static func hqEffectiveRate(_ months: [HQMonth], last n: Int = 12) -> (rate: Double, pre: Double)? {
-        var pre = 0.0, charged = 0.0, used = 0
-        for m in months.reversed() where used < n && m.pre > 0 {
+    /// Tax charged plus R&D relief over the last `n` months with taxable profit, against the taxable profit the tax
+    /// code settled on (after losses carried forward): the statutory rate the game actually applied.
+    static func hqEffectiveRate(_ months: [HQMonth], last n: Int = 12) -> (rate: Double, taxable: Double, pre: Double)? {
+        var taxable = 0.0, pre = 0.0, charged = 0.0, used = 0
+        for m in months.reversed() where used < n && m.taxable > 0 {
+            taxable += m.taxable
             pre += m.pre
             charged += m.taxes + m.relief
             used += 1
         }
-        return pre > 0 ? (charged / pre, pre) : nil
+        return taxable > 0 ? (charged / taxable, taxable, pre) : nil
     }
 
-    /// What the tax code charges on `pre` for this company, and for the same company under US rules.
+    /// What the tax code charges on `pre` of taxable profit for this company, and for the same company under US rules
+    /// (on copies with no losses carried forward, so the whole of `pre` is taxable).
     static func hqTaxOn(_ s: GameState, pre: Double) -> (home: Double, us: Double) {
         var home = s
         home.month = MonthRecord(month: s.month.month)
+        home.corp.lossPool = 0
         HQ.settleTaxes(&home, pre: pre)
         var us = hqAsIfUS(s)
         us.month = MonthRecord(month: s.month.month)
+        us.corp.lossPool = 0
         HQ.settleTaxes(&us, pre: pre)
         return (home.hq.taxCharged + home.hq.taxRelief, us.hq.taxCharged + us.hq.taxRelief)
     }
@@ -189,11 +195,18 @@ extension ScenarioHarness {
 
         // Danish rules against US ones.
         let probe = hqTaxOn(s, pre: 1e9)
+        let probeOK = abs(probe.home - 0.22e9) < 1 && abs(probe.us - 0.21e9) < 1
+        let probeText = "on $1B of taxable profit today: \(hqMoney(probe.home)) here vs \(hqMoney(probe.us)) under US rules (federal only)"
         if let t = hqEffectiveRate(months) {
-            r.expect("Danish corporate tax charged on profit", abs(t.rate - 0.22) < 0.002 && abs(probe.home - 0.22e9) < 1 && abs(probe.us - 0.21e9) < 1,
-                     "tax + R&D relief = \(Fmt.pct(t.rate, decimals: 2)) of \(hqMoney(t.pre)) settled profit over the last 12 profitable months; on $1B today: \(hqMoney(probe.home)) here vs \(hqMoney(probe.us)) under US rules (federal only)")
+            r.expect("Danish corporate tax charged on profit", abs(t.rate - 0.22) < 0.002 && probeOK,
+                     "tax + R&D relief = \(Fmt.pct(t.rate, decimals: 2)) of \(hqMoney(t.taxable)) taxable profit (\(hqMoney(t.pre)) before losses carried forward) over the last 12 taxed months; \(probeText); losses still carried \(hqMoney(s.corp.lossPool))")
         } else {
-            r.expect("Danish corporate tax charged on profit", false, "no profitable months")
+            // Every profit so far went against losses carried forward: no tax may be charged on it, and the rate shows
+            // on the probe alone.
+            let profitable = months.filter { $0.pre > 0 }
+            let untaxed = profitable.allSatisfy { $0.taxable == 0 && abs($0.taxes + $0.relief) < 1 }
+            r.expect("Danish corporate tax charged on profit", untaxed && s.corp.lossPool > 0 && probeOK,
+                     "\(profitable.count) profitable months, all set against losses carried forward (\(hqMoney(s.corp.lossPool)) still carried), none taxed; \(probeText)")
         }
         r.expect("Danish frontier-lab pay on local hires", abs(payStart - 0.651) < 0.03 && abs(payAbroad - 0.8255) < 0.03 && HQ.salaryFactor(us) == 1,
                  "local candidates ×\(Fmt.trim(payStart, 3)) of the San Francisco formula (Copenhagen ×0.651), relocating hires ×\(Fmt.trim(payAbroad, 3)) (×0.826) vs ×1 under US rules")
