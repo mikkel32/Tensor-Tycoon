@@ -380,24 +380,31 @@ private struct LadderCard: View {
 }
 
 /// Five small loss curves fanning out — what a scaling ladder looks like.
+/// 3.4: the ladder's measured loss against the scaling-law prediction it is fitting, on log tokens (what the proxy
+/// runs actually recorded, not an illustration).
 private struct LadderChart: View {
     let points: [LossPoint]
 
     var body: some View {
-        let done = points.count
-        Chart {
-            ForEach(0..<5, id: \.self) { k in
-                let scale = pow(3.0, Double(k))
-                ForEach(0..<min(done, 30), id: \.self) { i in
-                    let x = Double(i + 1) / 30 * scale
-                    LineMark(x: .value("Compute", x), y: .value("Loss", 3.4 * pow(x + 0.05, -0.08) - 0.12 * Double(k)), series: .value("Run", k))
-                        .foregroundStyle(.indigo.opacity(0.35 + 0.13 * Double(k)))
+        if points.count < 2 {
+            Text("The first proxy runs are warming up.").font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            Chart {
+                ForEach(Array(points.enumerated()).filter { $0.element.pred > 0 }, id: \.offset) { _, p in
+                    LineMark(x: .value("Tokens (T)", max(p.tokensT, 1e-6)), y: .value("Loss", p.pred), series: .value("Series", "Power law"))
+                        .foregroundStyle(.gray.opacity(0.7))
+                        .lineStyle(StrokeStyle(lineWidth: 1.2, dash: [4, 3]))
+                }
+                ForEach(Array(points.enumerated()), id: \.offset) { _, p in
+                    PointMark(x: .value("Tokens (T)", max(p.tokensT, 1e-6)), y: .value("Loss", p.loss))
+                        .foregroundStyle(.indigo)
+                        .symbolSize(14)
                 }
             }
+            .chartXScale(type: .log)
+            .chartYScale(domain: .automatic(includesZero: false))
+            .chartXAxisLabel("Proxy tokens (T, log)")
         }
-        .chartXScale(type: .log)
-        .chartXAxis(.hidden)
-        .chartYAxis(.hidden)
     }
 }
 

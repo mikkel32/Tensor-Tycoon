@@ -125,6 +125,14 @@ struct RunReviewSheet: View {
                 Text("Scale-out across domains costs \(Fmt.pct(r.scaleOutLoss, decimals: 0)) of MFU.").font(.caption).foregroundStyle(r.scaleOutLoss > 0.15 ? .orange : .secondary)
             }
             SpecRow(label: "Expected MFU · goodput", value: "\(Fmt.pct(e.mfu, decimals: 0)) · \(Fmt.pct(e.goodput, decimals: 0))")
+            // 3.4: what the design itself costs in throughput and memory.
+            SpecRow(label: "Training memory per parameter", value: "\(Fmt.trim(Physics.stateBytesPerParam(design), 1)) + \(Fmt.trim(Physics.activationBytesPerParam(design, bonuses: store.derived.bonuses), 1)) bytes · \(design.memoryPlan.rawValue.lowercased())")
+            if design.isMoE {
+                SpecRow(label: "Expert routing", value: "\(TrainingExperience.layout(design).label) · keeps \(Fmt.pct(Physics.moeEfficiency(design, accel: r.accel, bonuses: store.derived.bonuses), decimals: 0)) of throughput")
+            }
+            if design.spares > 0 {
+                SpecRow(label: "Hot spares", value: "\(Fmt.int(Int(Double(design.chips) * design.spares))) chips · \(Fmt.pct(1 - Physics.spareRecovery(design.spares), decimals: 0)) less time lost per failure")
+            }
             SpecRow(label: "Ops-agent coverage", value: Fmt.pct(e.coverage, decimals: 0))
             SpecRow(label: "Useful compute per day", value: "\(Fmt.flops(Physics.flopsPerDay(design, state: store.game, lr: lr, interval: interval))) FLOPs")
         }
