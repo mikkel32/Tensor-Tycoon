@@ -29,7 +29,7 @@ been run in the app yet (this environment has no Mac), so every UI item still ne
 | 6 | Advanced Projects: government and classified research | Done: seconded staff, mobilisation planner, facility power and siting, agency budgets, rival programmes, trust, clearance upkeep | Scenario F (53 checks), determinism row | No |
 | 7 | Data economy | Done: bounded synthetic data, fresh RLHF labels, licence terms, renewals, runs frozen at launch | `--data-check` | No |
 | 8 | Science labs and experiments | Done: unlocks (fusion, quantum chemistry, lossless power, 2D node), publishing spreads to rivals, royalties, company timeline | `--data-check`, Scenarios D, H | No |
-| 9 | Semiconductors | Done: silicon-derived specs, layouts and interconnects, compiler maturity, honest sales, deposits, ports, a 2D-channel node from science | Scenario G (76 checks), `--data-check` | No |
+| 9 | Semiconductors | Done: silicon-derived specs, layouts and interconnects, compiler maturity, honest sales, deposits, ports, a 2D-channel node from science | Scenario G (77 checks), `--data-check` | No |
 | 10 | Autonomous agent organisations | Done: pooling, supervisors, scaling exponent, compounding errors, activity tiers, objectives | Scenario G, Scenario H | No |
 | 11 | Intelligent rivals | Done: specialisations change their models, pivots, two new kinds, coherent rival books | `--intelligence` | No |
 | 12 | National economies and AI strategies | Done: regional recessions, national partnerships, power contracts, scoped law | Scenarios A–D | No |
@@ -43,7 +43,7 @@ been run in the app yet (this environment has no Mac), so every UI item still ne
 | 22 | Performance | A seven-year game with every system on simulates in about 25 s with the bot on this Linux build (≈3.5 s per year, Scenario H checks < 15 s) | Scenario H | n/a |
 | 23 | Save compatibility | All new fields default safely; fixtures from 3.1, 3.2 and 3.3 load and play | `--check-save` | n/a |
 | 24–25 | Testing | The checks above run on every CI build | CI | n/a |
-| 26 | Scenarios A–H | All eight implemented and passing (A 20, B 16, C 15, D 15, E 42, F 53, G 76, H 25 checks) | `--scenarios all` | n/a |
+| 26 | Scenarios A–H | All eight implemented and passing (A 20, B 16, C 15, D 15, E 42, F 53, G 77, H 25 checks) | `--scenarios all` | n/a |
 | 25 | Visual acceptance in the running app | Blocked: no macOS machine in this environment; needs the owner | — | — |
 
 ## Known balance notes (from the seven-year playtest sweep)

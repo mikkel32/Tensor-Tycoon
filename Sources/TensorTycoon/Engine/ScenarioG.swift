@@ -225,6 +225,17 @@ extension ScenarioHarness {
             r.expect("revenue is booked once", abs((t.cash - myCash0) - rev) < 1, "cash +\(Fmt.money(t.cash - myCash0)) vs revenue \(Fmt.money(rev))")
             r.expect("rival labs pay for what they buy", rivalsPaid > 0 && abs(rivalsPaid - (t.semi.month.rivalRevenue - rivalRev0)) < 1,
                      "rivals paid \(Fmt.money(rivalsPaid)), booked \(Fmt.money(t.semi.month.rivalRevenue - rivalRev0))")
+            // Selling to rival labs draws a hyperscaler's offer of a premium for exclusive supply (8% a month).
+            var o = t
+            o.semi.history.insert(o.semi.month, at: 0)   // the month of sales just closed
+            var offered = false
+            for _ in 0..<120 where !offered {
+                o.decisions.removeAll()
+                StrategyEvents.monthly(&o)
+                offered = o.decisions.contains { $0.kind == "exclusive_supply" }
+            }
+            r.expect("selling chips to rival labs draws an exclusive-supply offer", offered,
+                     o.decisions.first { $0.kind == "exclusive_supply" }.map { "\($0.title): \(Fmt.money($0.amount))" } ?? "none in 120 months")
             // An exclusive-supply promise keeps every chip from rivals.
             var x = s
             x.exclusiveSupplyUntil = GameCalendar.addDays(x.date, 365)
