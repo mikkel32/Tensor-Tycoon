@@ -146,6 +146,8 @@ struct PTSummary {
     var maxChipsWhat = ""
     var actionsAvg = 0.0
     var idleAvg = 0.0
+    /// 3.7: company stages reached, with the month of the game.
+    var stages: [String] = []
 }
 
 struct PTBot {
@@ -327,6 +329,9 @@ enum PTPlay {
         sum.newsAvg = rows.isEmpty ? 0 : Double(rows.reduce(0) { $0 + $1.worldNews }) / Double(rows.count)
         sum.importantAvg = rows.isEmpty ? 0 : Double(rows.reduce(0) { $0 + $1.important }) / Double(rows.count)
 
+        sum.stages = s.progression.reached.sorted { $0.key < $1.key }.map { k, v in
+            "\(CompanyStage(rawValue: k)?.title ?? "?") \(Fmt.trim(Double(d(start, v)) / 30.44, 0))mo"
+        }   // 3.7
         if mode != "quiet" { printGame(rows, sum, bot, s, mode: mode) }
         if flags.contains("advproj") { for line in AdvancedProjects.report(s) { print(line) } }
         if flags.contains("science") { scienceSummary(s, seed: seed) }
@@ -420,6 +425,7 @@ enum PTPlay {
         case "talent_raid": return s.cash > dd.amount * 4 ? 0 : 1
         case "swarm_audit": return s.cash > dd.amount * 4 ? 0 : 1
         case Science.decisionKind: return scienceChoice(dd, s)   // 3.6
+        case Launches.decisionKind: return 1   // 3.7: let it ride
         default: return 0
         }
     }
@@ -688,7 +694,7 @@ enum PTPlay {
                 bot.events.append("shelved \(md.name) (c \(Fmt.trim(md.c, 2)) ≤ released \(Fmt.trim(bestReleased, 2)))")
                 continue
             }
-            _ = s.release(md.id, api: true, openWeights: false)
+            _ = s.release(md.id, api: true, openWeights: false, plan: Launches.botPlan(s, md))   // 3.7: the plain release
             bot.actions += 1
             let prevChat = s.models.first { $0.id == s.chatModelID }
             if md.design.instruct || s.chatModelID == nil { s.chatModelID = md.id }
@@ -1012,6 +1018,7 @@ enum PTPlay {
         for s in all { for (k, v) in s.kinds { kinds[k, default: 0] += v } }
         print("  decision kinds: " + kinds.sorted { $0.value > $1.value }.map { "\($0.key) \($0.value)" }.joined(separator: ", "))
         print("  end valuations \(all.map { m($0.end.valuation) }) · end rev/mo \(all.map { m($0.end.revenue) }) · end rank \(all.map(\.end.rank))")
+        print("  stages reached: " + all.map { "[" + $0.stages.joined(separator: ", ") + "]" }.joined(separator: " "))   // 3.7
         var stops: [Int: Int] = [:], days: [Int: Int] = [:], causes: [String: Int] = [:]
         for s in all {
             for (y, n) in s.stopsByYear { stops[y, default: 0] += n }

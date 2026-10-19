@@ -1304,6 +1304,14 @@ struct GameState: Codable {
     /// Model families, their tiers and the distillation / post-training jobs in progress (Families).
     @D var families: FamilyState = FamilyState()
 
+    // 3.7: launches and progression
+    /// Every model launch, newest last: the plan, the rivals' queued answers and the report a week later (Launches).
+    @D var launches: [LaunchRecord] = []
+    /// The plan one-click launches and the launch delegate use. The default is the plain release the game always had.
+    @D var launchDefault: LaunchPlan = LaunchPlan()
+    /// Your company stage, when each was reached and the powers it unlocked (Progression).
+    @D var progression: ProgressionState = ProgressionState()
+
     var totalShares: Double {
         founderShares + employeePoolShares + publicShares + holdings.reduce(0) { $0 + $1.shares }
     }

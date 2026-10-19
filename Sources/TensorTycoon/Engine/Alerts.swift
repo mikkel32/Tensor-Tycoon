@@ -197,6 +197,7 @@ enum Alerts {
         Semis.bugKind: 0, Semis.shockKind: 0, Semis.orderKind: 2, Semis.rivalKind: 1,   // 3.5: semiconductors
         "sci_report": 0,   // 3.6: science labs (patent and license)
         Families.decisionKind: 0,   // 3.5: model families — route free chat users to a cheaper tier
+        Launches.decisionKind: 1,   // 3.7: a weak launch — let it ride
     ]
 
     static func isUrgent(_ d: Decision) -> Bool { inboxDefaults[d.kind] == nil }

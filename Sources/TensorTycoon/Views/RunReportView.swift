@@ -16,7 +16,7 @@ struct RunReportSheet: View {
     /// 0 curtain, 1 the index, 2 the rank, 3 the full results.
     @State private var stage = 3
     @State private var revealed = false
-    @State private var launchStyle: LaunchStyle = .standard
+    @State private var launchPlan: LaunchPlan?   // 3.7: nil = your default plan
     @State private var openWeights = false
 
     var body: some View {
@@ -405,13 +405,8 @@ struct RunReportSheet: View {
                     close()
                 }
                 if !model.released {
-                    Picker("Launch", selection: $launchStyle) {
-                        ForEach(LaunchStyle.allCases) { l in
-                            Text(l == .keynote ? "\(l.title) (\(Fmt.money(GameState.keynoteCost(s))))" : l.title).tag(l)
-                        }
-                    }
-                    .frame(width: 230)
-                    .help(launchStyle.detail)
+                    LaunchPlanButton(plan: Binding(get: { launchPlan ?? s.launchDefault }, set: { launchPlan = $0 }), state: s, rank: d.rank(model.id))
+                        .frame(maxWidth: 260)
                     Toggle("Open weights", isOn: $openWeights).toggleStyle(.checkbox)
                         .help("Publish the weights too: brand with developers, but anyone can serve it.")
                     Button("Keep private") { close() }
@@ -439,10 +434,10 @@ struct RunReportSheet: View {
 
     /// Release with an API in the chosen launch style and put every idle chip of the training hardware behind it.
     private func releaseAndDeploy(_ m: AIModel, _ run: TrainingRun) {
-        let style = launchStyle
+        let plan = launchPlan ?? store.game.launchDefault
         let open = openWeights
         let ok = store.act("\(m.name) is live") { st in
-            if let e = st.release(m.id, api: true, openWeights: open, launch: style) { return e }
+            if let e = st.release(m.id, api: true, openWeights: open, plan: plan) { return e }
             let free = Economy.freeChips(st, run.design.accelID)
             if free > 0 { _ = st.deploy(m.id, accelID: run.design.accelID, chips: free) }
             if st.chatModelID == nil && m.design.instruct { st.chatModelID = m.id }

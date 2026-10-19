@@ -59,6 +59,8 @@ enum SaveMigration {
         }
         // 3.5: alien programs in progress get unstuck and existing alien chips get their fab line.
         AlienFab.migrate(&s)
+        // 3.7: the company stage the record earns, credited silently (no news, no rewards).
+        Progression.bootstrap(&s)
     }
 
     /// Decodes a save, migrates it and plays 90 days on a copy, resolving decisions with their first option.

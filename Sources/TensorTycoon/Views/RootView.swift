@@ -42,6 +42,7 @@ enum ShellSheet: Identifiable {
     case era
     case report(UUID)
     case briefing(UUID)
+    case launchReport(UUID)   // 3.7
 
     var id: String {
         switch self {
@@ -50,6 +51,7 @@ enum ShellSheet: Identifiable {
         case .era: "era"
         case .report(let id): "report-\(id)"
         case .briefing(let id): "briefing-\(id)"
+        case .launchReport(let id): "launch-\(id)"
         }
     }
 }
@@ -86,6 +88,8 @@ struct GameShell: View {
                 RunReportSheet(runID: id)
             case .briefing(let id):
                 BriefingSheet(id: id)
+            case .launchReport(let id):
+                LaunchReportSheet(recordID: id)   // 3.7
             }
         }
         .sheet(isPresented: Binding(get: { store.state?.gameOver != nil }, set: { _ in })) {
@@ -102,6 +106,7 @@ struct GameShell: View {
         if store.showEraIntro { return .era }
         if let r = store.reportRunID { return .report(r) }
         if let b = store.briefingID { return .briefing(b) }
+        if let l = store.launchReportID { return .launchReport(l) }
         return nil
     }
 
@@ -113,6 +118,7 @@ struct GameShell: View {
         case .era: store.showEraIntro = false
         case .report: store.reportRunID = nil
         case .briefing: store.briefingID = nil
+        case .launchReport: store.launchReportID = nil
         case nil: break
         }
     }
@@ -166,6 +172,7 @@ struct ScreenRouter: View {
         case .semiconductors: SemiconductorsView()   // 3.5
         case .science: ScienceView()   // 3.6
         case .families: FamiliesView()   // 3.5: model families
+        case .progression: ProgressionView()   // 3.7: company stages and launches
         }
     }
 }

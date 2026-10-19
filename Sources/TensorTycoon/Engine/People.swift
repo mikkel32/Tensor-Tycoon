@@ -321,6 +321,8 @@ enum Events {
             for i in s.employees.indices where s.employees[i].role == .safety { s.employees[i].morale -= 20 }
         case ("defense", _):
             s.brand = min(100, s.brand + 3)
+        case (Launches.decisionKind, _):   // 3.7: a second wave for a weak launch
+            Launches.resolve(&s, d, option: option)
         case (Families.decisionKind, _):   // 3.5: model families
             Families.resolve(&s, d, option: option)
         case ("loss_spike", _), ("train_bug", _), ("contamination", _), ("data_mix", _), ("fault_storm", _), ("sycophancy", _), ("reward_hack", _):

@@ -60,7 +60,7 @@ enum PowerKind: String, Codable, CaseIterable, Identifiable, Sendable {
 
     func available(_ s: GameState) -> Bool {
         if self == .fusion && XenoScience.megaDone(s, "supergrid") && s.year >= 2029 { return true }
-        if self == .fusion { return s.year >= availableFrom - Science.fusionPullIn(s) }   // 3.6: fusion-control discoveries
+        if self == .fusion { return s.year >= availableFrom - Science.fusionPullIn(s) - Progression.fusionPullIn(s) }   // 3.6: fusion-control discoveries; 3.7: Civilisational stage
         return s.year >= availableFrom
     }
 

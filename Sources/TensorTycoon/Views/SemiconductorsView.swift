@@ -499,7 +499,7 @@ private struct OwnFabCard: View {
         let nodes = SemiCatalog.nodes.filter { $0.launch <= s.year && $0.launch >= s.year - 8 }
         let nodeID = nodes.contains(where: { $0.id == node }) ? node : (nodes.last?.id ?? "n7")
         let n = SemiCatalog.node(nodeID)
-        let cost = Semis.fabCost(n, wafers: size)
+        let cost = Semis.fabCost(n, wafers: size) * Progression.fabFactor(s)   // 3.7
         let net = cost * (1 - st.subsidy)
         let days = Semis.fabBuildDays(st, wafers: size)
         let mw = Semis.fabMWFull(n, size)

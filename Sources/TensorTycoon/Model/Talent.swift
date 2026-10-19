@@ -97,26 +97,128 @@ extension Candidate {
     var talent: TalentTrait? { TalentTrait(rawValue: trait) }
 }
 
-/// How you put a model into the world.
-enum LaunchStyle: String, CaseIterable, Identifiable, Sendable {
-    case standard, keynote, blitz, staged
+/// How you put a model into the world. 3.7: the launch strategy of a `LaunchPlan` (Launches explains each one's effects).
+enum LaunchStyle: String, Codable, CaseIterable, Identifiable, Sendable {
+    case standard, stealth, staged, keynote, openWeights, enterprise, government, blitz
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .standard: "Blog post"
-        case .keynote: "Keynote launch"
-        case .blitz: "Benchmark blitz"
+        case .stealth: "Stealth drop"
         case .staged: "Staged rollout"
+        case .keynote: "Keynote launch"
+        case .openWeights: "Open-weights launch"
+        case .enterprise: "Enterprise-first"
+        case .government: "Government-first"
+        case .blitz: "Benchmark-first"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .standard: "doc.richtext"
+        case .stealth: "eye.slash"
+        case .staged: "list.number"
+        case .keynote: "music.mic"
+        case .openWeights: "lock.open.fill"
+        case .enterprise: "briefcase.fill"
+        case .government: "building.columns.fill"
+        case .blitz: "chart.bar.xaxis"
         }
     }
 
     var detail: String {
         switch self {
         case .standard: "A post, a model card, an API page."
-        case .keynote: "Livestreamed event and ad campaign: more brand and hype, costs money."
-        case .blitz: "Lead with benchmark charts: big brand win if you're #1, backlash if you're not top 3."
-        case .staged: "Trusted testers first: +4 model safety, quieter launch."
+        case .stealth: "Switch it on and say nothing. Little brand, no press, no regulators; traffic builds by word of mouth."
+        case .staged: "Waitlist, then paid users, then everyone: +4 model safety, quieter launch, pent-up demand when it opens."
+        case .keynote: "Livestreamed event and ad campaign: more brand and hype and a day-one rush, costs money; rivals and regulators notice."
+        case .openWeights: "Weights and API on day one: developers and researchers flock to it; security hawks and rivals react."
+        case .enterprise: "Design partners and contracts before the public: more enterprise leads and investor confidence, a slow public start."
+        case .government: "Briefings and sovereign partners first: governments warm to you and sovereign offers come sooner; critics grumble."
+        case .blitz: "Publish full evals first: big brand win if you're #1, backlash if you're not top 3."
         }
     }
 }
+
+/// 3.7: what a launch charges for the API against the going rate, for its first 120 days.
+enum PricingStance: String, Codable, CaseIterable, Identifiable, Sendable {
+    case premium, match, undercut
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .premium: "Premium"
+        case .match: "Match the market"
+        case .undercut: "Undercut"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .premium: "List 25% above the going rate: more per token, fewer tokens; a top-3 model earns a little prestige."
+        case .match: "Price where the market is (today's auto-pricing)."
+        case .undercut: "List 25% below: developers switch, but the rival you undercut is likely to answer with a price cut."
+        }
+    }
+
+    /// Multiplier on the launch list price and on the auto-pricing band during the launch window.
+    var priceFactor: Double {
+        switch self {
+        case .premium: 1.25
+        case .match: 1
+        case .undercut: 0.75
+        }
+    }
+}
+
+/// 3.7: how much safety work a launch publishes.
+enum SafetyPosture: String, Codable, CaseIterable, Identifiable, Sendable {
+    case light, standard, thorough
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .light: "Short model card"
+        case .standard: "Standard system card"
+        case .thorough: "Full system card + red-team report"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .light: "Ship with a page of notes: a little more buzz, but researchers, the public and regulators mark you down."
+        case .standard: "The usual system card."
+        case .thorough: "Deep system card and an external red-team report: costs money, +3 model safety, trust and calmer regulators."
+        }
+    }
+}
+
+/// 3.7: how a model is put into the world — strategy, price and safety posture. The default plan (blog post, market
+/// price, standard system card) is exactly the release the game always had.
+struct LaunchPlan: Codable, Hashable, DefaultValue {
+    static var defaultValue: LaunchPlan { LaunchPlan() }
+    @D var strategy: LaunchStyle = .standard
+    @D var pricing: PricingStance = .match
+    @D var safety: SafetyPosture = .standard
+
+    init(strategy: LaunchStyle = .standard, pricing: PricingStance = .match, safety: SafetyPosture = .standard) {
+        self.strategy = strategy
+        self.pricing = pricing
+        self.safety = safety
+    }
+
+    var isDefault: Bool { strategy == .standard && pricing == .match && safety == .standard }
+
+    var summary: String {
+        var parts = [strategy.title]
+        if pricing != .match { parts.append(pricing.title.lowercased() + " price") }
+        if safety != .standard { parts.append(safety.title.lowercased()) }
+        return parts.joined(separator: " · ")
+    }
+}
+
+extension LaunchStyle: DefaultValue { static var defaultValue: LaunchStyle { .standard } }
+extension PricingStance: DefaultValue { static var defaultValue: PricingStance { .match } }
+extension SafetyPosture: DefaultValue { static var defaultValue: SafetyPosture { .standard } }

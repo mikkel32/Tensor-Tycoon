@@ -316,9 +316,19 @@ extension GameState {
     static func keynoteCost(_ s: GameState) -> Double { clamp(s.valuation * 0.0005, 200_000, 50_000_000) }
 
     mutating func release(_ id: UUID, api: Bool, openWeights: Bool, launch: LaunchStyle = .standard) -> String? {
+        release(id, api: api, openWeights: openWeights, plan: LaunchPlan(strategy: launch))
+    }
+
+    /// 3.7: release with a launch plan (strategy, pricing stance, safety posture). `by` marks automated launches
+    /// ("delegate", "family"). The default plan is the plain release.
+    mutating func release(_ id: UUID, api: Bool, openWeights: Bool, plan: LaunchPlan, by: String = "") -> String? {
         guard let i = models.firstIndex(where: { $0.id == id }) else { return "Not found." }
+        let launch = plan.strategy
+        var publishWeights = openWeights
         if !models[i].released {
             if launch == .keynote && GameState.keynoteCost(self) > cash { return "A keynote costs \(Fmt.money(GameState.keynoteCost(self)))." }
+            if !plan.isDefault, let e = Launches.blocker(plan, self) { return e }   // 3.7
+            if launch == .openWeights { publishWeights = true }
             // What this launch adds over your best model so far, and how soon after your last one it comes.
             let earlier = models.filter { $0.released && $0.id != id }
             let previousBest = earlier.map(\.index).max()
@@ -348,16 +358,32 @@ extension GameState {
                 gain *= 0.5
                 models[i].safety = min(100, models[i].safety + 4)
                 safetyScore = min(100, safetyScore + 2)
+            // 3.7: launch strategies
+            case .stealth: gain *= 0.3
+            case .openWeights: break
+            case .enterprise: gain *= 0.6
+            case .government: gain *= 0.7
             }
+            var spent = launch == .keynote ? GameState.keynoteCost(self) : 0
+            if plan.safety == .thorough {
+                let c = Launches.redTeamCost(self)
+                cash -= c
+                month.costOther += c
+                spent += c
+                models[i].safety = min(100, models[i].safety + 3)
+                safetyScore = min(100, safetyScore + 1)
+            }
+            gain = Launches.adjustGain(gain, plan, rank: rank)
             // A second launch within 90 days of the last gets half the attention.
             if gain > 0, let last = lastLaunch, GameCalendar.daysBetween(last, date) < 90 { gain *= 0.5 }
             brand = clamp(brand + gain, 0, 100)
             Voices.playerLaunch(&self, i, rank: rank, previousBest: previousBest, style: launch)   // 3.4: told by people
             SafetyFramework.onRelease(&self, i)
             RivalIntel.playerReleased(&self, name: models[i].name, index: models[i].index)
+            Launches.launched(&self, i, plan: plan, rank: rank, previousBest: previousBest, gain: gain, cost: spent, by: by)   // 3.7
         }
         models[i].api = api
-        if openWeights && !models[i].openWeights {
+        if publishWeights && !models[i].openWeights {
             let bestOpenBefore = models.filter { $0.openWeights && $0.id != id }.map(\.c).max()
             models[i].openWeights = true
             // Near-frontier weights are big news; older ones barely register, and weights no better than ones

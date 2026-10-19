@@ -31,8 +31,8 @@ enum Policy {
             s.cash -= s.lobbyBudget
             s.month.costOther += s.lobbyBudget
         }
-        let gain = s.lobbyBudget > 0 ? 2.5 * log10(1 + s.lobbyBudget / 50_000) : 0
-        s.politicalCapital = clamp(s.politicalCapital * 0.95 + gain, 0, 100)
+        let gain = s.lobbyBudget > 0 ? 2.5 * log10(1 + s.lobbyBudget / 50_000) * Progression.lobbyFactor(s) : 0   // 3.7: policy office
+        s.politicalCapital = clamp(s.politicalCapital * Progression.capitalRetention(s) + gain, 0, 100)
 
         // Votes
         let today = s.date

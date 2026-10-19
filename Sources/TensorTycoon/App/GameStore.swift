@@ -71,6 +71,8 @@ final class GameStore {
     var focusAccelID: String?
     /// A finished training run whose report sheet should be shown.
     var reportRunID: UUID?
+    /// 3.7: a launch whose launch-day report sheet is open.
+    var launchReportID: UUID?
     /// An inbox decision the player opened.
     var openDecisionID: UUID?
     /// A monthly briefing the player opened.
@@ -231,6 +233,9 @@ final class GameStore {
             briefingID = b.id
         } else if alert.alertKind == .inbox, let d = state?.decisions.first(where: { !Alerts.isUrgent($0) && alert.title == $0.title }) {
             openDecisionID = d.id
+        } else if alert.title.hasPrefix(Launches.reportTitle),
+                  let r = state?.launches.last(where: { Launches.reportTitle + $0.modelName == alert.title && $0.report != nil }) {
+            launchReportID = r.id   // 3.7: the launch-day report
         } else if let target = alert.target {
             open(target)
         }
