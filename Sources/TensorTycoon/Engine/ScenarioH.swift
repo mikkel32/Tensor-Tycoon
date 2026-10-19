@@ -101,6 +101,7 @@ extension ScenarioHarness {
         // Science.
         r.expect("science labs run research", s.science.labs.count >= 2 && s.science.discoveries.count >= 3,
                  "\(s.science.labs.count) labs, \(s.science.discoveries.count) discoveries")
+        r.expect("the first verified discovery is a landmark in the company's history", TrainingExperience.has(s, "verified_discovery"))
 
         // Autonomous agents.
         let agents = s.orgs.reduce(0) { $0 + Progression.orgAgents(s, $1.id) }

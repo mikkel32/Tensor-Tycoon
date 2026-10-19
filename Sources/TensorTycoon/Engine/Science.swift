@@ -633,6 +633,10 @@ enum Science {
         s.brand = min(100, s.brand + (d.speculative ? 1.5 : 0.5))
         Stakeholders.move(&s, ["researchers": d.speculative ? 2 : 1], "A reproduced discovery: \(d.headline)")
         Sim.news(&s, "🔬 Discovery: \(d.headline)", "\(disc.report.significance) \(disc.report.commercial)", .research, image: p.labImage(s), important: true, good: true)
+        // 3.4: the lab's first result that a second team reproduced is a landmark in its history.
+        TrainingExperience.recordFirst(&s, id: "verified_discovery", title: "First independently verified discovery",
+                                       detail: "\(d.headline): a second team got the same result.",
+                                       model: s.science.labs.first { $0.id == p.lab }.map { $0.name.isEmpty ? $0.def.name : $0.name } ?? "Your science lab", symbol: "checkmark.seal.fill")
         if let u = ScienceCatalog.unlock(d.id) {
             Sim.news(&s, "New technology: \(u.title)", u.detail, .research, image: p.labImage(s), important: true, good: true)
         }
