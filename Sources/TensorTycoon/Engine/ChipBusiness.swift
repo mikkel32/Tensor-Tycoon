@@ -90,9 +90,29 @@ enum ChipBusiness {
             s.chipLines[i].demandToday = 0
             let line = s.chipLines[i]
             guard line.active, let chip = HardwareCatalog.get(line.chipID), let unitCost = chip.price else { continue }
-            let want = demand(chip: chip, price: line.price, sellToRivals: line.sellToRivals, s)
-            let units = min(want, AlienFab.isAlienChip(line.chipID) ? AlienFab.merchantPerLine(s) : line.capacityMonth / 30.4)
+            // 3.9: an exclusive-supply promise keeps every chip of this line away from rival labs.
+            let toRivals = line.sellToRivals && Semis.exclusiveUntil(s) == nil
+            let want = demand(chip: chip, price: line.price, sellToRivals: toRivals, s)
+            let cap = min(want, AlienFab.isAlienChip(line.chipID) ? AlienFab.merchantPerLine(s) : line.capacityMonth / 30.4)
             s.chipLines[i].demandToday = want
+            guard cap > 0 else { continue }
+            let perUnitH100e = chip.bf16 / h100.bf16
+            // Each buyer takes its share; a rival lab only what its cash can carry, and it pays from that cash.
+            var units = 0.0, resold = 0.0
+            for (id, w) in BigPlayerCatalog.buyers(s, includeRivals: toRivals) {
+                var u = cap * w
+                if let ci = s.competitors.firstIndex(where: { $0.id == id }) {
+                    u = min(u, Semis.rivalBudgetDay(s, id) / max(1, line.price))
+                    guard u > 0 else { continue }
+                    s.competitors[ci].cash -= u * line.price
+                    s.competitors[ci].armedH100e += u * perUnitH100e
+                } else {
+                    // Clouds resell a share of what they buy to the labs anyway (not during an exclusive deal).
+                    if toRivals { resold += u * 0.3 }
+                }
+                s.chipLines[i].buyerUnits[id, default: 0] += u
+                units += u
+            }
             s.chipLines[i].unitsToday = units
             guard units > 0 else { continue }
             let revenue = units * line.price
@@ -104,22 +124,16 @@ enum ChipBusiness {
             s.chipLines[i].shipped += units
             s.chipLines[i].revenue += revenue
             s.chipLines[i].profit += revenue - cogs
-            let h100e = units * chip.bf16 / h100.bf16
-            var resold = 0.0
-            for (id, w) in BigPlayerCatalog.buyers(s, includeRivals: line.sellToRivals) {
-                s.chipLines[i].buyerUnits[id, default: 0] += units * w
-                if let ci = s.competitors.firstIndex(where: { $0.id == id }) {
-                    s.competitors[ci].armedH100e += h100e * w
-                } else {
-                    // Clouds rent a share of what they buy to the labs anyway.
-                    resold += h100e * w * 0.3
-                }
-            }
             if resold > 0 {
+                // The rivals pay the clouds for those chips (the clouds already paid you).
                 let rivals = BigPlayerCatalog.buyers(s, includeRivals: true).filter { BigPlayerCatalog.isRival($0.id) }
                 let total = rivals.reduce(0) { $0 + $1.weight }
                 for r in rivals where total > 0 {
-                    if let ci = s.competitors.firstIndex(where: { $0.id == r.id }) { s.competitors[ci].armedH100e += resold * r.weight / total }
+                    guard let ci = s.competitors.firstIndex(where: { $0.id == r.id }) else { continue }
+                    let u = min(resold * r.weight / total, Semis.rivalBudgetDay(s, r.id) / max(1, line.price))
+                    guard u > 0 else { continue }
+                    s.competitors[ci].cash -= u * line.price
+                    s.competitors[ci].armedH100e += u * perUnitH100e
                 }
             }
         }
@@ -187,6 +201,11 @@ extension GameState {
     mutating func openChipLine(_ chipID: String) -> String? {
         guard customChips.contains(where: { $0.id == chipID }), HardwareCatalog.get(chipID) != nil else { return "Only chips you designed can be sold." }
         if Semis.isSemiChip(chipID) { return "Sell this chip from the Semiconductors page (Sales)." }
+        // 3.9: selling a chip means making it — wafers, packaging and HBM on the Semiconductors page. Chips from the old
+        // at-cost programmes stay yours to buy; lines already open keep their capacity.
+        if !ChipBusiness.isAlien(chipID, self) && !chipLines.contains(where: { $0.chipID == chipID }) {
+            return "This chip came from a partner programme that builds only for you. To sell chips, design one on the Semiconductors page and make it there."
+        }
         if let ai = alienArchs.firstIndex(where: { $0.chipID == chipID }), alienArchs[ai].policy != .sellChips {
             alienArchs[ai].policy = .sellChips
             alienArchs[ai].offers = []
@@ -212,28 +231,19 @@ extension GameState {
             chipLines[i].active = active
         }
         if let sellToRivals {
-            if sellToRivals, let until = exclusiveSupplyUntil, until > date { return "You promised exclusive supply until \(until.gameShort)." }
+            if sellToRivals, let until = Semis.exclusiveUntil(self) { return "You promised exclusive supply until \(until.gameShort)." }
             chipLines[i].sellToRivals = sellToRivals
         }
         return nil
     }
 
+    /// Alien chips come off your own alien fab line (3.5): expanding it serves sales and your own orders. 3.9: other
+    /// lines (from the old partner programmes) keep the capacity they have — new capacity for your own chips is wafers,
+    /// packaging and HBM booked on the Semiconductors page, not one payment.
     mutating func addFabCapacity(_ chipID: String, units: Double) -> String? {
-        guard let i = chipLines.firstIndex(where: { $0.chipID == chipID }), let chip = HardwareCatalog.get(chipID) else { return "Open a sales line first." }
-        // Alien chips come off your own fab line (3.5): expanding it serves sales and your own orders.
+        guard let i = chipLines.firstIndex(where: { $0.chipID == chipID }), HardwareCatalog.get(chipID) != nil else { return "Open a sales line first." }
         if AlienFab.isAlienChip(chipID) { return expandAlienFab(units: units) }
-        if chipLines[i].pendingCapacity > 0 { return "A capacity expansion is already ramping." }
-        if units < 1_000 { return "Foundries won't reserve fewer than 1,000 chips a month." }
-        let cost = ChipBusiness.capacityCost(chip, units: units, self)
-        if cost > cash { return "Reserving \(Fmt.count(units))/month costs \(Fmt.money(cost))." }
-        cash -= cost
-        month.capex += cost
-        let days = ChipBusiness.isAlien(chipID, self) ? 90 : 120
-        chipLines[i].pendingCapacity = units
-        chipLines[i].pendingReady = GameCalendar.addDays(date, days)
-        Sim.news(&self, "Reserved foundry capacity for \(chip.name)", "+\(Fmt.count(units)) chips/month for \(Fmt.money(cost)), ramping in about \(days / 30) months.",
-                 .hardware, image: "wafer_closeup")
-        return nil
+        return "New capacity for your own chips is booked as wafers, packaging and HBM on the Semiconductors page. This line keeps the \(Fmt.count(chipLines[i].capacityMonth)) a month it has."
     }
 
     /// Lease `chips` owned accelerators of a type to the market (0 recalls them).

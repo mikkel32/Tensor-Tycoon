@@ -11,7 +11,8 @@ import Foundation
 /// lean (half the usual training budget: smaller models), coding (specialist coding models), advproj (government
 /// contracts, one unclassified programme at a time), classified (also prepares for and runs Secret work: security,
 /// clearances, facilities; it retains classified discoveries internally), noreport (no programme report at the end),
-/// science (science labs), data (the data economy: datasets, annotation, synthetic data, processing).
+/// science (science labs), data (the data economy: datasets, annotation, synthetic data, processing), semis (3.9: run
+/// a chip business), orgs (3.9: found an AI organisation).
 ///
 /// Output: a monthly table (every 3rd month unless mode is `full`), an event log, every training run (plan vs actual
 /// days, forecast vs actual capability), a summary of pacing metrics, and `CSV,` rows for offline aggregation.
@@ -365,6 +366,8 @@ enum PTPlay {
             if (flags.contains("advproj") || flags.contains("classified")) && !flags.contains("noreport") { for line in AdvancedProjects.report(s) { print(line) } }
             if flags.contains("science") { scienceSummary(s, seed: seed) }
             if flags.contains("data") { dataSummary(s, seed: seed) }
+            if flags.contains("semis") { print("Seed \(seed) chip business:"); for line in Semis.report(s) { print(line) } }   // 3.9
+            if flags.contains("orgs") { print("Seed \(seed) organisations:"); for line in AgentOrgs.summary(s) { print(line) } }   // 3.9
         }
         lastState = s
         return sum
@@ -474,6 +477,7 @@ enum PTPlay {
         case "swarm_audit": return s.cash > dd.amount * 4 ? 0 : 1
         case Science.decisionKind: return scienceChoice(dd, s)   // 3.6
         case Launches.decisionKind: return 1   // 3.7: let it ride
+        case Semis.rivalKind: return 1   // 3.9: don't arm rival labs with your chips
         default: return 0
         }
     }
@@ -519,6 +523,8 @@ enum PTPlay {
                 AdvancedProjects.botAct(&s, classified: bot.flags.contains("classified"))   // 3.8: and get ready for Secret work
             }
             if bot.flags.contains("science") { science(&s) }   // 3.6: science labs (only with the flag)
+            if bot.flags.contains("semis") { Semis.botAct(&s) }   // 3.9: a chip business (design, foundry, packaging, fleet, sales)
+            if bot.flags.contains("orgs") { AgentOrgs.botAct(&s) }   // 3.9: one AI organisation of sensible size
         }
         if bot.flags.contains("data") { dataBot(&s) }   // data economy: datasets, annotation, synthetic data, processing (only with the flag)
     }

@@ -10,6 +10,7 @@ extension BalanceHarness {
         while s.year < year { Sim.advanceDay(&s); s.decisions.removeAll(); s.gameOver = nil; ScenarioHarness.fund(&s, atLeast: 1e8) }
         s.researched.formUnion(ResearchCatalog.core.filter { $0.year <= year && $0.category != .frontier }.map(\.id))
         ScenarioHarness.fund(&s, atLeast: 5e10)
+        ScenarioHarness.setStage(&s, .frontierLab)   // what the lab this sets up would be
         s.valuation = Macro.frontierValuation(year) * 0.3
         let site = Site(name: "Probe Campus", kind: .datacenter, locationID: "texas", capacityKW: 3_000_000, cooling: .liquid, powerDeal: .grid,
                         opened: s.date, ready: s.date, capex: 0, monthlyFee: 0)

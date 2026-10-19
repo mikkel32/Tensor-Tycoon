@@ -255,12 +255,17 @@ enum BigPlayerCatalog {
     static func isRival(_ id: String) -> Bool { CompetitorCatalog.byID[id] != nil }
 
     /// Everyone who could buy today, with their share of chip demand. Rivals split half the market by compute share.
+    /// 3.9: only labs still in business, and none your export rules forbid (Chinese labs under controls); Gulf buyers
+    /// need licences when the rules tighten (half their demand). Weights still sum to 1 — blocked buyers' demand is lost.
     static func buyers(_ s: GameState, includeRivals: Bool) -> [(id: String, weight: Double)] {
-        var out = neutral.map { ($0.id, $0.weight * (includeRivals ? 0.5 : 1)) }
+        let rules = Semis.exportRules(s)
+        var out = neutral.map { b in (b.id, b.weight * (includeRivals ? 0.5 : 1) * (b.id == "meridian" && rules.gulfHalf ? 0.5 : 1)) }
         if includeRivals {
-            let rivals = s.competitors.filter { !$0.acquired && s.year >= $0.def.founded.decimal }
-            let total = rivals.reduce(0) { $0 + $1.def.computeShare }
-            for r in rivals where total > 0 { out.append((r.id, 0.5 * r.def.computeShare / total)) }
+            let all = s.competitors.filter { Semis.rivalAlive($0, s) }
+            let total = all.reduce(0) { $0 + $1.def.computeShare }
+            for r in all where total > 0 && !(rules.china && AdvancedProjects.labRegion(r.id) == .china) {
+                out.append((r.id, 0.5 * r.def.computeShare / total))
+            }
         }
         return out
     }
