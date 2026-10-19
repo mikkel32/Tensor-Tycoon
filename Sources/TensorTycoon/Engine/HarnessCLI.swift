@@ -40,6 +40,7 @@ enum HarnessCLI {
         if let a = rest(after: "--playtest") { PlaytestHarness.main(a); return 0 }
         if let a = rest(after: "--determinism") { DeterminismHarness.main(a); return 0 }
         if let a = rest(after: "--scenarios") { return ScenarioHarness.main(a) }
+        if args.contains("--finance-check") { return FinanceHarness.main() }   // 3.8: books, valuation, debt, payouts, tax, crises, stages
         if let era = arg(after: "--experience", "2024") { BalanceHarness.experience(era: era); return 0 }
         if let era = arg(after: "--ventures", "2026") { BalanceHarness.ventures(era: era); return 0 }
         if let era = arg(after: "--simulate", "2022") { BalanceHarness.run(era: era); return 0 }

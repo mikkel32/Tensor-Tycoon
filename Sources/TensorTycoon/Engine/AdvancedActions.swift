@@ -95,6 +95,7 @@ extension GameState {
     /// Start a background investigation for an employee.
     mutating func requestClearance(_ employee: UUID, level: Int) -> String? {
         guard let e = employees.first(where: { $0.id == employee }) else { return "They've left the company." }
+        if let why = Progression.blocker(self, .classified) { return why }   // 3.8: Frontier Lab
         let level = clamp(level, 1, 3)
         var c = advanced.clearances.first { $0.employee == employee } ?? Clearance(employee: employee)
         guard c.level < level else { return "\(e.name) already holds that clearance." }
@@ -137,6 +138,7 @@ extension GameState {
     /// Build a classified facility.
     mutating func buildFacility(_ kind: FacilityKind, level: Int, capacity: Double, site: UUID) -> String? {
         guard let st = AdvancedProjects.sitesFor(kind, self).first(where: { $0.id == site }) else { return "That site can't host a \(kind.title.lowercased())." }
+        if let why = Progression.blocker(self, .classified) { return why }   // 3.8: Frontier Lab
         let q = AdvancedProjects.quote(kind, level: level, capacity: capacity, year)
         if let b = AdvancedProjects.facilityBlockers(kind, level: clamp(level, 1, 3), self).first { return "It needs \(b.prefix(1).lowercased() + b.dropFirst())." }
         if kind == .clearedHall {

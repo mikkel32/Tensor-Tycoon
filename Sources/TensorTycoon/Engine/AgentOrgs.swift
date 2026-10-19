@@ -503,6 +503,7 @@ extension GameState {
     mutating func formOrg(fromSwarm id: UUID) -> String? {
         guard let i = swarms.firstIndex(where: { $0.id == id }), swarms[i].orgID == nil else { return "Not found." }
         if orgs.count >= AgentOrgs.maxOrgs { return "You can run at most \(AgentOrgs.maxOrgs) organisations." }
+        if swarms[i].agents > Progression.orgAgentCap, let why = Progression.blocker(self, .bigOrgs) { return why }   // 3.8: Hyperscaler
         let sw = swarms[i]
         let org = AgentOrg(name: sw.mission.orgTitle, kind: sw.mission, objective: sw.mission.defaultObjective, founded: date,
                            autonomy: sw.autonomy, oversight: sw.oversight, verification: 0.1, budgetMonthly: 0)
@@ -523,6 +524,7 @@ extension GameState {
         guard let oi = orgs.firstIndex(where: { $0.id == orgID }) else { return "Not found." }
         let o = orgs[oi]
         if swarms.filter({ $0.orgID == orgID }).count >= AgentOrgs.maxTeams { return "An organisation has at most \(AgentOrgs.maxTeams) teams." }
+        if Progression.orgAgents(self, orgID) + agents > Progression.orgAgentCap, let why = Progression.blocker(self, .bigOrgs) { return why }   // 3.8: Hyperscaler
         let modelName = models.first { $0.id == modelID }?.name ?? "Agent"
         let trimmed = name.trimmingCharacters(in: .whitespaces)
         let teamName = trimmed.isEmpty ? "\(modelName) \(role.title.lowercased())" : trimmed
@@ -574,6 +576,8 @@ extension GameState {
 
     mutating func tuneOrgTeam(_ id: UUID, agents: Int, chips: Int) -> String? {
         guard let sw = swarms.first(where: { $0.id == id }) else { return "Not found." }
+        if let org = sw.orgID, agents > sw.agents, Progression.orgAgents(self, org) - sw.agents + agents > Progression.orgAgentCap,
+           let why = Progression.blocker(self, .bigOrgs) { return why }   // 3.8: Hyperscaler
         return tuneSwarm(id, agents: agents, chips: chips, mission: sw.mission, autonomy: sw.autonomy, oversight: sw.oversight)
     }
 

@@ -1523,6 +1523,7 @@ extension GameState {
     /// Build a laboratory. Returns an error message, or nil on success.
     mutating func buildLab(_ kind: LabKind, site: String, staff: Int = 8) -> String? {
         guard ScienceCatalog.siteByID[site] != nil else { return "Pick a city." }
+        if science.labs.count >= 2, let why = Progression.blocker(self, .institutes) { return why }   // 3.8: Hyperscaler
         let def = ScienceCatalog.lab(kind)
         let cost = Science.capex(kind, site: site, self)
         let hires = Double(staff) * Science.salary(site, self) * 0.15

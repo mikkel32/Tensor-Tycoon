@@ -129,33 +129,80 @@ struct NextStageCard: View {
             if let p = Progression.power(next) {
                 Label("Unlocks \(p.title): \(p.text)", systemImage: p.symbol).font(.caption).foregroundStyle(.secondary)
             }
+            ForEach(Progression.features(next), id: \.self) { f in
+                Label("Opens \(f.title.lowercased()): \(f.text)", systemImage: f.symbol).font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if Progression.slots(next) > Progression.slots(s.progression.current) {
+                Label("Room for \(Progression.slots(next)) subsidiaries (now \(Progression.subsidiarySlots(s))).", systemImage: "square.stack.3d.up.fill")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
         }
     }
 }
 
-/// What each stage unlocks, with links to where the power works.
+/// What each stage unlocks — its power, the decisions it opens and the subsidiaries it can run — with links to where
+/// each one works. A gated action anywhere in the game says which stage it needs.
 struct PowersCard: View {
     @Environment(GameStore.self) private var store
     let state: GameState
 
     var body: some View {
         Card {
-            CardHeader("Powers", symbol: "bolt.shield", subtitle: "Each stage strengthens a system you already use.")
+            CardHeader("What each stage unlocks", symbol: "bolt.shield",
+                       subtitle: "A power that strengthens a system you already use, and decisions you can't take before. Features an older save already used stay open.")
             ForEach(CompanyStage.allCases.filter { $0 != .garage }) { st in
-                if let p = Progression.power(st) {
-                    let on = Progression.has(state, st)
-                    HStack(alignment: .top, spacing: 10) {
-                        Image(systemName: on ? p.symbol : "lock.fill").foregroundStyle(on ? Color.accentColor : .secondary).frame(width: 20)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text("\(p.title) · \(st.title)").font(.callout.weight(.semibold)).foregroundStyle(on ? .primary : .secondary)
-                            Text(p.text).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                        }
+                let on = Progression.has(state, st)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        Image(systemName: st.symbol).foregroundStyle(on ? Color.accentColor : .secondary).frame(width: 20).accessibilityHidden(true)
+                        Text(st.title).font(.callout.weight(.bold)).foregroundStyle(on ? .primary : .secondary)
+                        if on { Pill("Reached", tone: .good) } else { Pill("Locked", tone: .neutral) }
                         Spacer()
-                        if on { Button("Open \(p.screen.title)") { store.open(p.screen) }.buttonStyle(.link).font(.caption) }
+                        Text("\(Progression.slots(st)) subsidiaries").font(.caption).foregroundStyle(.secondary)
+                    }
+                    if let p = Progression.power(st) {
+                        UnlockRow(symbol: p.symbol, title: p.title, text: p.text, open: on, screen: p.screen)
+                    }
+                    ForEach(Progression.features(st), id: \.self) { f in
+                        UnlockRow(symbol: f.symbol, title: f.title, text: f.text, open: Progression.allows(state, f), screen: f.screen,
+                                  note: !on && Progression.allows(state, f) ? "kept from before" : nil)
                     }
                 }
+                .padding(.vertical, 4)
+                if st != CompanyStage.allCases.last { Divider() }
             }
         }
+    }
+}
+
+/// One power or unlocked decision: open (with a link to where it works) or still locked.
+private struct UnlockRow: View {
+    @Environment(GameStore.self) private var store
+    let symbol: String
+    let title: String
+    let text: String
+    let open: Bool
+    let screen: Screen
+    var note: String? = nil
+
+    private var heading: String {
+        guard let note else { return title }
+        return "\(title) (\(note))"
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: open ? symbol : "lock.fill").foregroundStyle(open ? Color.accentColor : .secondary).frame(width: 20)
+                .accessibilityLabel(open ? "Open" : "Locked")
+            VStack(alignment: .leading, spacing: 1) {
+                Text(heading).font(.callout.weight(.semibold)).foregroundStyle(open ? .primary : .secondary)
+                Text(text).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+            if open { Button("Open \(screen.title)") { store.open(screen) }.buttonStyle(.link).font(.caption) }
+        }
+        .padding(.leading, 26)
     }
 }
 

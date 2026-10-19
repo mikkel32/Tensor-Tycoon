@@ -148,7 +148,9 @@ enum Sim {
     static func mergeOwned(_ s: inout GameState) {
         var merged: [String: OwnedBatch] = [:]
         for b in s.owned where b.count > 0 {
-            let key = "\(b.accelID)|\(b.siteID)"
+            // 3.8: chips delivered in different months stay separate batches, so each keeps its own age (resale wear,
+            // depreciation); same-month deliveries still merge.
+            let key = "\(b.accelID)|\(b.siteID)|\(b.purchased.ym.year)-\(b.purchased.ym.month)"
             if var m = merged[key] {
                 let total = m.count + b.count
                 m.unitCost = (m.unitCost * Double(m.count) + b.unitCost * Double(b.count)) / Double(total)
@@ -312,12 +314,15 @@ enum Sim {
             s.competitors[i].agentShare = snap.agents.filter { $0.lab == id }.reduce(0) { $0 + $1.share }
         }
 
+        // 3.8: the share of today's demand your go-to-market can take on (Commercial): the rest goes unbooked.
+        let reach = Commercial.reach(&s, snap)
+
         // Demand per player model
         var demand: [UUID: Double] = [:]
         var apiDemand: [UUID: Double] = [:]
         for p in snap.api where p.isPlayer {
             guard let id = p.modelID else { continue }
-            let tokens = p.share * snap.apiTokenPool
+            let tokens = p.share * snap.apiTokenPool * reach
             apiDemand[id, default: 0] += tokens
             demand[id, default: 0] += tokens
         }
@@ -329,7 +334,7 @@ enum Sim {
         // What rival apps earn per weekly user a month (RivalEconomy's assumption).
         let rivalChatARPU = Market.paidConversion(price: 20, freeTier: true) * 20
         if let chat = snap.consumer.first(where: { $0.isPlayer }) {
-            let target = chat.share * snap.consumerUsersPool
+            let target = chat.share * snap.consumerUsersPool * reach
             let speed = s.year < 2022.91 ? 0.08 : 0.04
             var users = s.consumerUsers + (target - s.consumerUsers) * speed
             // Paying users follow the price against what the app is worth to them (chatWTP).
@@ -382,7 +387,7 @@ enum Sim {
             let othersSpend = (snap.agents.filter { !$0.isPlayer }.reduce(0) { $0 + $1.share * $1.price }
                                + max(0, 1 - snap.agents.reduce(0) { $0 + $1.share }) * snap.agentSeatBudget) * snap.agentSeatsPool / 30.4
             let natural = ag.share * snap.agentSeatsPool * max(1, s.agentPrice) / 30.4
-            let target = ag.share * snap.agentSeatsPool * Market.budgetFactor(natural, pool: snap.agentRevenuePool, others: othersSpend)
+            let target = ag.share * snap.agentSeatsPool * Market.budgetFactor(natural, pool: snap.agentRevenuePool, others: othersSpend) * reach
             s.agentSeats = max(0, s.agentSeats + (target - s.agentSeats) * 0.05)
             // Seats take weeks to sign up or wind down, but only as many as your share supports at today's price pay it.
             billedSeats = min(s.agentSeats, target)
@@ -503,7 +508,7 @@ enum Sim {
             power += draw * site.pue * 24 * site.powerPrice * (site.kind == .colo || site.kind == .datacenter ? grid : 1)
                 * Nations.powerFactor(s, location: site.locationID)   // 3.7: energy policy where the site is
         }
-        power *= Power.billFactor(s)   // traits, alien materials, infrastructure teams, energy discoveries, cooling programmes (floored)
+        power *= Power.billFactor(s)   // traits, alien materials, infrastructure teams, energy discoveries, cooling programmes, an energy subsidiary (floored)
         let sites = s.sites.reduce(0) { $0 + $1.monthlyFee } / 30.4
         let office = (Economy.office(s, s.officeLevel).monthly + HQ.satelliteRent(s)) / 30.4   // 3.5: local rent; 3.4 overhaul: satellite offices
         let payroll = Economy.payrollYear(s) / 365

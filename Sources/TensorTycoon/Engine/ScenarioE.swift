@@ -86,7 +86,7 @@ extension ScenarioHarness {
                 s.resolveDecision(dd.id, option: dd.kind == "acquisition" ? dd.options.count - 1 : 0)
             }
             if let c = run(), c.progress >= 0.25, TrainingExperience.has(s, "chips_100k") { sawFirstAfterQuarter = true }
-            s.cash = max(s.cash, 1e10)
+            fund(&s, atLeast: 1e10)
         }
         guard let done = run(), done.status == .done, let mid = done.modelID, let model = s.models.first(where: { $0.id == mid }) else {
             r.expect("run finishes", false, run().map { "\($0.status.rawValue) at \(Int($0.progress * 100))%" } ?? "missing")
@@ -136,7 +136,7 @@ extension ScenarioHarness {
                 Sim.advanceDay(&t)
                 for dd in t.decisions { t.resolveDecision(dd.id, option: dd.kind == "acquisition" ? dd.options.count - 1 : 0) }
                 t.decisions.removeAll()
-                t.cash = max(t.cash, 1e10)
+                fund(&t, atLeast: 1e10)
             }
             if let c = t.runs.first(where: { $0.id == runID }), let mid2 = c.modelID, let m2 = t.models.first(where: { $0.id == mid2 }) {
                 r.note("ended early at 50%: index \(Fmt.score(m2.index)) (estimated \(Fmt.score(preview.indexNow))), \(Fmt.money(c.cost)) vs \(Fmt.money(done.cost)) for the full run")

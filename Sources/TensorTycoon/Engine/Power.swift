@@ -254,7 +254,8 @@ enum Power {
     /// infrastructure agent teams, energy discoveries, cooling programmes — with a floor: a campus still pays for at
     /// least a tenth of its power. The power bill (Sim.dailyCosts) and purchase-agreement settlement (`settle`) both use it.
     static func billFactor(_ s: GameState) -> Double {
-        max(0.1, max(0.5, 1 - s.traits.power) * XenoScience.powerFactor(s) * AgentOrgs.powerFactor(s) * Science.powerFactor(s) * AdvancedProjects.powerFactor(s))
+        max(0.1, max(0.5, 1 - s.traits.power) * XenoScience.powerFactor(s) * AgentOrgs.powerFactor(s) * Science.powerFactor(s) * AdvancedProjects.powerFactor(s)
+                 * Corporate.powerFactor(s))   // 3.8: an energy subsidiary's contracts
     }
 
     static func summary(_ s: GameState) -> PowerSummary {

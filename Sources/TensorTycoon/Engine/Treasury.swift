@@ -37,7 +37,9 @@ enum Treasury {
 
     /// Auto-pricing keeps a model's serving chips 80–90% busy: it raises the price a few percent a day while
     /// demand outruns capacity and cuts it while chips sit idle, within 0.5–2× the going rate (which follows
-    /// rivals' price cuts) and never above 2.5× the frontier rate, and never below serving cost.
+    /// rivals' price cuts) and never above 2.5× the frontier rate, and never below serving cost. 3.8: while your
+    /// go-to-market is turning demand away (Commercial), idle chips aren't a sign the price is too high, so it
+    /// doesn't cut.
     static func autoPrice(_ s: inout GameState, _ bonuses: ResearchBonuses? = nil) {
         for i in s.models.indices where s.models[i].autoPrice && !s.models[i].retired {
             let m = s.models[i]
@@ -46,7 +48,7 @@ enum Treasury {
             if m.capacityTokensDay > 0 && m.released && m.api {
                 let load = m.demandTokensDay / m.capacityTokensDay
                 if load > 0.9 { p *= min(1.04, pow(load / 0.9, 0.25)) }
-                if load < 0.8 { p *= max(0.96, pow(max(load, 0.01) / 0.8, 0.25)) }
+                if load < 0.8 && s.corp.unbookedToday <= 0 { p *= max(0.96, pow(max(load, 0.01) / 0.8, 0.25)) }
             } else {
                 // Not selling yet: drift toward the going rate.
                 p += (market * 0.85 - p) * 0.05
@@ -66,10 +68,11 @@ enum Treasury {
         return (p / unit).rounded() * unit
     }
 
-    /// Months of runway at last month's burn (nil when profitable).
+    /// Months of runway at last month's cash burn (nil when operations make cash). 3.8: depreciation and gains on
+    /// disposals aren't cash, so they don't count toward the burn.
     static func runwayMonths(_ s: GameState) -> Double? {
         guard let last = s.history.last else { return nil }
-        let burn = -last.profit
+        let burn = -last.cashProfit
         guard burn > 0 else { return nil }
         return max(0, s.cash) / burn
     }

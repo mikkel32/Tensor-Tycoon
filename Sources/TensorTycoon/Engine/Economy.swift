@@ -342,9 +342,8 @@ enum Economy {
         }
     }
 
-    static func siteValue(_ s: GameState) -> Double {
-        s.sites.filter { $0.kind == .datacenter }.reduce(0) { $0 + $1.capex * 0.8 }
-    }
+    /// Datacenters at book value: what they cost less straight-line depreciation over 20 years (3.8; it was 80% of cost forever).
+    static func siteValue(_ s: GameState) -> Double { Books.sitesBook(s) }
 
     static func debt(_ s: GameState) -> Double { s.loans.reduce(0) { $0 + $1.balance } + s.corp.debts.reduce(0) { $0 + $1.balance } }
 
@@ -374,47 +373,114 @@ enum Economy {
 
     // MARK: Revenue & valuation
 
+    /// Annualised recurring revenue: this month so far blended with last month. Programme milestone payments (3.8) are
+    /// revenue but lumpy, so they never enter the run rate (or the multiple the valuation puts on it).
     static func runRate(_ s: GameState) -> Double {
         let daysIn = max(1, GameCalendar.components(s.date).day)
-        let current = s.month.revenue / Double(daysIn) * 365
+        let current = s.month.recurringRevenue / Double(daysIn) * 365
         if let last = s.history.last {
-            let lastRate = last.revenue * 12
+            let lastRate = last.recurringRevenue * 12
             return daysIn < 10 ? lastRate : (current * 0.6 + lastRate * 0.4)
         }
         return current
     }
 
-    static func valuation(_ s: GameState) -> Double {
-        if s.isPublic { return s.sharePrice * s.totalShares }
+    /// Annualised revenue of the divisions you folded back in (valued at their own kind's multiple, not the lab's).
+    static func groupRunRate(_ s: GameState) -> Double {
+        let daysIn = max(1, GameCalendar.components(s.date).day)
+        let current = s.month.revGroup / Double(daysIn) * 365
+        if let last = s.history.last {
+            let lastRate = last.revGroup * 12
+            return daysIn < 10 ? lastRate : (current * 0.6 + lastRate * 0.4)
+        }
+        return current
+    }
+
+    /// 3.8: what the company is worth to its shareholders, piece by piece. The business itself (enterprise value) is
+    /// the best of four views — its revenue at the era's multiple, the hype around a frontier model, a credible team's
+    /// seed price, its talent — plus hard assets at 60%, folded-in divisions at their own multiples and stakes in other
+    /// companies at 90%. Then cash and 80% of cloud credits are added and all debt taken off: borrowing to sit on cash
+    /// creates nothing, moving cash into a subsidiary loses the holding discount, and a buyback or dividend lowers it.
+    struct Breakdown {
+        var revenue: Double
+        var hype: Double
+        var seed: Double
+        var talent: Double
+        /// Hardware at resale and datacenters at book value, at 60%.
+        var hardAssets: Double
+        /// Divisions folded back in, at their kind's multiple.
+        var divisions: Double
+        /// Subsidiaries, rival-lab stakes and the licence fees subsidiaries pay you, at 90%; alien-tech moat.
+        var stakes: Double
+        var cash: Double
+        /// Cloud credits at 80% (they only pay for rentals).
+        var credits: Double
+        var debt: Double
+        /// The crisis discount on multiples (1 outside a crisis).
+        var crisis: Double
+
+        var operations: Double { max(revenue, hype, seed, talent) }
+        var basis: String {
+            switch operations {
+            case revenue: "revenue"
+            case hype: "a frontier model"
+            case talent: "the team"
+            default: "a seed-stage team"
+            }
+        }
+        var enterprise: Double { operations + hardAssets + divisions + stakes }
+        var equity: Double { max(0, enterprise + cash + credits - debt) }
+    }
+
+    static func breakdown(_ s: GameState) -> Breakdown {
         let y = s.year
+        let crisis = Crises.multipleFactor(s)
         // Chip sales and leased compute earn hardware multiples, not software ones.
-        // 3.8: licence fees from your subsidiaries are valued with them (`Corporate.feeValue`), not at the lab's multiple.
-        let rr = max(0, runRate(s) - 0.6 * hardwareRunRate(s) - Corporate.feeRunRate(s))
+        // 3.8: licence fees from your subsidiaries are valued with them (`Corporate.feeValue`) and folded-in divisions at
+        // their own multiples (`Corporate.divisionValue`), never at the lab's.
+        let rr = max(0, runRate(s) - 0.6 * hardwareRunRate(s) - Corporate.feeRunRate(s) - groupRunRate(s))
         var growth = 0.0
         if s.history.count >= 7 {
-            let now = s.history.last!.revenue
-            let then = s.history[s.history.count - 7].revenue
+            let now = s.history.last!.recurringRevenue
+            let then = s.history[s.history.count - 7].recurringRevenue
             if then > 0 { growth = clamp(pow(now / then, 2) - 1, 0, 4) }
         }
-        let revVal = rr * Macro.revenueMultiple(y) * (1 + growth * 0.25)
+        let revVal = rr * Macro.revenueMultiple(y) * (1 + growth * 0.25) * crisis
         let best = s.models.map { $0.released ? $0.c : $0.c - 0.15 }.max() ?? -5
         let gap = best - Macro.frontier(y)
         let age = Double(GameCalendar.daysBetween(s.startDate, s.date)) / 365
         let maturity = clamp(0.3 + age * 0.3, 0.3, 1.0)
         let hypeVal = 0.55 * Macro.frontierValuation(y) * exp(2.4 * min(gap, 0.5)) * (s.market.hype / 1.3)
-            * pow(max(5, s.brand) / 60, 0.4) * maturity
+            * pow(max(5, s.brand) / 60, 0.4) * maturity * crisis
         let talent = s.employees.reduce(0.0) { $0 + ($1.role == .researcher ? $1.skill * 40_000 : $1.skill * 10_000) } * (y > 2023 ? 3 : 1)
         let seed = Macro.seedValuation(y) * min(1.5, 0.6 + Double(s.employees.count) * 0.1)
-        let assets = max(0, hardwareValue(s) + siteValue(s) - debt(s))
-        return max(max(revVal, hypeVal, seed, talent) + assets * 0.6 + Xeno.moatValue(s) + RivalEconomy.stakesValue(s) * 0.9
-                   + (Corporate.stakesValue(s) + Corporate.feeValue(s)) * 0.9, roundFloor(s))   // 3.5: subsidiaries
+        let stakes = Xeno.moatValue(s) + RivalEconomy.stakesValue(s) * 0.9 + (Corporate.stakesValue(s) + Corporate.feeValue(s)) * 0.9   // 3.5: subsidiaries
+        return Breakdown(revenue: revVal, hype: hypeVal, seed: seed, talent: talent,
+                         hardAssets: 0.6 * (hardwareValue(s) + siteValue(s)), divisions: Corporate.divisionValue(s) * crisis, stakes: stakes,
+                         cash: s.cash, credits: 0.8 * s.cloudCredits, debt: debt(s), crisis: crisis)
     }
 
-    /// The last round's post-money, written down 30% a year (to at most 40% off): a private mark rarely falls faster.
+    static func valuation(_ s: GameState) -> Double {
+        if s.isPublic { return s.sharePrice * s.totalShares }
+        return max(breakdown(s).equity, roundFloor(s))
+    }
+
+    /// The last round's post-money, written down 30% a year (to at most 40% off): a private mark rarely falls faster —
+    /// except in a crisis, when down rounds price the whole market lower (3.8).
     static func roundFloor(_ s: GameState) -> Double {
         guard let r = s.rounds.last else { return 0 }
         let years = Double(GameCalendar.daysBetween(r.date, s.date)) / 365
-        return (r.preMoney + r.amount) * max(0.4, 1 - 0.3 * years)
+        // Subsidiaries spun off to shareholders since that round took their value out of the company.
+        let spun = s.corp.subs.filter { $0.status == .spunOff && ($0.statusDate ?? .distantPast) >= r.date }.reduce(0) { $0 + $1.stake * $1.valuation }
+        return max(0, (r.preMoney + r.amount) * max(0.4, 1 - 0.3 * years) * Crises.multipleFactor(s) - spun)
+    }
+
+    /// 3.8: how far a private company's mark moves in a month between rounds: halfway (in log terms) toward its new
+    /// level, but never more than +60% or −30%. Only a priced round (or an IPO) re-marks it further at once.
+    static func smoothedMark(old: Double, new: Double, floor: Double) -> Double {
+        guard old > 0, new > 0 else { return max(new, floor) }
+        let step = clamp((old * new).squareRoot(), old * 0.7, old * 1.6)
+        return max(step, floor)
     }
 
     /// Annualised revenue from selling chips and leasing compute.
@@ -428,12 +494,18 @@ enum Economy {
         return current
     }
 
+    /// The policy rate: the real Fed funds rate until late 2026, then the drifting rate — plus a rate shock's extra points (3.8).
     static func fedRate(_ s: GameState) -> Double {
-        Macro.historicalRate(s.year) ?? s.market.interestRate
+        (Macro.historicalRate(s.year) ?? s.market.interestRate) + Crises.rateAdd(s)
     }
 
+    /// 3.8: the credit score and the corporate rating are one system. The rating's score (leverage, interest cover,
+    /// size, liquidity and runway) drives the credit score, so both read the same letter, and every loan prices off
+    /// that letter's spread (small borrowers pay a little more), plus a credit crunch's premium.
     static func creditSpread(_ s: GameState) -> Double {
-        clamp((760 - s.creditScore) / 40, 1.0, 12.0)
+        let notch = Corporate.notch(forCreditScore: s.creditScore)
+        let small = runRate(s) < 1e8 ? 1.5 : (runRate(s) < 1e9 ? 0.5 : 0)
+        return Corporate.spreads[notch] + small + Crises.spreadAdd(s)
     }
 
     struct LoanQuote {
@@ -445,31 +517,64 @@ enum Economy {
         var reason: String
     }
 
+    /// What you still owe on loans of one kind.
+    static func owed(_ s: GameState, _ kind: LoanKind) -> Double {
+        s.loans.filter { $0.kind == kind }.reduce(0) { $0 + $1.balance }
+    }
+
+    /// Each limit is net of what you already owe of that kind (3.8), so a line can't be drawn twice.
     static func loanQuotes(_ s: GameState) -> [LoanQuote] {
         let fed = max(0.25, fedRate(s) - s.traits.loanRate)
         let spread = creditSpread(s)
         let rr = runRate(s)
         let hw = hardwareValue(s)
-        let gpuDebt = s.loans.filter { $0.kind == .gpuBacked }.reduce(0) { $0 + $1.balance }
         let lastRound = s.rounds.last
+        let crunch = Crises.crunchSeverity(s)
+        let notch = Corporate.notch(forCreditScore: s.creditScore)
         var out: [LoanQuote] = []
         let ff = s.loans.contains { $0.kind == .friends } || s.rounds.count > 1
         out.append(LoanQuote(kind: .friends, max: ff ? 0 : 250_000, rate: 2, term: 36, available: !ff,
                              reason: ff ? "Only once, before your Series A." : "Family money. Low rate, high awkwardness."))
-        let bankMax = rr >= 1_000_000 ? rr * 1.5 : 0
-        out.append(LoanQuote(kind: .bank, max: bankMax, rate: fed + spread, term: 60, available: bankMax > 0,
-                             reason: bankMax > 0 ? "Up to 1.5x annual revenue." : "Banks want at least $1M of annual revenue."))
-        let gpuMax = max(0, hw * 0.65 - gpuDebt)
+        let bankOwed = owed(s, .bank)
+        var bankMax = rr >= 1_000_000 ? max(0, rr * 1.5 - bankOwed) : 0
+        var bankWhy = rr < 1_000_000 ? "Banks want at least $1M of annual revenue."
+            : (bankMax > 0 ? "Up to 1.5x annual revenue, less the \(Fmt.money(bankOwed)) you already owe the bank." : "You've drawn the whole line: 1.5x annual revenue (\(Fmt.money(bankOwed)) owed).")
+        if crunch > 0 && notch > 2 && bankMax > 0 {
+            bankMax = 0
+            bankWhy = "Credit crunch: banks are only lending to A-rated borrowers or better (you're \(Corporate.ratingName(notch)))."
+        }
+        out.append(LoanQuote(kind: .bank, max: bankMax, rate: fed + spread, term: 60, available: bankMax > 0, reason: bankWhy))
+        let ltv = crunch > 0 ? 0.45 : 0.65
+        let gpuMax = max(0, hw * ltv - owed(s, .gpuBacked))
         out.append(LoanQuote(kind: .gpuBacked, max: gpuMax, rate: fed + 6.5 + max(0, spread - 3) * 0.5, term: 48, available: gpuMax > 100_000,
-                             reason: gpuMax > 100_000 ? "Secured by your hardware (65% loan-to-value). Default and they take the GPUs."
-                                                       : "Buy hardware first — lenders take GPUs as collateral."))
+                             reason: gpuMax > 100_000 ? "Secured by your hardware (\(Int(ltv * 100))% loan-to-value\(crunch > 0 ? " in the crunch" : "")). Default and they take the GPUs."
+                                                       : (hw > 0 ? "Your hardware already backs as much as lenders will take." : "Buy hardware first — lenders take GPUs as collateral.")))
         var vdMax = 0.0
-        if let r = lastRound, GameCalendar.daysBetween(r.date, s.date) < 540 { vdMax = r.amount * 0.35 }
-        out.append(LoanQuote(kind: .venture, max: vdMax, rate: fed + 4.5, term: 36, available: vdMax > 0,
-                             reason: vdMax > 0 ? "Up to 35% of your last round. Includes small warrants." : "Needs an equity round in the last 18 months."))
-        let bondMax = (s.isPublic || s.valuation > 20e9) ? s.valuation * 0.15 : 0
-        out.append(LoanQuote(kind: .bond, max: bondMax, rate: fed + spread * 0.6 + 0.8, term: 120, available: bondMax > 0,
-                             reason: bondMax > 0 ? "Investment-grade style debt for large companies." : "Needs a $20B valuation or a public listing."))
+        var vdWhy = "Needs an equity round in the last 18 months."
+        if let r = lastRound, GameCalendar.daysBetween(r.date, s.date) < 540 {
+            let ventureOwed = owed(s, .venture)
+            vdMax = max(0, r.amount * 0.35 - ventureOwed)
+            vdWhy = vdMax > 0 ? "Up to 35% of your last round, less the \(Fmt.money(ventureOwed)) already lent. Includes small warrants."
+                              : "You've borrowed 35% of your last round already (\(Fmt.money(ventureOwed)) owed)."
+            if crunch >= 0.5 {
+                vdMax = 0
+                vdWhy = "Credit crunch: venture lenders have stopped writing new loans."
+            }
+        }
+        out.append(LoanQuote(kind: .venture, max: vdMax, rate: fed + 4.5 + Crises.spreadAdd(s), term: 36, available: vdMax > 0, reason: vdWhy))
+        var bondMax = 0.0
+        var bondWhy = "Needs a $20B valuation or a public listing."
+        if s.isPublic || s.valuation > 20e9 {
+            let bondOwed = owed(s, .bond)
+            bondMax = max(0, s.valuation * 0.15 - bondOwed)
+            bondWhy = bondMax > 0 ? "Investment-grade style debt for large companies: up to 15% of your value, less \(Fmt.money(bondOwed)) of bonds outstanding."
+                                  : "Your bonds already come to 15% of your value (\(Fmt.money(bondOwed)))."
+            if crunch > 0 && !Corporate.investmentGrade(notch) {
+                bondMax = 0
+                bondWhy = "Credit crunch: bond buyers want investment grade (BBB or better); you're \(Corporate.ratingName(notch))."
+            }
+        }
+        out.append(LoanQuote(kind: .bond, max: bondMax, rate: fed + spread * 0.6 + 0.8, term: 120, available: bondMax > 0, reason: bondWhy))
         return out
     }
 

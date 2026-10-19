@@ -1020,12 +1020,38 @@ struct MonthRecord: Codable, Identifiable, Hashable {
     // 3.5: corporate — subsidiaries you folded back in, booked as divisions of the company
     @D var revGroup: Double = 0
     @D var costGroup: Double = 0
+    // 3.8: the books (Books)
+    /// Milestone payments from government programmes: revenue, but lumpy, so never annualised into the run rate.
+    @D var revContracts: Double = 0
+    /// Straight-line depreciation of owned accelerators (4 years) and datacenter shells (20 years): a cost with no cash.
+    @D var costDepreciation: Double = 0
+    /// Gains (+) or losses (−) on assets and stakes sold or written off, against what they were carried at. No cash of
+    /// their own: the sale proceeds are an investing flow.
+    @D var assetGains: Double = 0
+    /// Cash that moved outside the income statement, by `CashFlowKind` raw value (+ in, − out).
+    @D var flows: [String: Double] = [:]
+    /// Cash when the month opened (nil for months kept before the ledger, which can't be reconciled).
+    @D var opening: Double? = nil
+    /// Demand for your API, chat and agents that your go-to-market couldn't book yet, and what held it back
+    /// (`Commercial.Limit` raw value).
+    @D var revUnbooked: Double = 0
+    @D var bookingLimit: String = ""
 
-    var revenue: Double { revAPI + revConsumer + revEnterprise + revOther + revAgents + revCloud + revChips + revLicensing + revLabor + revGroup }
+    var revenue: Double { revAPI + revConsumer + revEnterprise + revOther + revAgents + revCloud + revChips + revLicensing + revLabor + revGroup + revContracts }
+    /// Revenue that recurs month to month (everything but programme milestones): the base of the run rate.
+    var recurringRevenue: Double { revenue - revContracts }
+    /// What customers paid for your models directly: API, chat, agent seats and enterprise contracts.
+    var commercialRevenue: Double { revAPI + revConsumer + revAgents + revEnterprise }
     /// Selling hardware and leasing compute: valued like a hardware business, not a software one.
     var hardwareRevenue: Double { revCloud + revChips }
     var opex: Double { costRent + costPower + costSites + costPayroll + costData + costMarketing + costOther + costChips + costGroup }
-    var profit: Double { revenue + interestIncome + oneOffIncome - opex - costInterest - taxes }
+    /// Operating profit before depreciation, interest and tax.
+    var ebitda: Double { revenue - opex }
+    /// Operating profit after depreciation.
+    var ebit: Double { ebitda - costDepreciation }
+    var profit: Double { revenue + interestIncome + oneOffIncome + assetGains - opex - costDepreciation - costInterest - taxes }
+    /// Net income with the non-cash lines (depreciation, gains on disposals) taken back out: what operations did to cash.
+    var cashProfit: Double { profit + costDepreciation - assetGains }
 }
 
 struct StockPoint: Codable, Hashable {
