@@ -223,7 +223,7 @@ enum Capabilities {
     /// What your research adds to each domain (scaled by how well each result turned out in your lab).
     static func researchDomains(_ s: GameState) -> [Double] {
         var e = [Double](repeating: 0, count: CapDomain.count)
-        for id in s.researched {
+        for id in s.researched.sorted() {   // 3.7: fixed order (float sums)
             guard let fx = effectsByID[id] else { continue }
             let q = s.researchResults[id] ?? 1
             for (d, v) in fx { e[d.index] += v * q }
@@ -412,9 +412,10 @@ enum Capabilities {
     /// The best rival lab still in business in each domain today: (lab ID, score).
     static func bestRival(_ s: GameState) -> [(lab: String, score: Double)] {
         let alive = Set(s.competitors.filter(\.alive).map(\.id))
+        let labs = s.labDomains.sorted { $0.key < $1.key }   // 3.7: ties go the same way every launch
         return CapDomain.allCases.map { d in
             var best: (String, Double) = ("", 0)
-            for (lab, v) in s.labDomains where lab != "player" && alive.contains(lab) && v[d] > best.1 { best = (lab, v[d]) }
+            for (lab, v) in labs where lab != "player" && alive.contains(lab) && v[d] > best.1 { best = (lab, v[d]) }
             return best
         }
     }

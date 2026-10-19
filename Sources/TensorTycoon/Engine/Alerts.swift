@@ -72,7 +72,7 @@ enum AlertKind: String, Codable, CaseIterable, Identifiable, Sendable {
 }
 
 struct GameAlert: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var date: Date
     var kind: String
     var title: String

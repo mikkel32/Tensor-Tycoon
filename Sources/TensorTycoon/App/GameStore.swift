@@ -317,7 +317,8 @@ final class GameStore {
 
     /// Encodes and writes on a background queue so saving never stalls the UI.
     func save(force: Bool = false) {
-        guard let s = state, let url = currentSaveURL else { return }
+        guard var s = state, let url = currentSaveURL else { return }
+        s.idStream = StableID.current
         if !force && Date().timeIntervalSince(lastSave) < 12 { return }
         lastSave = Date()
         Self.saveQueue.async { Self.write(s, to: url) }
@@ -326,7 +327,8 @@ final class GameStore {
 
     /// Writes the save before returning: used when quitting or relaunching for an update.
     func saveNow() {
-        guard let s = state, let url = currentSaveURL else { return }
+        guard var s = state, let url = currentSaveURL else { return }
+        s.idStream = StableID.current
         lastSave = Date()
         Self.saveQueue.sync { Self.write(s, to: url) }
     }
@@ -356,6 +358,8 @@ final class GameStore {
         lastAutosave = Date()
         let dir = Self.autosaveFolder(company: Self.fileName(for: s))
         let url = dir.appendingPathComponent(String(format: "%04d-%02d.json", ym.year, ym.month))
+        var s = s
+        s.idStream = StableID.current
         Self.saveQueue.async {
             Self.write(s, to: url)
             let files = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil))?
@@ -433,6 +437,7 @@ final class GameStore {
         do {
             let data = try Data(contentsOf: url)
             var s = try dec.decode(GameState.self, from: data)
+            StableID.resume(s)   // 3.7: a loaded game keeps drawing IDs where it left off
             Self.migrate(&s)
             BenchmarkCatalog.resetCache()
             lastCustomChipCount = -1

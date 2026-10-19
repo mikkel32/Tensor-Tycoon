@@ -23,7 +23,7 @@ enum ObjectiveKind: String, Codable, CaseIterable, Sendable {
 }
 
 struct Objective: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var kind: ObjectiveKind
     var title: String
     var detail: String

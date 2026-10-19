@@ -16,7 +16,7 @@ struct DataView: View {
         let s = store.game
         let b = s.bonuses
         let active = s.dataSources.compactMap { DataCatalog.byID[$0] }
-        let tokens = Physics.availableTokensT(Array(s.dataSources), y: s.year, bonuses: b) + DataEconomy.extraUniqueT(s)
+        let tokens = Physics.availableTokensT(s.dataSources.sorted(), y: s.year, bonuses: b) + DataEconomy.extraUniqueT(s)
         let risk = active.reduce(0) { $0 + $1.legalRisk } + Double(s.dataEco.holdings.filter { $0.active && $0.quality.provenance < 0.5 }.count) * 0.2
         Page(title: "Training Data", subtitle: "Models are what they eat. Unique tokens let you train bigger without repeating; relevant, high-quality tokens raise the skills a model is built for.") {
             HStack(spacing: 12) {
@@ -390,7 +390,7 @@ private struct SyntheticCard: View {
             }
             let synT = s.dataEco.holdings.filter { $0.synthetic && $0.active }.reduce(0) { $0 + $1.tokensT }
             if synT > 0 {
-                let share = synT / max(1e-9, Physics.availableTokensT(Array(s.dataSources), y: s.year, bonuses: s.bonuses) + DataEconomy.extraUniqueT(s))
+                let share = synT / max(1e-9, Physics.availableTokensT(s.dataSources.sorted(), y: s.year, bonuses: s.bonuses) + DataEconomy.extraUniqueT(s))
                 Text("Synthetic data held: \(Fmt.tokens(synT)) (\(Int(share * 100))% of your corpus)").font(.caption)
                     .foregroundStyle(share > 0.2 ? .orange : .secondary)
             }

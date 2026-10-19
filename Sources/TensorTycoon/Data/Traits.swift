@@ -339,7 +339,7 @@ enum CultureCatalog {
         var t = TraitBonuses()
         doctrine.apply(&t)
         background.apply(&t)
-        for p in perks { apply(p, &t) }
+        for p in perks.sorted() { apply(p, &t) }   // 3.7: fixed order (float sums)
         for c in kit { FoundingKit.apply(c, &t) }   // 3.5: founding kit
         t.hardware = min(t.hardware, 0.3)
         t.fines = min(t.fines, 0.9)

@@ -550,7 +550,7 @@ enum Launches {
         var out: [String] = []
         let names = ["public": "public", "researchers": "researchers", "developers": "developers", "investors": "investors"]
         for n in s.world.notes.reversed() where n.date >= r.date && n.date <= end {
-            let parts = n.deltas.sorted { abs($0.value) > abs($1.value) }.prefix(4).map { k, v in
+            let parts = n.deltas.sorted { abs($0.value) != abs($1.value) ? abs($0.value) > abs($1.value) : $0.key < $1.key }.prefix(4).map { k, v in
                 "\(names[k] ?? Region(rawValue: k)?.short ?? k) \(v >= 0 ? "+" : "")\(Fmt.trim(v, 1))"
             }
             out.append("\(n.text): \(parts.joined(separator: ", ")).")

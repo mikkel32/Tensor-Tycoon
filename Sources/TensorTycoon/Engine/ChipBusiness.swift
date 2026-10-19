@@ -150,7 +150,7 @@ enum ChipBusiness {
     static let platformFee = 0.12
 
     static func leasedH100e(_ s: GameState) -> Double {
-        s.leases.reduce(0) { acc, kv in acc + Double(kv.value) * (HardwareCatalog.get(kv.key)?.bf16 ?? 0) / HardwareCatalog.h100.bf16 }
+        s.leases.sorted { $0.key < $1.key }.reduce(0) { acc, kv in acc + Double(kv.value) * (HardwareCatalog.get(kv.key)?.bf16 ?? 0) / HardwareCatalog.h100.bf16 }   // 3.7: fixed order
     }
 
     /// Daily income from leasing `count` more (or the current) chips of a type.
@@ -166,7 +166,7 @@ enum ChipBusiness {
         let occ = occupancy(s, leasedH100e: leasedH100e(s))
         var revenue = 0.0
         var chips = 0
-        for (id, n) in s.leases where n > 0 {
+        for (id, n) in s.leases.sorted(by: { $0.key < $1.key }) where n > 0 {   // 3.7: fixed order (float sums)
             guard let a = HardwareCatalog.get(id) else { continue }
             revenue += Double(n) * listRate(a, s) * 24 * occ * (1 - platformFee)
             chips += n

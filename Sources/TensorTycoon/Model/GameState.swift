@@ -57,7 +57,7 @@ enum Role: String, Codable, CaseIterable, Identifiable, Sendable {
 }
 
 struct Employee: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var name: String
     var role: Role
     var skill: Double
@@ -71,7 +71,7 @@ struct Employee: Codable, Identifiable, Hashable {
 }
 
 struct Candidate: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var name: String
     var role: Role
     var skill: Double
@@ -110,7 +110,7 @@ enum RentalTerm: String, Codable, CaseIterable, Identifiable {
 }
 
 struct OwnedBatch: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var accelID: String
     var count: Int
     var siteID: UUID
@@ -119,7 +119,7 @@ struct OwnedBatch: Codable, Identifiable, Hashable {
 }
 
 struct Rental: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var accelID: String
     var count: Int
     var hourly: Double
@@ -129,7 +129,7 @@ struct Rental: Codable, Identifiable, Hashable {
 }
 
 struct HardwareOrder: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var accelID: String
     var count: Int
     var siteID: UUID
@@ -139,7 +139,7 @@ struct HardwareOrder: Codable, Identifiable, Hashable {
 }
 
 struct Site: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var name: String
     var kind: SiteKind
     var locationID: String
@@ -378,7 +378,7 @@ struct LossPoint: Codable, Hashable {
 }
 
 struct TrainCheckpoint: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var fraction: Double
     var tokensT: Double
     var loss: Double
@@ -415,7 +415,7 @@ enum LRSchedule: Int, Codable, CaseIterable, Identifiable {
 }
 
 struct TrainingRun: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var design: ModelDesign
     var status: RunStatus = .running
     var started: Date
@@ -517,7 +517,7 @@ struct RunForecast: Codable, Hashable {
 
 /// A completed scaling ladder: small proxy runs that validate a recipe up to some compute.
 struct ScalingFit: Codable, Hashable, Identifiable {
-    var id = UUID()
+    var id = StableID.next()
     var signature: String
     var maxCompute: Double
     var date: Date
@@ -538,13 +538,13 @@ enum PublicationPolicy: String, Codable, CaseIterable, Identifiable {
 }
 
 struct Deployment: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var accelID: String
     var chips: Int
 }
 
 struct AIModel: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var name: String
     var design: ModelDesign
     var created: Date
@@ -608,7 +608,7 @@ struct AIModel: Codable, Identifiable, Hashable {
 // MARK: - Market & business
 
 struct EnterpriseDeal: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var client: String
     var title: String
     var monthly: Double
@@ -633,7 +633,7 @@ enum LoanKind: String, Codable, CaseIterable, Identifiable {
 }
 
 struct Loan: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var kind: LoanKind
     var principal: Double
     var balance: Double
@@ -645,13 +645,13 @@ struct Loan: Codable, Identifiable, Hashable {
 }
 
 struct Holding: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var name: String
     var shares: Double
 }
 
 struct FundingRound: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var name: String
     var date: Date
     var amount: Double
@@ -682,7 +682,7 @@ struct PendingSuit: Codable, Hashable {
 }
 
 struct RaiseOffer: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var investor: String
     var amount: Double
     var preMoney: Double
@@ -715,7 +715,7 @@ enum NewsCategory: String, Codable, CaseIterable, Identifiable {
 }
 
 struct NewsItem: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var date: Date
     var title: String
     var body: String
@@ -731,7 +731,7 @@ struct DecisionOption: Codable, Hashable {
 }
 
 struct Decision: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var kind: String
     var title: String
     var body: String
@@ -745,7 +745,7 @@ struct Decision: Codable, Identifiable, Hashable {
 }
 
 struct CompetitorModel: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var name: String
     var date: Date
     var c: Double
@@ -835,7 +835,7 @@ struct CompetitorState: Codable, Identifiable, Hashable {
 /// A rival lab's funding event.
 struct RivalRound: Codable, Hashable, Identifiable {
     enum Kind: String, Codable, Sendable { case equity, strategic, tender, debt, merger, ipo, rescue }
-    var id = UUID()
+    var id = StableID.next()
     var date: Date
     var label: String
     var amount: Double
@@ -846,7 +846,7 @@ struct RivalRound: Codable, Hashable, Identifiable {
 
 /// A rival that agreed to spend money on your compute when you invested in it.
 struct ComputeCommitment: Codable, Hashable, Identifiable {
-    var id = UUID()
+    var id = StableID.next()
     var labID: String
     var labName: String
     var monthly: Double
@@ -1303,6 +1303,10 @@ struct GameState: Codable {
     // 3.5: model families
     /// Model families, their tiers and the distillation / post-training jobs in progress (Families).
     @D var families: FamilyState = FamilyState()
+    // 3.7: determinism
+    /// Where the game's ID stream stood when it was saved (StableID), so a loaded game keeps drawing the same IDs.
+    /// 0 in older saves: the stream restarts from the RNG state.
+    @D var idStream: UInt64 = 0
 
     // 3.7: nations and rivals
     /// National AI strategies and economies by region, and rival labs' specialisations and answers to your launches
@@ -1387,7 +1391,7 @@ enum RSIStatus: String, Codable {
 }
 
 struct RSICheckpoint: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var generation: Int
     var date: Date
     var c: Double
@@ -1401,7 +1405,7 @@ struct RSICheckpoint: Codable, Identifiable, Hashable {
 }
 
 struct RSIRun: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var name: String
     var baseModelID: UUID
     var design: ModelDesign
@@ -1489,7 +1493,7 @@ enum ChipFocus: String, Codable, CaseIterable, Identifiable {
 }
 
 struct ChipProject: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var name: String
     var partner: ChipPartner
     var focus: ChipFocus
@@ -1530,7 +1534,7 @@ struct CustomChip: Codable, Identifiable, Hashable {
 // MARK: - Supply agreements
 
 struct SupplyDeal: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var vendor: String
     var annualCommit: Double
     var yearsLeft: Int

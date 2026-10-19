@@ -7,6 +7,7 @@ protocol DefaultValue {
 
 extension Double: DefaultValue { static var defaultValue: Double { 0 } }
 extension Int: DefaultValue { static var defaultValue: Int { 0 } }
+extension UInt64: DefaultValue { static var defaultValue: UInt64 { 0 } }
 extension Bool: DefaultValue { static var defaultValue: Bool { false } }
 extension String: DefaultValue { static var defaultValue: String { "" } }
 extension Array: DefaultValue { static var defaultValue: [Element] { [] } }

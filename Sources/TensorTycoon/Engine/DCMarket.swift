@@ -33,7 +33,7 @@ enum DCSeller: String, Codable, CaseIterable, Sendable {
 
 /// A datacenter or campus for sale.
 struct DCListing: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var name: String
     var seller: DCSeller
     var sellerName: String

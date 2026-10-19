@@ -101,7 +101,7 @@ enum AdvancedProjects {
         guard !sol.domains.isEmpty else { return 10 }
         guard let v else { return -15 }
         var sum = 0.0
-        for (k, bar) in sol.domains {
+        for (k, bar) in sol.domains.sorted(by: { $0.key < $1.key }) {   // 3.7: fixed order (float sums)
             guard let d = CapDomain(rawValue: k) else { continue }
             sum += clamp(v[d] - bar, -15, 20)
         }

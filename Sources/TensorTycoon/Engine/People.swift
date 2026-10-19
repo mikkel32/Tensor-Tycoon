@@ -219,7 +219,7 @@ enum Events {
         }
 
         // A rival's researcher brings their lab's secret technique with them
-        if s.rng.chance(0.012), let (lab, tech) = s.rivalTech.flatMap({ k, v in v.map { (k, $0) } })
+        if s.rng.chance(0.012), let (lab, tech) = s.rivalTech.sorted(by: { $0.key < $1.key }).flatMap({ k, v in v.map { (k, $0) } })   // 3.7: fixed order
             .filter({ !s.exoticOwned.contains($0.1) && !s.researched.contains($0.1) }).randomElement(using: &s.rng),
            let item = ResearchCatalog.byID[tech], let comp = CompetitorCatalog.byID[lab] {
             let salary = (Macro.salary(.researcher, y) * 2.2 / 1000).rounded() * 1000
@@ -339,7 +339,7 @@ enum Events {
                                         salary: d.amount, morale: 80, hired: s.date, equity: 0.2))
             Sim.news(&s, "New hire brings \(ResearchCatalog.byID[d.ref]?.name ?? "a secret technique")", "You can now research it on the Research page.", .research, good: true)
             // Their old lab may come after you for it.
-            if s.rng.chance(0.3), let lab = s.rivalTech.first(where: { $0.value.contains(d.ref) })?.key {
+            if s.rng.chance(0.3), let lab = s.rivalTech.sorted(by: { $0.key < $1.key }).first(where: { $0.value.contains(d.ref) })?.key {
                 let amount = clamp(max(d.amount * 4, s.valuation * 0.001), 2e6, 1e9)
                 s.pendingSuits.append(PendingSuit(lab: lab, tech: d.ref, due: GameCalendar.addDays(s.date, s.rng.int(30, 180)), amount: amount))
             }

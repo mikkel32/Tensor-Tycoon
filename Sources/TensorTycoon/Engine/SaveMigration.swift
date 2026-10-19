@@ -71,6 +71,7 @@ enum SaveMigration {
         let dec = JSONDecoder()
         dec.dateDecodingStrategy = .secondsSince1970
         var s = try dec.decode(GameState.self, from: data)
+        StableID.resume(s)   // 3.7: the save keeps its ID stream, so a check plays the same way every time
         migrate(&s)
         BenchmarkCatalog.resetCache()
         HardwareCatalog.register(s.customChips)

@@ -93,7 +93,7 @@ enum Scenarios {
         case "crash":
             if s.daysNegativeCash >= 55 { return "The money ran out." }
         case "alien_race":
-            if s.alienArchs.isEmpty, let first = s.rivalXeno.min(by: { $0.value < $1.value }) {
+            if s.alienArchs.isEmpty, let first = s.rivalXeno.min(by: { $0.value != $1.value ? $0.value < $1.value : $0.key < $1.key }) {
                 return "\(CompetitorCatalog.def(first.key).name) found an alien architecture first."
             }
         default: break

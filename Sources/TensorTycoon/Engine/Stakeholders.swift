@@ -163,7 +163,9 @@ enum Stakeholders {
     }
 
     /// Changes when a state actor steals weights (they're recorded per lab).
-    static func stolenPrint(_ s: GameState) -> Int { Int((s.stolenC.values.reduce(0, +) * 100).rounded()) + s.stolenC.count * 100_000 }
+    static func stolenPrint(_ s: GameState) -> Int {
+        Int((s.stolenC.sorted { $0.key < $1.key }.reduce(0) { $0 + $1.value } * 100).rounded()) + s.stolenC.count * 100_000   // 3.7: fixed order
+    }
 
     // MARK: The daily watch
 

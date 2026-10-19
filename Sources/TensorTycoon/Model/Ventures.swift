@@ -86,7 +86,7 @@ enum SwarmMission: String, Codable, CaseIterable, Identifiable {
 }
 
 struct AgentSwarm: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var name: String
     var modelID: UUID
     /// Agents you asked for. How many actually run depends on the chips behind the swarm.
@@ -151,7 +151,7 @@ enum XenoPolicy: String, Codable, CaseIterable, Identifiable {
 }
 
 struct ArchLicense: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var buyerID: String
     var buyerName: String
     var signed: Date
@@ -166,7 +166,7 @@ struct ArchLicense: Codable, Identifiable, Hashable {
 
 /// A design found by an agent swarm or a self-improving model: a model architecture plus a matching chip.
 struct AlienArch: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var name: String
     var generation: Int
     var discovered: Date

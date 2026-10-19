@@ -48,7 +48,7 @@ struct SemiState: Codable, Hashable, DefaultValue {
 
 /// A chip design team. Bigger teams design faster; every tape-out they finish makes the next one safer.
 struct SemiTeam: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var name: String
     var engineers: Int
     /// Tape-outs this team has taken to production.
@@ -86,7 +86,7 @@ enum SemiPhase: Int, Codable, CaseIterable {
 
 /// One chip design, from architecture to volume production.
 struct SemiDesign: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var name: String
     var generation: Int
     var node: String
@@ -147,7 +147,7 @@ struct SemiDesign: Codable, Identifiable, Hashable {
 
 /// Wafer capacity booked at a foundry (take-or-pay).
 struct WaferBooking: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var foundry: String
     var node: String
     var wafersMonth: Double
@@ -163,7 +163,7 @@ struct WaferBooking: Codable, Identifiable, Hashable {
 
 /// Your own fab.
 struct SemiFab: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var name: String
     var site: String
     var node: String
@@ -186,7 +186,7 @@ struct SemiFab: Codable, Identifiable, Hashable {
 
 /// Advanced packaging or HBM supply: a contract with a supplier, or your own packaging line.
 struct SupplyContract: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     /// "pack" or "hbm".
     var kind: String
     var supplier: String
@@ -206,7 +206,7 @@ struct SupplyContract: Codable, Identifiable, Hashable {
 
 /// A world supply-chain event cutting capacity for a while.
 struct SupplyShock: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var kind: String
     var title: String
     var body: String
@@ -229,7 +229,7 @@ struct SupplyShock: Codable, Identifiable, Hashable {
 
 /// A big customer order you accepted: delivered from customer stock before spot sales.
 struct ChipContract: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var customer: String
     var designID: UUID
     var bin: Int

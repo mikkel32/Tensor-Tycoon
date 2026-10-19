@@ -521,7 +521,7 @@ enum RivalIntel {
 
 /// How a rumour-mill forecast compared with the model that actually shipped.
 struct WatchCall: Codable, Hashable, Identifiable {
-    var id = UUID()
+    var id = StableID.next()
     var date: Date
     var labID: String
     var model: String

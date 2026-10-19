@@ -300,7 +300,7 @@ extension GameState {
         let target = Physics.pretrainFLOPs(d)
         var ladder = d
         ladder.name = "\(d.name) ladder"
-        var run = TrainingRun(design: ladder, started: date, flopsTotal: max(1e17, target * 0.02), dataSnapshot: Array(dataSources))
+        var run = TrainingRun(design: ladder, started: date, flopsTotal: max(1e17, target * 0.02), dataSnapshot: dataSources.sorted())
         run.kind = .proxy
         run.proxyCompute = target
         run.checkpointEvery = 1

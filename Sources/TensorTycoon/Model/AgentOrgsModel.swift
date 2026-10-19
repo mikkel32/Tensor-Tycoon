@@ -30,7 +30,7 @@ enum TeamRole: String, Codable, CaseIterable, Identifiable, Sendable, DefaultVal
 
 /// One line of an organisation's project history: monthly progress reports, incidents, milestones and changes.
 struct OrgReport: Codable, Hashable, Identifiable {
-    var id = UUID()
+    var id = StableID.next()
     var date: Date
     var kind: Kind
     var title: String
@@ -53,7 +53,7 @@ struct OrgActivity: Sendable {
 /// teams' inference chips), a money budget for tools, labs and equipment, a verification share and a level of human
 /// oversight. Its output depends on the capability domains of the models its teams run (AgentOrgs).
 struct AgentOrg: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var name: String
     var kind: SwarmMission
     var objective: String

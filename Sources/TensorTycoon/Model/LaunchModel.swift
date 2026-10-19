@@ -5,7 +5,7 @@ import Foundation
 /// A rival's answer to one of your launches. Rivals react with a lag: the answer is queued at launch with its odds and
 /// a due date, shown as "expected" until then, and rolled (hashed, not from the RNG) when it falls due.
 struct LaunchResponse: Codable, Hashable, Identifiable {
-    var id = UUID()
+    var id = StableID.next()
     var lab: String
     /// "price" (cuts API prices) or "counter" (answers with its own event and steals the spotlight).
     var kind: String
@@ -44,7 +44,7 @@ struct LaunchReport: Codable, Hashable {
 
 /// One launch: the plan, what it changed on the day, the reactions it queued and (after a week) its report.
 struct LaunchRecord: Codable, Hashable, Identifiable {
-    var id = UUID()
+    var id = StableID.next()
     var modelID: UUID
     var modelName: String
     var date: Date

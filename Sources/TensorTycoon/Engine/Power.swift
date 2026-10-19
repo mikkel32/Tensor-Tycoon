@@ -166,7 +166,7 @@ enum PowerKind: String, Codable, CaseIterable, Identifiable, Sendable {
 
 /// One power deal you've signed.
 struct PowerContract: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var kind: PowerKind
     var locationID: String
     /// The site it's built on or connected to (on-site kinds).

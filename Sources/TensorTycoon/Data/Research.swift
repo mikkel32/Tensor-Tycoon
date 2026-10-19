@@ -1094,7 +1094,8 @@ enum ResearchCatalog {
         var b = ResearchBonuses()
         b.results = results
         b.researched = researched
-        for id in researched {
+        // 3.7: in a fixed order: a Set's order changes from one launch to the next, and so would the float sums.
+        for id in researched.sorted() {
             guard let item = byID[id] ?? virtualByID[id] else { continue }
             let q = results[id] ?? 1
             // Your own unique breakthroughs grow with mastery; refining never makes the trade-off worse.
