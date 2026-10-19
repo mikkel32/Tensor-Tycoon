@@ -396,6 +396,7 @@ enum Power {
                   site.kind == .datacenter || site.kind == .colo else { continue }
             draw[site.id, default: 0] += Economy.chipKW(a) * Double(b.count) * (0.3 + 0.65 * (util[a.id] ?? 0)) * site.pue
         }
+        for (id, kw) in AdvancedProjects.facilityDraw(s) { draw[id, default: 0] += kw }   // 3.8: classified facilities
         var delta = 0.0   // positive = saving
         let grid = gridMultiplier(s)
         // On-site generation.

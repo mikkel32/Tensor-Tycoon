@@ -6,7 +6,7 @@ enum Silicon {
     static let codenames = ["Lumen", "Quasar", "Helix", "Nova", "Atlas", "Zephyr", "Orion", "Vega", "Cobalt", "Ember"]
 
     static func designerFactor(_ s: GameState) -> Double {
-        let skill = s.employees.filter { $0.role == .chipDesigner }.reduce(0.0) { $0 + $1.weight }
+        let skill = s.workforce(.chipDesigner)
         return min(1, skill / 20)
     }
 

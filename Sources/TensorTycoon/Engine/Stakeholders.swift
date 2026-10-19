@@ -71,7 +71,7 @@ enum Stakeholders {
             } else {
                 add("No released model yet", -4)
             }
-            let safety = Double(s.employees.filter { $0.role == .safety }.count) / Double(max(1, s.employees.count))
+            let safety = Double(s.staff(.safety).count) / Double(max(1, s.employees.count))   // 3.8: not those seconded to programmes
             add("Safety team", min(4, safety * 40))
             let morale = s.employees.isEmpty ? 70 : s.employees.reduce(0) { $0 + $1.morale } / Double(s.employees.count)
             add("Staff morale", clamp((morale - 70) * 0.2, -5, 5))

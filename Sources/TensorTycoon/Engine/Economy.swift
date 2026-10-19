@@ -332,7 +332,7 @@ enum Economy {
             acc + (HardwareCatalog.get(o.accelID).map(chipKW) ?? 0) * Double(o.count)
         }
         let sublet: Double = s.sites.first { $0.id == siteID }?.subleasedKW ?? 0   // 3.5: space rented to a tenant
-        return chips + sublet
+        return chips + sublet + AdvancedProjects.siteFacilityKW(s, site: siteID)   // 3.8: cleared halls, restricted compute, programme spaces
     }
 
     static func hardwareValue(_ s: GameState) -> Double {

@@ -9,7 +9,9 @@ import Foundation
 /// compute, no growth rounds), norent (never rents: garage GPUs only), hard / easy (difficulty), noresearchcompute,
 /// autorollback, noquick, hq=<country>[:<city>] (headquarters, e.g. hq=fr:grenoble; unknown places print a warning),
 /// lean (half the usual training budget: smaller models), coding (specialist coding models), advproj (government
-/// programmes), science (science labs), data (the data economy: datasets, annotation, synthetic data, processing).
+/// contracts, one unclassified programme at a time), classified (also prepares for and runs Secret work: security,
+/// clearances, facilities; it retains classified discoveries internally), noreport (no programme report at the end),
+/// science (science labs), data (the data economy: datasets, annotation, synthetic data, processing).
 ///
 /// Output: a monthly table (every 3rd month unless mode is `full`), an event log, every training run (plan vs actual
 /// days, forecast vs actual capability), a summary of pacing metrics, and `CSV,` rows for offline aggregation.
@@ -360,7 +362,7 @@ enum PTPlay {
                     print("BOOK \(h.month.gameMonth): booked \(m(h.commercialRevenue)) · unbooked \(m(h.revUnbooked)) (\(h.bookingLimit.isEmpty ? "-" : h.bookingLimit)) · staff \(h.headcount) · API share \(Fmt.pct(h.apiShare, decimals: 1))")
                 }
             }
-            if flags.contains("advproj") { for line in AdvancedProjects.report(s) { print(line) } }
+            if (flags.contains("advproj") || flags.contains("classified")) && !flags.contains("noreport") { for line in AdvancedProjects.report(s) { print(line) } }
             if flags.contains("science") { scienceSummary(s, seed: seed) }
             if flags.contains("data") { dataSummary(s, seed: seed) }
         }
@@ -441,6 +443,7 @@ enum PTPlay {
 
     static func choice(_ dd: Decision, _ s: GameState) -> Int {
         switch dd.kind {
+        case AdvancedProjects.secrecyKind: return AdvancedProjects.botSecrecyChoice(dd)   // 3.8: retain it internally
         case "loss_spike": return 0                           // roll back, safest
         case "train_bug": return 1                            // hot-fix and keep going
         case "contamination": return 0
@@ -512,7 +515,9 @@ enum PTPlay {
             // 3.4: launch product lines once they open, when the launch is small next to the cash pile.
             for p in ProductLines.catalog where ProductLines.status(p, s).ok && !s.productLines.contains(where: { $0.id == p.id })
                 && s.cash > 10 * ProductLines.launchCost(p, s.year) { _ = s.launchProduct(p.id) }
-            if bot.flags.contains("advproj") { AdvancedProjects.botAct(&s) }   // 3.5: bid on one government contract at a time
+            if bot.flags.contains("advproj") || bot.flags.contains("classified") {   // 3.5: bid on one government contract at a time
+                AdvancedProjects.botAct(&s, classified: bot.flags.contains("classified"))   // 3.8: and get ready for Secret work
+            }
             if bot.flags.contains("science") { science(&s) }   // 3.6: science labs (only with the flag)
         }
         if bot.flags.contains("data") { dataBot(&s) }   // data economy: datasets, annotation, synthetic data, processing (only with the flag)

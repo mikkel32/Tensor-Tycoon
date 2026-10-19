@@ -500,7 +500,7 @@ enum TrainingExperience {
         case .useful: return nil
         case .kernel:
             let m = Physics.runMFU(d, accel: a, coverage: cov, state: s, bonuses: b)
-            let engineers = s.employees.filter { $0.role == .mlEngineer }.reduce(0.0) { $0 + $1.weight }
+            let engineers = s.workforce(.mlEngineer)
             let needed = 0.5 + Double(d.chips) / 1_500
             detail = "MFU is \(Fmt.pct(m, decimals: 0)) on \(a.name) (base \(Fmt.pct(a.baseMFU, decimals: 0))). Every frontier lab loses most of peak here; "
                 + (engineers < needed * 0.95 ? "your ML engineers (\(Fmt.trim(engineers, 1)) of ~\(Fmt.trim(needed, 1)) needed for this size) add up to +4 points when fully staffed, " : "")

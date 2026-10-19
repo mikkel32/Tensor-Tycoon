@@ -276,7 +276,7 @@ enum Sim {
     // MARK: - Research
 
     static func researchRate(_ s: GameState, _ b: ResearchBonuses) -> Double {
-        let people = s.employees.filter { $0.role == .researcher && !s.advanced.seconded.contains($0.id) }.reduce(0.0) { $0 + pow($1.skill / 50, 1.3) * $1.traitMultiplier * (0.6 + $1.morale / 250) }
+        let people = s.staff(.researcher).reduce(0.0) { $0 + pow($1.skill / 50, 1.3) * $1.traitMultiplier * (0.6 + $1.morale / 250) }
         let t = s.traits
         let founder = 0.8 * (1 + t.founderRP)
         var computePF = 0.0
@@ -508,6 +508,7 @@ enum Sim {
             power += draw * site.pue * 24 * site.powerPrice * (site.kind == .colo || site.kind == .datacenter ? grid : 1)
                 * Nations.powerFactor(s, location: site.locationID)   // 3.7: energy policy where the site is
         }
+        power += AdvancedProjects.facilityPowerDay(s)   // 3.8: classified facilities draw their site's power
         power *= Power.billFactor(s)   // traits, alien materials, infrastructure teams, energy discoveries, cooling programmes, an energy subsidiary (floored)
         let sites = s.sites.reduce(0) { $0 + $1.monthlyFee } / 30.4
         let office = (Economy.office(s, s.officeLevel).monthly + HQ.satelliteRent(s)) / 30.4   // 3.5: local rent; 3.4 overhaul: satellite offices

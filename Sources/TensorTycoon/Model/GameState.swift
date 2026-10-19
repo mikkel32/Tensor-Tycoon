@@ -1021,7 +1021,8 @@ struct MonthRecord: Codable, Identifiable, Hashable {
     @D var revGroup: Double = 0
     @D var costGroup: Double = 0
     // 3.8: the books (Books)
-    /// Milestone payments from government programmes: revenue, but lumpy, so never annualised into the run rate.
+    /// Government programme payments (Advanced Projects milestones, reimbursements and settlements): revenue, but lumpy,
+    /// so never annualised into the run rate.
     @D var revContracts: Double = 0
     /// Straight-line depreciation of owned accelerators (4 years) and datacenter shells (20 years): a cost with no cash.
     @D var costDepreciation: Double = 0

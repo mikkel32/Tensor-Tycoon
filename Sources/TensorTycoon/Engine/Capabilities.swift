@@ -265,6 +265,7 @@ enum Capabilities {
             for (d, v) in fx { e[d.index] += v }
         }
         for (d, v) in Science.rivalKnowHow(s, lab: lab, at: y) { e[d.index] += v }   // their science results, and what you published
+        for (d, v) in AdvancedProjects.rivalDomainEffects(s, lab: lab) { e[d.index] += v }   // 3.8: government contracts it delivered
         return e
     }
 
