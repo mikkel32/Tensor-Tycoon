@@ -223,11 +223,13 @@ enum Capabilities {
     /// What your research adds to each domain (scaled by how well each result turned out in your lab).
     static func researchDomains(_ s: GameState) -> [Double] {
         var e = [Double](repeating: 0, count: CapDomain.count)
-        for id in s.researched {
+        for id in s.researched.sorted() {   // 3.7: fixed order (float sums)
             guard let fx = effectsByID[id] else { continue }
             let q = s.researchResults[id] ?? 1
             for (d, v) in fx { e[d.index] += v * q }
         }
+        for (d, v) in AdvancedProjects.domainEffects(s) { e[d.index] += v }   // 3.5: delivered government programmes
+        for (d, v) in Science.domainKnowHow(s) { e[d.index] += v }   // 3.6: science-lab discoveries
         return e
     }
 
@@ -289,7 +291,11 @@ enum Capabilities {
     // MARK: Scoring models
 
     static func playerScores(_ m: AIModel, research e: [Double]) -> DomainScores {
-        scores(Leaderboard.profile(m), extra: e, video: m.design.video)
+        guard !m.domainBonus.isEmpty else { return scores(Leaderboard.profile(m), extra: e, video: m.design.video) }
+        // 3.5: model families — distillation retention and post-training passes add per-domain know-how.
+        var x = e
+        for (i, v) in m.domainBonus.enumerated() where i < x.count { x[i] += v }
+        return scores(Leaderboard.profile(m), extra: x, video: m.design.video)
     }
 
     static func rivalScores(_ s: GameState, _ m: CompetitorModel, lab: String, def: CompetitorDef) -> DomainScores {
@@ -406,9 +412,10 @@ enum Capabilities {
     /// The best rival lab still in business in each domain today: (lab ID, score).
     static func bestRival(_ s: GameState) -> [(lab: String, score: Double)] {
         let alive = Set(s.competitors.filter(\.alive).map(\.id))
+        let labs = s.labDomains.sorted { $0.key < $1.key }   // 3.7: ties go the same way every launch
         return CapDomain.allCases.map { d in
             var best: (String, Double) = ("", 0)
-            for (lab, v) in s.labDomains where lab != "player" && alive.contains(lab) && v[d] > best.1 { best = (lab, v[d]) }
+            for (lab, v) in labs where lab != "player" && alive.contains(lab) && v[d] > best.1 { best = (lab, v[d]) }
             return best
         }
     }

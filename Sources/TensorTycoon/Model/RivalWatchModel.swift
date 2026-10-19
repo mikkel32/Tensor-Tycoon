@@ -47,7 +47,7 @@ struct RivalRumor: Codable, Hashable, Identifiable {
         case speculative = "Speculative"
     }
 
-    var id = UUID()
+    var id = StableID.next()
     var date: Date
     var labID: String
     var title: String

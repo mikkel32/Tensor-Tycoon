@@ -8,6 +8,8 @@ enum AlertKind: String, Codable, CaseIterable, Identifiable, Sendable {
     case boardGoalDue, billVote, slaBreach, overCapacity, swarmAlignment, priceWar, rentalExpiring
     case inbox, milestone, briefing
     case world   // 3.4: world and stakeholders
+    case advanced   // 3.5: advanced projects
+    case corporate   // 3.5: corporate
 
     var id: String { rawValue }
 
@@ -31,6 +33,8 @@ enum AlertKind: String, Codable, CaseIterable, Identifiable, Sendable {
         case .milestone: "Milestones and achievements"
         case .briefing: "The monthly briefing is ready"
         case .world: "The world reacts: protests, regulators, grid emergencies"
+        case .advanced: "Government contracts: awards, deliveries and trouble"
+        case .corporate: "Corporate: covenant breaches, rating changes, subsidiaries"
         }
     }
 
@@ -51,6 +55,8 @@ enum AlertKind: String, Codable, CaseIterable, Identifiable, Sendable {
         case .milestone: "star.circle.fill"
         case .briefing: "doc.text.fill"
         case .world: "globe.americas.fill"
+        case .advanced: "building.columns.fill"
+        case .corporate: "building.2.crop.circle.fill"
         }
     }
 
@@ -66,7 +72,7 @@ enum AlertKind: String, Codable, CaseIterable, Identifiable, Sendable {
 }
 
 struct GameAlert: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var date: Date
     var kind: String
     var title: String
@@ -182,6 +188,17 @@ enum Alerts {
         "rival_round": 2, "partner_offer": 2, "policy_bill": 2, "sovereign_deal": 1, "exclusive_supply": 1,
         "spinoff": 2, "poach": 1, "merger_offer": 1, "defense": 1, "moonshot": 2, "fire_sale": 1,
         "world_summons": 1, "world_inquiry": 1, "world_partnership": 1,   // 3.4: world and stakeholders
+        "fun_cfp": 0, "fun_keynote": 1,   // 3.5: fun systems
+        "hq_grant": 0, "hq_partner": 1, "hq_contract": 1,   // 3.5: headquarters
+        AdvancedProjects.secrecyKind: 0,   // 3.5: keep a classified discovery classified
+        "alien_errata": 0,   // 3.5: alien fab
+        "data_auction": 2, "data_collection": 1, "data_lawsuit": 0,   // 3.6: data economy
+        "corp_funding": 1, "corp_covenant": 0, "corp_downgrade": 2, "corp_audit": 0,   // 3.5: corporate
+        Semis.bugKind: 0, Semis.shockKind: 0, Semis.orderKind: 2, Semis.rivalKind: 1,   // 3.5: semiconductors
+        "sci_report": 0,   // 3.6: science labs (patent and license)
+        Families.decisionKind: 0,   // 3.5: model families — route free chat users to a cheaper tier
+        Nations.poachKind: 0,   // 3.7: match a rival's offer to one of your researchers
+        Launches.decisionKind: 1,   // 3.7: a weak launch — let it ride
     ]
 
     static func isUrgent(_ d: Decision) -> Bool { inboxDefaults[d.kind] == nil }
@@ -199,6 +216,8 @@ enum Alerts {
         "loss_spike": "Loss spikes in training", "contamination": "Benchmark contamination", "fault_storm": "Hardware fault storms",
         "train_bug": "Bugs found mid-run", "sycophancy": "Sycophancy after RLHF", "reward_hack": "Reward hacking in RL",
         "trade_secret": "Trade-secret suits over researchers you hired",
+        Nations.poachKind: "Rival offers to one of your researchers",   // 3.7
+        AdvancedProjects.secrecyKind: "Classified discoveries from government programmes",
     ]
 
     /// Answer decisions the player has a standing answer for (end of day, before the clock checks for urgent ones).

@@ -11,7 +11,7 @@ struct BriefingLine: Codable, Hashable {
 
 /// What changed last month and why: revenue moves with their causes, what rivals did, what's coming, and what to do.
 struct MonthlyBriefing: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var month: Date
     var headline: String
     var revenue: Double
@@ -219,6 +219,8 @@ enum Briefing {
         }
         // 3.4: world and stakeholders — at most two lines, only when something moved a lot.
         for line in World.briefingLines(s) { if line.good == true { drivers.append(line) } else { risks.insert(line, at: min(1, risks.count)) } }
+        for line in Corporate.briefingLines(s) { if line.good == false { risks.append(line) } else { drivers.append(line) } }   // 3.5: corporate
+        for line in Semis.briefingLines(s) { if line.good == false { risks.append(line) } else { drivers.append(line) } }   // 3.5: semiconductors
 
         // What to do: the Chief of Staff's top fixes.
         let actions = Advisor.items(s, pools: Economy.pools(s), set: set)

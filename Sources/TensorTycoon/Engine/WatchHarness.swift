@@ -99,7 +99,7 @@ extension BalanceHarness {
         for _ in 0..<5 { Sim.advanceDay(&s) }
         guard let i = s.models.firstIndex(where: { $0.id == id }) else { return }
         var m = s.models[i]
-        m.id = UUID()
+        m.id = StableID.next()
         m.name = "Probe-2"
         // Clearly ahead of every lab's next model (rivals' skills grow after 2025, so beat their capability by a margin).
         let rivalBest = s.competitors.indices.map { Competitors.plannedC(s, compIndex: $0, date: s.date) }.max() ?? m.c
@@ -118,7 +118,7 @@ extension BalanceHarness {
         var steps = 0
         while BenchmarkCatalog.index(Leaderboard.profile(m), set: set) < bar && steps < 30 {
             m.c += 0.2
-            m.id = UUID()   // scores are cached by profile key (the model id): a new id re-scores
+            m.id = StableID.next()   // scores are cached by profile key (the model id): a new id re-scores
             steps += 1
         }
         m.index = BenchmarkCatalog.index(Leaderboard.profile(m), set: set)

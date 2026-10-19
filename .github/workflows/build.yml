@@ -19,6 +19,12 @@ jobs:
         run: swift build -c release
       - name: Saves from shipped versions still load and play
         run: for f in Tests/Fixtures/*.json; do .build/release/TensorTycoon --check-save "$f"; done
+      - name: Determinism check (same seed, same game — in one process and across launches)
+        run: |
+          .build/release/TensorTycoon --determinism
+          .build/release/TensorTycoon --playtest 2022 1 2 > /tmp/pt-a.txt
+          .build/release/TensorTycoon --playtest 2022 1 2 > /tmp/pt-b.txt
+          diff /tmp/pt-a.txt /tmp/pt-b.txt && echo "OK: two launches, identical playtests"
       - name: Research check (signatures, director, breakthroughs, xenoscience)
         run: .build/release/TensorTycoon --research 2017
       - name: Industry check (rival finances, rounds, IPOs, corrections, stakes)

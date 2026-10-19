@@ -91,7 +91,7 @@ enum ChipBusiness {
             let line = s.chipLines[i]
             guard line.active, let chip = HardwareCatalog.get(line.chipID), let unitCost = chip.price else { continue }
             let want = demand(chip: chip, price: line.price, sellToRivals: line.sellToRivals, s)
-            let units = min(want, line.capacityMonth / 30.4)
+            let units = min(want, AlienFab.isAlienChip(line.chipID) ? AlienFab.merchantPerLine(s) : line.capacityMonth / 30.4)
             s.chipLines[i].demandToday = want
             s.chipLines[i].unitsToday = units
             guard units > 0 else { continue }
@@ -150,7 +150,7 @@ enum ChipBusiness {
     static let platformFee = 0.12
 
     static func leasedH100e(_ s: GameState) -> Double {
-        s.leases.reduce(0) { acc, kv in acc + Double(kv.value) * (HardwareCatalog.get(kv.key)?.bf16 ?? 0) / HardwareCatalog.h100.bf16 }
+        s.leases.sorted { $0.key < $1.key }.reduce(0) { acc, kv in acc + Double(kv.value) * (HardwareCatalog.get(kv.key)?.bf16 ?? 0) / HardwareCatalog.h100.bf16 }   // 3.7: fixed order
     }
 
     /// Daily income from leasing `count` more (or the current) chips of a type.
@@ -166,7 +166,7 @@ enum ChipBusiness {
         let occ = occupancy(s, leasedH100e: leasedH100e(s))
         var revenue = 0.0
         var chips = 0
-        for (id, n) in s.leases where n > 0 {
+        for (id, n) in s.leases.sorted(by: { $0.key < $1.key }) where n > 0 {   // 3.7: fixed order (float sums)
             guard let a = HardwareCatalog.get(id) else { continue }
             revenue += Double(n) * listRate(a, s) * 24 * occ * (1 - platformFee)
             chips += n
@@ -184,6 +184,7 @@ enum ChipBusiness {
 extension GameState {
     mutating func openChipLine(_ chipID: String) -> String? {
         guard customChips.contains(where: { $0.id == chipID }), HardwareCatalog.get(chipID) != nil else { return "Only chips you designed can be sold." }
+        if Semis.isSemiChip(chipID) { return "Sell this chip from the Semiconductors page (Sales)." }
         if let ai = alienArchs.firstIndex(where: { $0.chipID == chipID }), alienArchs[ai].policy != .sellChips {
             alienArchs[ai].policy = .sellChips
             alienArchs[ai].offers = []
@@ -217,6 +218,8 @@ extension GameState {
 
     mutating func addFabCapacity(_ chipID: String, units: Double) -> String? {
         guard let i = chipLines.firstIndex(where: { $0.chipID == chipID }), let chip = HardwareCatalog.get(chipID) else { return "Open a sales line first." }
+        // Alien chips come off your own fab line (3.5): expanding it serves sales and your own orders.
+        if AlienFab.isAlienChip(chipID) { return expandAlienFab(units: units) }
         if chipLines[i].pendingCapacity > 0 { return "A capacity expansion is already ramping." }
         if units < 1_000 { return "Foundries won't reserve fewer than 1,000 chips a month." }
         let cost = ChipBusiness.capacityCost(chip, units: units, self)

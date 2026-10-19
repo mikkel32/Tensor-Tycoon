@@ -13,7 +13,7 @@ import Foundation
 enum PulseBank {
     static let lines: [String: [String]] = {
         var all: [String: [String]] = [:]
-        for part in [launches, money, world, milestones, careers, plays, ambient] { all.merge(part) { a, _ in a } }
+        for part in [launches, money, world, milestones, careers, plays, ambient, FunCatalog.pulse] { all.merge(part) { a, _ in a } }   // 3.5: + fun systems
         return all
     }()
 

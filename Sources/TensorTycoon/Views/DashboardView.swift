@@ -1,8 +1,9 @@
 import Charts
 import SwiftUI
 
-/// Today: where you stand, what needs you, what's coming up and what changed last month, then the charts and the race.
-/// Everything comes from the store's cached `derived` data or cheap reads (`Agenda`), so the page redraws fast.
+/// Today: where you stand, then four sections — Needs you, The race, Business and Programmes — each in two columns.
+/// Cards for systems you haven't started stay hidden. Everything comes from the store's cached `derived` data or cheap
+/// reads (`Agenda`), each computed once per redraw and passed down, so the page redraws fast.
 struct DashboardView: View {
     @Environment(GameStore.self) private var store
 
@@ -10,40 +11,98 @@ struct DashboardView: View {
         let s = store.game
         let d = store.derived
         let labs = Leaderboard.labs(d.board, state: s)
+        let race = Agenda.race(labs)
         let needs = Agenda.needs(s, advice: d.advice)
         let upcoming = Agenda.upcoming(s, watch: d.watch, bonuses: d.bonuses)
-        let stepsLeft = EraGuide.steps(s).contains { !$0.done }
+        let steps = EraGuide.steps(s)
+        let stepsLeft = steps.contains { !$0.done }
         let liveRSI = s.rsiRuns.filter { $0.status != .halted }
+        let liveRuns = s.runs.filter { $0.status == .running || $0.status == .postTraining || $0.status == .paused }.count
+        let hasFamilies = !s.families.families.isEmpty || !s.families.jobs.isEmpty
+        let hasOrgs = !s.swarms.isEmpty || !s.orgs.isEmpty || s.xenoInsight > 0 || !s.alienArchs.isEmpty
+        let hasAdvanced = !s.advanced.programmes.isEmpty || !s.advanced.solicitations.isEmpty
+        let hasScience = !s.science.labs.isEmpty || !s.science.discoveries.isEmpty
 
-        Page(title: "Today", subtitle: "Your dashboard: what needs you, what's coming up and how the race stands.") {
+        Page(title: "Today", subtitle: "Your dashboard: what needs you, how the race stands, the business and the work in progress.", screen: .dashboard) {
             ScreenHint(.dashboard)
-            TodayHeader(state: s, derived: d, race: Agenda.race(labs))
-            HStack(alignment: .top, spacing: 16) {
-                VStack(spacing: 16) {
-                    NeedsYouCard(needs: needs, stepsLeft: stepsLeft)
-                    SinceLastMonthCard(state: s)
-                    WorldCard()
-                    RevenueCard(state: s)
-                    ActiveRunsCard(state: s)
-                    if !liveRSI.isEmpty { RSIStatusCard(runs: liveRSI) }
-                    if !s.swarms.isEmpty || s.xenoInsight > 0 || !s.alienArchs.isEmpty { SwarmStatusCard(state: s) }
-                    BusinessCard(state: s, derived: d)
-                }
-                .frame(maxWidth: .infinity)
-                VStack(spacing: 16) {
-                    ComingUpCard(items: upcoming, today: s.date)
-                    GettingStarted(state: s)
-                    MilestonesCard()
-                    RaceCard(labs: labs, state: s)
-                    TopLabsCard(labs: labs)
-                    PulseCard()
-                    RivalWatchList(rows: Array(d.watch.prefix(5)))
-                    BenchmarkRaceCard(set: d.indexSet, board: d.board, saturated: s.benchSaturated)
-                    LatestNewsCard(news: Array(s.news.prefix(6)))
-                }
-                .frame(maxWidth: .infinity)
+            TodayHeader(state: s, derived: d, race: race)
+
+            DashboardSection(title: "Needs you", symbol: "exclamationmark.bubble.fill",
+                             subtitle: needs.isEmpty ? "Nothing waiting on you" : "\(needs.count) item\(needs.count == 1 ? "" : "s") to look at") {
+                NeedsYouCard(needs: needs, stepsLeft: stepsLeft)
+                GettingStarted(state: s, steps: steps)
+                FoundingKitCard(state: s)   // 3.5
+            } right: {
+                ComingUpCard(items: upcoming, today: s.date)
+                SinceLastMonthCard(state: s)
+            }
+
+            DashboardSection(title: "The race", symbol: "flag.checkered",
+                             subtitle: race.rank.map { "#\($0) of \(race.labs) · \(race.gap)" } ?? "Release a model to enter the rankings") {
+                RaceCard(labs: labs, state: s)
+                TopLabsCard(labs: labs)
+                BenchmarkRaceCard(set: d.indexSet, board: d.board, saturated: s.benchSaturated)
+            } right: {
+                ProgressionCard(state: s)   // 3.7
+                MilestonesCard()
+                RivalWatchList(rows: Array(d.watch.prefix(5)))
+                PulseCard()
+                LatestNewsCard(news: Array(s.news.prefix(6)))
+            }
+
+            DashboardSection(title: "Business", symbol: "chart.pie.fill",
+                             subtitle: d.runRate >= 1 ? "Run-rate \(Fmt.money(d.runRate))/yr · cash \(Fmt.money(s.cash))" : "Pre-revenue · cash \(Fmt.money(s.cash))") {
+                RevenueCard(state: s)
+                BusinessCard(state: s, derived: d)
+                if s.corp.engaged || s.isPublic { CorporateCard(state: s) }   // 3.5
+            } right: {
+                WorldCard()
+                NationsCard(state: s)   // 3.7
+                if s.semi.engaged { SemiconductorCard(state: s) }   // 3.5
+            }
+
+            DashboardSection(title: "Programmes", symbol: "square.stack.3d.up.fill",
+                             subtitle: liveRuns == 0 ? "No training runs in progress" : "\(liveRuns) training run\(liveRuns == 1 ? "" : "s") in progress") {
+                ActiveRunsCard(state: s)
+                if hasFamilies { ModelFamiliesCard(state: s) }   // 3.5
+                if !liveRSI.isEmpty { RSIStatusCard(runs: liveRSI) }
+                if hasOrgs { AgentOrgsDashboardCard(state: s) }   // 3.6
+            } right: {
+                if hasAdvanced { AdvancedProjectsCard(state: s) }   // 3.5
+                if hasScience { ScienceDashboardCard(state: s) }   // 3.6
+                FunDashboardCard()
             }
         }
+    }
+}
+
+/// One dashboard section: a header, then two columns of cards that keep their own heights.
+private struct DashboardSection<Left: View, Right: View>: View {
+    let title: String
+    let symbol: String
+    let subtitle: String
+    let left: Left
+    let right: Right
+
+    init(title: String, symbol: String, subtitle: String, @ViewBuilder left: () -> Left, @ViewBuilder right: () -> Right) {
+        self.title = title
+        self.symbol = symbol
+        self.subtitle = subtitle
+        self.left = left()
+        self.right = right()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.m) {
+            SectionHeader(title, symbol: symbol, subtitle: subtitle)
+            HStack(alignment: .top, spacing: Theme.gap) {
+                VStack(spacing: Theme.gap) { left }
+                    .frame(maxWidth: .infinity, alignment: .top)
+                VStack(spacing: Theme.gap) { right }
+                    .frame(maxWidth: .infinity, alignment: .top)
+            }
+        }
+        .padding(.top, Theme.Space.s)
     }
 }
 
@@ -71,7 +130,7 @@ private struct TodayHeader: View {
                         }
                         Text("\(s.date.gameLong) · day \(Fmt.int(day))")
                             .font(.callout.weight(.semibold).monospacedDigit())
-                        Text("\(Economy.officeLevels[min(s.officeLevel, 5)].name) · \(Fmt.int(s.employees.count + 1)) people · \(Fmt.int(d.totalChips)) accelerators · \(Fmt.count(d.h100e)) H100e")
+                        Text("\(Economy.office(s, s.officeLevel).name) · \(Fmt.int(s.employees.count + 1)) people · \(Fmt.int(d.totalChips)) accelerators · \(Fmt.count(d.h100e)) H100e")
                             .font(.callout).opacity(0.9)
                     }
                     Spacer()
@@ -83,7 +142,7 @@ private struct TodayHeader: View {
                     }
                 }
             }
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 230), spacing: 12)], spacing: 12) {
+            KPIRow(minWidth: 220) {
                 HeadlineTile(title: "Place in the race", value: race.rank.map { "#\($0) of \(race.labs)" } ?? "Not ranked",
                              detail: race.gap, symbol: "flag.checkered", tint: .orange, term: .capability, screen: .leaderboard)
                 HeadlineTile(title: "Cash", value: Fmt.money(s.cash), detail: Agenda.runwayText(s), symbol: "banknote.fill",
@@ -110,7 +169,7 @@ private struct TodayHeader: View {
     private func heroImage(_ s: GameState) -> String {
         if let dc = s.sites.filter({ $0.kind == .datacenter && $0.isReady(s.date) }).max(by: { $0.capacityKW < $1.capacityKW }) { return dc.location.image }
         if s.sites.contains(where: { $0.kind == .colo }) { return "dc_corridor" }
-        return Economy.officeLevels[min(s.officeLevel, 5)].image
+        return Economy.office(s, s.officeLevel).image
     }
 }
 
@@ -133,9 +192,9 @@ private struct HeadlineTile: View {
                     .font(.caption.weight(.bold))
                     .foregroundStyle(.white)
                     .frame(width: 22, height: 22)
-                    .background(tint.gradient, in: .rect(cornerRadius: 6))
+                    .background(tint.gradient, in: .rect(cornerRadius: Theme.Radius.chip))
                     .accessibilityHidden(true)
-                Text(title).font(.caption.weight(.medium)).foregroundStyle(.secondary)
+                Text(title).font(TypeRamp.label).foregroundStyle(.secondary).lineLimit(1)
                 HelpButton(term: term)
                 Spacer(minLength: 0)
                 Button {
@@ -149,14 +208,14 @@ private struct HeadlineTile: View {
             }
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(value)
-                    .font(.title2.weight(.semibold).monospacedDigit())
+                    .font(TypeRamp.metric)
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
                     .contentTransition(.numericText())
                 if let trend {
                     Image(systemName: trend >= 0 ? "arrow.up.right" : "arrow.down.right")
                         .font(.caption.weight(.bold))
-                        .foregroundStyle(trend >= 0 ? Theme.positive : Theme.negative)
+                        .foregroundStyle(trend >= 0 ? Theme.good : Theme.bad)
                         .accessibilityLabel(trend >= 0 ? "Up" : "Down")
                 }
             }
@@ -167,8 +226,8 @@ private struct HeadlineTile: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.background.secondary, in: .rect(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.separator.opacity(0.6), lineWidth: 0.5))
+        .background(.background.secondary, in: .rect(cornerRadius: Theme.Radius.tile))
+        .overlay(RoundedRectangle(cornerRadius: Theme.Radius.tile).strokeBorder(.separator.opacity(0.6), lineWidth: 0.5))
     }
 }
 
@@ -363,6 +422,20 @@ private struct SnoozeMenu: View {
     }
 }
 
+/// Measured alignment (0–100) with a symbol that changes with the level, so it reads without colour.
+struct AlignmentBadge: View {
+    let value: Double
+
+    var body: some View {
+        let tone = Tone.level(value, good: 70, warning: 45)
+        Label("\(Int(value))", systemImage: tone == .good ? "checkmark.shield.fill" : (tone == .warning ? "shield.lefthalf.filled" : "exclamationmark.shield.fill"))
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(tone == .warning ? Color.yellow : tone.color)
+            .help("Measured alignment, 0–100")
+            .accessibilityLabel("Measured alignment \(Int(value)) of 100, \(tone == .good ? "healthy" : (tone == .warning ? "drifting" : "unsafe"))")
+    }
+}
+
 // MARK: - Coming up
 
 /// Dated things ahead, soonest first, with how long to go.
@@ -470,13 +543,11 @@ private struct RevenueCard: View {
     let state: GameState
 
     var body: some View {
-        Card {
-            CardHeader(title: "Revenue vs. costs", symbol: "chart.bar.fill", subtitle: "Monthly; the dashed line is costs") {
-                Button("Finance") { store.open(.finance) }.buttonStyle(.link)
-            }
+        ChartCard(title: "Revenue vs. costs", symbol: "chart.bar.fill", subtitle: "Monthly; the dashed red line is costs", height: 220) {
             RevenueChart(history: Array(state.history.suffix(24)) + [state.month], week: RevenueChart.week(state.date))
                 .equatable()
-                .frame(height: 220)
+        } trailing: {
+            Button("Finance") { store.open(.finance) }.buttonStyle(.link)
         }
     }
 }
@@ -502,7 +573,11 @@ struct ActiveRunsCard: View {
                 VStack(alignment: .leading, spacing: 5) {
                     HStack {
                         Text(run.design.name).font(.callout.weight(.semibold))
-                        Pill(text: run.status.rawValue, color: run.status == .paused ? .orange : (post ? .purple : .blue))
+                        if run.status == .paused {
+                            Pill(run.status.rawValue, tone: .warning)
+                        } else {
+                            Pill(text: run.status.rawValue, color: post ? .purple : .blue)
+                        }
                         Spacer()
                         Text(eta(run, b)).font(.caption).foregroundStyle(.secondary)
                         Text(Fmt.pct(share, decimals: 0)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
@@ -537,9 +612,7 @@ struct RSIStatusCard: View {
                         Pill(text: "g\(r.generation)", color: .purple)
                         Spacer()
                         let a = r.alignmentMeasured
-                        Label("\(Int(a))", systemImage: "shield.lefthalf.filled").font(.caption)
-                            .foregroundStyle(a >= 70 ? .green : (a >= 45 ? .yellow : .red))
-                            .help("Measured alignment, 0–100")
+                        AlignmentBadge(value: a)
                     }
                     Meter(value: r.genProgress, tint: .purple, height: 6)
                 }
@@ -566,9 +639,7 @@ struct SwarmStatusCard: View {
                     Text("\(Fmt.count(sw.active)) agents").font(.caption).foregroundStyle(.secondary)
                     Spacer()
                     let a = sw.alignmentMeasured
-                    Label("\(Int(a))", systemImage: "shield.lefthalf.filled").font(.caption)
-                        .foregroundStyle(a >= 70 ? .green : (a >= 45 ? .yellow : .red))
-                        .help("Measured alignment, 0–100")
+                    AlignmentBadge(value: a)
                 }
             }
             if s.xenoInsightToday > 0 || s.xenoInsight > 0 {
@@ -593,9 +664,9 @@ private struct BusinessCard: View {
         let profit = last?.profit ?? 0
         let best = d.board.filter(\.isPlayer).max { $0.index < $1.index }
         Collapsible("Business at a glance", symbol: "square.grid.2x2.fill", subtitle: "Users, tokens, seats and the rest", key: "business", open: true) {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 190), spacing: 12)], spacing: 12) {
+            KPIRow(minWidth: 190) {
                 StatTile(title: "Last month's profit", value: signedMoney(profit), detail: last.map { "Revenue \(Fmt.money($0.revenue))" } ?? "No month closed yet",
-                         symbol: "plus.forwardslash.minus", tint: profit >= 0 ? .green : .orange)
+                         symbol: profit >= 0 ? "arrow.up.forward" : "arrow.down.forward", tint: profit >= 0 ? Theme.good : Theme.warning)
                 StatTile(title: "Chat users", value: Fmt.count(s.consumerUsers), detail: "\(Fmt.count(s.paidUsers)) paying", symbol: "person.2.fill", tint: .pink)
                 StatTile(title: "API tokens a day", value: Fmt.count(s.models.reduce(0) { $0 + $1.servedTokensDay }),
                          detail: "Reliability \(Fmt.pct(s.reliability, decimals: 0))", symbol: "bolt.horizontal.fill", tint: .teal)
@@ -643,11 +714,7 @@ private struct RaceCard: View {
                 .frame(height: 210)
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 8)], alignment: .leading, spacing: 4) {
                 ForEach(race.series) { sr in
-                    HStack(spacing: 5) {
-                        Circle().fill(colors[sr.id] ?? Color.gray).frame(width: 8, height: 8)
-                        Text(sr.lab).font(.caption.weight(sr.isPlayer ? .bold : .regular)).lineLimit(1)
-                        Text(verbatim: "\(Int(sr.capability.rounded()))").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-                    }
+                    LegendItem(color: colors[sr.id] ?? Color.gray, label: sr.isPlayer ? "\(sr.lab) (you)" : sr.lab, value: "\(Int(sr.capability.rounded()))")
                 }
             }
         }
@@ -908,9 +975,11 @@ struct RevenueChart: View, Equatable {
 struct GettingStarted: View {
     @Environment(GameStore.self) private var store
     let state: GameState
+    /// The era's steps, when the caller already has them.
+    var steps: [EraGuide.Step]? = nil
 
     var body: some View {
-        let steps = EraGuide.steps(state)
+        let steps = steps ?? EraGuide.steps(state)
         let remaining = steps.filter { !$0.done }
         if !remaining.isEmpty {
             Card {
@@ -929,6 +998,9 @@ struct GettingStarted: View {
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(step.title).font(.callout.weight(.semibold)).strikethrough(step.done)
                                 Text(step.detail).font(.caption).foregroundStyle(.secondary)
+                                if FoundingKit.questsActive(state), !step.done, let r = FoundingKit.questReward(step.key) {
+                                    Text("Reward: \(r.text)").font(.caption.weight(.semibold)).foregroundStyle(.green)
+                                }
                             }
                             Spacer()
                             Image(systemName: "chevron.right").foregroundStyle(.tertiary)

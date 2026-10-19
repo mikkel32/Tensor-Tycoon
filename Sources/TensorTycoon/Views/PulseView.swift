@@ -7,13 +7,8 @@ struct PulseView: View {
     @State private var tab: PulseTab = .feed
 
     var body: some View {
-        Page(title: "The Pulse", subtitle: tab.subtitle) {
-            Picker("Section", selection: $tab) {
-                ForEach(PulseTab.allCases) { t in Text(t.rawValue).tag(t) }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(maxWidth: 360)
+        Page(title: "The Pulse", subtitle: tab.subtitle, screen: .pulse) {
+            SectionTabs(selection: $tab, options: PulseTab.allCases)
             switch tab {
             case .feed: PulseFeedTab()
             case .people: PeopleDirectoryTab()

@@ -7,7 +7,7 @@ struct XenoView: View {
         let s = store.game
         let n = XenoScience.discoveries(s)
         let ventures = s.xenoArtifacts.reduce(0) { $0 + $1.ventureRevenue }
-        Page(title: "Alien Tech", subtitle: "Designs your agents found where no human would look. Architectures and chips, optimizers and codecs that make every run cheaper, superconductors, mathematics, biology — and minds unlike ours. Study them to unlock their full power, build businesses on them, and attempt the mega-projects they make possible.") {
+        Page(title: "Alien Tech", subtitle: "Designs your agents found where no human would look. Architectures and chips, optimizers and codecs that make every run cheaper, superconductors, mathematics, biology — and minds unlike ours. Study them to unlock their full power, build businesses on them, and attempt the mega-projects they make possible.", screen: .xeno) {
             HeroBanner(image: "wafer_closeup", height: 160) {
                 HStack(alignment: .bottom) {
                     VStack(alignment: .leading, spacing: 4) {
@@ -19,11 +19,12 @@ struct XenoView: View {
                     if ventures > 0 {
                         VStack(alignment: .trailing, spacing: 2) {
                             Text("Alien ventures have earned").font(.caption).opacity(0.8)
-                            Text(Fmt.money(ventures)).font(.system(size: 30, weight: .bold).monospacedDigit())
+                            Text(Fmt.money(ventures)).font(TypeRamp.bannerMetric)
                         }
                     }
                 }
             }
+            AlienPathCard(state: s)   // 3.5: the whole path, with ETAs and blockers
             XenoSearchCard(state: s)
             if n == 0 {
                 Card {
@@ -33,6 +34,7 @@ struct XenoView: View {
                 }
             } else {
                 XenoStudyCard(state: s)
+                if s.alienFab.exists { AlienFabCard(state: s) }
                 ForEach(s.alienArchs.reversed()) { a in AlienArchCard(arch: a, state: s) }
                 ForEach(s.xenoArtifacts.reversed()) { a in ArtifactCard(artifact: a, state: s) }
                 MegaProjectsCard(state: s)
@@ -70,6 +72,9 @@ private struct XenoSearchCard: View {
                     Text(rate > 0 ? "~\(Fmt.days(left / rate)) to go" : "No search running").font(.caption).foregroundStyle(.secondary)
                 }
                 .frame(width: 150, alignment: .trailing)
+            }
+            if let why = AlienPath.searchBlocker(s) {
+                Label(why, systemImage: "hand.raised.fill").font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
             }
             if XenoScience.discoveries(s) > 0 {
                 Text("Search target").font(.caption.weight(.semibold))
@@ -167,7 +172,7 @@ private struct ArtifactCard: View {
                 }
                 Spacer()
             }
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3), spacing: 10) {
+            EqualColumns(minWidth: 120, spacing: 10, maxColumns: 3) {
                 XenoStat(label: "Potency", value: "×\(Fmt.trim(a.potency, 2))", symbol: "bolt.fill", tint: .purple)
                 XenoStat(label: "Legibility", value: "\(Int(a.legibility * 100))%", symbol: "eye.trianglebadge.exclamationmark", tint: a.legibility >= 0.5 ? .green : .red)
                 XenoStat(label: "Usable strength", value: "×\(Fmt.trim(XenoScience.strength(a), 2))", symbol: "gauge.with.dots.needle.67percent", tint: .orange)
@@ -206,7 +211,7 @@ private struct ArtifactCard: View {
                 }
                 .padding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.secondary.opacity(0.06), in: .rect(cornerRadius: 10))
+                .background(Theme.insetFill, in: .rect(cornerRadius: Theme.Radius.inset))
                 VStack(alignment: .leading, spacing: 4) {
                     Label("Build it yourself", systemImage: "building.2.fill").font(.callout.weight(.semibold))
                     Text("\(Fmt.money(capex)) and \(XenoCatalog.inhouseMonths(a.kind)) months, then about \(Fmt.money(monthly))/month that grows with the market.").font(.caption).foregroundStyle(.secondary)
@@ -215,7 +220,7 @@ private struct ArtifactCard: View {
                 }
                 .padding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.secondary.opacity(0.06), in: .rect(cornerRadius: 10))
+                .background(Theme.insetFill, in: .rect(cornerRadius: Theme.Radius.inset))
             }
         } else {
             let ready = a.ventureReady ?? s.date
@@ -304,7 +309,7 @@ private struct AlienArchCard: View {
                 }
                 Spacer()
             }
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 5), spacing: 10) {
+            EqualColumns(minWidth: 120, spacing: 10, maxColumns: 5) {
                 XenoStat(label: "Model efficiency", value: "×\(Fmt.trim(a.multiplier, 2)) compute", symbol: "cpu", tint: .purple)
                 XenoStat(label: "Chip throughput", value: "\(Fmt.trim(a.chipPerf, 1))× best GPU", symbol: "bolt.fill", tint: .orange)
                 XenoStat(label: "Production cost", value: "\(Int((a.costFactor * 100).rounded()))% of a GPU", symbol: "dollarsign.circle", tint: .green)
@@ -316,6 +321,7 @@ private struct AlienArchCard: View {
 
             Divider()
             chipSection(a, chip: chip, s)
+            if a.chipVersion >= 1 { AlienChipGenerations(arch: a, state: s) }
             Divider()
 
             Text("What do you do with it?").font(.headline)
@@ -358,15 +364,24 @@ private struct AlienArchCard: View {
     private func chipSection(_ a: AlienArch, chip: Accelerator?, _ s: GameState) -> some View {
         if let chip {
             HStack(alignment: .center, spacing: 12) {
-                Photo(key: chip.image).frame(width: 64, height: 44).clipShape(.rect(cornerRadius: 8))
+                Photo(key: chip.image, illustrative: true).frame(width: 64, height: 44).clipShape(.rect(cornerRadius: 8))
                 VStack(alignment: .leading, spacing: 2) {
                     Text(chip.name).font(.headline)
                     Text("\(Fmt.tflops(chip.best)) \(chip.bestPrecisionLabel) · \(Fmt.memory(chip.memoryGB)) · \(Int(chip.tdpW)) W · \(Fmt.money(chip.price ?? 0)) to make")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button("Order for yourself") { store.open(.hardware) }
-                    .buttonStyle(.borderedProminent)
+                let n = AlienFabCard.suggestedOrder(chip.id, s)
+                if n > 0 {
+                    Button("Order \(Fmt.count(Double(n)))") { store.act("Order queued on your fab line") { $0.orderOwnChips(chip.id, count: n) } }
+                        .buttonStyle(.borderedProminent)
+                        .help("Arrives in about \(AlienFab.leadDays(s, count: n)) days from your alien fab line.")
+                } else {
+                    Button("Lease a cage") { store.act("Cage leased — ready in 30 days") { $0.leaseAlienCage(for: chip.id, chips: max(4_000, AlienFabCard.suggestedOrder(chip.id, s, ignoringSites: true))) } }
+                        .help("No site has free power for these chips. Lease a colocation cage sized for them (ready in 30 days).")
+                }
+                Button("In the store") { store.focusAccelID = chip.id; store.open(.hardware) }
+                    .buttonStyle(.link)
             }
         } else if a.fabbing {
             VStack(alignment: .leading, spacing: 4) {
@@ -376,18 +391,20 @@ private struct AlienArchCard: View {
                     Spacer()
                     Text("~\(Int(a.fabDaysLeft / 30) + 1) months left").font(.caption.monospacedDigit())
                 }
-                Meter(value: 1 - a.fabDaysLeft / max(1, Xeno.fabDays(s, store.derived.bonuses)), tint: .purple, height: 8)
+                Meter(value: 1 - a.fabDaysLeft / max(1, a.fabTotal > 0 ? a.fabTotal : Xeno.fabDays(s, store.derived.bonuses)), tint: .purple, height: 8)
             }
         } else {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("The chip exists only as RTL").font(.callout.weight(.semibold))
-                    Text("Tape it out for \(Fmt.money(Xeno.fabCost(s))) — about \(Int(Xeno.fabDays(s, store.derived.bonuses) / 30) + 1) months. A chip-design swarm makes it faster.")
+                    Text("Tape it out for \(Fmt.money(Xeno.fabCost(s))) — about \(Int(Xeno.fabDays(s, store.derived.bonuses) / 30) + 1) months. A chip-design swarm makes it faster; the better you understand it, the fewer respins.\(s.alienFab.exists ? "" : " Your first alien chip opens your own fab line.")")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
                 Button("Tape out") { store.act("Tape-out started") { $0.fabAlienChip(a.id) } }
                     .buttonStyle(.borderedProminent)
+                    .disabled(Xeno.fabCost(s) > s.cash)
+                    .help(Xeno.fabCost(s) > s.cash ? "Needs \(Fmt.money(Xeno.fabCost(s))) in cash." : "Send the swarm's RTL to the foundry.")
             }
         }
     }
@@ -473,12 +490,6 @@ private struct XenoStat: View {
     let tint: Color
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Label(label, systemImage: symbol).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-            Text(value).font(.headline.monospacedDigit()).foregroundStyle(tint).lineLimit(1).minimumScaleFactor(0.6)
-        }
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.quaternary.opacity(0.35), in: .rect(cornerRadius: 10))
+        MetricTile(label: label, value: value, symbol: symbol, tint: tint)
     }
 }

@@ -8,7 +8,10 @@ struct TrainingView: View {
         let s = store.game
         let active = s.runs.filter { $0.status != .done && $0.status != .cancelled }
         let past = Array(s.runs.filter { $0.status == .done || $0.status == .cancelled }.reversed())
-        Page(title: "Training Runs", subtitle: "Mission control. Watch the loss against the forecast, catch bugs, call the spikes — and find out whether you trained a genius.") {
+        // 3.5: one run at a time gets the full command centre; the switcher picks which.
+        let focus = active.first { $0.id == store.focusRunID } ?? active.first { $0.kind == .full } ?? active.first
+        let firsts = s.trainingFirsts.filter { !$0.quiet }
+        Page(title: "Training Runs", subtitle: "Mission control. Watch the loss against the forecast, catch bugs, call the spikes — and find out whether you trained a genius.", screen: .training) {
             ScreenHint(.training)
             if active.isEmpty {
                 Card {
@@ -17,13 +20,18 @@ struct TrainingView: View {
                                    actionTitle: "Open Model Lab") { store.open(.lab) }
                 }
             }
-            ForEach(active) { run in
+            if active.count > 1 {
+                RunSwitcher(runs: active, selected: focus?.id, decisions: s.decisions) { store.focusRunID = $0 }
+            }
+            if let run = focus {
                 if run.kind == .proxy {
                     LadderCard(run: run)
                 } else {
-                    RunCard(run: run, state: s, free: store.derived.free(run.design.accelID))
+                    CommandCentre(run: run, state: s, free: store.derived.free(run.design.accelID))
+                        .id(run.id)
                 }
             }
+            if !firsts.isEmpty { LabHistoryCard(firsts: firsts) }
             if !past.isEmpty {
                 Text("History").font(.title3.weight(.semibold)).padding(.top, 6)
                 Card {
@@ -55,12 +63,207 @@ struct TrainingView: View {
                             .contentShape(.rect)
                         }
                         .buttonStyle(.plain)
-                        .help(run.modelID != nil ? "Open the training report" : "")
+                        .help(run.modelID != nil ? "Open the results" : "")
                         Divider()
                     }
                 }
             }
         }
+        .overlay {
+            // 3.5: a major run's launch sequence. Presentation only: the clock and the run carry on underneath.
+            if let id = store.launchRunID, let run = s.runs.first(where: { $0.id == id }) {
+                LaunchSequence(run: run, state: s) { store.launchRunID = nil }
+            }
+        }
+    }
+}
+
+// MARK: - 3.5: run switcher
+
+/// Every live run as a chip: pick one for the command centre. Runs with a call waiting are marked.
+private struct RunSwitcher: View {
+    let runs: [TrainingRun]
+    let selected: UUID?
+    let decisions: [Decision]
+    let select: (UUID) -> Void
+
+    var body: some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: 8) {
+                ForEach(runs) { run in
+                    let on = run.id == selected
+                    let waiting = decisions.contains { $0.ref == run.id.uuidString }
+                    Button { select(run.id) } label: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack(spacing: 5) {
+                                Image(systemName: run.kind == .proxy ? "chart.line.uptrend.xyaxis" : run.design.objective.symbol).font(.caption)
+                                Text(run.design.name).font(.callout.weight(.semibold)).lineLimit(1)
+                                if waiting { Image(systemName: "exclamationmark.bubble.fill").foregroundStyle(.orange).font(.caption) }
+                            }
+                            Text(run.status == .paused ? "Paused" : (run.kind == .proxy ? "Scaling ladder" : Training.currentStageName(run)))
+                                .font(.caption2).foregroundStyle(.secondary)
+                            Meter(value: run.status == .postTraining ? run.postTrainDone / max(run.postTrainFlops, 1) : run.progress,
+                                  tint: run.status == .postTraining ? .purple : .blue, height: 4)
+                        }
+                        .padding(9)
+                        .frame(width: 170, alignment: .leading)
+                        .background(on ? AnyShapeStyle(Color.accentColor.opacity(0.16)) : AnyShapeStyle(.quaternary.opacity(0.35)), in: .rect(cornerRadius: 10))
+                        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(on ? Color.accentColor.opacity(0.6) : Color.clear))
+                        .contentShape(.rect(cornerRadius: 10))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.bottom, 2)
+        }
+        .scrollIndicators(.never)
+    }
+}
+
+// MARK: - 3.5: lab history
+
+/// Your lab's training firsts, newest first: the company's own milestones, each shown once when it happens.
+private struct LabHistoryCard: View {
+    let firsts: [TrainingFirst]
+    @State private var all = false
+
+    var body: some View {
+        let list = Array(firsts.reversed())
+        Card {
+            CardHeader(title: "Lab history", symbol: "rosette", subtitle: "Training firsts — each one happens only once") {
+                if list.count > 4 { Button(all ? "Show fewer" : "Show all \(list.count)") { all.toggle() }.buttonStyle(.link) }
+            }
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array((all ? list : Array(list.prefix(4))).enumerated()), id: \.element.id) { i, f in
+                    HStack(alignment: .top, spacing: 12) {
+                        VStack(spacing: 0) {
+                            Image(systemName: f.symbol)
+                                .font(.callout.weight(.bold))
+                                .foregroundStyle(.white)
+                                .frame(width: 34, height: 34)
+                                .background(LinearGradient(colors: [.yellow, .orange], startPoint: .topLeading, endPoint: .bottomTrailing), in: .circle)
+                                .overlay(Circle().strokeBorder(.white.opacity(0.6), lineWidth: 1.5))
+                            if i < (all ? list.count : min(4, list.count)) - 1 {
+                                Rectangle().fill(.quaternary).frame(width: 2, height: 22)
+                            }
+                        }
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack {
+                                Text(f.title).font(.callout.weight(.semibold))
+                                Spacer()
+                                Text(f.date.gameShort).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                            }
+                            Text("\(f.model)\(f.detail.isEmpty ? "" : " — \(f.detail)")").font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - 3.5: launch sequence
+
+/// A short, skippable presentation for a major run: identity, architecture, cluster, sites and compute, then the
+/// command centre. Purely visual — the run started the moment you clicked Launch. With Reduce Motion it shows
+/// everything at once without animation.
+private struct LaunchSequence: View {
+    @Environment(GameStore.self) private var store
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let run: TrainingRun
+    let state: GameState
+    let done: () -> Void
+    @State private var step = 0
+
+    private static let steps = 5
+
+    var body: some View {
+        let d = run.design
+        let s = state
+        let a = HardwareCatalog.get(d.accelID)
+        let arch = TrainingExperience.sketch(d, state: s)
+        let sites = siteNames(s)
+        let scale = TrainingExperience.RunScale(rawValue: run.plan?.scale ?? 1) ?? .standard
+        let shown = reduceMotion ? Self.steps : step
+        ZStack {
+            Rectangle().fill(.black.opacity(0.88)).ignoresSafeArea()
+            VStack(alignment: .leading, spacing: 18) {
+                HStack {
+                    Pill(text: scale.label.uppercased(), color: scaleColor(scale), symbol: "flame.fill")
+                    Spacer()
+                    Button(shown >= Self.steps ? "Open the command centre" : "Skip") { done() }
+                        .keyboardShortcut(.cancelAction)
+                }
+                if shown >= 1 {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(d.family.isEmpty ? "\(d.objective.label) model" : "\(d.family)\(d.generation > 0 ? " · generation \(d.generation)" : "")")
+                            .font(.title3.weight(.semibold)).foregroundStyle(.white.opacity(0.7))
+                        Text(d.name).font(.system(size: 56, weight: .black)).foregroundStyle(.white)
+                        if !d.blurb.isEmpty { Text(d.blurb).font(.title3).foregroundStyle(.white.opacity(0.75)) }
+                    }
+                    .transition(.opacity)
+                }
+                if shown >= 2 {
+                    line("square.stack.3d.up.fill", "Architecture",
+                         "\(Fmt.params(d.paramsB)) parameters\(d.isMoE ? " · \(arch.experts) experts, \(arch.activeExperts) active (\(Fmt.params(d.activeParamsB)))" : "") · \(arch.layers) layers · \(d.attention.rawValue) attention · \(d.contextK >= 1000 ? "1M" : "\(d.contextK)K") context")
+                }
+                if shown >= 3 {
+                    line("cpu.fill", "Cluster",
+                         "\(Fmt.int(d.chips))× \(a?.name ?? "accelerators") · \(powerText(run.plan?.powerMW ?? 0)) · \(sites)")
+                }
+                if shown >= 4 {
+                    line("bolt.fill", "Compute",
+                         "\(Fmt.flops(run.flopsTotal + run.postTrainFlops)) FLOPs"
+                         + (run.plan.map { $0.frontierShare >= 0.05 ? " · \(Fmt.trim($0.frontierShare, 2))× the largest known run" : "" } ?? "")
+                         + (run.plan.map { $0.days > 0 ? " · \(Fmt.days($0.days)), done ~\($0.finish.gameShort)" : "" } ?? ""))
+                }
+                if shown >= 5 {
+                    HStack(spacing: 10) {
+                        Image(systemName: "play.circle.fill").font(.title).foregroundStyle(.green)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Training has started").font(.title2.weight(.bold)).foregroundStyle(.white)
+                            if let fc = run.forecast {
+                                Text("Forecast: index \(Fmt.score(fc.index)) (\(Fmt.score(fc.indexLow))–\(Fmt.score(fc.indexHigh))) · \(fc.tier)")
+                                    .font(.callout).foregroundStyle(.white.opacity(0.75))
+                            }
+                        }
+                    }
+                }
+                Spacer()
+                Toggle("Play launch sequences for major runs", isOn: Binding(get: { store.showLaunchSequence }, set: { store.showLaunchSequence = $0 }))
+                    .toggleStyle(.checkbox).font(.caption).foregroundStyle(.white.opacity(0.7))
+            }
+            .padding(48)
+            .frame(maxWidth: 900, alignment: .leading)
+        }
+        .contentShape(.rect)
+        .onTapGesture { if shown >= Self.steps { done() } else { step = Self.steps } }
+        .task {
+            guard !reduceMotion else { return }
+            for i in 1...Self.steps {
+                try? await Task.sleep(for: .milliseconds(i == 1 ? 150 : 800))
+                withAnimation(.easeOut(duration: 0.4)) { step = max(step, i) }
+            }
+        }
+    }
+
+    private func line(_ symbol: String, _ title: String, _ text: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Image(systemName: symbol).font(.title3).foregroundStyle(.cyan).frame(width: 28)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title.uppercased()).font(.caption.weight(.bold)).foregroundStyle(.white.opacity(0.5))
+                Text(text).font(.title3.weight(.semibold)).foregroundStyle(.white)
+            }
+        }
+        .transition(.opacity)
+    }
+
+    /// Where the run's chips are: owned batches by site, plus rented cloud capacity.
+    private func siteNames(_ s: GameState) -> String {
+        let ids = Set(s.owned.filter { $0.accelID == run.design.accelID }.map(\.siteID))
+        var names = s.sites.filter { ids.contains($0.id) }.map { "\($0.name) (\($0.location.name))" }
+        if s.rentals.contains(where: { $0.accelID == run.design.accelID }) { names.append("rented cloud capacity") }
+        return names.isEmpty ? "your fleet" : names.prefix(3).joined(separator: ", ") + (names.count > 3 ? " and \(names.count - 3) more" : "")
     }
 }
 
@@ -113,13 +316,17 @@ private struct LadderChart: View {
     }
 }
 
-private struct RunCard: View {
+/// 3.5: the training command centre — one run, every number from the simulation: progress and stage, loss and a
+/// derived validation curve, the capability projection against the launch forecast, where the cluster's compute is
+/// going (and what limits it), cost, energy, failures, checkpoints, ops coverage and the calls waiting for you.
+private struct CommandCentre: View {
     @Environment(GameStore.self) private var store
     let run: TrainingRun
     let state: GameState
     let free: Int
     @State private var resize = 0
     @State private var showLog = false
+    @State private var assigning = false
 
     var body: some View {
         let s = state
@@ -130,82 +337,93 @@ private struct RunCard: View {
         let flopsPerSec = Double(run.design.chips) * (a?.trainTFLOPS(run.design.precision) ?? 0) * 1e12 * mfu * good * run.schedule.speed
         let perDay = flopsPerSec * 86_400
         let postTotal = run.postTrainFlops
+        let total = run.flopsTotal + postTotal
+        let doneFlops = min(run.flopsDone, run.flopsTotal) + run.postTrainDone
         let remaining = max(0, run.flopsTotal - run.flopsDone) + max(0, postTotal - run.postTrainDone)
         let eta = perDay > 0 ? remaining / perDay : .infinity
         let inPost = run.status == .postTraining
         let tokensPerSec = flopsPerSec / (6 * max(run.design.activeParamsB, 0.001) * 1e9)
+        let daily = a.map { Economy.chipDailyCost($0, count: run.design.chips, state: s) } ?? 0
+        let power = a.map { TrainingExperience.powerMW(chips: run.design.chips, accel: $0, state: s) } ?? 0
+        let decisions = s.decisions.filter { $0.ref == run.id.uuidString }
+        let actual = TrainingExperience.actualSlices(run.ledger)
+        let incidentShare = run.plan.map { $0.days > 0 ? $0.incidentDays / $0.days : 0 } ?? 0
+        let expected = TrainingExperience.expectedSlices(run.design, coverage: run.opsCoverage, interval: run.interval, incidentShare: incidentShare, state: s)
+        let basis = (run.ledger.days >= 3 ? actual : nil) ?? expected
+        let bottleneck = TrainingExperience.bottleneck(basis, design: run.design, coverage: run.opsCoverage, interval: run.interval, running: true, state: s)
+        let scale = TrainingExperience.RunScale(rawValue: run.plan?.scale ?? 1) ?? .standard
+        let lambda = Double(run.design.chips) * Training.failuresPerChipDay * (1 - Training.opsEffect(run.opsCoverage, s).prevented)
+        let progress = total > 0 ? doneFlops / total : 0
+        let projected = run.cost + daily * (eta.isFinite ? eta : 0)
+        let plannedCost = run.plan?.cost ?? 0
+        let overBudget = eta.isFinite && plannedCost > 0 && projected > plannedCost * 1.15
 
         Card {
-            // Header
-            HStack(alignment: .top, spacing: 16) {
-                if let a {
-                    Photo(key: a.image)
-                        .frame(width: 120, height: 80)
-                        .clipShape(.rect(cornerRadius: 10))
-                }
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Text(run.design.name).font(.title2.weight(.bold))
-                        Pill(text: run.status == .paused ? "Paused" : Training.currentStageName(run), color: run.status == .paused ? .orange : (inPost ? .purple : .blue))
-                        if run.stalledDays >= 7 { Pill(text: "Stalled \(run.stalledDays) days", color: .red) }
-                        if run.design.isMoE { Pill(text: "MoE", color: .teal) }
-                        if run.design.reasoning { Pill(text: "RL: \(run.design.effectiveRL.label)", color: .pink) }
-                        if run.design.optimizer != .adamw { Pill(text: run.design.optimizer.rawValue, color: .indigo) }
-                        Pill(text: "LR: \(run.schedule.label)", color: run.schedule == .aggressive ? .orange : .secondary)
-                        Spacer()
-                        VStack(alignment: .trailing, spacing: 0) {
-                            Text(run.status == .paused ? "Paused" : Fmt.days(eta)).font(.title3.weight(.bold).monospacedDigit())
-                            Text(run.status == .paused ? "waiting for you" : "to completion").font(.caption2).foregroundStyle(.secondary)
-                        }
-                    }
-                    Text("\(Fmt.params(run.design.paramsB)) params (\(Fmt.params(run.design.activeParamsB)) active) · \(Fmt.tokens(run.design.tokensT)) tokens · \(run.design.precision.short) · \(run.design.contextK >= 1000 ? "1M" : "\(run.design.contextK)K") context")
-                        .font(.callout).foregroundStyle(.secondary)
-                    Text("\(Fmt.int(run.design.chips))× \(a?.name ?? "?") · MFU \(Fmt.pct(mfu, decimals: 0)) · goodput \(Fmt.pct(good, decimals: 0))")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-            }
-
+            hero(run, scale: scale, progress: progress, eta: eta, inPost: inPost, accel: a, mfu: mfu, good: good, s)
             StageTimeline(run: run)
+            if !decisions.isEmpty { decisionStrip(decisions) }
             if let fc = run.forecast { ForecastTracker(run: run, forecast: fc) }
 
-            // Live numbers
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 6), spacing: 10) {
+            // Vital signs
+            EqualColumns(minWidth: 120, spacing: 10, maxColumns: 6) {
                 LiveStat(label: "Tokens / sec", value: Fmt.count(tokensPerSec), symbol: "text.word.spacing", tint: .blue)
                 LiveStat(label: "Effective compute", value: Fmt.tflops(flopsPerSec / 1e12), symbol: "bolt.fill", tint: .yellow)
                 LiveStat(label: "Loss vs forecast", value: lossDelta(run), symbol: "chart.line.downtrend.xyaxis", tint: .teal)
                 LiveStat(label: "Base-model eval", value: run.saved.last.map { Fmt.score($0.index) } ?? "—", symbol: "checklist", tint: .purple)
-                LiveStat(label: "Spent", value: Fmt.money(run.cost), symbol: "dollarsign.circle.fill", tint: .green)
+                LiveStat(label: "Compute done · left", value: "\(Fmt.flops(doneFlops)) · \(Fmt.flops(remaining))", symbol: "cpu", tint: .indigo)
+                LiveStat(label: "Spent · projected", value: "\(Fmt.money(run.cost)) · \(eta.isFinite ? Fmt.money(projected) : "—")", symbol: "dollarsign.circle.fill",
+                         tint: overBudget ? .orange : .green)
+                LiveStat(label: "Power · energy", value: "\(powerText(power)) · \(run.ledger.tracked ? energyText(run.ledger.energyMWh) : "—")", symbol: "powerplug.fill", tint: .orange)
                 LiveStat(label: "Interruptions · lost", value: "\(run.interruptions) · \(Fmt.trim(run.lostHours, 0))h", symbol: "bolt.trianglebadge.exclamationmark",
                          tint: run.interruptions > 0 ? .orange : .gray)
+                LiveStat(label: "Stability: spikes · ‖g‖", value: "\(run.spikes) · \(run.loss.last.map { Fmt.trim($0.gnorm, 2) } ?? "—")", symbol: "waveform.path.ecg",
+                         tint: run.spikes > 0 ? .orange : .green)
+                LiveStat(label: "Checkpoints", value: "\(run.saved.count) · every \(Int(run.interval * 100))%", symbol: "externaldrive.badge.checkmark", tint: .teal)
+                LiveStat(label: "Ops coverage", value: Fmt.pct(run.opsCoverage, decimals: 0), symbol: "wrench.and.screwdriver.fill",
+                         tint: run.opsCoverage >= 0.9 ? .green : (run.opsCoverage >= 0.5 ? .orange : .red))
+                LiveStat(label: "Forecast confidence", value: confidence(run), symbol: "scope", tint: .purple)
             }
-
-            if run.kind == .full { OpsPanel(run: run, state: s) }
 
             HStack(alignment: .top, spacing: 16) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Training loss").font(.caption.weight(.semibold))
-                    LossChart(points: run.loss, checkpoints: run.saved.map(\.tokensT))
+                    HStack {
+                        Text("Loss").font(.caption.weight(.semibold))
+                        Text("— training · ⋯ forecast · ╌ validation (derived)").font(.caption2).foregroundStyle(.secondary)
+                    }
+                    LossChart(points: run.loss, checkpoints: run.saved.map(\.tokensT),
+                              validation: TrainingExperience.validation(run, state: s)
+                                  .map { LossChart.Pair(t: $0.tokensT, l: $0.loss) })
+                        .equatable()
                         .frame(height: 170)
+                        .help("Validation is the training loss averaged over five points plus a generalisation gap of 0.01 per extra pass over the data. The simulation draws only the training loss.")
                 }
                 .frame(maxWidth: .infinity)
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Projected final index").font(.caption.weight(.semibold))
+                    Text("Capability estimate vs forecast band").font(.caption.weight(.semibold))
                     ProjectionChart(checkpoints: run.saved, forecast: run.forecast)
+                        .equatable()
                         .frame(height: 170)
                 }
                 .frame(maxWidth: .infinity)
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Cluster (\(Fmt.int(run.design.chips)) chips)").font(.caption.weight(.semibold))
-                    ClusterHeatmap(chips: run.design.chips, active: run.status != .paused && store.speed > 0, failureRate: min(0.25, Double(run.design.chips) * Training.failuresPerChipDay * 30),
-                                   phase: inPost ? .post : .pre)
+                    ClusterHeatmap(chips: run.design.chips, active: run.status != .paused && store.speed > 0, mfu: mfu,
+                                   goodput: Training.goodput(chips: run.design.chips, coverage: run.opsCoverage, state: s, bonuses: b),
+                                   failuresPerDay: lambda, daysPerSecond: GameStore.speeds[min(store.speed, GameStore.speeds.count - 1)].daysPerSecond,
+                                   coverage: run.opsCoverage, phase: inPost ? .post : .pre)
                         .frame(height: 118)
                         .clipShape(.rect(cornerRadius: 8))
+                    Text(heatmapLegend(mfu: mfu, lambda: lambda)).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
                     Text("Gradient norm").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
                     GradNormChart(points: run.loss)
-                        .frame(height: 36)
+                        .frame(height: 30)
                 }
                 .frame(width: 260)
             }
+
+            computePanel(actual: actual, expected: expected, bottleneck: bottleneck)
+
+            if run.kind == .full { OpsPanel(run: run, state: s, assigning: $assigning) }
 
             // Checkpoints
             VStack(alignment: .leading, spacing: 6) {
@@ -213,7 +431,7 @@ private struct RunCard: View {
                     Label("Checkpoints", systemImage: "externaldrive.badge.checkmark").font(.headline)
                     Text("every \(Int(run.interval * 100))%").font(.caption).foregroundStyle(.secondary)
                     Spacer()
-                    Text("Fork a checkpoint to ship an early preview model while training continues.").font(.caption).foregroundStyle(.secondary)
+                    Text("Fork a checkpoint to ship an early preview model while training continues; roll back to throw away what came after.").font(.caption).foregroundStyle(.secondary)
                 }
                 if run.saved.isEmpty {
                     Text("The first checkpoint saves at \(Int(run.interval * 100))%.").font(.callout).foregroundStyle(.secondary)
@@ -221,7 +439,7 @@ private struct RunCard: View {
                     ScrollView(.horizontal) {
                         HStack(spacing: 10) {
                             ForEach(run.saved.reversed()) { cp in
-                                CheckpointCard(cp: cp, runID: run.id, canRollback: run.status != .postTraining || true)
+                                CheckpointCard(cp: cp, runID: run.id, canRollback: true)
                             }
                         }
                         .padding(.bottom, 4)
@@ -246,18 +464,9 @@ private struct RunCard: View {
                 Toggle("Auto-rollback", isOn: Binding(get: { run.autoRollback }, set: { v in store.mutate { $0.setRunSettings(run.id, lr: run.schedule, checkpointEvery: run.interval, autoRollback: v) } }))
                     .toggleStyle(.switch)
                 Spacer()
-                Button(showLog ? "Hide log" : "Run log", systemImage: "list.bullet.rectangle") { showLog.toggle() }
+                Button(showLog ? "Fewer ops notes" : "All ops notes", systemImage: "list.bullet.rectangle") { showLog.toggle() }
             }
-            if showLog {
-                VStack(alignment: .leading, spacing: 3) {
-                    ForEach(Array(run.events.prefix(14).enumerated()), id: \.offset) { _, e in
-                        Text(e).font(.caption.monospaced()).foregroundStyle(.secondary)
-                    }
-                }
-                .padding(10)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(.quaternary.opacity(0.4), in: .rect(cornerRadius: 8))
-            }
+            opsNotes(run)
             HStack {
                 if run.status == .paused {
                     Button("Resume", systemImage: "play.fill") { store.act("Resumed") { $0.setRunStatus(run.id, .running) } }
@@ -274,6 +483,149 @@ private struct RunCard: View {
             }
         }
         .onAppear { resize = run.design.chips }
+        .sheet(isPresented: $assigning) { OpsAssignSheet(run: run) }
+    }
+
+    // MARK: Pieces
+
+    private func hero(_ run: TrainingRun, scale: TrainingExperience.RunScale, progress: Double, eta: Double, inPost: Bool, accel a: Accelerator?,
+                      mfu: Double, good: Double, _ s: GameState) -> some View {
+        let d = run.design
+        return HStack(alignment: .top, spacing: 16) {
+            if let a {
+                Photo(key: a.image)
+                    .frame(width: 120, height: 80)
+                    .clipShape(.rect(cornerRadius: 10))
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    Text(d.name).font(.title2.weight(.bold))
+                    Pill(text: run.status == .paused ? "Paused" : Training.currentStageName(run), color: run.status == .paused ? .orange : (inPost ? .purple : .blue))
+                    if scale >= .major { Pill(text: scale.label, color: scaleColor(scale), symbol: "flame.fill") }
+                    if d.objective != .general { Pill(text: d.objective.label, color: .indigo, symbol: d.objective.symbol) }
+                    if run.stalledDays >= 7 { Pill(text: "Stalled \(run.stalledDays) days", color: .red) }
+                    if d.isMoE { Pill(text: "MoE \(TrainingExperience.experts(for: d.activeFraction).label)", color: .teal) }
+                    if d.reasoning { Pill(text: "RL: \(d.effectiveRL.label)", color: .pink) }
+                    if d.optimizer != .adamw { Pill(text: d.optimizer.rawValue, color: .indigo) }
+                    Pill(text: "LR: \(run.schedule.label)", color: run.schedule == .aggressive ? .orange : .secondary)
+                }
+                if !d.family.isEmpty || !d.blurb.isEmpty {
+                    Text([d.family.isEmpty ? nil : "\(d.family)\(d.generation > 0 ? " gen \(d.generation)" : "")", d.blurb.isEmpty ? nil : d.blurb].compactMap { $0 }.joined(separator: " · "))
+                        .font(.callout).foregroundStyle(.secondary)
+                }
+                Text("\(Fmt.params(d.paramsB)) params (\(Fmt.params(d.activeParamsB)) active) · \(Fmt.tokens(d.tokensT)) tokens · \(d.precision.short) · \(d.contextK >= 1000 ? "1M" : "\(d.contextK)K") context")
+                    .font(.callout).foregroundStyle(.secondary)
+                Text("\(Fmt.int(d.chips))× \(a?.name ?? "?") · MFU \(Fmt.pct(mfu, decimals: 0)) · goodput \(Fmt.pct(good, decimals: 0))")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            VStack(alignment: .trailing, spacing: 3) {
+                Text(Fmt.pct(progress, decimals: 1)).font(TypeRamp.bannerMetric)
+                    .contentTransition(.numericText())
+                Meter(value: progress, tint: inPost ? .purple : .blue, height: 7).frame(width: 170)
+                Text(run.status == .paused ? "Paused — waiting for you" : (eta.isFinite ? "\(Fmt.days(eta)) left · ~\(GameCalendar.addDays(s.date, Int(eta.rounded(.up))).gameShort)" : "Not progressing"))
+                    .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                if let p = run.plan, p.days > 0 {
+                    Text("Planned: \(Fmt.days(p.days)), ~\(p.finish.gameShort)").font(.caption2).foregroundStyle(.tertiary)
+                }
+            }
+        }
+    }
+
+    /// Calls this run is waiting on — set apart from the routine ops notes below.
+    private func decisionStrip(_ decisions: [Decision]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label(decisions.count == 1 ? "A call is waiting" : "\(decisions.count) calls are waiting", systemImage: "exclamationmark.bubble.fill")
+                .font(.headline).foregroundStyle(.orange)
+            ForEach(decisions) { dcs in
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(dcs.title).font(.callout.weight(.semibold))
+                        Text(dcs.body).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                    }
+                    Spacer()
+                    Button("Decide…") { store.openDecisionID = dcs.id }
+                        .buttonStyle(.borderedProminent)
+                }
+            }
+        }
+        .padding(12)
+        .background(Color.orange.opacity(0.1), in: .rect(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.orange.opacity(0.45)))
+    }
+
+    private func computePanel(actual: [TrainingExperience.Slice]?, expected: [TrainingExperience.Slice], bottleneck: TrainingExperience.Bottleneck?) -> some View {
+        HStack(alignment: .top, spacing: 16) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Label("Where the compute goes", systemImage: "chart.bar.xaxis").font(.headline)
+                    HelpButton(term: .goodput)
+                    Spacer()
+                    if run.ledger.since > 0.005 {
+                        Text("tracked from \(Fmt.pct(run.ledger.since, decimals: 0))").font(.caption2).foregroundStyle(.tertiary)
+                    }
+                }
+                if let actual {
+                    Text("So far (\(run.ledger.days) day\(run.ledger.days == 1 ? "" : "s"), \(Fmt.flops(run.ledger.peak)) peak FLOPs)").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                    ComputeBar(slices: actual).equatable()
+                }
+                Text(actual == nil ? "Expected" : "Expected at this coverage").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                ComputeBar(slices: expected, compact: actual != nil).equatable()
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .leading, spacing: 8) {
+                if let bottleneck {
+                    BottleneckCard(bottleneck: bottleneck) { perform($0) }
+                } else {
+                    Label("No single bottleneck: the cluster is close to as good as it gets.", systemImage: "checkmark.seal.fill")
+                        .font(.callout).foregroundStyle(.green)
+                }
+            }
+            .frame(width: 380, alignment: .topLeading)
+        }
+        .padding(12)
+        .background(Theme.insetFill, in: .rect(cornerRadius: Theme.Radius.inset))
+    }
+
+    @ViewBuilder
+    private func opsNotes(_ run: TrainingRun) -> some View {
+        let notes = Array(run.events.prefix(showLog ? 20 : 4))
+        if !notes.isEmpty {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Ops notes — routine, no action needed").font(.caption2.weight(.semibold)).foregroundStyle(.tertiary)
+                ForEach(Array(notes.enumerated()), id: \.offset) { _, e in
+                    Text(e).font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(2)
+                }
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Theme.insetFill, in: .rect(cornerRadius: Theme.Radius.inset))
+        }
+    }
+
+    private func perform(_ action: TrainingExperience.FixAction) {
+        switch action {
+        case .resizeRun(let n): store.act("Cluster resized") { $0.resizeRun(run.id, chips: n) }
+        case .runCheckpoint(let v): store.mutate { $0.setRunSettings(run.id, lr: run.schedule, checkpointEvery: v, autoRollback: run.autoRollback) }
+        case .runLR(let l): store.mutate { $0.setRunSettings(run.id, lr: l, checkpointEvery: run.interval, autoRollback: run.autoRollback) }
+        case .assignOps: assigning = true
+        case .open(let screen): store.open(screen)
+        default: break
+        }
+    }
+
+    private func confidence(_ run: TrainingRun) -> String {
+        guard let fc = run.forecast else { return "—" }
+        let sd = run.saved.isEmpty ? fc.sigma : run.revealSigma
+        return "±\(Fmt.trim(sd, 2))" + (run.saved.isEmpty ? "" : " (was ±\(Fmt.trim(fc.sigma, 2)))")
+    }
+
+    private func heatmapLegend(mfu: Double, lambda: Double) -> String {
+        let cells = min(max(run.design.chips, 1), 384)
+        let per = Int((Double(run.design.chips) / Double(cells)).rounded(.up))
+        let minutes = 1_440 / max(lambda, 1e-9)
+        let every = minutes < 60 ? "\(Int(minutes.rounded())) min" : (minutes < 2_880 ? "\(Fmt.trim(minutes / 60, 1)) h" : Fmt.days(minutes / 1_440))
+        return "\(per == 1 ? "1 chip" : "\(per) chips") per cell · brightness = MFU \(Fmt.pct(mfu, decimals: 0)) · amber = lost to failures · a fault every \(every)"
     }
 
     private func lossDelta(_ run: TrainingRun) -> String {
@@ -288,7 +640,7 @@ private struct OpsPanel: View {
     @Environment(GameStore.self) private var store
     let run: TrainingRun
     let state: GameState
-    @State private var assigning = false
+    @Binding var assigning: Bool
 
     var body: some View {
         let s = state
@@ -339,8 +691,7 @@ private struct OpsPanel: View {
                 .buttonStyle(.borderedProminent)
         }
         .padding(12)
-        .background(.quaternary.opacity(0.3), in: .rect(cornerRadius: 10))
-        .sheet(isPresented: $assigning) { OpsAssignSheet(run: run) }
+        .background(Theme.insetFill, in: .rect(cornerRadius: Theme.Radius.inset))
     }
 }
 
@@ -451,15 +802,7 @@ private struct LiveStat: View {
     let tint: Color
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Image(systemName: symbol).font(.caption).foregroundStyle(tint)
-            Text(value).font(.headline.monospacedDigit()).lineLimit(1).minimumScaleFactor(0.6)
-                .contentTransition(.numericText())
-            Text(label).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-        }
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(tint.opacity(0.08), in: .rect(cornerRadius: 10))
+        MetricTile(label: label, value: value, symbol: symbol, tint: tint, style: .tinted)
     }
 }
 
@@ -484,7 +827,7 @@ private struct StageTimeline: View {
             }
         }
         .padding(10)
-        .background(.quaternary.opacity(0.35), in: .rect(cornerRadius: 10))
+        .background(Theme.insetFill, in: .rect(cornerRadius: Theme.Radius.inset))
     }
 
     private func progress(_ idx: Int, _ st: RunStage) -> Double {
@@ -592,8 +935,15 @@ private struct GradNormChart: View {
 }
 
 struct LossChart: View, Equatable {
+    struct Pair: Hashable {
+        let t: Double
+        let l: Double
+    }
+
     let points: [LossPoint]
     let checkpoints: [Double]
+    /// 3.5: the derived validation series (`TrainingExperience.validation`), drawn dashed when present.
+    var validation: [Pair] = []
 
     var body: some View {
         if points.count < 2 {
@@ -610,6 +960,12 @@ struct LossChart: View, Equatable {
                     LineMark(x: .value("Tokens (T)", p.tokensT), y: .value("Loss", p.loss), series: .value("Series", "Actual"))
                         .interpolationMethod(.monotone)
                         .foregroundStyle(Theme.accentGradient)
+                }
+                ForEach(Array(validation.enumerated()), id: \.offset) { _, v in
+                    LineMark(x: .value("Tokens (T)", v.t), y: .value("Loss", v.l), series: .value("Series", "Validation"))
+                        .interpolationMethod(.monotone)
+                        .foregroundStyle(.purple.opacity(0.75))
+                        .lineStyle(StrokeStyle(lineWidth: 1.2, dash: [2, 2]))
                 }
                 ForEach(Array(points.enumerated()).filter { $0.element.spike }, id: \.offset) { _, p in
                     PointMark(x: .value("Tokens (T)", p.tokensT), y: .value("Loss", p.loss))
@@ -686,52 +1042,70 @@ private struct CheckpointCard: View {
         }
         .padding(10)
         .frame(width: 170, alignment: .leading)
-        .background(.quaternary.opacity(0.45), in: .rect(cornerRadius: 10))
+        .background(Theme.insetFill, in: .rect(cornerRadius: Theme.Radius.inset))
         .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(cp.forkedModelID != nil ? Color.green.opacity(0.5) : .clear))
     }
 }
 
-/// A live, purely visual map of the cluster: every cell is a group of accelerators.
+/// A live map of the cluster, every cell a group of accelerators, driven by the run's real rates: cell brightness is
+/// MFU, the share of amber cells is the time lost to failures and restarts (1 − goodput), and red cells flash at the
+/// fault rate the simulation draws from, scaled to game time (faults per chip-day × chips per cell × game days per
+/// frame). Ops-watched cells get a thin outline. Paused game or run: one static frame.
 struct ClusterHeatmap: View {
     enum Phase { case pre, post }
     let chips: Int
     let active: Bool
-    let failureRate: Double
+    let mfu: Double
+    let goodput: Double
+    let failuresPerDay: Double
+    let daysPerSecond: Double
+    let coverage: Double
     let phase: Phase
 
+    private static let frame = 0.35
+
     var body: some View {
-        // Paused (game or run) → one static frame instead of redrawing every 0.35 s.
-        TimelineView(.animation(minimumInterval: 0.35, paused: !active)) { ctx in
+        TimelineView(.animation(minimumInterval: Self.frame, paused: !active)) { ctx in
             Canvas { g, size in
                 let cells = min(max(chips, 1), 384)
                 let cols = max(1, Int(ceil(sqrt(Double(cells) * size.width / max(size.height, 1)))))
                 let rows = max(1, Int(ceil(Double(cells) / Double(cols))))
                 // Square cells, capped so a handful of chips doesn't become one giant block; grid is centered.
                 let side = min(size.width / CGFloat(cols), size.height / CGFloat(rows), 30)
-                let w = side, h = side
                 let ox = (size.width - side * CGFloat(cols)) / 2
                 let oy = (size.height - side * CGFloat(rows)) / 2
                 let t = ctx.date.timeIntervalSinceReferenceDate
-                let tick = Int(t / 0.35)
+                let tick = Int(t / Self.frame)
+                // Chance a cell sees a fault during one frame of game time.
+                let perCell = failuresPerDay / Double(cells)
+                let pFault = 1 - exp(-perCell * daysPerSecond * Self.frame)
+                let lost = clamp(1 - goodput, 0, 1)
+                let watched = Int((Double(cells) * clamp(coverage, 0, 1)).rounded())
+                let bright = clamp(mfu / 0.7, 0.2, 1)
                 g.fill(Path(CGRect(origin: .zero, size: size)), with: .color(.black.opacity(0.85)))
                 for i in 0..<cells {
                     let r = i / cols, c = i % cols
-                    let rect = CGRect(x: ox + CGFloat(c) * w + 1, y: oy + CGFloat(r) * h + 1, width: max(1, w - 2), height: max(1, h - 2))
+                    let rect = CGRect(x: ox + CGFloat(c) * side + 1, y: oy + CGFloat(r) * side + 1, width: max(1, side - 2), height: max(1, side - 2))
                     let seed = Self.noise(i, tick)
-                    var color: Color
+                    let color: Color
                     if !active {
                         color = .gray.opacity(0.25)
-                    } else if seed < failureRate * 0.02 {
+                    } else if seed < pFault {
                         color = .red
+                    } else if Self.noise(i &+ 7_919, tick / 4) < lost {
+                        color = .orange.opacity(0.75)
                     } else {
-                        let load = 0.55 + 0.45 * sin(t * 2.2 + Double(i) * 0.37) * 0.5 + seed * 0.25
-                        color = (phase == .pre ? Color.green : Color.purple).opacity(clamp(load, 0.25, 1))
+                        let flicker = 0.85 + 0.15 * sin(t * 2.2 + Double(i) * 0.37)
+                        color = (phase == .pre ? Color.green : Color.purple).opacity(clamp(bright * flicker, 0.2, 1))
                     }
-                    g.fill(Path(roundedRect: rect, cornerRadius: min(w, h) * 0.2), with: .color(color))
+                    g.fill(Path(roundedRect: rect, cornerRadius: side * 0.2), with: .color(color))
+                    if i < watched && side >= 6 {
+                        g.stroke(Path(roundedRect: rect, cornerRadius: side * 0.2), with: .color(.cyan.opacity(0.5)), lineWidth: 0.6)
+                    }
                 }
             }
         }
-        .accessibilityLabel("Cluster activity map")
+        .accessibilityLabel("Cluster activity map: MFU \(Int(mfu * 100))%, goodput \(Int(goodput * 100))%")
     }
 
     /// Cheap per-cell flicker in 0..<1 (integer mix, no string hashing on every frame).

@@ -6,7 +6,8 @@ enum ResearchLab {
     // MARK: Daily
 
     static func daily(_ s: inout GameState, _ b: ResearchBonuses) {
-        let rate = Sim.researchRate(s, b) + s.rsiRPToday + s.swarmRPToday
+        // 3.5: founding-kit research multipliers (×1 without a kit) speed up your people, not your agents.
+        let rate = Sim.researchRate(s, b) * FoundingKit.researchMultiplier(s) + s.rsiRPToday + s.swarmRPToday
         s.rpToday = rate
 
         // Signature programme and alien study take their shares first.
@@ -79,7 +80,7 @@ enum ResearchLab {
             return nil
         }
         let cost = Sim.researchCost(item, year: s.year)
-        let mult = max(0.1, item.category == .frontier ? 1 + s.traits.frontierRP : 1)
+        let mult = max(0.1, item.category == .frontier ? 1 + s.traits.frontierRP : 1) * FoundingKit.categorySpeed(s, item)
         return (max(0, (cost - (s.researchProgress[entry] ?? 0)) / mult), mult)
     }
 
@@ -216,6 +217,7 @@ enum ResearchLab {
         let skill = researchers.isEmpty ? 50 : researchers.reduce(0) { $0 + $1.skill } / Double(researchers.count)
         var p = 0.004 * (0.6 + skill / 100) * (1 + min(1, Double(researchers.count) / 40))
         if s.signatureAt(.oracle, 3) { p *= 2 }
+        if s.kit.contains("eureka_engine") { p *= 3 }   // 3.5: founding kit
         guard s.rng.chance(p) else { return }
         let cost: Double
         let name: String
@@ -361,6 +363,7 @@ enum ResearchLab {
         let skill = researchers.reduce(0) { $0 + $1.skill } / Double(researchers.count)
         var p = 0.03 * (0.5 + skill / 100) * (1 + min(1, Double(researchers.count) / 30))
         if s.signatureAt(.oracle, 3) { p *= 2 }
+        if s.kit.contains("eureka_engine") { p *= 2 }   // 3.5: founding kit
         guard s.rng.chance(p) else { return }
         let taken = Set(s.exoticOwned + s.rivalTech.values.flatMap { $0 })
         let y = s.year
@@ -437,6 +440,24 @@ extension GameState {
             res[p.entry] = FrontierProgram.strength(level)
         }
         for (id, scale) in Moonshots.bonusSources(self) {
+            ids.insert(id)
+            res[id] = scale
+        }
+        // 3.5: founding-kit cards and the RL lab (nothing without a kit or an RL lab).
+        for (id, scale) in FoundingKit.bonusSources(self) {
+            ids.insert(id)
+            res[id] = scale
+        }
+        for (id, scale) in AdvancedProjects.bonusSources(self) {   // 3.5: delivered government programmes
+            ids.insert(id)
+            res[id] = scale
+        }
+        for (id, scale) in Semis.bonusSources(self) {   // 3.5: your own chips and fabs
+            ids.insert(id)
+            res[id] = scale
+        }
+        // 3.6: science-lab discoveries (nothing without discoveries).
+        for (id, scale) in Science.bonusSources(self) {
             ids.insert(id)
             res[id] = scale
         }

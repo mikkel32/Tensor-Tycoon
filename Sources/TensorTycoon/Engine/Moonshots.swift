@@ -53,7 +53,7 @@ enum Moonshots {
     /// AI-for-science research makes every moonshot likelier.
     static func scienceFactor(_ s: GameState) -> Double {
         let n = ResearchCatalog.all.filter { $0.category == .science && s.researched.contains($0.id) }.count
-        return 1 + min(0.15, 0.03 * Double(n))
+        return 1 + min(0.15, 0.03 * Double(n)) + AgentOrgs.moonshotOdds(s)   // 3.6: discovery institutes
     }
 
     static func safetyFactor(_ d: MoonshotDef, _ s: GameState) -> Double {
@@ -63,7 +63,7 @@ enum Moonshots {
 
     /// Odds of success if you start now and put in the planned research.
     static func chance(_ d: MoonshotDef, _ s: GameState, partnered: Bool) -> Double {
-        clamp(d.baseChance * capabilityFactor(s) * scienceFactor(s) * safetyFactor(d, s) * (partnered ? 1.1 : 1), 0.05, 0.95)
+        clamp(d.baseChance * capabilityFactor(s) * scienceFactor(s) * safetyFactor(d, s) * (partnered ? 1.1 : 1) * Science.moonshotFactor(d.id, s), 0.05, 0.95)   // 3.6
     }
 
     static func royalty(_ d: MoonshotDef, _ s: GameState, partnered: Bool) -> Double {

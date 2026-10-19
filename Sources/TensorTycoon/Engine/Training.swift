@@ -45,16 +45,21 @@ enum Training {
     static func prepare(_ run: inout TrainingRun, state s: inout GameState) {
         let b = s.bonuses
         let d = run.design
-        let f = ForecastEngine.forecast(d, state: s, dataSources: Array(s.dataSources))
+        let f = ForecastEngine.forecast(d, state: s, dataSources: run.dataSnapshot.isEmpty ? s.dataSources.sorted() : run.dataSnapshot)   // 3.6: the run's own data
         let set = Leaderboard.indexSet(s)
         let band = ForecastEngine.indexBand(f, design: d, set: set)
-        let top = Leaderboard.entries(s, set: set, includeUnreleased: false).filter { !$0.isPlayer }.map(\.index).max() ?? 0
+        let released = Leaderboard.entries(s, set: set, includeUnreleased: false)
+        let top = released.filter { !$0.isPlayer }.map(\.index).max() ?? 0
         run.forecast = RunForecast(c: f.c, sigma: f.sigma, index: band.mean, indexLow: band.low, indexHigh: band.high,
                                    tier: ForecastEngine.tier(index: band.mean, top: top),
                                    comparable: RealModels.closest(index: band.mean, set: set).map { "\($0.name) (\($0.lab), \($0.date.label))" } ?? "—",
                                    finalLoss: f.finalLoss)
         // Experiments (estimated under `toyCost`) run quietly: no incidents, so no silent bug either.
-        if run.kind == .full, let est = Physics.estimate(d, state: s, lr: run.schedule, interval: run.interval) { run.toy = est.toy }
+        if run.kind == .full, let est = Physics.estimate(d, state: s, lr: run.schedule, interval: run.interval) {
+            run.toy = est.toy
+            // 3.5: what the estimate promised, for the command centre and the results screen.
+            run.plan = TrainingExperience.plan(run, est: est, expectedRank: Leaderboard.labRank(index: band.mean, board: released, gone: Leaderboard.goneLabs(s)), state: s)
+        }
         run.epsilon = s.rng.gaussian() * f.sigma
         if s.rng.chance(f.bugRisk * (1 - 0.4 * s.swarmOps)) {
             let penalty = s.rng.range(0.08, 0.32)
@@ -68,6 +73,7 @@ enum Training {
         run.stages = stages(d, pretrain: run.flopsTotal, bonuses: b)
         run.postTrainFlops = run.stages.filter { !$0.isPre }.reduce(0) { $0 + $1.flops }
         runLogDirect(&run, s.date, "Forecast: index \(Fmt.score(band.mean)) (80%: \(Fmt.score(band.low))–\(Fmt.score(band.high))) — \(run.forecast?.tier ?? "").")
+        TrainingExperience.launched(&s, run: run)
     }
 
     // MARK: Ops coverage
@@ -387,8 +393,13 @@ enum Training {
             var perDay = Double(d.chips) * accel.trainTFLOPS(d.precision) * 1e12 * Physics.runMFU(d, accel: accel, coverage: cov, state: s, bonuses: b)
                 * 86_400 * schedule.speed
             let straggle = 1 - (1 - Physics.stragglerFactor(chips: d.chips, bonuses: b)) * (1 - ops.stragglers)
+            let raw = perDay
             perDay *= Sim.checkpointOverhead(s.runs[i].interval) * straggle
+            if full {
+                TrainingExperience.ledgerDay(&s, i, accel: accel, coverage: cov, raw: raw, ckpt: Sim.checkpointOverhead(s.runs[i].interval), straggle: straggle)
+            }
             if s.runs[i].kind == .proxy { perDay *= 0.33 }
+            if s.runs[i].toy || s.runs[i].kind == .proxy { perDay *= AgentOrgs.experimentSpeed(s) }   // 3.6: experiment coordination
             s.runs[i].cost += Economy.chipDailyCost(accel, count: d.chips, state: s)
             s.runs[i].opsCoverage = cov
 
@@ -399,6 +410,7 @@ enum Training {
             let lambda = Double(d.chips) * failuresPerChipDay * (1 - ops.prevented)
             if ops.prevented > 0 { s.runs[i].prevented += Double(d.chips) * failuresPerChipDay * ops.prevented }
             let k = poisson(lambda, &s.rng)
+            let beforeFailures = perDay
             if k > 0 {
                 let hours = Double(k) * Physics.hoursLostPerFailure(state: s, bonuses: b, chips: d.chips) * (1 - ops.recovery)
                 s.runs[i].interruptions += k
@@ -412,6 +424,7 @@ enum Training {
                     runLog(&s, i, "\(k) interruption\(k == 1 ? "" : "s") (\(what)\(k > 1 ? " and more" : "")) — lost \(Fmt.trim(hours, 1)) h, auto-restarted from the last save.")
                 }
             }
+            if full { s.runs[i].ledger.failures += beforeFailures - perDay }
             // Silent data corruption: invisible, and at 100K+ chips it adds up. Agents and checksums catch most of it.
             let sdc = Double(d.chips) * failuresPerChipDay * sdcShare * uptime
             if d.chips >= 20_000 && s.runs[i].kind == .full && sdc > 0 {
@@ -426,6 +439,7 @@ enum Training {
             if full { trackStall(&s, i, pace: uptime * straggle) }
             if full && d.chips >= 4_000 && !s.runs[i].decided.contains("fault_storm") && s.rng.chance(0.0025 * (1 - 0.6 * cov) * quiet) {
                 faultStorm(&s, i)
+                s.runs[i].ledger.incidents += perDay
                 continue
             }
 
@@ -434,14 +448,17 @@ enum Training {
                     // With most of the run covered, agents catch the spike within steps and rewind a few minutes.
                     if cov >= 0.5 {
                         s.runs[i].spikes += 1
+                        TrainingExperience.rewound(&s, i, min(s.runs[i].flopsDone, perDay * 0.02))
                         s.runs[i].flopsDone = max(0, s.runs[i].flopsDone - perDay * 0.02)
                         runLog(&s, i, "Loss spike caught by ops agents: rewound to a snapshot from minutes earlier and skipped the bad batch.")
                     } else if !awaiting(s, "loss_spike", i) {
                         lossSpike(&s, i)
+                        s.runs[i].ledger.incidents += perDay
                         continue
                     }
                 }
                 s.runs[i].flopsDone += perDay
+                if full { s.runs[i].ledger.useful += perDay }
                 s.lifetimeFLOPs += perDay
                 let frac = s.runs[i].progress
                 recordLoss(&s, i, frac: frac)
@@ -468,6 +485,7 @@ enum Training {
                 }
             } else {
                 s.runs[i].stageDone += perDay
+                if full { s.runs[i].ledger.useful += perDay }
                 s.lifetimeFLOPs += perDay
                 advanceStages(&s, i)
             }
@@ -723,7 +741,7 @@ enum Training {
         let b = s.bonuses
         // Benchmark contamination
         if frac > 0.3 && frac < 0.75 && !s.runs[i].decided.contains("contamination") {
-            if s.rng.chance(0.012 * b.contaminationKeep * (s.runs[i].toy ? 0 : 1)) {
+            if s.rng.chance(0.012 * b.contaminationKeep * DataEconomy.contaminationFactor(s, run: s.runs[i]) * (s.runs[i].toy ? 0 : 1)) {
                 s.runs[i].decided.insert("contamination")
                 Events.addDecision(&s, kind: "contamination", title: "Benchmark contamination in \(s.runs[i].design.name)",
                                    body: "An audit found test questions from popular benchmarks scattered through your web crawl. Your scores will be inflated — and someone will notice.",
@@ -796,6 +814,8 @@ enum Training {
     static func redoStage(_ s: inout GameState, _ i: Int, named names: [String]) {
         guard s.runs[i].status == .postTraining || s.runs[i].status == .paused,
               let idx = s.runs[i].stages.firstIndex(where: { names.contains($0.name) }), idx <= s.runs[i].stageIndex else { return }
+        let redone = s.runs[i].stages[idx..<min(s.runs[i].stageIndex, s.runs[i].stages.count)].reduce(0) { $0 + $1.flops } + s.runs[i].stageDone
+        TrainingExperience.rewound(&s, i, redone)
         s.runs[i].stageIndex = idx
         s.runs[i].stageDone = 0
     }
@@ -810,7 +830,10 @@ enum Training {
         case "loss_spike":
             switch option {
             case 0:
-                if let cp = s.runs[i].saved.last { rollback(&s, i, to: cp) } else { s.runs[i].flopsDone = 0; s.runs[i].loss = [] }
+                if let cp = s.runs[i].saved.last { rollback(&s, i, to: cp) } else {
+                    TrainingExperience.rewound(&s, i, s.runs[i].flopsDone)
+                    s.runs[i].flopsDone = 0; s.runs[i].loss = []
+                }
                 s.runs[i].lr = LRSchedule.conservative.rawValue
                 runLog(&s, i, "Rolled back and lowered the learning rate.")
             case 1:
@@ -831,7 +854,10 @@ enum Training {
             switch option {
             case 0:
                 let onset = s.runs[i].bugOnset
-                if let cp = s.runs[i].saved.last(where: { $0.fraction <= onset }) { rollback(&s, i, to: cp) } else { s.runs[i].flopsDone = 0; s.runs[i].loss = [] }
+                if let cp = s.runs[i].saved.last(where: { $0.fraction <= onset }) { rollback(&s, i, to: cp) } else {
+                    TrainingExperience.rewound(&s, i, s.runs[i].flopsDone)
+                    s.runs[i].flopsDone = 0; s.runs[i].loss = []
+                }
                 s.runs[i].bugFound = true
                 s.runs[i].bugPenalty = 0
                 runLog(&s, i, "Rolled back to before the bug and fixed it.")
@@ -848,6 +874,8 @@ enum Training {
             if option == 0 {
                 let back = max(0, s.runs[i].progress - 0.05)
                 let cutoff = s.runs[i].design.tokensT * back + 1e-9
+                TrainingExperience.rewound(&s, i, max(0, s.runs[i].flopsDone - s.runs[i].flopsTotal * back)
+                                           + (s.runs[i].status == .postTraining ? s.runs[i].postTrainDone : 0))
                 s.runs[i].flopsDone = s.runs[i].flopsTotal * back
                 s.runs[i].loss.removeAll { $0.tokensT > cutoff }
                 if s.runs[i].status == .postTraining {
@@ -873,8 +901,10 @@ enum Training {
             let lost = (option == 0 ? 2 : 7 * 0.4) * day
             // Time lost in post-training comes out of the current stage, not out of finished pre-training.
             if s.runs[i].status == .postTraining {
+                TrainingExperience.rewound(&s, i, min(s.runs[i].stageDone, lost))
                 s.runs[i].stageDone = max(0, s.runs[i].stageDone - lost)
             } else {
+                TrainingExperience.rewound(&s, i, min(s.runs[i].flopsDone, lost))
                 s.runs[i].flopsDone = max(0, s.runs[i].flopsDone - lost)
             }
             if option == 0 {
@@ -917,6 +947,7 @@ enum Training {
     }
 
     static func rollback(_ s: inout GameState, _ i: Int, to cp: TrainCheckpoint) {
+        TrainingExperience.rewound(&s, i, max(0, s.runs[i].flopsDone - cp.flopsDone) + (s.runs[i].status == .postTraining ? s.runs[i].postTrainDone : 0))
         s.runs[i].flopsDone = cp.flopsDone
         s.runs[i].loss.removeAll { $0.tokensT > cp.tokensT + 1e-9 }
         s.runs[i].saved.removeAll { $0.fraction > cp.fraction + 1e-9 && $0.forkedModelID == nil }
@@ -977,6 +1008,7 @@ enum Training {
         model.index = BenchmarkCatalog.index(Leaderboard.profile(model), set: set)
         let top = Leaderboard.entries(s, set: set, includeUnreleased: false).filter { !$0.isPlayer }.map(\.index).max() ?? 0
         model.tier = ForecastEngine.tier(index: model.index, top: top)
+        let previousBest = s.models.filter { !$0.preview }.map(\.index).max()
         s.models.append(model)
         s.runs[i].status = .done
         s.runs[i].cFinal = c
@@ -999,6 +1031,8 @@ enum Training {
         if run.sdcMissed >= 1 || run.prevented >= 10 {
             runLog(&s, i, "Ops report: \(Int(run.prevented)) failures prevented, \(Int(run.sdcCaught)) corrupt nodes caught, \(Int(run.sdcMissed)) slipped through.")
         }
+        TrainingExperience.finished(&s, run: s.runs[i], model: model, previousBest: previousBest, rank: rank)
+        Families.adopt(&s, model)   // 3.5: a run named for an existing family becomes its new flagship
     }
 
     // MARK: Helpers

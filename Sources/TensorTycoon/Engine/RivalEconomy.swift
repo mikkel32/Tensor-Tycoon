@@ -594,7 +594,7 @@ enum RivalEconomy {
         return f * c.valuation
     }
 
-    static func stakesValue(_ s: GameState) -> Double { s.rivalStakes.keys.reduce(0) { $0 + stakeValue(s, $1) } }
+    static func stakesValue(_ s: GameState) -> Double { s.rivalStakes.keys.sorted().reduce(0) { $0 + stakeValue(s, $1) } }   // 3.7: fixed order
 
     /// New money in a lab (equity, strategic, rescue and IPO rounds — not tenders, debt or mergers) dilutes every
     /// existing holder, you included: your stake shrinks by amount ÷ post-money. A round that leaves the

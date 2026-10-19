@@ -401,10 +401,10 @@ extension GlossaryTerm {
                           detail: "Alignment drifts out of sight as it goes, faster with more autonomy and less oversight. Checkpoints let you promote a generation to a new model, roll back or run a deep audit.",
                           screen: .rsi, aliases: ["self-improvement", "generations", "autonomy", "oversight"])
         case .swarms:
-            GlossaryEntry(title: "Agent swarms", category: .frontier,
-                          definition: "Many copies of one of your models, from ten to a billion, running on your inference chips toward one mission: research, training operations, chip design, alignment, security, intelligence, alien-tech search or paid work.",
-                          detail: "Each agent burns tens of millions of tokens a day, so chips set the size of a swarm. Output grows a little slower than the number of agents, and an agent is worth more the smarter its model.",
-                          screen: .swarms, aliases: ["agents", "swarm", "missions", "workforce"])
+            GlossaryEntry(title: "AI organisations & agent swarms", category: .frontier,
+                          definition: "Teams of copies of your models, from ten to a billion agents on your inference chips, organised around one objective: software, architecture research, scientific discovery, chips, training or infrastructure operations, security, robotics, finance, experiments, alignment, intelligence, alien-tech search or paid work.",
+                          detail: "Each agent burns tens of millions of tokens a day, so chips set the size of a team. Output grows slower than the number of agents (and coordination overhead grows with size); supervisor teams, verification and a tools budget win some of it back. An agent is worth more the smarter its model, and more again when the model is strong in the domains the work needs. More autonomy is faster but drifts out of alignment faster.",
+                          screen: .swarms, aliases: ["agents", "swarm", "missions", "workforce", "organisation", "organization", "supervisors", "verification"])
         case .alignmentDrift:
             GlossaryEntry(title: "Alignment drift", category: .frontier,
                           definition: "Swarms and self-improvement runs slowly slide out of alignment (0–100), faster with more autonomy, less oversight, bigger swarms and alien architectures.",
@@ -489,6 +489,12 @@ enum ScreenGuide {
         case .models:
             Hint(title: "Models & Serving", text: "Release finished models, give them serving chips and set API prices. A released model without chips can't take any traffic.",
                       firstStep: "Release your best model, then deploy chips to it, or let the capacity delegate do it.", term: .servingCapacity)
+        case .nations:   // 3.7: national AI strategies
+            Hint(title: "Nations", text: "Every region runs a national AI strategy — subsidies, sovereign programmes, export controls, data and safety rules, visas, energy — and reviews it each January. The dials change what chips, power, hiring and contracts cost you.",
+                      firstStep: "Check Effects on you, then see which rival labs specialise in what you sell.", term: nil)
+        case .families:   // 3.5: model families
+            Hint(title: "Model Families", text: "A lineup instead of one flagship: distil cheaper tiers from your best model, upgrade models with post-training passes, and let each tier serve the traffic it's priced for.",
+                      firstStep: "Distil a Spark tier from your flagship, then route the chat app's free users to it.", term: .servingCapacity)
         case .leaderboard:
             Hint(title: "Leaderboard", text: "The race, lab by lab, ranked by each lab's best model on the Intelligence Index. Capability is a fixed yardstick you can compare across years.",
                       firstStep: "Click a lab to see all its models. The gap to #1 tells you how much more compute you'd need.", term: .capability)
@@ -516,9 +522,18 @@ enum ScreenGuide {
         case .finance:
             Hint(title: "Finance", text: "Profit and loss, cash, debt and runway, month by month.",
                       firstStep: "Keep an eye on runway. Under four months, start raising or cut costs.", term: .runway)
+        case .corporate:
+            Hint(title: "Corporate", text: "Your company as a group: monthly statements, corporate debt and its covenants, your credit rating, the cap table, taxes, and subsidiaries you start, buy, sell down, list, spin off or fold back in.",
+                      firstStep: "Check the runway scenarios on Statements, then try a small subsidiary on the Subsidiaries tab.", term: .runway)
         case .operations:
             Hint(title: "Operations", text: "Hand recurring chores to delegates that run on your best model, choose which alerts stop the clock, and rewind a bad call.",
                       firstStep: "Turn on the serving-capacity and launch delegates first.", term: .delegates)
+        case .semiconductors:
+            Hint(title: "Semiconductors", text: "Make your own accelerators: a design team designs a chip for a process node and tapes it out, then wafers, advanced packaging and HBM turn into chips you keep or sell. Every number shows where it comes from.",
+                      firstStep: "Hire a design team on the Design tab, then start a design on a node a foundry already offers.", term: nil)
+        case .progression:   // 3.7: company stages and launches
+            Hint(title: "Progression", text: "How big a company you've become — Garage to Civilisational — and what it takes to grow: capability, revenue, compute and headcount. Each promotion unlocks a power. Below it, every launch you've made and its report.",
+                      firstStep: "Look at the criterion furthest from its bar: that's what holds your next promotion back.", term: nil)
         default:
             nil
         }

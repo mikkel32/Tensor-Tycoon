@@ -165,7 +165,7 @@ extension BalanceHarness {
             let (s, id) = frontierLab(year: y, chips: 20_000, seed: 83)
             guard let m = s.models.first(where: { $0.id == id }) else { continue }
             let q = Swarms.quality(m, s)
-            let missions = SwarmMission.allCases.map { "\($0.rawValue.components(separatedBy: " ").first ?? "") \(Fmt.trim(Swarms.quality(m, s, mission: $0), 2))" }
+            let missions = SwarmMission.swarmCases.map { "\($0.rawValue.components(separatedBy: " ").first ?? "") \(Fmt.trim(Swarms.quality(m, s, mission: $0), 2))" }
             print("  \(Int(y)) frontier model: \(Fmt.trim(q, 3)) researcher-eq/agent — \(Swarms.tier(q)), horizon \(Swarms.horizon(m)), "
                   + "autonomous \(Swarms.canRunAutonomous(m, s, s.bonuses) ? "yes" : "no")")
             print("    per mission: " + missions.joined(separator: " · "))

@@ -63,7 +63,7 @@ enum StrategyEvents {
 
         // A government wants a sovereign model.
         if y >= 2024, let best = s.releasedModels.max(by: { $0.c < $1.c }), best.c > Macro.frontier(y) - 1.2,
-           !s.firedEvents.contains("sovereign_\(Int(y))"), s.rng.chance(0.05 * Stakeholders.sovereignFactor(s)) {   // 3.4: standing with governments
+           !s.firedEvents.contains("sovereign_\(Int(y))"), s.rng.chance(0.05 * Stakeholders.sovereignFactor(s) * Launches.sovereignBoost(s)) {   // 3.4: standing with governments; 3.7: launches, stage
             s.firedEvents.insert("sovereign_\(Int(y))")
             let monthly = max(5e6, Economy.runRate(s) * 0.025)
             let country = s.rng.pick(["a Gulf state", "a European government", "an Asian democracy", "a Nordic consortium", "a South American alliance"])

@@ -274,6 +274,39 @@ Speed: ⌘⇧P play/pause, ⌘1–⌘5 speeds (1.5 to 90 days per second), ⌘�
   forecasts against your own models, leaks and false rumours, an intel budget and a track record of past calls.
   Leapfrog a lab mid-post-training and it may declare a code red; ship a better model just before a rival's launch to
   steal its news cycle.
+- **A start that's yours**: a founding kit of 39 cards (genius researchers, RL pioneers, an angel GPU cluster, a rich
+  uncle, an alien signal, handicaps that buy points) in standard, sandbox or genius mode, a reinforcement-learning lab,
+  starter quests, and company stages from Garage to Civilisational, each with a new power.
+- **Headquarters**: the US, Romania, Italy, France or Denmark across 12 cities, with real tax, payroll, salary, office
+  and grant differences, local talent and partners.
+- **Launches**: eight launch strategies (stealth drop, staged, keynote, open weights, enterprise-first,
+  government-first, benchmark-first or a plain post) with a price stance and a safety posture, each with explained
+  effects on demand, press, standing and rivals, and a launch-day report a week later.
+- **Model families**: Core, Spark and Mote tiers distilled from your flagship, seven post-training passes shipped as
+  point releases, and tier routing for free chat users and enterprise contracts.
+- **Data economy**: 17 data types rated on 11 quality dimensions; buy, license, go exclusive, win auctions, annotate,
+  clean and generate synthetic data. A small clean dataset can beat a huge noisy one, and the Model Lab's data plan
+  shows why.
+- **Datacenters and power**: a market of datacenters and campuses to buy, lease or sublease, power purchase
+  agreements, on-site generation, batteries and grid interconnection queues.
+- **Semiconductors**: chip design teams, process nodes to A10-class, four fictional foundries or your own fab,
+  advanced packaging and HBM as separate bottlenecks, defect-density yields and binning, supply shocks, and sales to
+  clouds, sovereigns and (if you choose) rivals. The alien chip gets its own fab line and generations.
+- **Science labs**: eight kinds of lab in 13 cities, 41 projects in 12 fields through ten stages that can fail, and a
+  discovery report for every result; discoveries cut power bills, bring fusion closer, sharpen your models and open
+  product lines.
+- **Advanced Projects**: 14 fictional agencies post AI programmes under fixed-price, cost-plus, grant and prize terms;
+  bid against rivals, run staged programmes, clear staff, build classified facilities and decide what to do with a
+  classified discovery.
+- **AI organisations**: agent swarms grow into organisations of specialist and supervisor teams, with verification,
+  oversight and coordination overhead, in 14 kinds whose output reaches products, power, outages, moonshots and science.
+- **Corporate finance**: subsidiaries you can start, buy, sell into, list, spin off or fold back in; covenanted loans,
+  convertibles and green bonds with a credit rating; dividends, buybacks and tender offers; monthly statements and
+  runway scenarios.
+- **Nations**: seven regions run national AI strategies (subsidies, sovereign AI, export controls, data and safety
+  rules, visas, energy) reviewed each January with reasons, and regional economies; rivals specialise and answer your
+  launches weeks later, with the reasons in the news.
+- **Deterministic**: the same seed always plays the same game, which CI checks on every build.
 - **World**: four start eras (2017, 2020, 2022, 2026), 60+ real dated industry events through October 2026 (funding
   rounds, model launches, export-control swings, chip launches, datacenter moratoria, sandbox escapes), eight fictional
   rival labs, each with a signature strength, joined by the labs founded during play.

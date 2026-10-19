@@ -42,6 +42,7 @@ enum ShellSheet: Identifiable {
     case era
     case report(UUID)
     case briefing(UUID)
+    case launchReport(UUID)   // 3.7
 
     var id: String {
         switch self {
@@ -50,6 +51,7 @@ enum ShellSheet: Identifiable {
         case .era: "era"
         case .report(let id): "report-\(id)"
         case .briefing(let id): "briefing-\(id)"
+        case .launchReport(let id): "launch-\(id)"
         }
     }
 }
@@ -86,6 +88,8 @@ struct GameShell: View {
                 RunReportSheet(runID: id)
             case .briefing(let id):
                 BriefingSheet(id: id)
+            case .launchReport(let id):
+                LaunchReportSheet(recordID: id)   // 3.7
             }
         }
         .sheet(isPresented: Binding(get: { store.state?.gameOver != nil }, set: { _ in })) {
@@ -102,6 +106,7 @@ struct GameShell: View {
         if store.showEraIntro { return .era }
         if let r = store.reportRunID { return .report(r) }
         if let b = store.briefingID { return .briefing(b) }
+        if let l = store.launchReportID { return .launchReport(l) }
         return nil
     }
 
@@ -113,6 +118,7 @@ struct GameShell: View {
         case .era: store.showEraIntro = false
         case .report: store.reportRunID = nil
         case .briefing: store.briefingID = nil
+        case .launchReport: store.launchReportID = nil
         case nil: break
         }
     }
@@ -160,6 +166,14 @@ struct ScreenRouter: View {
         case .world: WorldView()   // 3.4: world and stakeholders
         case .milestones: MilestonesView()
         case .products: ProductLinesView()
+        case .events: EventsView()   // 3.5
+        case .advancedProjects: AdvancedProjectsView()   // 3.5
+        case .corporate: CorporateView()   // 3.5
+        case .semiconductors: SemiconductorsView()   // 3.5
+        case .science: ScienceView()   // 3.6
+        case .families: FamiliesView()   // 3.5: model families
+        case .nations: NationsView()   // 3.7: national AI strategies and economies
+        case .progression: ProgressionView()   // 3.7: company stages and launches
         }
     }
 }
@@ -211,9 +225,14 @@ struct Sidebar: View {
         case .swarms: s.swarms.filter { !$0.paused }.count
         case .strategy: s.culturePoints
         case .security: s.bills.filter { $0.stance == 0 }.count
-        case .xeno: s.alienArchs.reduce(0) { $0 + $1.offers.count } + s.decisions.filter { $0.kind == "xeno_anomaly" }.count
+        case .xeno: s.alienArchs.reduce(0) { $0 + $1.offers.count } + s.decisions.filter { $0.kind == "xeno_anomaly" || $0.kind == "alien_errata" }.count
         case .silicon: s.chipProjects.filter { !$0.done }.count
         case .partners: s.partnerships.count
+        case .advancedProjects: s.advanced.programmes.filter { $0.status == .active && $0.stage == .award }.count   // 3.5: waiting for a team
+        case .corporate: s.decisions.filter { $0.kind.hasPrefix("corp_") }.count   // 3.5
+        case .semiconductors: s.decisions.filter { Semis.kinds.contains($0.kind) }.count   // 3.5
+        case .science: Science.pending(s).count   // 3.6
+        case .families: s.families.jobs.filter(\.paused).count   // 3.5: model families
         default: 0
         }
     }
@@ -328,8 +347,8 @@ struct DecisionSheet: View {
         let left = decision.deadline.map { GameCalendar.daysBetween(store.game.date, $0) }
         let fallback = Alerts.inboxDefaults[decision.kind] ?? (decision.options.count - 1)
         VStack(alignment: .leading, spacing: 0) {
-            if let img = decision.image {
-                Photo(key: img, thumb: false)
+            if let img = ImagePicker.illustrate(decision.image, title: decision.title, fill: false) {
+                Photo(key: img, thumb: false, size: .banner, illustrative: ImagePicker.isIllustrative(img))
                     .frame(height: 170)
                     .clipped()
                     .overlay(LinearGradient(colors: [.clear, .black.opacity(0.5)], startPoint: .top, endPoint: .bottom))

@@ -11,6 +11,13 @@ struct NewGameSettings {
     var doctrine: LabDoctrine = .balanced
     var background: FounderBackground = .researcher
     var signature: SignatureSecret = .cortex
+    // 3.5: founding kit
+    var kit: [String] = []
+    var kitMode: KitMode = .standard
+    var starterQuests = false
+    /// 3.5: headquarters (CountryCatalog). The US / San Francisco default changes nothing.
+    var hqCountry = "us"
+    var hqCity = "sf"
 
     /// First name of the Mac's user account, so the founder defaults to the player.
     static var defaultFounder: String {
@@ -24,15 +31,18 @@ enum NewGame {
                               "infinity", "hexagon.fill", "waveform", "circle.hexagongrid.fill", "star.fill", "aqi.medium"]
 
     static func create(_ settings: NewGameSettings, seed: UInt64 = UInt64.random(in: 1...UInt64.max)) -> GameState {
+        StableID.seed(seed)   // 3.7: the game's IDs come from its seed, so a seed always plays the same game
         let era = Era.all.first { $0.id == settings.eraID } ?? Era.all[2]
         let start = era.start
         var s = GameState(companyName: settings.companyName.isEmpty ? "Tensor Labs" : settings.companyName,
                           founderName: settings.founderName.isEmpty ? "Founder" : settings.founderName,
                           logoSymbol: settings.logoSymbol, logoColor: settings.logoColor,
                           difficulty: settings.difficulty, eraID: era.id, startDate: start, date: start,
-                          cash: era.cash * settings.difficulty.cashMultiplier * settings.background.startCash, rng: GameRNG(seed: seed),
+                          cash: era.cash * settings.difficulty.cashMultiplier * settings.background.startCash * HQ.seedCash(settings), rng: GameRNG(seed: seed),
                           month: MonthRecord(month: GameCalendar.date(start.ym.year, start.ym.month, 1)))
         let y = start.decimalYear
+        s.hqCountry = CountryCatalog.get(settings.hqCountry).id   // 3.5: headquarters
+        s.hqCity = CountryCatalog.get(settings.hqCountry).city(settings.hqCity).id
         s.traitsInitialized = true
         s.doctrineID = settings.doctrine.rawValue
         s.backgroundID = settings.background.rawValue
@@ -81,7 +91,7 @@ enum NewGame {
         }
 
         // The garage
-        let garage = Site(name: "\(s.founderName)'s garage", kind: .garage, locationID: settings.locationID, capacityKW: 4,
+        let garage = Site(name: "\(s.founderName)'s garage", kind: .garage, locationID: HQ.garageLocation(settings), capacityKW: 4,
                           cooling: .air, powerDeal: .grid, opened: start, ready: start, capex: 0, monthlyFee: 0)
         s.sites = [garage]
 
@@ -100,16 +110,17 @@ enum NewGame {
         // Founding team
         s.employees = [
             Employee(name: "\(s.rng.pick(NameBank.first)) \(s.rng.pick(NameBank.last))", role: .researcher, skill: 58,
-                     salary: (Macro.salary(.researcher, y) * 0.8 / 1000).rounded() * 1000, morale: 85, hired: start, equity: 1.5),
+                     salary: (Macro.salary(.researcher, y) * 0.8 * HQ.salaryFactor(s) / 1000).rounded() * 1000, morale: 85, hired: start, equity: 1.5),
             Employee(name: "\(s.rng.pick(NameBank.first)) \(s.rng.pick(NameBank.last))", role: .mlEngineer, skill: 52,
-                     salary: (Macro.salary(.mlEngineer, y) * 0.8 / 1000).rounded() * 1000, morale: 85, hired: start, equity: 1.0),
+                     salary: (Macro.salary(.mlEngineer, y) * 0.8 * HQ.salaryFactor(s) / 1000).rounded() * 1000, morale: 85, hired: start, equity: 1.0),
         ]
         People.refreshCandidates(&s)
 
+        FoundingKit.preSeed(&s, settings)   // 3.5: founding kit
         // Seed round that funded the starting cash
         s.founderShares = 9_000_000
         s.employeePoolShares = 1_000_000
-        let seedPre = Macro.seedValuation(y) * 0.6
+        let seedPre = Macro.seedValuation(y) * 0.6 * HQ.investorFactor(s, value: 0)
         let raised = s.cash
         let newShares = 10_000_000 * raised / seedPre
         let lead = s.rng.pick(NameBank.investors.filter { !$0.contains("strategic") && !$0.contains("Sovereign") && !$0.contains("Mega") })
@@ -139,6 +150,8 @@ enum NewGame {
         Cast.seed(&s)   // 3.4: the people of AI
         s.market.interestRate = Macro.historicalRate(y) ?? 3.4
         World.bootstrap(&s)   // 3.4: the world as it stands on the start date
+        Nations.bootstrap(&s)   // 3.7: national strategies to the start year; rivals' first specialties
+        FoundingKit.setup(&s, settings)   // 3.5: founding kit and starter quests
 
         // Welcome news
         Sim.news(&s, "Project \(settings.signature.codename): your founding secret",
@@ -147,7 +160,7 @@ enum NewGame {
         Sim.news(&s, "Welcome to \(s.companyName)", "\(era.blurb) You have \(Fmt.money(s.cash)) from your \(s.rounds[0].name.lowercased()) round led by \(lead), a garage with \(starter.1)× \(HardwareCatalog.get(starter.0)?.name ?? "GPUs") and a tiny team. Build something people want.",
                  .company, image: era.image, important: true, good: true)
         for e in EventCatalog.historical where e.date < start && e.date > GameCalendar.addDays(start, -120) {
-            s.news.append(NewsItem(date: e.date, title: e.title, body: e.body, category: e.category, image: e.image))
+            s.news.append(NewsItem(date: e.date, title: e.title, body: e.body, category: e.category, image: ImagePicker.illustrate(e.image, title: e.title, category: e.category)))
         }
         let top = Leaderboard.entries(s).first
         if let top {
@@ -155,6 +168,7 @@ enum NewGame {
                                    body: "The best model in the world scores \(Fmt.score(top.index)) on the Intelligence Index. That's the bar.",
                                    category: .competitor))
         }
+        HQ.found(&s)   // 3.5
         s.unreadNews = s.news.count
         return s
     }

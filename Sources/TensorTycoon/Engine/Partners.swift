@@ -29,7 +29,7 @@ struct PartnerDef: Sendable, Identifiable {
 }
 
 struct Partnership: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var partner: PartnerID
     var exclusive: Bool
     var start: Date
@@ -133,7 +133,8 @@ enum Partners {
 
     /// nil if allowed; otherwise why an exclusive deal blocks this chip.
     static func blocker(_ a: Accelerator, _ s: GameState) -> String? {
-        guard let ex = active(s).first(where: \.exclusive), !ex.def.vendors.contains(a.vendor) else { return nil }
+        // Chips you designed (custom and alien silicon) are yours: no compute partner can lock them out.
+        guard a.vendor != .custom, let ex = active(s).first(where: \.exclusive), !ex.def.vendors.contains(a.vendor) else { return nil }
         let allowed = ex.def.vendors.map(\.rawValue).sorted().joined(separator: " / ")
         return "Your exclusive deal with \(ex.def.name) only allows \(allowed) hardware until \(ex.end.gameMonth)."
     }

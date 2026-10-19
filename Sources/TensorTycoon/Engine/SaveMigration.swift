@@ -52,6 +52,17 @@ enum SaveMigration {
         World.bootstrap(&s)
         // 3.4: score every model and credit the milestones already reached.
         if !s.capsReady { Capabilities.bootstrap(&s) }
+        // 3.5: saves from before headquarters were founded in the US.
+        if s.hqCountry.isEmpty || CountryCatalog.byID[s.hqCountry] == nil { s.hqCountry = "us" }
+        if s.hqCity.isEmpty || !CountryCatalog.get(s.hqCountry).cities.contains(where: { $0.id == s.hqCity }) {
+            s.hqCity = CountryCatalog.get(s.hqCountry).cities[0].id
+        }
+        // 3.5: alien programs in progress get unstuck and existing alien chips get their fab line.
+        AlienFab.migrate(&s)
+        // 3.7: national strategies replayed to the save's year; rivals pick their first specialties.
+        Nations.bootstrap(&s)
+        // 3.7: the company stage the record earns, credited silently (no news, no rewards).
+        Progression.bootstrap(&s)
     }
 
     /// Decodes a save, migrates it and plays 90 days on a copy, resolving decisions with their first option.
@@ -60,6 +71,7 @@ enum SaveMigration {
         let dec = JSONDecoder()
         dec.dateDecodingStrategy = .secondsSince1970
         var s = try dec.decode(GameState.self, from: data)
+        StableID.resume(s)   // 3.7: the save keeps its ID stream, so a check plays the same way every time
         migrate(&s)
         BenchmarkCatalog.resetCache()
         HardwareCatalog.register(s.customChips)

@@ -1072,6 +1072,10 @@ enum ResearchCatalog {
     /// Items that never appear in the tree but carry effects into the bonuses: signature levels, fusions, alien artifacts.
     static let virtual: [ResearchItem] = SignatureSecret.virtualItems + Breakthroughs.fusionItems + XenoCatalog.virtualItems
         + FrontierProgram.virtualItems + Moonshots.virtualItems   // 3.4: late game
+        + FoundingKit.virtualItems   // 3.5: founding kit and RL lab
+        + AdvancedProjects.virtualItems   // 3.5: advanced projects
+        + Semis.virtualItems   // 3.5: semiconductors
+        + Science.virtualItems   // 3.6: science labs
 
     static let virtualByID: [String: ResearchItem] = Dictionary(uniqueKeysWithValues: virtual.map { ($0.id, $0) })
 
@@ -1090,7 +1094,8 @@ enum ResearchCatalog {
         var b = ResearchBonuses()
         b.results = results
         b.researched = researched
-        for id in researched {
+        // 3.7: in a fixed order: a Set's order changes from one launch to the next, and so would the float sums.
+        for id in researched.sorted() {
             guard let item = byID[id] ?? virtualByID[id] else { continue }
             let q = results[id] ?? 1
             // Your own unique breakthroughs grow with mastery; refining never makes the trade-off worse.

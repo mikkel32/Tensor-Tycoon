@@ -44,15 +44,18 @@ enum Physics {
         let needed = 0.5 + Double(chips) / 1_500
         base += 0.04 * min(1, engineers / needed)
         // Agent swarms on training operations tune kernels and route around bad nodes.
-        base += 0.04 * s.swarmOps + s.traits.mfu
+        base += 0.04 * s.swarmOps + s.traits.mfu + AgentOrgs.mfuBonus(s)   // 3.6: techniques from architecture research
         if engineers < 0.5 && chips > 64 { base -= 0.05 }
-        var mult = 1.0
-        if chips > accel.scaleUp {
-            let decades = log10(Double(chips) / Double(max(1, accel.scaleUp)))
-            let perDecade = (accel.scaleUp <= 2 ? 0.13 : 0.06) * (1 - b.scaleOut)
-            mult = max(0.35, 1 - decades * perDecade)
-        }
-        return clamp(base * mult, 0.05, 0.7)
+        return clamp(base * scaleOutFactor(accel: accel, chips: chips, bonuses: b), 0.05, 0.7)
+    }
+
+    /// Share of MFU kept once a run spans more chips than one scale-up domain (NVLink/ICI): cross-node communication
+    /// costs a fixed share per decade of scale-out. 1 inside one domain.
+    static func scaleOutFactor(accel: Accelerator, chips: Int, bonuses b: ResearchBonuses) -> Double {
+        guard chips > accel.scaleUp else { return 1 }
+        let decades = log10(Double(chips) / Double(max(1, accel.scaleUp)))
+        let perDecade = (accel.scaleUp <= 2 ? 0.13 : 0.06) * (1 - b.scaleOut)
+        return max(0.35, 1 - decades * perDecade)
     }
 
     /// Infra engineers on the team, weighted by skill (a skill-50 engineer counts as one).
@@ -162,7 +165,7 @@ enum Physics {
         }
         return Estimate(flops: pre, postFlops: post, days: days, dailyCost: daily, totalCost: days.isFinite ? daily * days : .infinity,
                         mfu: m, goodput: g, memory: trainingMemory(d, accel: accel, bonuses: b),
-                        forecast: ForecastEngine.forecast(d, state: s, dataSources: Array(s.dataSources)),
+                        forecast: ForecastEngine.forecast(d, state: s, dataSources: s.dataSources.sorted()),
                         coverage: cov, incidentDays: incidents, toy: toy)
     }
 
@@ -195,8 +198,8 @@ enum Physics {
     /// Unique tokens (trillions) a design can draw on: your data sources, data research and its synthetic share.
     static func uniqueTokensT(_ d: ModelDesign, state s: GameState) -> Double {
         let b = s.bonuses
-        let raw = availableTokensT(Array(s.dataSources), y: s.year, bonuses: b)
-        return raw * (d.syntheticShare > 0 && b.has(.syntheticData) ? 1 + d.syntheticShare * 3 : 1)
+        let raw = availableTokensT(s.dataSources.sorted(), y: s.year, bonuses: b)
+        return raw * (d.syntheticShare > 0 && b.has(.syntheticData) ? 1 + d.syntheticShare * 3 : 1) + DataEconomy.extraUniqueT(s)   // 3.6
     }
 
     /// Passes over the unique data worth planning: past this a repeated token is worth well under half a fresh one.
@@ -225,7 +228,7 @@ enum Physics {
     // MARK: Data
 
     static func availableTokensT(_ sources: [String], y: Double, bonuses b: ResearchBonuses) -> Double {
-        let raw = sources.compactMap { DataCatalog.byID[$0] }.reduce(0) { $0 + $1.tokensT(y) }
+        let raw = sources.sorted().compactMap { DataCatalog.byID[$0] }.reduce(0) { $0 + $1.tokensT(y) }   // 3.7: fixed order
         return raw * (1 + b.dataTokens)
     }
 

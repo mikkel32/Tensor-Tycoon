@@ -149,7 +149,7 @@ enum ProductLines {
             missing.append("Research \(ResearchCatalog.byID[p.research]?.name ?? p.research)")
         }
         let best = s.labDomains["player"]
-        for (d, t) in p.needs where (best?[d] ?? 0) < t {
+        for (d, t) in p.needs where (best?[d] ?? 0) < t - HQ.productRelief(p, s) - Science.productRelief(p, s) {   // 3.5: local partners; 3.6: discoveries
             missing.append("\(d.label) \(Int(t)) (best released: \(best.map { Int($0[d].rounded()) }.map(String.init) ?? "—"))")
         }
         return (missing.isEmpty, missing)
@@ -171,7 +171,7 @@ enum ProductLines {
             // Customers sign up over months: about half the gap to the target share closes each month.
             s.productLines[i].share += (s.productLines[i].target - s.productLines[i].share) * 0.022
             let r = s.productLines[i].share * marketSize(p, s) / 365
-            let c = r * p.serving + upkeep(p, y) / 30.4
+            let c = r * p.serving * AgentOrgs.productServingFactor(s) + upkeep(p, y) / 30.4   // 3.6: software teams
             s.productLines[i].revenueMonth += r
             s.productLines[i].costMonth += c
             s.productLines[i].lifetime += r
@@ -221,11 +221,12 @@ enum ProductLines {
         for p in catalog {
             var entrants: [(key: String, q: Double, brand: Double, reach: Double)] = []
             if s.productLines.contains(where: { $0.id == p.id }) {
-                entrants.append(("player", quality(p, s.labDomains["player"]), s.brand, myPull))
+                entrants.append(("player", quality(p, s.labDomains["player"]) + AgentOrgs.productQualityBonus(s, p.id), s.brand, myPull * HQ.productPull(p, s) * Science.productPull(p, s) * AdvancedProjects.productPull(p, s)))   // 3.6: software teams; discoveries; government programmes
             }
             for r in s.rivalProducts where r.product == p.id {
                 guard let c = s.competitors.first(where: { $0.id == r.lab }) else { continue }
-                entrants.append((r.lab, quality(p, s.labDomains[r.lab]), c.brand, reach(api: c.apiShare, consumer: c.consumerShare, agents: c.agentShare)))
+                entrants.append((r.lab, quality(p, s.labDomains[r.lab]) + Nations.productBonus(s, lab: r.lab, product: p.id),   // 3.7: specialists
+                                 c.brand, reach(api: c.apiShare, consumer: c.consumerShare, agents: c.agentShare)))
             }
             guard !entrants.isEmpty else { continue }
             let top = entrants.map(\.q).max() ?? 0
@@ -282,7 +283,7 @@ enum ProductLines {
             for c in s.competitors where c.alive && !c.models.isEmpty {
                 guard !s.rivalProducts.contains(where: { $0.lab == c.id && $0.product == p.id }),
                       let v = s.labDomains[c.id], p.needs.allSatisfy({ v[$0.0] >= $0.1 }) else { continue }
-                let keen = appetite(p, c)
+                let keen = min(1, appetite(p, c) * Nations.appetiteFactor(s, lab: c.id, product: p.id))   // 3.7: specialists launch sooner
                 guard keen > 0, RivalIntel.unit("products|\(s.lifecycleSalt)|\(c.id)|\(p.id)|\(ym.year)-\(ym.month)") < 0.3 * keen else { continue }
                 s.rivalProducts.append(RivalProduct(lab: c.id, product: p.id, launched: s.date, quality: quality(p, v)))
                 if announce {

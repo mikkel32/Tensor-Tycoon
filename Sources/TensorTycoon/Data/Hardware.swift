@@ -971,9 +971,9 @@ enum HardwareCatalog {
                             mem: c.memoryGB, memType: c.memoryType, bw: c.bandwidthTBs,
                             bf16: c.bf16, fp8: c.fp8, fp4: c.fp4, int8: c.fp8,
                             tdp: c.tdpW, ic: "Custom scale-up fabric", icGBs: 1_800, scaleUp: c.scaleUp,
-                            price: c.unitCost, rent: nil, liquid: c.tdpW > 900,
+                            price: c.unitCost, rent: nil, liquid: c.alien ? false : c.tdpW > 900,
                             image: c.alien ? "wafer_closeup" : (c.focus == .training ? "wafer" : "wafer_closeup"), rep: true,
-                            fact: c.alien ? "Designed by your agent swarm. Nobody fully understands how it works — it just does, at a fraction of the cost."
+                            fact: c.alien ? "Designed by your agent swarm. Nobody fully understands how it works — it just does, at a fraction of the cost, and air cooling is enough."
                                           : "Your own silicon: built only for you, at cost.", decodeEff: c.decodeEff)
         }
         custom = map

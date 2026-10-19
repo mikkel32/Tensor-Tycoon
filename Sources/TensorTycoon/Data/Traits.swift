@@ -335,11 +335,12 @@ enum CultureCatalog {
         }
     }
 
-    static func bonuses(doctrine: LabDoctrine, background: FounderBackground, perks: Set<String>) -> TraitBonuses {
+    static func bonuses(doctrine: LabDoctrine, background: FounderBackground, perks: Set<String>, kit: [String] = []) -> TraitBonuses {
         var t = TraitBonuses()
         doctrine.apply(&t)
         background.apply(&t)
-        for p in perks { apply(p, &t) }
+        for p in perks.sorted() { apply(p, &t) }   // 3.7: fixed order (float sums)
+        for c in kit { FoundingKit.apply(c, &t) }   // 3.5: founding kit
         t.hardware = min(t.hardware, 0.3)
         t.fines = min(t.fines, 0.9)
         return t

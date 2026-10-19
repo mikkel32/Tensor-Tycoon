@@ -62,6 +62,7 @@ enum Stakeholders {
             add("Public mood toward AI", 0.3 * (s.world.sentiment - 50))
             add("Your safety record", 0.25 * (s.safetyScore - 50))
             add("Reliability", clamp((s.reliability - 0.95) * 60, -6, 2))
+            add("Public-service programmes", AdvancedProjects.publicTrustBonus(s))   // disaster response, emissions data
             add("Blamed for AI job losses", -min(6, automationShare(s) * max(0, s.world.jobPressure - 0.5) * 4))
         case .researchers:
             add("Publication policy", s.publication == .open ? 8 : (s.publication == .secret ? -8 : 0))
@@ -100,10 +101,13 @@ enum Stakeholders {
         let (bias, capital, safety) = r.standing
         add(r == .china ? "A Western lab in Beijing's eyes" : "Starting point", bias)
         if capital > 0 { add("Political capital", capital * (s.politicalCapital - 20)) }
+        let home = HQ.standingBonus(s, r)   // 3.5: headquarters
+        if home != 0 { add(home > 0 ? "Your home government" : "A foreign lab in Washington's eyes", home) }
         add("Your safety record", 0.2 * safety * (s.safetyScore - 50))
         let sites = s.sites.filter { $0.kind != .garage && $0.isReady(s.date) && Region.of(location: $0.locationID) == r }.count
         if sites > 0 { add("Your datacenters there", min(6, 3 * Double(sites))) }
         if let until = s.world.ties[r.rawValue], until > s.date { add("Sovereign AI deal", 5) }
+        add("Government programmes", AdvancedProjects.standingBonus(s, r))   // 3.5
         return (clamp(50 + parts.reduce(0) { $0 + $1.value }, 5, 95), parts)
     }
 
@@ -160,7 +164,9 @@ enum Stakeholders {
     }
 
     /// Changes when a state actor steals weights (they're recorded per lab).
-    static func stolenPrint(_ s: GameState) -> Int { Int((s.stolenC.values.reduce(0, +) * 100).rounded()) + s.stolenC.count * 100_000 }
+    static func stolenPrint(_ s: GameState) -> Int {
+        Int((s.stolenC.sorted { $0.key < $1.key }.reduce(0) { $0 + $1.value } * 100).rounded()) + s.stolenC.count * 100_000   // 3.7: fixed order
+    }
 
     // MARK: The daily watch
 

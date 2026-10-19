@@ -57,7 +57,7 @@ enum Role: String, Codable, CaseIterable, Identifiable, Sendable {
 }
 
 struct Employee: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var name: String
     var role: Role
     var skill: Double
@@ -71,7 +71,7 @@ struct Employee: Codable, Identifiable, Hashable {
 }
 
 struct Candidate: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var name: String
     var role: Role
     var skill: Double
@@ -110,7 +110,7 @@ enum RentalTerm: String, Codable, CaseIterable, Identifiable {
 }
 
 struct OwnedBatch: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var accelID: String
     var count: Int
     var siteID: UUID
@@ -119,7 +119,7 @@ struct OwnedBatch: Codable, Identifiable, Hashable {
 }
 
 struct Rental: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var accelID: String
     var count: Int
     var hourly: Double
@@ -129,7 +129,7 @@ struct Rental: Codable, Identifiable, Hashable {
 }
 
 struct HardwareOrder: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var accelID: String
     var count: Int
     var siteID: UUID
@@ -139,7 +139,7 @@ struct HardwareOrder: Codable, Identifiable, Hashable {
 }
 
 struct Site: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var name: String
     var kind: SiteKind
     var locationID: String
@@ -158,16 +158,47 @@ struct Site: Codable, Identifiable, Hashable {
     @D var phaseKW: Double = 0
     /// The next phase is waiting for cash.
     @D var phaseBlocked: Bool = false
+    // 3.5: datacenters and power (DCMarket, Power)
+    /// Share of the campus you own when you bought a stake (0 = all of it); the partner runs the site.
+    @D var stake: Double = 0
+    @D var partner: String = ""
+    /// PUE better (or, if negative, worse) than the cooling and climate alone: generation upgrades, a well- or badly-built site.
+    @D var pueGain: Double = 0
+    /// Rack generation (0–3): denser racks and better electrical gear.
+    @D var generation: Int = 0
+    /// A cooling retrofit or rack upgrade under way, done on `upgradeReady`.
+    @D var coolingTo: Cooling? = nil
+    @D var upgradeReady: Date? = nil
+    @D var upgradeKW: Double = 0
+    /// Term lease (wholesale colocation): $/kW-month, when it ends, and whether you own the site at the end.
+    @D var leaseRate: Double = 0
+    @D var leaseStart: Date? = nil
+    @D var leaseEnd: Date? = nil
+    @D var leaseToOwn: Bool = false
+    /// Leased capacity still to be handed over, a tranche every quarter.
+    @D var rampKW: Double = 0
+    @D var rampStepKW: Double = 0
+    @D var nextRamp: Date? = nil
+    /// Capacity you rent to someone else, and on what terms.
+    @D var subleasedKW: Double = 0
+    @D var subleaseRate: Double = 0
+    @D var subleaseTenant: String = ""
+    @D var subleaseEnd: Date? = nil
+    /// Extra grid connection won through the interconnection queue, and power generated on site (both raise the site's ceiling).
+    @D var gridExtraKW: Double = 0
+    @D var onsiteKW: Double = 0
+    @D var batteryMWh: Double = 0
 
     var location: Location { LocationCatalog.byID[locationID] ?? LocationCatalog.all[0] }
+    var isTermLease: Bool { kind == .colo && leaseRate > 0 }
 
     func isReady(_ date: Date) -> Bool { date >= ready }
 
     var pue: Double {
         switch kind {
         case .garage, .office: 1.55
-        case .colo: cooling.basePUE + 0.07 + location.pueDelta * 0.5
-        case .datacenter: cooling.basePUE + location.pueDelta
+        case .colo: pueGain == 0 ? cooling.basePUE + 0.07 + location.pueDelta * 0.5 : max(1.03, cooling.basePUE + 0.07 + location.pueDelta * 0.5 - pueGain)
+        case .datacenter: pueGain == 0 ? cooling.basePUE + location.pueDelta : max(1.03, cooling.basePUE + location.pueDelta - pueGain)
         }
     }
 
@@ -312,6 +343,12 @@ struct ModelDesign: Codable, Hashable {
     var useDPO = false
     /// 3.4: mid-training data-mix shift for the second half of pre-training (was a mid-run popup).
     @D var mixShift: MixShift = .keep
+    // 3.5: training experience — the model's identity. The objective is applied through the knobs above (data mix,
+    // mid-training shift, post-training stages, sparsity) when picked in the Model Lab; it adds nothing on its own.
+    @D var objective: ModelObjective = .general
+    @D var family: String = ""
+    @D var generation: Int = 0
+    @D var blurb: String = ""
 
     var activeParamsB: Double { paramsB * activeFraction }
     var isMoE: Bool { activeFraction < 0.999 }
@@ -341,7 +378,7 @@ struct LossPoint: Codable, Hashable {
 }
 
 struct TrainCheckpoint: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var fraction: Double
     var tokensT: Double
     var loss: Double
@@ -378,7 +415,7 @@ enum LRSchedule: Int, Codable, CaseIterable, Identifiable {
 }
 
 struct TrainingRun: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var design: ModelDesign
     var status: RunStatus = .running
     var started: Date
@@ -442,6 +479,11 @@ struct TrainingRun: Codable, Identifiable, Hashable {
     @D var toy: Bool = false
     /// Consecutive days the run has made next to no progress (hardware failures eating the whole day).
     @D var stalledDays: Int = 0
+    // 3.5: training experience
+    /// What the Model Lab's estimate promised at launch (nil for scaling ladders and runs started before 3.5).
+    @D var plan: RunPlan? = nil
+    /// Where the cluster's peak compute actually went, day by day (TrainingExperience).
+    @D var ledger: RunLedger = RunLedger()
 
     var schedule: LRSchedule { LRSchedule(rawValue: lr) ?? .standard }
     var interval: Double { checkpointEvery > 0 ? checkpointEvery : 0.1 }
@@ -475,7 +517,7 @@ struct RunForecast: Codable, Hashable {
 
 /// A completed scaling ladder: small proxy runs that validate a recipe up to some compute.
 struct ScalingFit: Codable, Hashable, Identifiable {
-    var id = UUID()
+    var id = StableID.next()
     var signature: String
     var maxCompute: Double
     var date: Date
@@ -496,13 +538,13 @@ enum PublicationPolicy: String, Codable, CaseIterable, Identifiable {
 }
 
 struct Deployment: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var accelID: String
     var chips: Int
 }
 
 struct AIModel: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var name: String
     var design: ModelDesign
     var created: Date
@@ -541,6 +583,20 @@ struct AIModel: Codable, Identifiable, Hashable {
     var forecastSigma: Double = 0
     var tier: String = ""
     var keyTech: [String] = []
+    // 3.5: model families
+    /// Extra know-how per capability domain (CapDomain order): distillation retention and post-training passes.
+    @D var domainBonus: [Double] = []
+    /// Point releases: 0 = v1.0, 1 = v1.1, 5 = v1.5, 10 = v2.0 (Families.versionLabel).
+    @D var version: Int = 0
+    /// Post-training passes applied (PostTrainPass raw values), oldest first.
+    @D var passes: [String] = []
+    /// Passes since the last merge.
+    @D var passesSinceMerge: Int = 0
+    /// What passes took away (domain know-how, chat skill), so a merge can win part of it back.
+    @D var tradeoffDomains: [Double] = []
+    @D var tradeoffChat: Double = 0
+    /// The model it was distilled from.
+    @D var teacherID: UUID? = nil
     // live stats (updated daily)
     var demandTokensDay: Double = 0
     var servedTokensDay: Double = 0
@@ -552,7 +608,7 @@ struct AIModel: Codable, Identifiable, Hashable {
 // MARK: - Market & business
 
 struct EnterpriseDeal: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var client: String
     var title: String
     var monthly: Double
@@ -577,7 +633,7 @@ enum LoanKind: String, Codable, CaseIterable, Identifiable {
 }
 
 struct Loan: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var kind: LoanKind
     var principal: Double
     var balance: Double
@@ -589,13 +645,13 @@ struct Loan: Codable, Identifiable, Hashable {
 }
 
 struct Holding: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var name: String
     var shares: Double
 }
 
 struct FundingRound: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var name: String
     var date: Date
     var amount: Double
@@ -626,7 +682,7 @@ struct PendingSuit: Codable, Hashable {
 }
 
 struct RaiseOffer: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var investor: String
     var amount: Double
     var preMoney: Double
@@ -659,7 +715,7 @@ enum NewsCategory: String, Codable, CaseIterable, Identifiable {
 }
 
 struct NewsItem: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var date: Date
     var title: String
     var body: String
@@ -675,7 +731,7 @@ struct DecisionOption: Codable, Hashable {
 }
 
 struct Decision: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var kind: String
     var title: String
     var body: String
@@ -689,7 +745,7 @@ struct Decision: Codable, Identifiable, Hashable {
 }
 
 struct CompetitorModel: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var name: String
     var date: Date
     var c: Double
@@ -779,7 +835,7 @@ struct CompetitorState: Codable, Identifiable, Hashable {
 /// A rival lab's funding event.
 struct RivalRound: Codable, Hashable, Identifiable {
     enum Kind: String, Codable, Sendable { case equity, strategic, tender, debt, merger, ipo, rescue }
-    var id = UUID()
+    var id = StableID.next()
     var date: Date
     var label: String
     var amount: Double
@@ -790,7 +846,7 @@ struct RivalRound: Codable, Hashable, Identifiable {
 
 /// A rival that agreed to spend money on your compute when you invested in it.
 struct ComputeCommitment: Codable, Hashable, Identifiable {
-    var id = UUID()
+    var id = StableID.next()
     var labID: String
     var labName: String
     var monthly: Double
@@ -846,11 +902,14 @@ struct MonthRecord: Codable, Identifiable, Hashable {
     @D var headcount: Int = 0
     /// Capability of your best released model (0 = none recorded).
     @D var bestC: Double = 0
+    // 3.5: corporate — subsidiaries you folded back in, booked as divisions of the company
+    @D var revGroup: Double = 0
+    @D var costGroup: Double = 0
 
-    var revenue: Double { revAPI + revConsumer + revEnterprise + revOther + revAgents + revCloud + revChips + revLicensing + revLabor }
+    var revenue: Double { revAPI + revConsumer + revEnterprise + revOther + revAgents + revCloud + revChips + revLicensing + revLabor + revGroup }
     /// Selling hardware and leasing compute: valued like a hardware business, not a software one.
     var hardwareRevenue: Double { revCloud + revChips }
-    var opex: Double { costRent + costPower + costSites + costPayroll + costData + costMarketing + costOther + costChips }
+    var opex: Double { costRent + costPower + costSites + costPayroll + costData + costMarketing + costOther + costChips + costGroup }
     var profit: Double { revenue + interestIncome + oneOffIncome - opex - costInterest - taxes }
 }
 
@@ -1176,6 +1235,91 @@ struct GameState: Codable {
     /// Keys the people layer's hashed rolls to this game (set once, from the RNG's state, without drawing from it).
     @D var peopleSalt: String = ""
 
+    // 3.5: datacenters and power
+    /// Power purchase agreements, on-site generation, batteries and grid-interconnection requests (Power).
+    @D var powerContracts: [PowerContract] = []
+    /// Datacenters and campuses for sale this month, and the month they were listed for (DCMarket).
+    @D var dcListings: [DCListing] = []
+    @D var dcListingsMonth: Int = 0
+    /// Today's rent from capacity you sublease to others.
+    @D var subleaseRevenueToday: Double = 0
+
+    // 3.5: founding kit
+    /// Founding cards chosen on the new-game screen (FoundingKit). Empty for older saves and kit-less games.
+    @D var kit: [String] = []
+    /// How the kit was limited (KitMode raw value; "" = no kit chosen).
+    @D var kitMode: String = ""
+    /// Your reinforcement-learning lab's level (0 = none yet).
+    @D var rlLabLevel: Int = 0
+    /// Starter quests (the opening checklist pays small rewards) are on for this game.
+    @D var questsOn: Bool = false
+    /// Starter quests already rewarded.
+    @D var questsDone: Set<String> = []
+
+    // 3.5: fun systems
+    /// Conferences and papers, public challenges, hackathons, the challenge-mode scenario and this game's records (Fun).
+    @D var fun: FunState = FunState()
+
+    // 3.5: training experience
+    /// Your lab's training firsts (first 100B model, first 100K-chip run, …), oldest first (TrainingExperience).
+    @D var trainingFirsts: [TrainingFirst] = []
+
+    // 3.5: headquarters
+    /// Where the company is based (CountryCatalog / HQ). Older saves decode "" and migrate to the US default.
+    @D var hqCountry: String = "us"
+    @D var hqCity: String = "sf"
+    /// Grants, offers and incentives from home so far (HQ).
+    @D var hq: HQState = HQState()
+    // 3.5: advanced projects
+    /// Government contracts: the marketplace, your bids, programmes, classified facilities and clearances (AdvancedProjects).
+    @D var advanced: AdvancedState = AdvancedState()
+    // 3.5: alien fab
+    /// Your alien fab line: capacity, your order queue and its volume milestones (AlienFab).
+    @D var alienFab: AlienFabState = AlienFabState()
+    // 3.5: corporate
+    /// Subsidiaries, corporate debt and covenants, the credit rating, dividends, buybacks and the monthly books (Corporate).
+    @D var corp: CorporateState = CorporateState()
+
+    // 3.6: data economy
+    /// Datasets bought, licensed, won or generated; processing, annotation and synthetic jobs; contamination detection;
+    /// rare auctions and rivals' wins (DataEconomy). Older saves decode empty: their `dataSources` are the inventory.
+    @D var dataEco: DataEcoState = DataEcoState()
+
+    // 3.6: agent organisations
+    /// AI organisations built from swarms (AgentOrgs). Swarms with an `orgID` are their teams; swarms without one
+    /// (every swarm in an older save) work stand-alone, exactly as before.
+    @D var orgs: [AgentOrg] = []
+    /// Today's level (0–1) per organisation activity ("<mission>.<activity>"), read by the systems they improve.
+    @D var orgLevels: [String: Double] = [:]
+    /// Techniques published by architecture research departments (each +0.3 points of training MFU).
+    @D var orgTechniques: Int = 0
+    // 3.5: semiconductors
+    /// Your chip business: design teams, designs, wafer bookings, fabs, packaging and HBM, shocks, orders (Semis).
+    @D var semi: SemiState = SemiState()
+
+    // 3.6: science labs
+    /// Laboratories, research projects, discoveries, patents and rival labs' science (Science).
+    @D var science: ScienceState = ScienceState()
+    // 3.5: model families
+    /// Model families, their tiers and the distillation / post-training jobs in progress (Families).
+    @D var families: FamilyState = FamilyState()
+    // 3.7: determinism
+    /// Where the game's ID stream stood when it was saved (StableID), so a loaded game keeps drawing the same IDs.
+    /// 0 in older saves: the stream restarts from the RNG state.
+    @D var idStream: UInt64 = 0
+
+    // 3.7: nations and rivals
+    /// National AI strategies and economies by region, and rival labs' specialisations and answers to your launches
+    /// (Nations). Older saves decode empty and set up at the next month end.
+    @D var nations: NationsState = NationsState()
+    // 3.7: launches and progression
+    /// Every model launch, newest last: the plan, the rivals' queued answers and the report a week later (Launches).
+    @D var launches: [LaunchRecord] = []
+    /// The plan one-click launches and the launch delegate use. The default is the plain release the game always had.
+    @D var launchDefault: LaunchPlan = LaunchPlan()
+    /// Your company stage, when each was reached and the powers it unlocked (Progression).
+    @D var progression: ProgressionState = ProgressionState()
+
     var totalShares: Double {
         founderShares + employeePoolShares + publicShares + holdings.reduce(0) { $0 + $1.shares }
     }
@@ -1185,7 +1329,7 @@ struct GameState: Codable {
     var doctrine: LabDoctrine { LabDoctrine(rawValue: doctrineID) ?? .balanced }
     var background: FounderBackground { FounderBackground(rawValue: backgroundID) ?? .none }
     /// Doctrine + founder background + culture perks.
-    var traits: TraitBonuses { CultureCatalog.bonuses(doctrine: doctrine, background: background, perks: perks) }
+    var traits: TraitBonuses { CultureCatalog.bonuses(doctrine: doctrine, background: background, perks: perks, kit: kit) }
     var security: SecurityLevel { SecurityLevel(rawValue: max(1, securityRaw)) ?? .sl1 }
     var signature: SignatureSecret? { signatureLevel > 0 ? SignatureSecret(rawValue: signatureID) : nil }
     var focus: ResearchFocus { ResearchFocus(rawValue: researchFocus) ?? .balanced }
@@ -1247,7 +1391,7 @@ enum RSIStatus: String, Codable {
 }
 
 struct RSICheckpoint: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var generation: Int
     var date: Date
     var c: Double
@@ -1261,7 +1405,7 @@ struct RSICheckpoint: Codable, Identifiable, Hashable {
 }
 
 struct RSIRun: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var name: String
     var baseModelID: UUID
     var design: ModelDesign
@@ -1349,7 +1493,7 @@ enum ChipFocus: String, Codable, CaseIterable, Identifiable {
 }
 
 struct ChipProject: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var name: String
     var partner: ChipPartner
     var focus: ChipFocus
@@ -1390,7 +1534,7 @@ struct CustomChip: Codable, Identifiable, Hashable {
 // MARK: - Supply agreements
 
 struct SupplyDeal: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var vendor: String
     var annualCommit: Double
     var yearsLeft: Int

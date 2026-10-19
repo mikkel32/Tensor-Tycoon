@@ -5,17 +5,20 @@ struct ResearchView: View {
     @State private var hideDone = true
     @State private var filter: ResearchCategory? = nil
     @State private var query = ""
+    /// The tree as a graph (default) or the original card grid; remembered between sessions.
+    @AppStorage("researchTreeMode") private var treeMode = "graph"
 
     var body: some View {
         let s = store.game
-        let rate = Sim.researchRate(s, store.derived.bonuses) + s.rsiRPToday + s.swarmRPToday
+        let rate = Sim.researchRate(s, store.derived.bonuses) * FoundingKit.researchMultiplier(s) + s.rsiRPToday + s.swarmRPToday
         let core = ResearchCatalog.core + ResearchCatalog.lateGame + ResearchCatalog.capabilityTech
         let doneCount = core.filter { s.researched.contains($0.id) }.count
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
-        Page(title: "Research", subtitle: "Researchers generate research points (RP); compute multiplies their output. Every technique is an experiment: in your lab it can land better or worse than the paper. Leftover points roll into the next project, and idle research feeds your signature programme, so nothing is wasted.") {
+        Page(title: "Research", subtitle: "Researchers generate research points (RP); compute multiplies their output. Every technique is an experiment: in your lab it can land better or worse than the paper. Leftover points roll into the next project, and idle research feeds your signature programme, so nothing is wasted.", screen: .research) {
             ScreenHint(.research)
             SignatureCard(state: s)
-            HStack(alignment: .top, spacing: 16) {
+            RLLabCard(state: s)   // 3.5
+            HStack(alignment: .top, spacing: Theme.gap) {
                 QueueCard(state: s, rate: rate)
                 CapacityCard(state: s, rate: rate)
                     .frame(width: 400)
@@ -33,31 +36,45 @@ struct ResearchView: View {
                     Text("\(doneCount) of \(core.count) techniques researched").font(.callout.monospacedDigit()).foregroundStyle(.secondary)
                 }
                 Spacer()
-                TextField("Search techniques", text: $query)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 220)
-                Picker("Category", selection: $filter) {
-                    Text("All categories").tag(ResearchCategory?.none)
-                    Divider()
-                    ForEach(ResearchCategory.allCases.filter { $0 != .exotic }) { c in
-                        Label(c.rawValue, systemImage: c.symbol).tag(Optional(c))
+                if treeMode == "grid" {
+                    TextField("Search techniques", text: $query)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 220)
+                    Picker("Category", selection: $filter) {
+                        Text("All categories").tag(ResearchCategory?.none)
+                        Divider()
+                        ForEach(ResearchCategory.allCases.filter { $0 != .exotic }) { c in
+                            Label(c.rawValue, systemImage: c.symbol).tag(Optional(c))
+                        }
                     }
+                    .labelsHidden()
+                    .frame(width: 250)
+                    Toggle("Hide completed", isOn: $hideDone).toggleStyle(.switch)
                 }
+                Picker("View", selection: $treeMode) {
+                    Label("Graph", systemImage: "point.3.connected.trianglepath.dotted").tag("graph")
+                    Label("Grid", systemImage: "square.grid.2x2").tag("grid")
+                }
+                .pickerStyle(.segmented)
                 .labelsHidden()
-                .frame(width: 250)
-                Toggle("Hide completed", isOn: $hideDone).toggleStyle(.switch)
+                .frame(width: 170)
+                .help("Show the research tree as a dependency graph or as cards by category.")
             }
 
-            ForEach(ResearchCategory.allCases.filter { $0 != .exotic && (filter == nil || filter == $0) }) { cat in
-                let items = core.filter { item in
-                    item.category == cat && (!hideDone || !s.researched.contains(item.id))
-                        && (q.isEmpty || item.name.lowercased().contains(q) || item.blurb.lowercased().contains(q))
-                }.sorted { $0.year < $1.year }
-                if !items.isEmpty {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Label(cat.rawValue, systemImage: cat.symbol).font(.title3.weight(.semibold))
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 290), spacing: 12, alignment: .top)], spacing: 12) {
-                            ForEach(items) { item in ResearchCard.make(item, state: s).equatable() }
+            if treeMode != "grid" {
+                TechTreeView(state: s)
+            } else {
+                ForEach(ResearchCategory.allCases.filter { $0 != .exotic && (filter == nil || filter == $0) }) { cat in
+                    let items = core.filter { item in
+                        item.category == cat && (!hideDone || !s.researched.contains(item.id))
+                            && (q.isEmpty || item.name.lowercased().contains(q) || item.blurb.lowercased().contains(q))
+                    }.sorted { $0.year < $1.year }
+                    if !items.isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Label(cat.rawValue, systemImage: cat.symbol).font(.title3.weight(.semibold))
+                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 290), spacing: 12, alignment: .top)], spacing: 12) {
+                                ForEach(items) { item in ResearchCard.make(item, state: s).equatable() }
+                            }
                         }
                     }
                 }
@@ -802,7 +819,8 @@ private extension ResearchEffect {
     }
 }
 
-private struct ResearchCard: View, Equatable {
+/// A technique's card: shown in the grid view and as the detail of the graph's selection (TechTreeView).
+struct ResearchCard: View, Equatable {
     @Environment(GameStore.self) private var store
     let item: ResearchItem
     let done: Bool

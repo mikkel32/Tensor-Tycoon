@@ -11,14 +11,14 @@ struct WorldView: View {
     var body: some View {
         let s = store.game
         let w = s.world
-        Page(title: "World & Standing", subtitle: "How the world is taking AI — adoption, jobs, mood, energy and rules — and how the people who matter see your lab. It all moves once a month.") {
+        Page(title: "World & Standing", subtitle: "How the world is taking AI — adoption, jobs, mood, energy and rules — and how the people who matter see your lab. It all moves once a month.", screen: .world) {
             if !w.ready || w.history.isEmpty {
-                EmptyStateView(symbol: "globe.americas", title: "The world updates at month end", message: "Come back after the first month closes.")
+                Card { EmptyStateView(symbol: "globe.americas", title: "The world updates at month end", message: "Come back after the first month closes.") }
             } else {
                 WorldHeadline(state: s)
                 WorldStandingCard(state: s)
                 WorldRegulationCard(state: s)
-                HStack(alignment: .top, spacing: 16) {
+                CardGrid(minWidth: 340, maxColumns: 2) {
                     Card {
                         CardHeader("AI adoption by sector", symbol: "chart.line.uptrend.xyaxis", subtitle: "Share of each sector's organisations using AI regularly")
                         WorldHistoryChart(kind: .adoption, history: w.history)
@@ -35,11 +35,11 @@ struct WorldView: View {
                             .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     }
                 }
-                HStack(alignment: .top, spacing: 16) {
+                CardGrid(minWidth: 340, maxColumns: 2) {
                     WorldJobsCard(state: s)
                     WorldEnergyCard(state: s, mine: store.derived.h100e)
                 }
-                HStack(alignment: .top, spacing: 16) {
+                CardGrid(minWidth: 340, maxColumns: 2) {
                     WorldConsequencesCard(world: w)
                     WorldLabTrustCard(state: s)
                 }
@@ -54,7 +54,7 @@ private struct WorldHeadline: View {
 
     var body: some View {
         let w = state.world
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 190), spacing: 12)], spacing: 12) {
+        KPIRow(minWidth: 190) {
             StatTile(title: "Public mood toward AI", value: "\(Int(w.sentiment.rounded()))", detail: World.moodLabel(w.sentiment),
                      symbol: "face.smiling", tint: w.sentiment >= 50 ? .green : .orange, trend: WorldTrend.change(w.history, months: 3) { $0.sentiment })
             StatTile(title: "Safety concern", value: "\(Int(w.concern.rounded()))", detail: World.concernLabel(w.concern),
@@ -278,11 +278,7 @@ private struct WorldJobFigure: View {
     let value: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(value).font(.headline.monospacedDigit())
-            Text(label).font(.caption2).foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        MetricTile(label: label, value: value, style: .plain).frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

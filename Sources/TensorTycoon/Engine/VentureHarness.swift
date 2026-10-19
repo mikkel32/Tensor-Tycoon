@@ -27,7 +27,7 @@ extension BalanceHarness {
         d.rlhf = s.bonuses.has(.rlhf)
         d.instruct = s.bonuses.has(.chat)
         d.accelID = ref.id
-        let fc = ForecastEngine.forecast(d, state: s, dataSources: Array(s.dataSources))
+        let fc = ForecastEngine.forecast(d, state: s, dataSources: s.dataSources.sorted())
         let c = Macro.frontier(year)
         var m = AIModel(name: d.name, design: d, created: s.date, c: c, reasoning: d.reasoning, reasoningBoost: fc.reasoning, codeBoost: fc.code,
                         arenaBonus: 75 * fc.chat, scores: [:], index: 0)
@@ -88,9 +88,9 @@ extension BalanceHarness {
         // Alien model vs transformer forecast
         var d = m.design
         d.mixer = .transformer
-        let plain = ForecastEngine.forecast(d, state: s, dataSources: Array(s.dataSources))
+        let plain = ForecastEngine.forecast(d, state: s, dataSources: s.dataSources.sorted())
         d.mixer = .alien
-        let alien = ForecastEngine.forecast(d, state: s, dataSources: Array(s.dataSources))
+        let alien = ForecastEngine.forecast(d, state: s, dataSources: s.dataSources.sorted())
         print("forecast c: transformer \(Fmt.trim(plain.c, 2)) → alien \(Fmt.trim(alien.c, 2)); safety \(Int(plain.safety)) → \(Int(alien.safety))")
 
         // Tape out the chip

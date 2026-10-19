@@ -11,8 +11,15 @@ struct MilestoneWin: Codable, Hashable, Identifiable {
     var date: Date
     /// Reached before your game began (credited from history, no news or bump).
     @D var history: Bool = false
+    /// 3.8: the model's ID (its name changes with post-training versions; older saves have "").
+    @D var modelID: String = ""
 
     var isPlayer: Bool { labID == "player" }
+
+    /// Whether this win belongs to `m`: by ID, or for older saves by name without its version suffix.
+    func credits(_ m: AIModel) -> Bool {
+        modelID.isEmpty ? (model == m.name || Families.baseName(model) == Families.baseName(m.name)) : modelID == m.id.uuidString
+    }
 }
 
 // MARK: - 3.4: the race for AI milestones
@@ -29,6 +36,7 @@ enum Milestones {
         var model: String
         var date: Date
         var scores: DomainScores
+        var modelID = ""
     }
 
     static func won(_ s: GameState) -> Set<String> { Set(s.milestoneWins.map(\.id)) }
@@ -56,12 +64,12 @@ enum Milestones {
             let name = c.def.name
             for m in c.models + c.openModels {
                 guard let v = s.domainScores[m.id.uuidString] else { continue }
-                out.append(Contender(labID: c.id, lab: name, model: m.name, date: m.date, scores: v))
+                out.append(Contender(labID: c.id, lab: name, model: m.name, date: m.date, scores: v, modelID: m.id.uuidString))
             }
         }
         for m in s.models where m.released {
             guard let v = s.domainScores[m.id.uuidString] else { continue }
-            out.append(Contender(labID: "player", lab: s.companyName, model: m.name, date: m.releaseDate ?? m.created, scores: v))
+            out.append(Contender(labID: "player", lab: s.companyName, model: m.name, date: m.releaseDate ?? m.created, scores: v, modelID: m.id.uuidString))
         }
         return out
     }
@@ -77,12 +85,12 @@ enum Milestones {
             let name = c.def.name
             for m in c.models + c.openModels where fresh.contains(m.id.uuidString) {
                 guard let v = s.domainScores[m.id.uuidString] else { continue }
-                pool.append(Contender(labID: c.id, lab: name, model: m.name, date: m.date, scores: v))
+                pool.append(Contender(labID: c.id, lab: name, model: m.name, date: m.date, scores: v, modelID: m.id.uuidString))
             }
         }
         for m in s.models where m.released {
             guard let v = s.domainScores[m.id.uuidString] else { continue }
-            pool.append(Contender(labID: "player", lab: s.companyName, model: m.name, date: m.releaseDate ?? m.created, scores: v))
+            pool.append(Contender(labID: "player", lab: s.companyName, model: m.name, date: m.releaseDate ?? m.created, scores: v, modelID: m.id.uuidString))
         }
         guard !pool.isEmpty else { return }
         pool.sort { $0.date != $1.date ? $0.date < $1.date : $0.labID < $1.labID }
@@ -99,13 +107,13 @@ enum Milestones {
         for ms in MilestoneCatalog.all where !reached.contains(ms.id) {
             guard let first = pool.first(where: { meets($0.scores, ms) }) else { continue }
             s.milestoneWins.append(MilestoneWin(id: ms.id, labID: first.labID, lab: first.lab, model: first.model, date: first.date,
-                                                history: first.date < s.startDate))
+                                                history: first.date < s.startDate, modelID: first.modelID))
         }
         s.milestoneWins.sort { $0.date < $1.date }
     }
 
     private static func record(_ s: inout GameState, _ ms: MilestoneDef, _ c: Contender, history: Bool, announce: Bool) {
-        s.milestoneWins.append(MilestoneWin(id: ms.id, labID: c.labID, lab: c.lab, model: c.model, date: c.date, history: history))
+        s.milestoneWins.append(MilestoneWin(id: ms.id, labID: c.labID, lab: c.lab, model: c.model, date: c.date, history: history, modelID: c.modelID))
         s.milestoneWins.sort { $0.date < $1.date }
         guard announce else { return }
         // Kept small: the player wins many of these, and brand feeds valuation.

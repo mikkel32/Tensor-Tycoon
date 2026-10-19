@@ -16,7 +16,7 @@ struct NewsView: View {
         }.prefix(300)
         // Month by month, newest first, each with that month's briefing headline.
         let months = Dictionary(grouping: items, by: { $0.date.ym }).sorted { $0.key > $1.key }
-        Page(title: "News", subtitle: "Industry headlines, rival launches, hardware releases and your own company's milestones, month by month.") {
+        Page(title: "News", subtitle: "Industry headlines, rival launches, hardware releases and your own company's milestones, month by month.", screen: .news) {
             HStack(spacing: 12) {
                 Picker("Category", selection: $category) {
                     Text("All").tag(NewsCategory?.none)
@@ -91,7 +91,7 @@ private struct NewsRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 14) {
             if let img = item.image {
-                Photo(key: img).frame(width: 120, height: 76).clipShape(.rect(cornerRadius: 10))
+                Photo(key: img, illustrative: ImagePicker.isIllustrative(img)).frame(width: 120, height: 76).clipShape(.rect(cornerRadius: 10))
             } else {
                 Image(systemName: item.category.symbol)
                     .font(.title2)
@@ -122,7 +122,7 @@ struct AchievementsView: View {
 
     var body: some View {
         let s = store.game
-        Page(title: "Achievements", subtitle: "Milestones in your company's story; each one earns a culture point. \(s.achievements.count) of \(AchievementCatalog.all.count) unlocked.") {
+        Page(title: "Achievements", subtitle: "Milestones in your company's story; each one earns a culture point. \(s.achievements.count) of \(AchievementCatalog.all.count) unlocked.", screen: .achievements) {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 12)], spacing: 12) {
                 ForEach(AchievementCatalog.all) { a in
                     let done = s.achievements.contains(a.id)
@@ -149,7 +149,7 @@ struct AchievementsView: View {
 
 struct CreditsView: View {
     var body: some View {
-        Page(title: "Credits & Sources", subtitle: "Tensor Tycoon uses real hardware specs, real benchmarks and real photos. AI labs, CEOs, clients and investors are fictional.") {
+        Page(title: "Credits & Sources", subtitle: "Tensor Tycoon uses real hardware specs, real benchmarks and real photos. AI labs, CEOs, clients and investors are fictional.", screen: .credits) {
             Card {
                 CardHeader("How the simulation works", symbol: "function")
                 VStack(alignment: .leading, spacing: 6) {
@@ -185,19 +185,22 @@ struct CreditsView: View {
                 .foregroundStyle(.secondary)
             }
             Card {
-                CardHeader("Photos (Wikimedia Commons)", symbol: "photo.on.rectangle", subtitle: "All freely licensed. Some chips without free photos use a representative image of the same family.")
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 330), spacing: 12)], spacing: 12) {
+                CardHeader("Photos (Wikimedia Commons)", symbol: "photo.on.rectangle", subtitle: "All \(ImageCredits.all.count) photos are freely licensed (CC0, public domain, CC BY or CC BY-SA). Photos standing in for chips without a free photo, for future, custom or alien hardware, and for your own sites, fabs, labs and deals are marked \"Illustrative\".")
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 340), spacing: 12)], spacing: 12) {
                     ForEach(ImageCredits.all) { c in
-                        HStack(spacing: 10) {
-                            Photo(key: c.id).frame(width: 72, height: 48).clipShape(.rect(cornerRadius: 6))
+                        HStack(alignment: .top, spacing: 10) {
+                            Photo(key: c.id, size: .icon).frame(width: 72, height: 48).clipShape(.rect(cornerRadius: 6))
                             VStack(alignment: .leading, spacing: 1) {
-                                Text(c.title).font(.caption.weight(.semibold)).lineLimit(1)
+                                Text(c.subject).font(.caption.weight(.semibold)).lineLimit(1).help(c.title)
                                 Text("\(c.author) · \(c.license)").font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                                Label("Restrictions: \(c.restrictions)", systemImage: c.restrictions == "none" ? "checkmark.circle" : "info.circle")
+                                    .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                                 if let url = URL(string: c.page) {
-                                    Link("View on Commons", destination: url).font(.caption2)
+                                    Link("View on Commons", destination: url).font(.caption2).help(c.attribution)
                                 }
                             }
                         }
+                        .accessibilityElement(children: .combine)
                     }
                 }
             }

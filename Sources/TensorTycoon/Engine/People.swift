@@ -22,11 +22,12 @@ enum People {
     static func makeCandidate(_ s: inout GameState, role: Role? = nil, star: Bool? = nil) -> Candidate {
         var roles: [Role] = [.researcher, .researcher, .mlEngineer, .mlEngineer, .infra, .data, .sales, .safety]
         if s.bonuses.has(.customSilicon) && s.year > 2018 { roles.append(.chipDesigner) }
+        roles += HQ.extraRoles(s)   // 3.5: what the local ecosystem produces
         let r = role ?? s.rng.pick(roles)
         let isStar = star ?? s.rng.chance(0.06)
         let pull = r == .researcher ? (s.publication == .open ? 4.0 : s.publication == .secret ? -5.0 : 0) : 0
-        let skill = isStar ? s.rng.range(85, 99) : clamp(45 + pull + s.traits.hiring + s.rng.gaussian() * 15, 15, 90)
-        var salary = Macro.salary(r, s.year) * pow(skill / 50, 1.6)
+        let skill = isStar ? s.rng.range(85, 99) : clamp(45 + pull + s.traits.hiring + HQ.skillBonus(s, r) + s.rng.gaussian() * 15, 15, 90)
+        var salary = Macro.salary(r, s.year) * pow(skill / 50, 1.6) * HQ.salaryFactor(s, star: isStar)
         if isStar && s.year > 2024.5 && r == .researcher { salary *= s.rng.range(3, 12) }   // 2025 talent wars
         let equity = isStar ? s.rng.range(0.05, 0.6) : s.rng.range(0, 0.05)
         let name = "\(s.rng.pick(NameBank.first)) \(s.rng.pick(NameBank.last))"
@@ -43,7 +44,7 @@ enum People {
 
     static func refreshCandidates(_ s: inout GameState) {
         s.candidates.removeAll { $0.expires < s.date }
-        let target = 8 + min(8, s.employees.count / 20)
+        let target = Int((Double(HQ.candidateTarget(s, 8 + min(8, s.employees.count / 20))) * Nations.candidateFactor(s)).rounded())   // 3.7: talent visas
         while s.candidates.count < target { s.candidates.append(makeCandidate(&s)) }
     }
 
@@ -55,7 +56,7 @@ enum People {
         let momentum = (s.history.last?.revenue ?? 0) > (s.history.dropLast().last?.revenue ?? 0) ? 1.0 : -0.5
         var poached: [Employee] = []
         for i in s.employees.indices {
-            let market = Macro.salary(s.employees[i].role, s.year) * pow(s.employees[i].skill / 50, 1.6)
+            let market = Macro.salary(s.employees[i].role, s.year) * pow(s.employees[i].skill / 50, 1.6) * HQ.salaryFactor(s, star: s.employees[i].star)
             let payRatio = s.employees[i].salary / max(market, 1)
             var m = s.employees[i].morale
             m += (payRatio - 1) * 6 + momentum + (crowded ? -4 : 0) + (s.cash < 0 ? -10 : 0)
@@ -63,6 +64,7 @@ enum People {
             s.employees[i].morale = clamp(m, 0, 100)
             // Rival labs poach unhappy, highly skilled people (never the loyal ones)
             var risk = (s.employees[i].skill / 100) * max(0, 0.6 - s.employees[i].morale / 100) * 0.12 + (s.employees[i].star ? 0.01 : 0)
+            risk *= HQ.poachFactor(s)   // 3.5: big labs abroad recruit harder where pay is lower
             if s.employees[i].talent == .loyal { risk = 0 }
             if s.rng.chance(risk) { poached.append(s.employees[i]) }
         }
@@ -93,7 +95,7 @@ enum Events {
     static func daily(_ s: inout GameState) {
         // Rare daily incidents
         let readySites = s.sites.filter { $0.isReady(s.date) && $0.kind != .garage }
-        if !readySites.isEmpty && s.rng.chance(0.0015 * Double(readySites.count)) {
+        if !readySites.isEmpty && s.rng.chance(0.0015 * Double(readySites.count) * AgentOrgs.outageFactor(s)) {   // 3.6: infrastructure teams
             let site = s.rng.pick(readySites)
             s.reliability *= 0.85
             for i in s.runs.indices where s.runs[i].status == .running {
@@ -217,7 +219,7 @@ enum Events {
         }
 
         // A rival's researcher brings their lab's secret technique with them
-        if s.rng.chance(0.012), let (lab, tech) = s.rivalTech.flatMap({ k, v in v.map { (k, $0) } })
+        if s.rng.chance(0.012), let (lab, tech) = s.rivalTech.sorted(by: { $0.key < $1.key }).flatMap({ k, v in v.map { (k, $0) } })   // 3.7: fixed order
             .filter({ !s.exoticOwned.contains($0.1) && !s.researched.contains($0.1) }).randomElement(using: &s.rng),
            let item = ResearchCatalog.byID[tech], let comp = CompetitorCatalog.byID[lab] {
             let salary = (Macro.salary(.researcher, y) * 2.2 / 1000).rounded() * 1000
@@ -319,6 +321,10 @@ enum Events {
             for i in s.employees.indices where s.employees[i].role == .safety { s.employees[i].morale -= 20 }
         case ("defense", _):
             s.brand = min(100, s.brand + 3)
+        case (Launches.decisionKind, _):   // 3.7: a second wave for a weak launch
+            Launches.resolve(&s, d, option: option)
+        case (Families.decisionKind, _):   // 3.5: model families
+            Families.resolve(&s, d, option: option)
         case ("loss_spike", _), ("train_bug", _), ("contamination", _), ("data_mix", _), ("fault_storm", _), ("sycophancy", _), ("reward_hack", _):
             Training.resolve(&s, kind: d.kind, ref: d.ref, option: option)
         case ("partner_offer", 2):
@@ -333,7 +339,7 @@ enum Events {
                                         salary: d.amount, morale: 80, hired: s.date, equity: 0.2))
             Sim.news(&s, "New hire brings \(ResearchCatalog.byID[d.ref]?.name ?? "a secret technique")", "You can now research it on the Research page.", .research, good: true)
             // Their old lab may come after you for it.
-            if s.rng.chance(0.3), let lab = s.rivalTech.first(where: { $0.value.contains(d.ref) })?.key {
+            if s.rng.chance(0.3), let lab = s.rivalTech.sorted(by: { $0.key < $1.key }).first(where: { $0.value.contains(d.ref) })?.key {
                 let amount = clamp(max(d.amount * 4, s.valuation * 0.001), 2e6, 1e9)
                 s.pendingSuits.append(PendingSuit(lab: lab, tech: d.ref, due: GameCalendar.addDays(s.date, s.rng.int(30, 180)), amount: amount))
             }
@@ -355,6 +361,12 @@ enum Events {
                 s.brand = max(0, s.brand - 6)
                 Sim.news(&s, "You lost the trade-secret case", "Damages of \(Fmt.money(d.amount * 2)). Brand −6.", .policy, important: true, good: false)
             }
+        case (Nations.poachKind, _):   // 3.7: a rival answers your launch by hiring
+            Nations.resolvePoach(&s, d, option: option)
+        case ("hq_grant", _), ("hq_partner", _), ("hq_contract", _):   // 3.5: headquarters
+            HQ.resolve(&s, d, option: option)
+        case ("data_auction", _), ("data_collection", _), ("data_lawsuit", _):   // 3.6: data economy
+            DataEconomy.resolve(&s, d, option: option)
         case ("rsi_resource", _), ("rsi_exfil", _):
             RSI.resolve(&s, kind: d.kind, option: option, ref: d.ref)
         case ("swarm_collusion", _), ("swarm_escape", _):
@@ -363,6 +375,8 @@ enum Events {
             Policy.resolve(&s, d, option: option)
         case ("xeno_anomaly", _):
             XenoScience.resolveAnomaly(&s, d, option: option)
+        case ("alien_errata", _):   // 3.5: alien fab
+            AlienFab.resolveErrata(&s, d, option: option)
         case ("rival_round", _):
             RivalEconomy.resolveStake(&s, d, option: option)
         case ("fire_sale", _):
@@ -370,6 +384,14 @@ enum Events {
         case ("victory", _):
             Victory.resolve(&s, d, option: option)
         case ("moonshot", _): Moonshots.resolve(&s, d, option: option)   // 3.4: late game
+        case ("fun_cfp", _), ("fun_keynote", _): Fun.resolve(&s, d, option: option)   // 3.5: fun systems
+        case (AdvancedProjects.secrecyKind, _): AdvancedProjects.resolveSecrecy(&s, d, option: option)   // 3.5
+        case ("corp_funding", _), ("corp_covenant", _), ("corp_downgrade", _), ("corp_audit", _):   // 3.5: corporate
+            Corporate.resolve(&s, d, option: option)
+        case (Semis.bugKind, _): Semis.resolveBug(&s, d, option: option)   // 3.5: semiconductors
+        case (Semis.shockKind, _): Semis.resolveShock(&s, d, option: option)
+        case (Semis.orderKind, _), (Semis.rivalKind, _): Semis.resolveOrder(&s, d, option: option)
+        case ("sci_report", _): Science.resolve(&s, d, option: option)   // 3.6: science labs
         case ("board_ouster", _), ("exclusive_supply", _), ("swarm_audit", _), ("merger_offer", _), ("spinoff", _), ("sovereign_deal", _), ("talent_raid", _),
              ("distill_campaign", _), ("eval_escape", _), ("insider_caught", _):
             StrategyEvents.resolve(&s, d, option: option)

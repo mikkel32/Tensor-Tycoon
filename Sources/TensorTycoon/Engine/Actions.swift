@@ -13,6 +13,7 @@ extension GameState {
         if a.liquid && !site.cooling.supportsLiquidChips { return "\(a.name) needs liquid cooling. \(site.name) is air-cooled." }
         if a.minOrder > 1 && count % a.minOrder != 0 { return "\(a.name) ships in racks of \(a.minOrder). Order a multiple of \(a.minOrder)." }
         let limit = Economy.allocationLimit(a, self)
+        if count > limit && Semis.isSemiChip(a.id) { return "Only \(Fmt.int(limit)) finished \(a.name) in stock. Make more on the Semiconductors page." }
         if count > limit { return "\(a.vendor.rawValue) will only allocate \(Fmt.int(limit)) units to a company your size right now. A supply agreement raises this." }
         let needKW = Economy.chipKW(a) * Double(count)
         let freeKW = site.capacityKW - Economy.siteLoadKW(self, siteID)
@@ -25,7 +26,8 @@ extension GameState {
         // Warrant rebates lower what the chips cost you (and what they'll resell for).
         let rebate = Partners.recordSpend(&self, accel: a, amount: total, purchase: true)
         if a.cls == .tpu { Achievements.unlock(&self, "tpu_owner") }
-        let days = Economy.leadTimeDays(a, self)
+        let days = AlienFab.isAlienChip(a.id) ? AlienFab.book(&self, count: count)
+            : (Semis.isSemiChip(a.id) ? Semis.take(&self, a.id, count: count) : Economy.leadTimeDays(a, self))
         orders.append(HardwareOrder(accelID: accelID, count: count, siteID: siteID, unitCost: unit - rebate / Double(count), ordered: date,
                                     arrives: GameCalendar.addDays(date, days)))
         Sim.news(&self, "Ordered \(Fmt.int(count))× \(a.name)", "\(Fmt.money(total)) paid. Delivery in about \(days) days to \(site.name).", .company, image: a.image)
@@ -94,7 +96,7 @@ extension GameState {
         case .garage, .office:
             return "You already have that."
         case .colo:
-            if capacityKW / 1000 > Campus.coloCapMW { return "Colocation providers lease at most \(Int(Campus.coloCapMW)) MW to one tenant. Build your own campus for more." }
+            if capacityKW / 1000 > Campus.coloCapMW { return "Month-to-month cages top out at \(Int(Campus.coloCapMW)) MW. Sign a wholesale lease (Datacenters → Buy & lease), buy a campus or build one for more." }
             if power == .gas || power == .smr || power == .fusion { return "A colocation provider picks grid power or a PPA, not on-site generation." }
             let setup = loc.coloFee * capacityKW * (cooling == .air ? 1 : 1.35)
             if setup > cash { return "The first month's fee of \(Fmt.money(setup)) is more than your cash." }
@@ -147,12 +149,13 @@ extension GameState {
         case .garage, .office:
             return "Upgrade your office from the Team page instead."
         case .colo:
-            if (site.capacityKW + addKW) / 1000 > Campus.coloCapMW { return "Colocation providers lease at most \(Int(Campus.coloCapMW)) MW to one tenant. Build your own campus for more." }
+            if site.isTermLease { return "Sign another lease for more space: wholesale leases are fixed blocks." }
+            if (site.capacityKW + addKW) / 1000 > Campus.coloCapMW { return "Month-to-month cages top out at \(Int(Campus.coloCapMW)) MW. Sign a wholesale lease (Datacenters → Buy & lease), buy a campus or build one for more." }
             let fee = site.location.coloFee * addKW * (site.cooling == .air ? 1 : 1.35)
             sites[i].capacityKW += addKW
             sites[i].monthlyFee += fee
         case .datacenter:
-            let cap = Campus.siteCapMW(site.location, site.powerDeal, self)
+            let cap = Campus.siteLimitMW(site, nil, self)
             if (Campus.plannedTotalKW(site) + addKW) / 1000 > cap + 0.01 {
                 return "\(site.location.name) can supply at most \(Fmt.watts(cap * 1e6)) to one site on \(site.powerDeal.rawValue.lowercased()). Switch to a bigger power source or build another site."
             }
@@ -176,7 +179,7 @@ extension GameState {
         if !deal.available(self) { return "Not available yet." }
         if sites[i].kind == .garage || sites[i].kind == .office { return "Your landlord picks the power for you." }
         if sites[i].kind == .colo && (deal == .gas || deal == .smr || deal == .fusion) { return "A colocation provider can't run on-site generation for you." }
-        let cap = Campus.siteCapMW(sites[i].location, deal, self)
+        let cap = sites[i].kind == .datacenter ? Campus.siteLimitMW(sites[i], deal, self) : Campus.siteCapMW(sites[i].location, deal, self)
         if Campus.plannedTotalKW(sites[i]) / 1000 > cap + 0.01 {
             return "\(deal.rawValue) can only supply \(Fmt.watts(cap * 1e6)) here; this campus is planned for \(Fmt.watts(Campus.plannedTotalKW(sites[i]) * 1000))."
         }
@@ -226,7 +229,7 @@ extension GameState {
         if d.agentRL && !b.has(.agents) { return "Research agentic RL first." }
         if d.syntheticShare > 0 && !b.has(.syntheticData) { return "Research synthetic data pipelines first." }
         let pre = Physics.pretrainFLOPs(d)
-        var run = TrainingRun(design: d, started: date, flopsTotal: pre, dataSnapshot: Array(dataSources))
+        var run = TrainingRun(design: d, started: date, flopsTotal: pre, dataSnapshot: DataEconomy.snapshot(&self))   // 3.6
         run.lr = lr.rawValue
         run.checkpointEvery = checkpointEvery
         run.autoRollback = autoRollback
@@ -297,7 +300,7 @@ extension GameState {
         let target = Physics.pretrainFLOPs(d)
         var ladder = d
         ladder.name = "\(d.name) ladder"
-        var run = TrainingRun(design: ladder, started: date, flopsTotal: max(1e17, target * 0.02), dataSnapshot: Array(dataSources))
+        var run = TrainingRun(design: ladder, started: date, flopsTotal: max(1e17, target * 0.02), dataSnapshot: dataSources.sorted())
         run.kind = .proxy
         run.proxyCompute = target
         run.checkpointEvery = 1
@@ -313,9 +316,19 @@ extension GameState {
     static func keynoteCost(_ s: GameState) -> Double { clamp(s.valuation * 0.0005, 200_000, 50_000_000) }
 
     mutating func release(_ id: UUID, api: Bool, openWeights: Bool, launch: LaunchStyle = .standard) -> String? {
+        release(id, api: api, openWeights: openWeights, plan: LaunchPlan(strategy: launch))
+    }
+
+    /// 3.7: release with a launch plan (strategy, pricing stance, safety posture). `by` marks automated launches
+    /// ("delegate", "family"). The default plan is the plain release.
+    mutating func release(_ id: UUID, api: Bool, openWeights: Bool, plan: LaunchPlan, by: String = "") -> String? {
         guard let i = models.firstIndex(where: { $0.id == id }) else { return "Not found." }
+        let launch = plan.strategy
+        var publishWeights = openWeights
         if !models[i].released {
             if launch == .keynote && GameState.keynoteCost(self) > cash { return "A keynote costs \(Fmt.money(GameState.keynoteCost(self)))." }
+            if !plan.isDefault, let e = Launches.blocker(plan, self) { return e }   // 3.7
+            if launch == .openWeights { publishWeights = true }
             // What this launch adds over your best model so far, and how soon after your last one it comes.
             let earlier = models.filter { $0.released && $0.id != id }
             let previousBest = earlier.map(\.index).max()
@@ -345,16 +358,32 @@ extension GameState {
                 gain *= 0.5
                 models[i].safety = min(100, models[i].safety + 4)
                 safetyScore = min(100, safetyScore + 2)
+            // 3.7: launch strategies
+            case .stealth: gain *= 0.3
+            case .openWeights: break
+            case .enterprise: gain *= 0.6
+            case .government: gain *= 0.7
             }
+            var spent = launch == .keynote ? GameState.keynoteCost(self) : 0
+            if plan.safety == .thorough {
+                let c = Launches.redTeamCost(self)
+                cash -= c
+                month.costOther += c
+                spent += c
+                models[i].safety = min(100, models[i].safety + 3)
+                safetyScore = min(100, safetyScore + 1)
+            }
+            gain = Launches.adjustGain(gain, plan, rank: rank)
             // A second launch within 90 days of the last gets half the attention.
             if gain > 0, let last = lastLaunch, GameCalendar.daysBetween(last, date) < 90 { gain *= 0.5 }
             brand = clamp(brand + gain, 0, 100)
             Voices.playerLaunch(&self, i, rank: rank, previousBest: previousBest, style: launch)   // 3.4: told by people
             SafetyFramework.onRelease(&self, i)
             RivalIntel.playerReleased(&self, name: models[i].name, index: models[i].index)
+            Launches.launched(&self, i, plan: plan, rank: rank, previousBest: previousBest, gain: gain, cost: spent, by: by)   // 3.7
         }
         models[i].api = api
-        if openWeights && !models[i].openWeights {
+        if publishWeights && !models[i].openWeights {
             let bestOpenBefore = models.filter { $0.openWeights && $0.id != id }.map(\.c).max()
             models[i].openWeights = true
             // Near-frontier weights are big news; older ones barely register, and weights no better than ones
@@ -572,7 +601,7 @@ extension GameState {
 
     mutating func upgradeOffice() -> String? {
         guard officeLevel + 1 < Economy.officeLevels.count else { return "You already have the biggest campus." }
-        let next = Economy.officeLevels[officeLevel + 1]
+        let next = Economy.office(self, officeLevel + 1)   // 3.5: local rent
         let fitout = next.monthly * 3
         if fitout > cash { return "Fit-out costs \(Fmt.money(fitout))." }
         cash -= fitout

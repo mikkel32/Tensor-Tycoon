@@ -3,9 +3,14 @@ import SwiftUI
 struct MainMenuView: View {
     @Environment(GameStore.self) private var store
     @Environment(Updater.self) private var updater
-    @State private var settings = NewGameSettings()
+    @State private var settings: NewGameSettings = {
+        var s = NewGameSettings()
+        s.starterQuests = true   // 3.5: new games from the menu get starter quests
+        return s
+    }()
     @State private var saves: [GameStore.SaveInfo] = []
     @State private var deleting: GameStore.SaveInfo?
+    @State private var showChallenges = false   // 3.5: scenarios
 
     var body: some View {
         ZStack {
@@ -60,6 +65,13 @@ struct MainMenuView: View {
                 .font(.title3)
                 .foregroundStyle(.white.opacity(0.85))
             UpdateStatusLine()
+            // 3.5: challenge-mode scenarios
+            Button { showChallenges = true } label: {
+                Label("Challenges: curated starts with a goal and a score", systemImage: "flag.checkered")
+            }
+            .buttonStyle(.bordered)
+            .environment(\.colorScheme, .dark)
+            .sheet(isPresented: $showChallenges) { ScenarioPickerSheet() }
         }
     }
 
@@ -87,6 +99,8 @@ struct MainMenuView: View {
                 }
             }
 
+            CountrySelectionView(country: $settings.hqCountry, city: $settings.hqCity, eraID: settings.eraID, difficulty: settings.difficulty)   // 3.5: headquarters
+
             HStack(alignment: .top, spacing: 20) {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Difficulty").font(.subheadline.weight(.semibold))
@@ -113,6 +127,8 @@ struct MainMenuView: View {
             TraitPicker(doctrine: $settings.doctrine, background: $settings.background)
 
             SignaturePicker(signature: $settings.signature)
+
+            FoundingKitPicker(kit: $settings.kit, mode: $settings.kitMode, difficulty: settings.difficulty)   // 3.5
 
             VStack(alignment: .leading, spacing: 8) {
                 Text("Logo").font(.subheadline.weight(.semibold))
@@ -173,7 +189,7 @@ struct MainMenuView: View {
                         VStack(alignment: .leading, spacing: 3) {
                             HStack {
                                 Text(save.company).font(.headline)
-                                if save.over { Pill(text: "Ended", color: .red) }
+                                if save.over { Pill("Ended", tone: .bad) }
                             }
                             Text("\(save.date.gameShort) · \(Fmt.money(save.cash)) cash · \(Fmt.money(save.valuation)) valuation")
                                 .font(.caption).foregroundStyle(.secondary)

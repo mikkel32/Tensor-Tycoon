@@ -10,6 +10,9 @@ struct HardwareStoreView: View {
     @State private var search = ""
     @State private var selected: Accelerator? = nil
     @State private var showDeals = false
+    /// Chips picked for the side-by-side comparison (2–4).
+    @State private var compareIDs: [String] = []
+    @State private var showCompare = false
 
     var body: some View {
         let s = store.game
@@ -18,7 +21,7 @@ struct HardwareStoreView: View {
         let items = filtered(s, catalog)
         let forSale = catalog.filter { Economy.canBuy($0, s) }.count
         let rentable = catalog.filter { Economy.canRent($0, s) }.count
-        Page(title: "Hardware Store", subtitle: "Real accelerators with real specs. Dense TFLOPS shown (vendor headline numbers are often sparse). Buy for your sites or rent by the chip-hour.") {
+        Page(title: "Hardware Store", subtitle: "Real accelerators with real specs. Dense TFLOPS shown (vendor headline numbers are often sparse). Buy for your sites or rent by the chip-hour.", screen: .hardware) {
             ScreenHint(.hardware)
             HeroBanner(image: "gb200_rack", height: 150) {
                 HStack(alignment: .bottom) {
@@ -73,6 +76,7 @@ struct HardwareStoreView: View {
                 }
                 .frame(width: 200)
             }
+            if !compareIDs.isEmpty { compareBar }
 
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 300), spacing: 14)], spacing: 14) {
                 ForEach(items) { a in
@@ -89,14 +93,18 @@ struct HardwareStoreView: View {
                             .equatable()
                     }
                     .buttonStyle(.plain)
+                    .overlay(alignment: .topLeading) { compareToggle(a).padding(.top, 40).padding(.leading, 10) }
                 }
             }
             if items.isEmpty {
-                EmptyStateView(symbol: "magnifyingglass", title: "Nothing matches", message: "Try a different filter.")
+                Card { EmptyStateView(symbol: "magnifyingglass", title: "Nothing matches", message: "Try a different filter.") }
             }
         }
         .sheet(item: $selected) { a in
             AcceleratorDetail(accel: a)
+        }
+        .sheet(isPresented: $showCompare) {
+            HardwareCompareView(ids: $compareIDs)
         }
         .onAppear {
             if let id = store.focusAccelID, let a = HardwareCatalog.get(id) {
@@ -104,6 +112,38 @@ struct HardwareStoreView: View {
                 store.focusAccelID = nil
             }
         }
+    }
+
+    private var compareBar: some View {
+        let names = compareIDs.compactMap { HardwareCatalog.get($0)?.name }
+        return HStack(spacing: Theme.Space.s) {
+            Image(systemName: "rectangle.split.3x1").foregroundStyle(.secondary).accessibilityHidden(true)
+            Text("Compare: " + names.joined(separator: " · ")).font(TypeRamp.caption).lineLimit(1)
+            Spacer()
+            Text("\(compareIDs.count) of \(HardwareCompareView.maxChips)").font(TypeRamp.captionNumber).foregroundStyle(.secondary)
+            Button("Clear") { compareIDs = [] }.buttonStyle(.borderless)
+            Button("Compare side by side") { showCompare = true }
+                .buttonStyle(.borderedProminent)
+                .help(compareIDs.count < 2 ? "Pick one more chip here or in the comparison." : "Open the side-by-side comparison.")
+        }
+        .padding(.horizontal, Theme.Space.m)
+        .padding(.vertical, Theme.Space.s)
+        .background(Theme.insetFill, in: .rect(cornerRadius: Theme.Radius.control))
+    }
+
+    /// A check on each card's photo that adds the chip to the comparison.
+    private func compareToggle(_ a: Accelerator) -> some View {
+        let on = compareIDs.contains(a.id)
+        let full = !on && compareIDs.count >= HardwareCompareView.maxChips
+        return Button {
+            if on { compareIDs.removeAll { $0 == a.id } } else if !full { compareIDs.append(a.id) }
+        } label: {
+            PhotoPill(text: on ? "Comparing" : "Compare", color: on ? .green : .white, symbol: on ? "checkmark.square.fill" : "square")
+        }
+        .buttonStyle(.plain)
+        .disabled(full)
+        .help(full ? "Up to \(HardwareCompareView.maxChips) chips at a time" : (on ? "Remove from the comparison" : "Add to the comparison"))
+        .accessibilityLabel(on ? "Remove \(a.name) from the comparison" : "Compare \(a.name)")
     }
 
     private func filtered(_ s: GameState, _ catalog: [Accelerator]) -> [Accelerator] {
@@ -181,6 +221,9 @@ struct AcceleratorCard: View, Equatable {
                     .padding(10)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
                 }
+                AcceleratorPhotoLabel(accel: a)
+                    .padding(10)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
             }
             .frame(height: 150)
             VStack(alignment: .leading, spacing: 8) {
@@ -265,6 +308,7 @@ struct AcceleratorDetail: View {
                 }
                 .padding(20)
             }
+            .overlay(alignment: .bottomTrailing) { AcceleratorPhotoLabel(accel: a).padding(14) }
             .overlay(alignment: .topTrailing) {
                 Button { dismiss() } label: { Image(systemName: "xmark.circle.fill").font(.title2).symbolRenderingMode(.hierarchical) }
                     .buttonStyle(.plain).foregroundStyle(.white).padding(14)
@@ -274,6 +318,11 @@ struct AcceleratorDetail: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     ImageCreditLabel(key: a.image, representative: a.representativeImage)
+                    if a.photoIsIllustrative {
+                        Label("This chip isn't shipping hardware you could photograph: the picture is illustrative, and specs marked est. are the game's projections.",
+                              systemImage: "paintbrush.pointed.fill")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                     if let why = Partners.blocker(a, s) {
                         Label(why, systemImage: "lock.fill").font(.callout).foregroundStyle(.red)
                     } else if Economy.isEarlyAccess(a, s) {
@@ -392,7 +441,10 @@ struct AcceleratorDetail: View {
                     HStack {
                         VStack(alignment: .leading, spacing: 1) {
                             Text("\(Fmt.money(total)) total").font(.headline.monospacedDigit())
-                            Text("\(Fmt.watts(Economy.chipKW(a) * Double(qty) * 1000)) incl. servers · ships in ~\(Economy.leadTimeDays(a, s)) days · \(Fmt.int(Economy.allocationLimit(a, s))) available to you this quarter of \(Fmt.count(Economy.quarterlyProduction(a, s))) made")
+                            Text(AlienFab.isAlienChip(a.id)
+                                 ? "\(Fmt.watts(Economy.chipKW(a) * Double(qty) * 1000)) incl. servers · from your alien fab line (\(Fmt.count(s.alienFab.capacityMonth))/month): ships in ~\(AlienFab.leadDays(s, count: qty)) days"
+                                 : a.vendor == .custom ? "\(Fmt.watts(Economy.chipKW(a) * Double(qty) * 1000)) incl. servers · ships in ~\(Economy.leadTimeDays(a, s)) days · your own chip: no allocation limit"
+                                 : "\(Fmt.watts(Economy.chipKW(a) * Double(qty) * 1000)) incl. servers · ships in ~\(Economy.leadTimeDays(a, s)) days · \(Fmt.int(Economy.allocationLimit(a, s))) available to you this quarter of \(Fmt.count(Economy.quarterlyProduction(a, s))) made")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()

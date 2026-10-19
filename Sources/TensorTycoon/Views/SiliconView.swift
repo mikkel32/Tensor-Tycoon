@@ -6,7 +6,7 @@ struct SiliconView: View {
     var body: some View {
         let s = store.game
         let unlocked = store.derived.bonuses.has(.customSilicon)
-        Page(title: "Custom Silicon", subtitle: "Google has TPUs, Amazon has Trainium, Microsoft has Maia, Meta has MTIA. Design your own accelerator — years of work, a nine-figure budget, and a chip nobody else can buy.") {
+        Page(title: "Custom Silicon", subtitle: "Google has TPUs, Amazon has Trainium, Microsoft has Maia, Meta has MTIA. Design your own accelerator — years of work, a nine-figure budget, and a chip nobody else can buy.", screen: .silicon) {
             HeroBanner(image: "wafer", height: 160) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Your own accelerator").font(.title.weight(.bold))
@@ -30,6 +30,9 @@ struct SiliconView: View {
                     }
                 }
             } else {
+                // 3.5: the full chip business (nodes, foundries, fabs, yields, sales) lives on its own page.
+                NextStep("Want to pick the process node, book foundry wafers, build a fab and sell chips to others? Run a full chip business on the Semiconductors page.",
+                         action: "Semiconductors", screen: .semiconductors)
                 let active = s.chipProjects.filter { !$0.done }
                 if active.isEmpty {
                     NewChipProgram(state: s)
@@ -117,7 +120,7 @@ private struct NewChipProgram: View {
                 }
                 .padding(12)
                 .frame(width: 320)
-                .background(.quaternary.opacity(0.35), in: .rect(cornerRadius: 12))
+                .background(Theme.insetFill, in: .rect(cornerRadius: Theme.Radius.inset))
             }
         }
     }

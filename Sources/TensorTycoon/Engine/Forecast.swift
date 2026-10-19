@@ -100,11 +100,13 @@ enum ForecastEngine {
     // MARK: Forecast
 
     static func forecast(_ d: ModelDesign, state s: GameState, dataSources: [String]) -> Forecast {
+        let dataSources = dataSources.sorted()   // 3.7: fixed order (float sums), whatever order a run's snapshot was saved in
         let b = s.bonuses
         let y = s.year
         var f = Forecast()
         let sources = dataSources.compactMap { DataCatalog.byID[$0] }
         var drivers: [ForecastDriver] = []
+        let plan = DataEconomy.plan(d, state: s, sources: dataSources)   // 3.6: data economy (all zero without new data)
 
         let pre = Physics.pretrainFLOPs(d)
         f.rawC = log10(max(pre, 1e12)) - 21
@@ -114,6 +116,7 @@ enum ForecastEngine {
         // Data available & repetition
         var unique = Physics.availableTokensT(dataSources, y: y, bonuses: b)
         if d.syntheticShare > 0 && b.has(.syntheticData) { unique *= 1 + d.syntheticShare * 3 }
+        if plan.active { unique += plan.extraUniqueT }
         f.tokensPerParam = d.tokensT * 1000 / max(d.activeParamsB, 0.001)
         f.optimalTokensPerParam = d.tokensT > 0 ? (pre / 6 / (optimalParamsB(flops: pre) * 1e9)) / (optimalParamsB(flops: pre) * 1e9) : 20
 
@@ -244,6 +247,10 @@ enum ForecastEngine {
                     f.penalties.append("\(Int(d.syntheticShare * 100))% synthetic data: risk of model collapse (×\(Fmt.trim(pow(10, collapse), 2)))")
                 }
             }
+            if plan.active {
+                data += plan.dData
+                if plan.collapse < 0 { f.penalties.append("\(Int(plan.syntheticShare * 100))% of the corpus is generated: model collapse (×\(Fmt.trim(pow(10, plan.collapse), 2)))") }
+            }
             f.data = data
             if abs(data) > 0.005 { drivers.append(ForecastDriver(name: "Data quality", value: data, kind: data >= 0 ? .gain : .penalty, detail: "Sources, filtering and your data team")) }
             if teamGain > 0.005 { drivers.append(ForecastDriver(name: "Hyperparameter tuning (team)", value: teamGain, kind: .gain)) }
@@ -254,7 +261,7 @@ enum ForecastEngine {
         case .finetune:
             let base = Physics.openModelC(d.baseModelRef, state: s) ?? (f.rawC + b.algo)
             let ftGain = 0.12 * min(1, d.tokensT / 0.05)
-            let dataQ = sources.reduce(0) { $0 + $1.quality } * 0.3
+            let dataQ = (sources.reduce(0) { $0 + $1.quality } + plan.dData) * 0.3
             c = base - 0.06 + ftGain + dataQ
             drivers = [ForecastDriver(name: "Open-weights base model", value: base, kind: .base),
                        ForecastDriver(name: "Your fine-tune", value: ftGain - 0.06 + dataQ, kind: .gain)]
@@ -326,7 +333,17 @@ enum ForecastEngine {
         chat += dataArena / 90
         if d.dataMix == .conversational { chat += 0.1 }
         if shift == .code { chat -= 0.03 }
-        if d.rlhf && !dataSources.contains("human_feedback") {
+        if plan.active {
+            reasoning += plan.dReasoning
+            code += plan.dCode
+            agent += plan.dAgent
+            chat += plan.dChat
+            let skills = plan.dReasoning + plan.dCode + plan.dAgent + plan.dChat
+            if abs(skills) > 0.005 {
+                drivers.append(ForecastDriver(name: "Data plan", value: skills, kind: .skill, detail: "Your datasets' domain-relevant, quality-weighted tokens (Training Data page)"))
+            }
+        }
+        if d.rlhf && !dataSources.contains("human_feedback") && !plan.hasPreferences {
             chat -= 0.2
             f.penalties.append("RLHF without a human-preference data vendor is weak (Training Data page)")
         }
@@ -335,7 +352,8 @@ enum ForecastEngine {
         if shift == .multilingual { lang += 0.18 }
         var longctx = b.skill(.longctx)
         if d.mixer == .hybrid { longctx += 0.1 }
-        let vis = d.vision ? b.skill(.vis) : 0
+        var vis = d.vision ? b.skill(.vis) : 0
+        if plan.active { lang += plan.dLang; longctx += plan.dLongctx; vis += plan.dVis }
         var safety = 25 + b.safety + (d.safetyTraining ? 15 : 0) + (d.rlhf ? 5 : 0)
         let safetyTeam = s.employees.filter { $0.role == .safety }.reduce(0.0) { $0 + $1.weight }
         safety += 20 * min(1, safetyTeam / 4)
@@ -367,6 +385,13 @@ enum ForecastEngine {
             c += 0.02
             drivers.append(ForecastDriver(name: "Scaling ladder (tuned hyperparameters)", value: 0.02, kind: .gain))
         }
+        // 3.8: alien tech past the frontier has diminishing returns.
+        let uncharted = alienOvershoot(c, d, s)
+        if uncharted < -0.005 {
+            c += uncharted
+            drivers.append(ForecastDriver(name: "Uncharted regime", value: uncharted, kind: .penalty,
+                                          detail: "More than \(Fmt.trim(alienFreeLead, 1)) past the best model anyone has without alien tech (\(Fmt.trim(alienReference(s), 2))), nobody has the evals, data or hyperparameters for where you are: each further step is worth less"))
+        }
         f.c = c
         f.bugRisk = bugRisk(d, state: s, covered: covered, novelCount: novel.count)
         f.drivers = drivers
@@ -375,6 +400,33 @@ enum ForecastEngine {
         let lRaw = loss(paramsB: d.activeParamsB, tokensT: effectiveTokens(d.tokensT, unique: unique2))
         f.finalLoss = E + (lRaw - E) * pow(10, -gamma * (f.algo + f.data))
         return f
+    }
+
+    // MARK: Alien tech past the frontier (3.8)
+
+    /// Lead over the frontier an alien-tech model keeps in full.
+    static let alienFreeLead = 0.5
+    /// Scale of the diminishing returns beyond it: an extra lead x is worth k·ln(1 + x/k).
+    static let alienLeadScale = 0.5
+
+    /// Whether a design runs on alien tech: the alien architecture, or alien chips.
+    static func usesAlienTech(_ d: ModelDesign) -> Bool { d.mixer == .alien || AlienFab.isAlienChip(d.accelID) }
+
+    /// The best capability reached without alien tech: the world's frontier, the best rival model, and your own best
+    /// model that doesn't use alien tech.
+    static func alienReference(_ s: GameState) -> Double {
+        let rival = s.competitors.flatMap(\.models).map(\.c).max() ?? -9
+        let own = s.models.filter { !usesAlienTech($0.design) }.map(\.c).max() ?? -9
+        return max(Macro.frontier(s.year), rival, own)
+    }
+
+    /// The (negative) correction for an alien-tech model forecast at `c`: a lead past `alienReference` beyond
+    /// `alienFreeLead` counts k·ln(1 + x/k) instead of x — +1 becomes +0.55, +2 becomes +0.8, +4 becomes +1.1.
+    static func alienOvershoot(_ c: Double, _ d: ModelDesign, _ s: GameState) -> Double {
+        guard usesAlienTech(d) else { return 0 }
+        let x = c - alienReference(s) - alienFreeLead
+        guard x > 0 else { return 0 }
+        return alienLeadScale * log(1 + x / alienLeadScale) - x
     }
 
     // MARK: Uncertainty

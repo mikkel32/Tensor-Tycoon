@@ -71,6 +71,8 @@ final class GameStore {
     var focusAccelID: String?
     /// A finished training run whose report sheet should be shown.
     var reportRunID: UUID?
+    /// 3.7: a launch whose launch-day report sheet is open.
+    var launchReportID: UUID?
     /// An inbox decision the player opened.
     var openDecisionID: UUID?
     /// A monthly briefing the player opened.
@@ -83,6 +85,13 @@ final class GameStore {
     var showPalette = false
     var showRunReports = UserDefaults.standard.object(forKey: "showRunReports") as? Bool ?? true {
         didSet { UserDefaults.standard.set(showRunReports, forKey: "showRunReports") }
+    }
+    /// 3.5: a major run that just launched; the Training screen plays its launch sequence once (presentation only).
+    var launchRunID: UUID?
+    /// 3.5: the run the Training screen's command centre shows.
+    var focusRunID: UUID?
+    var showLaunchSequence = UserDefaults.standard.object(forKey: "showLaunchSequence") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(showLaunchSequence, forKey: "showLaunchSequence") }
     }
     private(set) var derived = Derived()
     /// Last non-nil state, so views being torn down after "quit to menu" never see a missing game.
@@ -224,6 +233,9 @@ final class GameStore {
             briefingID = b.id
         } else if alert.alertKind == .inbox, let d = state?.decisions.first(where: { !Alerts.isUrgent($0) && alert.title == $0.title }) {
             openDecisionID = d.id
+        } else if alert.title.hasPrefix(Launches.reportTitle),
+                  let r = state?.launches.last(where: { Launches.reportTitle + $0.modelName == alert.title && $0.report != nil }) {
+            launchReportID = r.id   // 3.7: the launch-day report
         } else if let target = alert.target {
             open(target)
         }
@@ -305,15 +317,18 @@ final class GameStore {
 
     /// Encodes and writes on a background queue so saving never stalls the UI.
     func save(force: Bool = false) {
-        guard let s = state, let url = currentSaveURL else { return }
+        guard var s = state, let url = currentSaveURL else { return }
+        s.idStream = StableID.current
         if !force && Date().timeIntervalSince(lastSave) < 12 { return }
         lastSave = Date()
         Self.saveQueue.async { Self.write(s, to: url) }
+        if let broke = HallOfFame.record(s) { show(broke) }   // 3.5: records across games
     }
 
     /// Writes the save before returning: used when quitting or relaunching for an update.
     func saveNow() {
-        guard let s = state, let url = currentSaveURL else { return }
+        guard var s = state, let url = currentSaveURL else { return }
+        s.idStream = StableID.current
         lastSave = Date()
         Self.saveQueue.sync { Self.write(s, to: url) }
     }
@@ -343,6 +358,8 @@ final class GameStore {
         lastAutosave = Date()
         let dir = Self.autosaveFolder(company: Self.fileName(for: s))
         let url = dir.appendingPathComponent(String(format: "%04d-%02d.json", ym.year, ym.month))
+        var s = s
+        s.idStream = StableID.current
         Self.saveQueue.async {
             Self.write(s, to: url)
             let files = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil))?
@@ -413,11 +430,14 @@ final class GameStore {
         openDecisionID = nil
         briefingID = nil
         pauseReason = nil
+        launchRunID = nil
+        focusRunID = nil
         let dec = JSONDecoder()
         dec.dateDecodingStrategy = .secondsSince1970
         do {
             let data = try Data(contentsOf: url)
             var s = try dec.decode(GameState.self, from: data)
+            StableID.resume(s)   // 3.7: a loaded game keeps drawing IDs where it left off
             Self.migrate(&s)
             BenchmarkCatalog.resetCache()
             lastCustomChipCount = -1

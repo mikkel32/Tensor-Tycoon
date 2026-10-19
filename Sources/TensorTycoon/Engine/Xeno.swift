@@ -34,11 +34,14 @@ enum Xeno {
         }
         for i in s.alienArchs.indices where s.alienArchs[i].fabbing {
             s.alienArchs[i].fabDaysLeft -= 1
-            guard s.alienArchs[i].fabDaysLeft <= 0 else { continue }
-            let respinP = 0.12 * (1 - 0.5 * s.swarmSilicon)
+            // A tape-out that somehow lost its clock (NaN) finishes rather than waiting forever.
+            guard s.alienArchs[i].fabDaysLeft <= 0 || !s.alienArchs[i].fabDaysLeft.isFinite else { continue }
+            // Chips nobody can read are harder to bring up (3.5: legibility matters).
+            let respinP = (0.06 + 0.12 * (1 - legibility(s.alienArchs[i], s))) * (1 - 0.5 * s.swarmSilicon)
             if s.alienArchs[i].fabRespins < 2 && s.rng.chance(respinP) {
                 s.alienArchs[i].fabRespins += 1
                 s.alienArchs[i].fabDaysLeft = 60 * (1 - 0.35 * s.swarmSilicon)
+                s.alienArchs[i].fabTotal += s.alienArchs[i].fabDaysLeft
                 Sim.news(&s, "\(s.alienArchs[i].name) chip needs a respin",
                          "First silicon works, but a clock-domain bug the agents didn't anticipate halves yields. Two more months.",
                          .hardware, image: "wafer", important: true, good: false)
@@ -46,6 +49,7 @@ enum Xeno {
             }
             finishFab(&s, i)
         }
+        AlienFab.daily(&s, b)
     }
 
     static func discover(_ s: inout GameState, _ b: ResearchBonuses) {
@@ -76,27 +80,23 @@ enum Xeno {
     static func finishFab(_ s: inout GameState, _ i: Int) {
         let arch = s.alienArchs[i]
         let ref = Silicon.reference(s)
-        let perf = arch.chipPerf
-        let refPrice = ChipBusiness.listPrice(ref, s)
-        let chip = CustomChip(
-            id: "alien_\(arch.id.uuidString.prefix(8))",
-            name: "\(s.companyName.split(separator: " ").first ?? "Xeno") \(arch.name)",
-            focus: .training, available: s.date, process: Silicon.process(s.year),
-            memoryGB: (ref.memoryGB * 1.5 / 8).rounded() * 8, memoryType: "Stacked SRAM + \(ref.memoryType)",
-            bandwidthTBs: ref.bandwidthTBs * max(1.5, perf * 0.8),
-            bf16: ref.bf16 * perf, fp8: max(ref.fp8, ref.bf16 * 2) * perf, fp4: (ref.fp4 > 0 ? ref.fp4 : ref.bf16 * 4) * perf,
-            tdpW: ref.tdpW * arch.powerFactor, unitCost: max(300, refPrice * arch.costFactor * XenoScience.alienChipCostFactor(s)),
-            decodeEff: 0.85, scaleUp: 1_024, generation: arch.generation, alien: true)
+        let chip = AlienFab.makeChip(arch, version: 1, s)
+        s.customChips.removeAll { $0.id == chip.id }
         s.customChips.append(chip)
         HardwareCatalog.register(s.customChips)
         s.alienArchs[i].fabbing = false
         s.alienArchs[i].fabDaysLeft = 0
         s.alienArchs[i].chipID = chip.id
+        s.alienArchs[i].chipVersion = 1
+        if !s.alienArchs[i].chipIDs.contains(chip.id) { s.alienArchs[i].chipIDs.append(chip.id) }
+        // 3.5: the first alien chip opens your own fab line.
+        let firstLine = !s.alienFab.exists
+        AlienFab.openPilot(&s)
         if s.alienArchs[i].policy == .sellChips { ChipBusiness.ensureLine(&s, chipID: chip.id) }
         Achievements.unlock(&s, "xeno_chip")
         Achievements.unlock(&s, "silicon")
         Sim.news(&s, "\(chip.name) is in production",
-                 "\(Fmt.trim(perf, 1))× a \(ref.name) for \(Fmt.money(chip.unitCost)) a chip. Order it in the Hardware Store, or sell it to big players from Chip & Cloud Sales.",
+                 "\(Fmt.trim(arch.chipPerf, 1))× a \(ref.name) for \(Fmt.money(chip.unitCost)) a chip, air-cooled at \(Int(chip.tdpW)) W. \(firstLine ? "Your pilot fab line makes \(Fmt.count(AlienFab.pilotCapacity)) a month. " : "")Order it from the Alien Tech page, or sell it to big players from Chip & Cloud Sales.",
                  .hardware, image: "wafer", important: true, good: true)
     }
 
@@ -129,6 +129,7 @@ enum Xeno {
             }
         }
         for i in s.competitors.indices { s.competitors[i].armedH100e *= 0.97 }
+        AlienFab.monthly(&s)
     }
 
     static func licenseTerms(_ s: GameState, _ arch: AlienArch, buyer: String) -> (upfront: Double, royalty: Double) {
@@ -199,6 +200,7 @@ extension GameState {
         month.capex += cost
         alienArchs[i].fabbing = true
         alienArchs[i].fabDaysLeft = Xeno.fabDays(self, bonuses)
+        alienArchs[i].fabTotal = alienArchs[i].fabDaysLeft
         Sim.news(&self, "Taping out the \(alienArchs[i].name) chip",
                  "The swarm's RTL went to the foundry. \(Fmt.money(cost)), first chips in about \(Int(alienArchs[i].fabDaysLeft / 30) + 1) months.",
                  .hardware, image: "wafer", important: true)
@@ -213,8 +215,9 @@ extension GameState {
         if let chip = alienArchs[i].chipID {
             if policy == .sellChips {
                 ChipBusiness.ensureLine(&self, chipID: chip)
-            } else if let li = chipLines.firstIndex(where: { $0.chipID == chip }) {
-                chipLines[li].active = false
+            } else {
+                let ids = Set(alienArchs[i].chipIDs + [chip])
+                for li in chipLines.indices where ids.contains(chipLines[li].chipID) { chipLines[li].active = false }
             }
         }
         if policy != .license { alienArchs[i].offers = [] }

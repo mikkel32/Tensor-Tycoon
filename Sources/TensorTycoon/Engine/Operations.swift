@@ -129,7 +129,9 @@ enum Operations {
                 ?? pools.filter { $0.free > 0 }.max(by: { Double($0.free) * $0.accel.best < Double($1.free) * $1.accel.best })?.accel.id
             guard let accelID, let (per, k) = perChip(m, accelID, b), let pool = pools.first(where: { $0.accel.id == accelID }) else { continue }
             let current = m.deployments.first { $0.accelID == accelID }?.chips ?? 0
-            let wanted = demand > 0 ? Int((demand / aim / per / Double(k)).rounded(.up)) * k : 0
+            // 3.5: a family tier on sale with no servers yet gets one replica, so it can start winning traffic.
+            let seed = demand <= 0 && m.deployments.isEmpty && m.api && Families.tier(of: m.id, s) != nil
+            let wanted = demand > 0 ? Int((demand / aim / per / Double(k)).rounded(.up)) * k : (seed ? k : 0)
             let keepFree = Int(Double(pool.total) * reserve)
             if wanted > current {
                 var room = max(0, pool.free - keepFree)
@@ -214,13 +216,13 @@ enum Operations {
     static func autoLaunch(_ s: inout GameState) {
         let bestReleased = s.models.filter { $0.released && !$0.retired }.map(\.index).max() ?? -1
         if let m = s.models.filter({ !$0.released && !$0.retired && !$0.preview }).max(by: { $0.index < $1.index }), m.index > bestReleased + 0.5 {
-            if s.launch(m.id) == nil {
+            if s.launch(m.id, by: "delegate") == nil {
                 log(&s, "Launched \(m.name) (index \(Fmt.score(m.index))) and moved your products onto it.")
             }
         }
         // Retire released models nobody uses any more (not the two best, nothing that powers a product or a contract).
         let keep = Set(s.models.filter { $0.released && !$0.retired }.sorted { $0.index > $1.index }.prefix(2).map(\.id))
-        let used = Set([s.chatModelID, s.agentModelID].compactMap { $0 } + s.deals.filter(\.active).compactMap(\.modelID))
+        let used = Set([s.chatModelID, s.agentModelID].compactMap { $0 } + s.deals.filter(\.active).compactMap(\.modelID) + Families.protected(s))
         for m in s.models where m.released && !m.retired && !keep.contains(m.id) && !used.contains(m.id) && m.demandTokensDay < 1e6
             && GameCalendar.daysBetween(m.releaseDate ?? m.created, s.date) > 90 {
             s.retire(m.id)
@@ -334,9 +336,9 @@ extension GameState {
 
     /// Ship a finished model properly: release it with an API, give it servers, and move your chat app, agent
     /// product and contracts onto it when it's better than what they run on.
-    mutating func launch(_ id: UUID, style: LaunchStyle = .standard) -> String? {
+    mutating func launch(_ id: UUID, plan: LaunchPlan? = nil, by: String = "") -> String? {
         guard let i = models.firstIndex(where: { $0.id == id }) else { return "Not found." }
-        if !models[i].released, let e = release(id, api: true, openWeights: false, launch: style) { return e }
+        if !models[i].released, let e = release(id, api: true, openWeights: false, plan: plan ?? Launches.delegatePlan(self), by: by) { return e }
         let m = models[i]
         let b = bonuses
         // Servers: on its training hardware if there are idle chips, as many as the model it replaces had.

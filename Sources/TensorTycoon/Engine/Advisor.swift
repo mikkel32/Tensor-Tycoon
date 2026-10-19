@@ -20,8 +20,12 @@ enum AdvisorFix: Hashable {
     case setAgent(UUID)
     case raises
     case enableDelegate(String)
+    /// 3.5: lease datacenter space (location, MW, years).
+    case leaseCapacity(String, Double, Int)
     /// Handled by the app: open this decision.
     case openDecision(UUID)
+    /// 3.8: set a fab's share for its product (the rest goes to foundry customers).
+    case fabShare(UUID, Double)
 }
 
 /// Your chief of staff: a short, prioritised list of things that need your attention right now, most with a fix.
@@ -170,6 +174,19 @@ enum Advisor {
                 add("idle", .warning, "cpu", "\(Fmt.int(idle)) accelerators idle", "Train, serve, run agents — or lease them out.", .compute)
             }
         }
+        // 3.5: out of datacenter power with little on the way.
+        if let pb = Power.powerBound(s) {
+            if let q = DCMarket.quickLease(s, mw: pb.suggestMW), let loc = LocationCatalog.byID[q.locationID] {
+                add("power-bound", .warning, "bolt.trianglebadge.exclamationmark.fill", "Your datacenters are \(Fmt.pct(pb.used, decimals: 0)) full",
+                    "Little new power is on the way, so new chips will have nowhere to go. Lease space now, or buy or build a campus on the Datacenters page.", .datacenters,
+                    fix: .leaseCapacity(q.locationID, pb.suggestMW, 3),
+                    "Lease \(Fmt.watts(pb.suggestMW * 1e6)) in \(loc.name.split(separator: ",").first.map(String.init) ?? loc.name) (\(Fmt.money(q.rate * pb.suggestMW * 1000))/mo, \(q.days) days)")
+            }
+        }
+        if let site = s.sites.first(where: { $0.phaseBlocked && $0.plannedKW > 0 }) {
+            add("phase-\(site.id)", .info, "hammer.fill", "\(site.name): next phase waits for cash",
+                "\(Fmt.watts(site.plannedKW * 1000)) of planned capacity is on hold until you can pay for the next phase.", .datacenters)
+        }
         for r in s.rentals {
             guard let end = r.end, r.term.months != nil, GameCalendar.daysBetween(s.date, end) <= 14, GameCalendar.daysBetween(s.date, end) >= 0 else { continue }
             let name = HardwareCatalog.get(r.accelID)?.name ?? r.accelID
@@ -231,8 +248,16 @@ enum Advisor {
         if offers > 0 {
             add("xeno-offers", .warning, "doc.text.fill", "\(offers) license offer\(offers == 1 ? "" : "s")", "Big players want your blueprint.", .xeno)
         }
-        if let l = s.chipLines.first(where: { $0.active && $0.demandToday > $0.capacityMonth / 30.4 * 1.5 && $0.pendingCapacity == 0 }) {
+        if let l = s.chipLines.first(where: { l in
+            let alien = AlienFab.isAlienChip(l.chipID)
+            return l.active && l.demandToday > (alien ? AlienFab.merchantPerLine(s) : l.capacityMonth / 30.4) * 1.5
+                && (alien ? s.alienFab.pendingCapacity : l.pendingCapacity) == 0
+        }) {
             add("fab-\(l.chipID)", .info, "shippingbox.fill", "Chip demand outstrips your foundry", "Buyers want \(Fmt.count(l.demandToday * 30.4))/month.", .chipSales)
+        }
+        // 3.5: the alien path's first blocked step (chips with nowhere to go, a stalled run on alien silicon).
+        if !s.alienArchs.isEmpty, let st = AlienPath.stages(s).first(where: { $0.status == .blocked && $0.id != "search" && $0.id != "tapeout" && $0.id != "nextgen" }) {
+            add("xeno-path-\(st.id)", .warning, st.symbol, "Alien tech: \(st.title.lowercased()) is blocked", st.blocker ?? st.detail, .xeno)
         }
 
         // Security & policy
@@ -252,6 +277,7 @@ enum Advisor {
             add("pay", .warning, "dollarsign.arrow.circlepath", "\(underpaid.count) people are paid well below market", "Morale falls and rivals poach. Give raises, or let the COO keep pay current.", .team,
                 fix: .raises, "Give raises")
         }
+        out += Semis.advisorItems(s)   // 3.5: semiconductors (nothing until you're in the business)
         let today = s.date
         return out.filter { item in s.snoozed[item.id].map { $0 <= today } ?? true }.sorted { $0.level > $1.level }
     }
@@ -340,7 +366,13 @@ enum Advisor {
             default: return "Unknown delegate."
             }
             return nil
+        case .leaseCapacity(let loc, let mw, let years):
+            return s.leaseCapacity(locationID: loc, mw: mw, years: years, cooling: s.year >= 2023 ? .liquid : .air)
         case .openDecision:
+            return nil
+        case .fabShare(let id, let share):
+            guard s.semi.fabs.contains(where: { $0.id == id }) else { return "That fab is gone." }
+            s.setFabShare(id, share: share)
             return nil
         }
     }

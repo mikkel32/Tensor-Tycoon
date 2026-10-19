@@ -146,6 +146,8 @@ struct PTSummary {
     var maxChipsWhat = ""
     var actionsAvg = 0.0
     var idleAvg = 0.0
+    /// 3.7: company stages reached, with the month of the game.
+    var stages: [String] = []
 }
 
 struct PTBot {
@@ -185,9 +187,23 @@ enum PTPlay {
 
     // MARK: Game loop
 
+    /// 3.5: what a typical player might pick on Realistic (12 points): research, RL, compute, talent and money.
+    static let typicalKit = ["paper_mill", "rl_pioneers", "cloud_credits", "star_visionary", "banker"]
+
     static func play(era: String, seed: UInt64, years: Double, mode: String, flags: Set<String>) -> PTSummary {
         let diff: Difficulty = flags.contains("hard") ? .hard : (flags.contains("easy") ? .easy : .normal)
-        var s = NewGame.create(NewGameSettings(companyName: "Playtest Labs", founderName: "Pat", eraID: era, difficulty: diff), seed: seed)
+        var settings = NewGameSettings(companyName: "Playtest Labs", founderName: "Pat", eraID: era, difficulty: diff)
+        // 3.5: founding kit. No flag = no kit (the classic game). `kit` = a typical 12-point kit, `kit=a+b+c` = those cards,
+        // `genius` = Genius mode, `quests` = starter quests on.
+        if flags.contains("kit") { settings.kit = PTPlay.typicalKit }
+        if let k = flags.first(where: { $0.hasPrefix("kit=") }) { settings.kit = k.dropFirst(4).split(separator: "+").map(String.init) }
+        if flags.contains("genius") { settings.kitMode = .genius }
+        if flags.contains("quests") { settings.starterQuests = true }
+        if let hq = flags.first(where: { $0.hasPrefix("hq=") })?.dropFirst(3).split(separator: ":") {   // 3.5: e.g. hq=fr:grenoble
+            settings.hqCountry = hq.first.map(String.init) ?? "us"
+            settings.hqCity = hq.count > 1 ? String(hq[1]) : ""
+        }
+        var s = NewGame.create(settings, seed: seed)
         var bot = PTBot()
         bot.flags = flags
         cautiousFlag = flags.contains("cautious")
@@ -313,7 +329,12 @@ enum PTPlay {
         sum.newsAvg = rows.isEmpty ? 0 : Double(rows.reduce(0) { $0 + $1.worldNews }) / Double(rows.count)
         sum.importantAvg = rows.isEmpty ? 0 : Double(rows.reduce(0) { $0 + $1.important }) / Double(rows.count)
 
+        sum.stages = s.progression.reached.sorted { $0.key < $1.key }.map { k, v in
+            "\(CompanyStage(rawValue: k)?.title ?? "?") \(Fmt.trim(Double(d(start, v)) / 30.44, 0))mo"
+        }   // 3.7
         if mode != "quiet" { printGame(rows, sum, bot, s, mode: mode) }
+        if flags.contains("advproj") { for line in AdvancedProjects.report(s) { print(line) } }
+        if flags.contains("science") { scienceSummary(s, seed: seed) }
         lastState = s
         return sum
     }
@@ -362,7 +383,7 @@ enum PTPlay {
         r.brand = s.brand
         r.board = s.boardConfidence
         r.idleDays = idle
-        r.fleet = Economy.pools(s).sorted { $0.total > $1.total }.prefix(2).map { "\($0.total)× \($0.accel.id) (train \($0.training), serve \($0.inference), research \($0.research))" }.joined(separator: ", ")
+        r.fleet = Economy.pools(s).sorted { $0.total != $1.total ? $0.total > $1.total : $0.accel.id < $1.accel.id }.prefix(2).map { "\($0.total)× \($0.accel.id) (train \($0.training), serve \($0.inference), research \($0.research))" }.joined(separator: ", ")
         if let run = s.runs.last(where: { isLive($0) && $0.kind == .full }) {
             r.training = "\(run.design.name) \(Int(run.progress * 100))%\(run.status == .paused ? " PAUSED" : "")"
         }
@@ -403,6 +424,8 @@ enum PTPlay {
         case "distill_campaign", "eval_escape", "insider_caught": return 0
         case "talent_raid": return s.cash > dd.amount * 4 ? 0 : 1
         case "swarm_audit": return s.cash > dd.amount * 4 ? 0 : 1
+        case Science.decisionKind: return scienceChoice(dd, s)   // 3.6
+        case Launches.decisionKind: return 1   // 3.7: let it ride
         default: return 0
         }
     }
@@ -444,6 +467,8 @@ enum PTPlay {
             // 3.4: launch product lines once they open, when the launch is small next to the cash pile.
             for p in ProductLines.catalog where ProductLines.status(p, s).ok && !s.productLines.contains(where: { $0.id == p.id })
                 && s.cash > 10 * ProductLines.launchCost(p, s.year) { _ = s.launchProduct(p.id) }
+            if bot.flags.contains("advproj") { AdvancedProjects.botAct(&s) }   // 3.5: bid on one government contract at a time
+            if bot.flags.contains("science") { science(&s) }   // 3.6: science labs (only with the flag)
         }
     }
 
@@ -669,7 +694,7 @@ enum PTPlay {
                 bot.events.append("shelved \(md.name) (c \(Fmt.trim(md.c, 2)) ≤ released \(Fmt.trim(bestReleased, 2)))")
                 continue
             }
-            _ = s.release(md.id, api: true, openWeights: false)
+            _ = s.release(md.id, api: true, openWeights: false, plan: Launches.botPlan(s, md))   // 3.7: the plain release
             bot.actions += 1
             let prevChat = s.models.first { $0.id == s.chatModelID }
             if md.design.instruct || s.chatModelID == nil { s.chatModelID = md.id }
@@ -808,6 +833,8 @@ enum PTPlay {
         if rr > 2e8 { for id in ["forum_license", "code_license", "science_license", "news_license"] { add(id) } }
         if s.cash > 4e8 { add("books_license") }
         if rr > 1e9 { add("expert_data") }
+        // 3.5: a lab founded with an RL lab keeps growing it while it's cheap (never opens one: kit-less games are unchanged).
+        if s.rlLabLevel > 0, let c = FoundingKit.rlLabCost(s), c < s.cash * 0.03 { _ = s.upgradeRLLab() }
     }
 
     static func security(_ s: inout GameState, _ bot: inout PTBot) {
@@ -936,7 +963,7 @@ enum PTPlay {
         }
         print("\nEvents:")
         for r in rows where !r.events.isEmpty || r.decisions > 0 {
-            let k = r.kinds.sorted { $0.value > $1.value }.map { "\($0.key)×\($0.value)" }.joined(separator: " ")
+            let k = r.kinds.sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }.map { "\($0.key)×\($0.value)" }.joined(separator: " ")
             print("  \(r.label): \(r.events.joined(separator: "; "))\(k.isEmpty ? "" : " | decisions: \(k)")")
         }
         print("\nRuns:")
@@ -962,7 +989,7 @@ enum PTPlay {
         print("  bot actions/mo \(Fmt.trim(sum.actionsAvg, 1)) · days/mo with nothing to do \(Fmt.trim(sum.idleAvg, 1)) · candidate designs skipped for goodput<60%: \(sum.lowGoodputSkips) · stalled runs cancelled: \(sum.cancelledStalls) · days waiting because nothing beats current model: \(sum.ceilingDays)")
         print("  valuation month-on-month: max jump ×\(Fmt.trim(sum.maxValJump, 1)), max drop \(Fmt.pct(sum.maxValDrop, decimals: 0)) · peak fleet \(sum.maxChips) chips (\(sum.maxChipsWhat))")
         for n in sum.notes.prefix(12) { print("  note: \(n)") }
-        let top = sum.kinds.sorted { $0.value > $1.value }.prefix(10).map { "\($0.key) \($0.value)" }.joined(separator: ", ")
+        let top = sum.kinds.sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }.prefix(10).map { "\($0.key) \($0.value)" }.joined(separator: ", ")
         print("  decisions: \(sum.decisionsTotal) (\(Fmt.trim(Double(sum.decisionsTotal) / Double(max(1, sum.months)), 2))/mo, max \(sum.decisionMax) in \(sum.decisionMaxLabel)) · \(top)")
         print("  world news/mo avg \(Fmt.trim(sum.newsAvg, 1)) max \(sum.newsMax) · important/mo \(Fmt.trim(sum.importantAvg, 1)) · quiet months \(sum.quietMonths) (longest streak \(sum.longestQuiet) from \(sum.longestQuietFrom))")
         print("  research/yr \(Fmt.trim(sum.researchPerYear, 1)) · idle share of rented chip-days \(Fmt.pct(sum.idleRentFrac)) · rental-cap hits \(sum.rentalCapHits) · days with no main run \(sum.waitDays) · paused-run days \(sum.stalledDays)")
@@ -970,7 +997,7 @@ enum PTPlay {
             print("  clock stops per month (default settings): " + sum.daysByYear.sorted { $0.key < $1.key }.map {
                 "\($0.key) \(Fmt.trim(Double(sum.stopsByYear[$0.key] ?? 0) / Double(max($0.value, 1)) * 30.44, 1))"
             }.joined(separator: " · "))
-            print("  why: " + sum.stopCauses.sorted { $0.value > $1.value }.prefix(10).map { "\($0.key) \($0.value)" }.joined(separator: ", "))
+            print("  why: " + sum.stopCauses.sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }.prefix(10).map { "\($0.key) \($0.value)" }.joined(separator: ", "))
         }
         let e = sum.end
         print("  end: cash \(m(e.cash)) rev/mo \(m(e.revenue)) val \(m(e.valuation)) chips \(e.chips) gap \(Fmt.trim(e.gap, 2)) rank #\(e.rank) users \(Fmt.count(e.users)) staff \(e.employees) stake \(Fmt.pct(e.stake)) API share \(Fmt.pct(e.apiShare)) of-market \(Fmt.pct(e.marketShare))")
@@ -989,8 +1016,9 @@ enum PTPlay {
         print("  decisions/mo \(all.map { Fmt.trim(Double($0.decisionsTotal) / Double(max(1, $0.months)), 2) }) · max/mo \(all.map(\.decisionMax)) · quiet months \(all.map(\.quietMonths)) · game over \(all.map { $0.gameOver == nil ? "no" : "YES" })")
         var kinds: [String: Int] = [:]
         for s in all { for (k, v) in s.kinds { kinds[k, default: 0] += v } }
-        print("  decision kinds: " + kinds.sorted { $0.value > $1.value }.map { "\($0.key) \($0.value)" }.joined(separator: ", "))
+        print("  decision kinds: " + kinds.sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }.map { "\($0.key) \($0.value)" }.joined(separator: ", "))
         print("  end valuations \(all.map { m($0.end.valuation) }) · end rev/mo \(all.map { m($0.end.revenue) }) · end rank \(all.map(\.end.rank))")
+        print("  stages reached: " + all.map { "[" + $0.stages.joined(separator: ", ") + "]" }.joined(separator: " "))   // 3.7
         var stops: [Int: Int] = [:], days: [Int: Int] = [:], causes: [String: Int] = [:]
         for s in all {
             for (y, n) in s.stopsByYear { stops[y, default: 0] += n }
@@ -1000,6 +1028,6 @@ enum PTPlay {
         print("  clock stops/month (default settings): " + days.sorted { $0.key < $1.key }.map {
             "\($0.key) \(Fmt.trim(Double(stops[$0.key] ?? 0) / Double(max($0.value, 1)) * 30.44, 1))"
         }.joined(separator: " · "))
-        print("  stopped by: " + causes.sorted { $0.value > $1.value }.prefix(12).map { "\($0.key) \($0.value)" }.joined(separator: ", "))
+        print("  stopped by: " + causes.sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }.prefix(12).map { "\($0.key) \($0.value)" }.joined(separator: ", "))
     }
 }

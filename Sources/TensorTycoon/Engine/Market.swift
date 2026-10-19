@@ -103,16 +103,16 @@ enum Market {
             }
         }
 
-        for m in s.models where m.released && !m.retired && m.api && m.capacityTokensDay > 0 {
+        for m in s.models where m.released && !m.retired && m.api && (m.capacityTokensDay > 0 || Families.servesToday(s, m)) {
             snap.api.append(MarketProduct(id: m.id.uuidString, lab: "player", labName: s.companyName, name: m.name,
                                           c: m.c - Physics.servingPenalty(m.servingPrecision), price: m.apiPrice,
-                                          tps: max(m.tps, 1), brand: s.brand * (0.7 + 0.3 * s.reliability) * (m.design.mode == .finetune ? 0.8 : 1), open: m.openWeights,
+                                          tps: max(m.tps, 1), brand: s.brand * (0.7 + 0.3 * s.reliability) * (m.design.mode == .finetune ? 0.8 : 1) * Families.brandMult(s, m.id), open: m.openWeights,
                                           reasoning: m.reasoning, isPlayer: true, modelID: m.id))
         }
         if chatOn || (s.year < 2022.91 && s.chatModelID != nil),
            let id = s.chatModelID, let m = s.models.first(where: { $0.id == id && $0.released && !$0.retired }) {
             snap.consumer.append(MarketProduct(id: "player-chat", lab: "player", labName: s.companyName, name: "\(s.companyName) Chat",
-                                               c: m.c, price: s.chatPrice, tps: max(m.tps, 1),
+                                               c: Families.chatQuality(s, m), price: s.chatPrice, tps: max(m.tps, 1),
                                                brand: s.brand * (0.6 + 0.4 * s.reliability) * (1 + b.consumerDemand),
                                                open: false, reasoning: m.reasoning, isPlayer: true, modelID: m.id))
         }
@@ -131,7 +131,7 @@ enum Market {
             let ref = Macro.referencePrice(c: p.c, y: y) * s.market.apiPricePressure
             p.attraction = attraction(c: p.c, price: p.price, refPrice: ref, tps: p.tps, brand: p.brand, frontier: frontier, elasticity: 1.4,
                                       floor: p.isPlayer ? priceFloorFactor : 0)
-            if p.isPlayer { p.attraction *= (1 + b.apiDemand) * s.reliability * max(0.3, 1 + s.traits.api) * Stakeholders.demandFactor(s, .api) }
+            if p.isPlayer { p.attraction *= (1 + b.apiDemand) * s.reliability * max(0.3, 1 + s.traits.api) * Stakeholders.demandFactor(s, .api) * Launches.demandFactor(s, p.modelID) }   // 3.7: launch curve
             if p.open { p.attraction *= 1.15 }
             snap.api[i] = p
             totalA += p.attraction
@@ -154,7 +154,7 @@ enum Market {
             // pay (paidConversion), not how many use it.
             p.attraction = attraction(c: p.c, price: p.price, refPrice: 20, tps: p.tps, brand: p.brand, frontier: frontier, elasticity: 0)
             if p.isPlayer && !s.freeTier { p.attraction *= 0.3 }
-            if p.isPlayer { p.attraction *= max(0.3, 1 + s.traits.consumer) * Stakeholders.demandFactor(s, .consumer) }
+            if p.isPlayer { p.attraction *= max(0.3, 1 + s.traits.consumer) * Stakeholders.demandFactor(s, .consumer) * Launches.demandFactor(s, p.modelID, consumer: true) }   // 3.7
             snap.consumer[i] = p
             totalC += p.attraction
         }

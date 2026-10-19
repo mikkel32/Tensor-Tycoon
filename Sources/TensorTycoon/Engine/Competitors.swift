@@ -44,7 +44,7 @@ enum Competitors {
             out.price *= r.price
         }
         // Breakthroughs you published openly: everyone reproduces them, at about half the effect.
-        for (tech, when) in s.publishedTech where !(s.rivalTech[id] ?? []).contains(tech) {
+        for (tech, when) in s.publishedTech.sorted(by: { $0.key < $1.key }) where !(s.rivalTech[id] ?? []).contains(tech) {   // 3.7: fixed order
             guard let r = ResearchCatalog.byID[tech]?.rival, when.decimalYear + 0.5 <= y else { continue }
             out.c += r.c * 0.5
             out.reasoning += r.reasoning * 0.5
@@ -180,6 +180,7 @@ enum Competitors {
         c += 0.2 * log10(max(0.3, comp.funding))
         // Whatever you sold or licensed them — or they stole.
         c += Xeno.rivalC(s, def.id, at: date)
+        c += DataEconomy.rivalC(s, def.id)   // 3.6: your exclusive datasets, and rare data they won
         if def.id == "dragonlake" {
             if s.lawsPassed.contains("chip_security") { c -= 0.1 }
             if s.lawsFailed.contains("chip_security") { c += 0.05 }

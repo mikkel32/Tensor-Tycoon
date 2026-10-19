@@ -10,7 +10,7 @@ struct ModelsView: View {
         let focus = store.focusModelID
         let models = s.models.filter { showRetired || !$0.retired }
             .sorted { ($0.id == focus ? 1 : 0, $0.created) > ($1.id == focus ? 1 : 0, $1.created) }
-        Page(title: "Models & Serving", subtitle: "Release models, give them accelerators, set prices. Tokens/sec comes from memory bandwidth; capacity from FLOPS.") {
+        Page(title: "Models & Serving", subtitle: "Release models, give them accelerators, set prices. Tokens/sec comes from memory bandwidth; capacity from FLOPS.", screen: .models) {
             ScreenHint(.models)
             HStack {
                 Toggle("Show retired", isOn: $showRetired).toggleStyle(.switch)
@@ -37,9 +37,10 @@ private struct ModelCard: View {
     let model: AIModel
     let state: GameState
     @State private var priceText = ""
-    @State private var launch: LaunchStyle = .standard
+    @State private var launch: LaunchPlan?   // 3.7: nil = your default plan
     @State private var addAccel = ""
     @State private var confirmRetire = false
+    @State private var familySheet: FamilySheet?   // 3.5: model families
 
     var body: some View {
         let s = state
@@ -64,13 +65,14 @@ private struct ModelCard: View {
                         if m.rsiGeneration > 0 { Pill(text: "Self-improved g\(m.rsiGeneration)", color: .purple, symbol: "arrow.triangle.2.circlepath") }
                         if m.efficiencyBoost > 0.05 { Pill(text: "+\(Int(m.efficiencyBoost * 100))% serving efficiency", color: .teal) }
                         if s.agentModelID == m.id { Pill(text: "Powers agent product", color: .indigo, symbol: "figure.walk.motion") }
+                        if let f = Families.family(of: m.id, s), let t = f.tier(of: m.id) { Pill(text: "\(f.name) \(t.label)", color: .teal, symbol: t.symbol) }
                     }
                     Text("\(Fmt.params(m.design.paramsB)) params\(m.design.isMoE ? " (\(Fmt.params(m.design.activeParamsB)) active)" : "") · \(Fmt.tokens(m.design.tokensT)) tokens · \(m.design.contextK >= 1000 ? "1M" : "\(m.design.contextK)K") context · trained \(m.created.gameShort)")
                         .font(.callout).foregroundStyle(.secondary)
                 }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 0) {
-                    Text(Fmt.score(entry?.index ?? BenchmarkCatalog.index(p, set: d.indexSet))).font(.system(size: 34, weight: .bold).monospacedDigit())
+                    Text(Fmt.score(entry?.index ?? BenchmarkCatalog.index(p, set: d.indexSet))).font(TypeRamp.bannerMetric)
                     Text("Index · #\(rank) lab worldwide").font(.caption).foregroundStyle(.secondary)
                     Text("Capability \(Int(BenchmarkCatalog.capability(p).rounded())) (GPT-4 = 100)").font(.caption).foregroundStyle(.secondary)
                     Text("Task horizon \(BenchmarkCatalog.formatHorizon(BenchmarkCatalog.taskHorizonMinutes(p)))").font(.caption2).foregroundStyle(.secondary)
@@ -94,6 +96,7 @@ private struct ModelCard: View {
             }
         }
         .onAppear { priceText = String(format: "%.3f", m.apiPrice) }
+        .familySheet($familySheet)
     }
 
     @ViewBuilder
@@ -102,15 +105,14 @@ private struct ModelCard: View {
             Text("Distribution").font(.headline)
             if !m.released {
                 Text("Releasing boosts your brand. Then deploy chips and set a price.").font(.caption).foregroundStyle(.secondary)
-                Picker("Launch", selection: $launch) {
-                    ForEach(LaunchStyle.allCases) { l in Text(l.title).tag(l) }
-                }
-                Text(launch == .keynote ? "\(launch.detail) \(Fmt.money(GameState.keynoteCost(s)))." : launch.detail)
-                    .font(.caption2).foregroundStyle(.secondary)
+                let plan = launch ?? s.launchDefault
+                LaunchPlanPicker(plan: Binding(get: { launch ?? s.launchDefault }, set: { launch = $0 }), state: s, rank: store.derived.rank(m.id))
                 HStack {
-                    Button("Release via API") { store.act("\(m.name) released") { $0.release(m.id, api: true, openWeights: false, launch: launch) } }
+                    Button("Release via API") { store.act("\(m.name) released") { $0.release(m.id, api: true, openWeights: false, plan: plan) } }
                         .buttonStyle(.borderedProminent)
-                    Button("Release open weights") { store.act("\(m.name) released with open weights") { $0.release(m.id, api: true, openWeights: true, launch: launch) } }
+                    if plan.strategy != .openWeights {
+                        Button("Release open weights") { store.act("\(m.name) released with open weights") { $0.release(m.id, api: true, openWeights: true, plan: plan) } }
+                    }
                 }
             } else {
                 Toggle("Sell via API", isOn: Binding(get: { m.api }, set: { on in store.act { $0.release(m.id, api: on, openWeights: m.openWeights) } }))
@@ -129,6 +131,15 @@ private struct ModelCard: View {
                 if !m.design.instruct { Text("Base models (no instruction tuning) can't power a chat app.").font(.caption).foregroundStyle(.secondary) }
                 if !m.openWeights {
                     Button("Open-source the weights") { store.act("Weights released") { $0.release(m.id, api: m.api, openWeights: true) } }
+                }
+            }
+            if !m.preview {
+                // 3.5: model families
+                HStack {
+                    Button("Distil a tier…") { familySheet = .distill(m.id) }
+                        .help("Train a smaller, much cheaper student from this model")
+                    Button("Post-train…") { familySheet = .postTrain(m.id) }
+                        .help("Reasoning RL, agentic training, safety tuning, long context or a specialisation, as a point release")
                 }
             }
             Button("Retire model…", role: .destructive) { confirmRetire = true }
@@ -277,7 +288,7 @@ private struct DeploymentRow: View {
             }
         }
         .padding(10)
-        .background(.quaternary.opacity(0.4), in: .rect(cornerRadius: 10))
+        .background(Theme.insetFill, in: .rect(cornerRadius: Theme.Radius.inset))
         .onAppear { chips = dep.chips }
         .onChange(of: dep.chips) { _, new in chips = new }
     }
@@ -288,13 +299,7 @@ private struct Metric: View {
     let value: String
     let symbol: String
     var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: symbol).foregroundStyle(.secondary).frame(width: 18)
-            VStack(alignment: .leading, spacing: 0) {
-                Text(value).font(.callout.weight(.semibold).monospacedDigit())
-                Text(label).font(.caption2).foregroundStyle(.secondary)
-            }
-        }
+        MetricTile(label: label, value: value, symbol: symbol, style: .plain)
     }
 }
 

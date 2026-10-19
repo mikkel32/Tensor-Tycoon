@@ -8,9 +8,9 @@ struct OperationsView: View {
     var body: some View {
         let s = store.game
         let c = Operations.competence(s)
-        Page(title: "Operations", subtitle: "Hand the chores to delegates that run on your best model, choose what stops the clock, and rewind a bad call.") {
+        Page(title: "Operations", subtitle: "Hand the chores to delegates that run on your best model, choose what stops the clock, and rewind a bad call.", screen: .operations) {
             ScreenHint(.operations)
-            HStack(spacing: 12) {
+            KPIRow {
                 StatTile(title: "Your COO", value: c.tier, detail: c.model.map { "Runs on \($0)" } ?? "No model of yours yet",
                          symbol: "person.badge.shield.checkmark.fill", tint: .indigo)
                 StatTile(title: "Acts", value: c.everyDays == 1 ? "Every day" : "Every \(c.everyDays) days", detail: "Better models check in more often",

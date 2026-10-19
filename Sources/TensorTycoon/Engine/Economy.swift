@@ -69,6 +69,7 @@ enum Economy {
         if a.cls == .consumer { mult = s.market.consumerGPUPrice }
         if a.cls == .workstation { mult = (s.market.consumerGPUPrice + s.market.hardwarePrice) / 2 }
         return base * dep * mult * (1 - dealDiscount(a, s)) * (1 - Partners.discount(a, s)) * (1 - s.traits.hardware)
+            * Nations.chipFactor(s)   // 3.7: subsidies at home, export controls aimed at you
     }
 
     static func rent(_ a: Accelerator, _ s: GameState) -> Double? {
@@ -77,7 +78,7 @@ enum Economy {
         let decayed = max(a.rentFloor, base * pow(0.78, age))
         let mult = a.cls == .consumer ? (s.market.consumerGPUPrice + s.market.rentPrice) / 2 : s.market.rentPrice
         return decayed * mult * (1 - dealDiscount(a, s)) * (1 - Partners.discount(a, s)) * (1 - s.traits.hardware)
-            * (s.lawsPassed.contains("nairr") ? 0.95 : 1)
+            * (s.lawsPassed.contains("nairr") ? 0.95 : 1) * Nations.chipFactor(s)   // 3.7
     }
 
     static func resaleValue(_ a: Accelerator, _ s: GameState, unitCost: Double, purchased: Date) -> Double {
@@ -89,7 +90,7 @@ enum Economy {
 
     static func leadTimeDays(_ a: Accelerator, _ s: GameState) -> Int {
         if a.cls == .consumer || a.cls == .workstation { return 4 }
-        if a.vendor == .custom { return 45 }
+        if a.vendor == .custom { return AlienFab.isAlienChip(a.id) ? AlienFab.leadDays(s, count: 0) : (Semis.isSemiChip(a.id) ? Semis.shipDays : 45) }
         var d = s.market.leadTimeDays
         if hasDeal(a, s) { d *= 0.5 }
         if Partners.covering(a, s) != nil { d *= 0.6 }
@@ -182,7 +183,7 @@ enum Economy {
     /// Max chips you can order now: your share of the vendor's quarterly output, less what you ordered in the last 90 days.
     static func allocationLimit(_ a: Accelerator, _ s: GameState) -> Int {
         if a.cls == .consumer || a.cls == .workstation { return 2_000 }
-        if a.vendor == .custom { return 20_000_000 }
+        if a.vendor == .custom { return Semis.isSemiChip(a.id) ? Semis.available(a.id, s) : 20_000_000 }
         let cutoff = GameCalendar.addDays(s.date, -90)
         let recent = s.orders.filter { $0.accelID == a.id && $0.ordered > cutoff }.reduce(0) { $0 + $1.count }
             + s.orderLog.filter { $0.accelID == a.id && $0.ordered > cutoff }.reduce(0) { $0 + $1.count }
@@ -213,7 +214,8 @@ enum Economy {
     }
 
     /// Server overhead included (CPU, NICs, fans).
-    static func chipKW(_ a: Accelerator) -> Double { a.tdpW * 1.25 / 1000 }
+    /// Alien chips (3.5) need far less around them: the swarm folded the host and network logic into the package.
+    static func chipKW(_ a: Accelerator) -> Double { a.tdpW * (AlienFab.isAlienChip(a.id) ? 1.1 : 1.25) / 1000 }
 
     // MARK: Compute pools
 
@@ -230,6 +232,7 @@ enum Economy {
         for i in s.models.indices where !s.models[i].retired {
             for d in s.models[i].deployments { inference[d.accelID, default: 0] += d.chips }
         }
+        for j in s.families.jobs where !j.paused { training[j.accelID, default: 0] += j.chips }   // 3.5: distillation and post-training
         for (id, n) in s.researchChips where n > 0 { research[id, default: 0] += n }
         for i in s.rsiRuns.indices where s.rsiRuns[i].status == .running { rsi[s.rsiRuns[i].accelID, default: 0] += s.rsiRuns[i].chips }
         for sw in s.swarms where !sw.paused { swarm[sw.accelID, default: 0] += sw.chips }
@@ -244,7 +247,11 @@ enum Economy {
                                    inference: inference[id] ?? 0, research: research[id] ?? 0, rsi: rsi[id] ?? 0,
                                    swarm: swarm[id] ?? 0, leased: leased[id] ?? 0))
         }
-        return out.sorted { $0.accel.best * Double($0.total) > $1.accel.best * Double($1.total) }
+        // 3.7: ties by chip ID, so the order never depends on the Set's (which changes from launch to launch).
+        return out.sorted { a, b in
+            let x = a.accel.best * Double(a.total), y = b.accel.best * Double(b.total)
+            return x != y ? x > y : a.accel.id < b.accel.id
+        }
     }
 
     static func pool(_ s: GameState, _ accelID: String) -> ComputePool? {
@@ -315,11 +322,13 @@ enum Economy {
     }
 
     static func siteLoadKW(_ s: GameState, _ siteID: UUID) -> Double {
-        s.owned.filter { $0.siteID == siteID }.reduce(0) { acc, b in
+        let chips = s.owned.filter { $0.siteID == siteID }.reduce(0) { acc, b in
             acc + (HardwareCatalog.get(b.accelID).map(chipKW) ?? 0) * Double(b.count)
         } + s.orders.filter { $0.siteID == siteID }.reduce(0) { acc, o in
             acc + (HardwareCatalog.get(o.accelID).map(chipKW) ?? 0) * Double(o.count)
         }
+        let sublet: Double = s.sites.first { $0.id == siteID }?.subleasedKW ?? 0   // 3.5: space rented to a tenant
+        return chips + sublet
     }
 
     static func hardwareValue(_ s: GameState) -> Double {
@@ -333,9 +342,9 @@ enum Economy {
         s.sites.filter { $0.kind == .datacenter }.reduce(0) { $0 + $1.capex * 0.8 }
     }
 
-    static func debt(_ s: GameState) -> Double { s.loans.reduce(0) { $0 + $1.balance } }
+    static func debt(_ s: GameState) -> Double { s.loans.reduce(0) { $0 + $1.balance } + s.corp.debts.reduce(0) { $0 + $1.balance } }
 
-    static func payrollYear(_ s: GameState) -> Double { s.employees.reduce(0) { $0 + $1.salary } * max(0.5, 1 + s.traits.payroll) }
+    static func payrollYear(_ s: GameState) -> Double { s.employees.reduce(0) { $0 + $1.salary } * max(0.5, 1 + s.traits.payroll) * HQ.payrollFactor(s) }
 
     static let officeLevels: [(name: String, capacity: Int, monthly: Double, image: String)] = [
         ("Garage", 6, 0, "garage"),
@@ -349,7 +358,7 @@ enum Economy {
     static func officeCapacity(_ s: GameState) -> Int { officeLevels[min(s.officeLevel, officeLevels.count - 1)].capacity }
 
     static func dataMonthlyCost(_ s: GameState) -> Double {
-        s.dataSources.compactMap { DataCatalog.byID[$0] }.reduce(0) { $0 + $1.monthly }
+        s.dataSources.sorted().compactMap { DataCatalog.byID[$0] }.reduce(0) { $0 + $1.monthly } + DataEconomy.monthlyCost(s)   // 3.6: data economy; 3.7: fixed order
     }
 
     // MARK: Revenue & valuation
@@ -368,7 +377,8 @@ enum Economy {
         if s.isPublic { return s.sharePrice * s.totalShares }
         let y = s.year
         // Chip sales and leased compute earn hardware multiples, not software ones.
-        let rr = max(0, runRate(s) - 0.6 * hardwareRunRate(s))
+        // 3.8: licence fees from your subsidiaries are valued with them (`Corporate.feeValue`), not at the lab's multiple.
+        let rr = max(0, runRate(s) - 0.6 * hardwareRunRate(s) - Corporate.feeRunRate(s))
         var growth = 0.0
         if s.history.count >= 7 {
             let now = s.history.last!.revenue
@@ -385,7 +395,8 @@ enum Economy {
         let talent = s.employees.reduce(0.0) { $0 + ($1.role == .researcher ? $1.skill * 40_000 : $1.skill * 10_000) } * (y > 2023 ? 3 : 1)
         let seed = Macro.seedValuation(y) * min(1.5, 0.6 + Double(s.employees.count) * 0.1)
         let assets = max(0, hardwareValue(s) + siteValue(s) - debt(s))
-        return max(max(revVal, hypeVal, seed, talent) + assets * 0.6 + Xeno.moatValue(s) + RivalEconomy.stakesValue(s) * 0.9, roundFloor(s))
+        return max(max(revVal, hypeVal, seed, talent) + assets * 0.6 + Xeno.moatValue(s) + RivalEconomy.stakesValue(s) * 0.9
+                   + (Corporate.stakesValue(s) + Corporate.feeValue(s)) * 0.9, roundFloor(s))   // 3.5: subsidiaries
     }
 
     /// The last round's post-money, written down 30% a year (to at most 40% off): a private mark rarely falls faster.

@@ -12,8 +12,18 @@ enum SwarmMission: String, Codable, CaseIterable, Identifiable {
     case workforce = "Digital workforce"
     case security = "Security operations"
     case intel = "Competitive intelligence"
+    // 3.6: missions only an AI organisation can take on (AgentOrgs)
+    case software = "Software engineering"
+    case discovery = "Scientific discovery"
+    case infrastructure = "Infrastructure management"
+    case robotics = "Robotics engineering"
+    case finance = "Financial analysis"
+    case experiments = "Experiment coordination"
 
     var id: String { rawValue }
+
+    /// The missions a stand-alone swarm can run (the newer ones need an organisation around the agents).
+    static let swarmCases: [SwarmMission] = [.research, .xeno, .trainingOps, .silicon, .alignment, .workforce, .security, .intel]
 
     var symbol: String {
         switch self {
@@ -25,6 +35,12 @@ enum SwarmMission: String, Codable, CaseIterable, Identifiable {
         case .workforce: "briefcase.fill"
         case .security: "lock.shield.fill"
         case .intel: "binoculars.fill"
+        case .software: "chevron.left.forwardslash.chevron.right"
+        case .discovery: "flask.fill"
+        case .infrastructure: "server.rack"
+        case .robotics: "gearshape.2.fill"
+        case .finance: "chart.line.uptrend.xyaxis"
+        case .experiments: "testtube.2"
         }
     }
 
@@ -38,6 +54,12 @@ enum SwarmMission: String, Codable, CaseIterable, Identifiable {
         case .workforce: "Rent your agents to companies as a digital workforce: support, coding, back office. Paid per worker-day."
         case .security: "Agents hunt intruders, review every commit and watch the weights 24/7. Attacks that get past your defences succeed less often."
         case .intel: "Agents read every paper, job post, import record and power filing. Sharper Rival Watch forecasts: launch dates, compute and capability."
+        case .software: "Agent engineers maintain your serving stack and ship features: product lines cost less to serve and, with engineer-level agents, get better."
+        case .discovery: "An institute of agent scientists: hypotheses, simulations and autonomous experiments. Moonshots get likelier and, with senior-researcher agents, finish sooner."
+        case .infrastructure: "Agents run your datacenters: predictive maintenance, failover and power tuning. Fewer outages and, with engineer-level agents, a smaller power bill."
+        case .robotics: "Agents build robot policies in simulation and on real hardware. Your Robotics Brain product line gets better."
+        case .finance: "Agent analysts manage the treasury: idle cash earns a little more."
+        case .experiments: "Agents schedule, launch and read out your small experiments and proxy runs, so they finish sooner."
         }
     }
 
@@ -53,12 +75,18 @@ enum SwarmMission: String, Codable, CaseIterable, Identifiable {
         case .workforce: (0.6, 1.0, 1.4, 0.25, 0)
         case .security: (0.7, 1.3, 1.0, 0, 0.003)
         case .intel: (1.4, 0.4, 1.2, 0.15, 0)
+        case .software: (0.6, 1.5, 0.9, 0, 0)
+        case .discovery: (1.5, 0.7, 0.8, 0, 0)
+        case .infrastructure: (0.6, 1.2, 1.2, 0, 0)
+        case .robotics: (1.0, 1.0, 1.0, 0, 0)
+        case .finance: (1.3, 0.8, 0.9, 0.1, 0)
+        case .experiments: (0.8, 1.2, 1.0, 0, 0)
         }
     }
 }
 
 struct AgentSwarm: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var name: String
     var modelID: UUID
     /// Agents you asked for. How many actually run depends on the chips behind the swarm.
@@ -86,6 +114,10 @@ struct AgentSwarm: Codable, Identifiable, Hashable {
     @D var targetRunID: UUID? = nil
     /// Days on the current mission: agents get better at a job they keep doing.
     @D var missionDays: Double = 0
+    /// 3.6: the AI organisation this swarm is a team of (nil = a stand-alone swarm, which works as it always did).
+    @D var orgID: UUID? = nil
+    /// 3.6: what the team does inside its organisation.
+    @D var role: TeamRole = .specialists
 
     static let autonomyNames = ["Supervised", "Semi-autonomous", "Fully autonomous"]
 
@@ -119,7 +151,7 @@ enum XenoPolicy: String, Codable, CaseIterable, Identifiable {
 }
 
 struct ArchLicense: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var buyerID: String
     var buyerName: String
     var signed: Date
@@ -134,7 +166,7 @@ struct ArchLicense: Codable, Identifiable, Hashable {
 
 /// A design found by an agent swarm or a self-improving model: a model architecture plus a matching chip.
 struct AlienArch: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var name: String
     var generation: Int
     var discovered: Date
@@ -157,6 +189,20 @@ struct AlienArch: Codable, Identifiable, Hashable {
     /// Once licensed, the blueprint is out for good.
     var licensedOnce = false
     var lastOffer: Date? = nil
+    // 3.5: alien fab — chip generations, revisions and errata.
+    /// Latest chip version in production (0 = only RTL, 1 = v1, 2 = v2, 3 = v3).
+    @D var chipVersion: Int = 0
+    /// Every chip made from this architecture, oldest first.
+    @D var chipIDs: [String] = []
+    /// A next-generation revision of the chip is being designed.
+    @D var revising: Bool = false
+    @D var reviseDaysLeft: Double = 0
+    @D var reviseTotal: Double = 0
+    @D var reviseRespins: Int = 0
+    /// Total days of the tape-out under way (for its progress bar).
+    @D var fabTotal: Double = 0
+    /// Errata your chips have thrown so far.
+    @D var errata: Int = 0
 
     var multiplier: Double { pow(10, computeGain) }
 }

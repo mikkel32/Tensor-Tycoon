@@ -64,32 +64,37 @@ struct ModelLabView: View {
     @State private var interval = 0.1
     @State private var autoRollback = false
     @State private var targetIndex = 50.0
+    /// 3.5: the pre-training review for substantial runs.
+    @State private var reviewing = false
+    @AppStorage("labAdvanced") private var advanced = false
+    /// 3.5: model families — distil or post-train an existing model instead of training a new one.
+    @State private var familySheet: FamilySheet?
 
     var body: some View {
         let s = store.game
         let d = store.derived
         let b = d.bonuses
-        Page(title: "Model Lab", subtitle: "Design a training run. Every choice moves the forecast — and the forecast is honest about how sure it is.") {
+        Page(title: "Model Lab", subtitle: "Design a training run. Every choice moves the forecast — and the forecast is honest about how sure it is.", screen: .lab) {
             ScreenHint(.lab)
             if d.pools.isEmpty {
-                EmptyStateView(symbol: "cpu", title: "No compute", message: "You need accelerators to train. Buy some or rent cloud capacity.",
-                               actionTitle: "Hardware Store") { store.open(.hardware) }
+                Card {
+                    EmptyStateView(symbol: "cpu", title: "No compute", message: "You need accelerators to train. Buy some or rent cloud capacity.",
+                                   actionTitle: "Hardware Store") { store.open(.hardware) }
+                }
             } else {
                 recipeStrip(s, b)
+                upgradeStrip(s)
                 HStack(alignment: .top, spacing: 18) {
                     designForm(s, d, b)
                         .frame(minWidth: 440, maxWidth: 540)
                     VStack(spacing: 14) {
+                        ArchitectureDiagram(design: design, state: s)
                         ForecastPanel(design: design, lr: lr, interval: interval, state: s, derived: d,
                                       start: {
-                                          if store.act("Training started", { $0.startTraining(design, lr: lr, checkpointEvery: interval, autoRollback: autoRollback) }) {
-                                              design.name = nextName(design.name)
-                                              store.open(.training)
-                                          }
+                                          // Experiments start at once; anything bigger gets the pre-training review first.
+                                          if Physics.estimate(design, state: store.game, lr: lr, interval: interval)?.toy ?? true { launch() } else { reviewing = true }
                                       },
-                                      ladder: {
-                                          if store.act("Scaling ladder started", { $0.startLadder(design) }) { store.open(.training) }
-                                      },
+                                      ladder: startLadder,
                                       resize: { n in design.chips = max(1, n) })
                         TargetPlanner(design: $design, target: $targetIndex, state: s, derived: d)
                     }
@@ -97,6 +102,57 @@ struct ModelLabView: View {
             }
         }
         .onAppear { if !prepared { prepare(s, d); prepared = true } }
+        .sheet(isPresented: $reviewing) {
+            RunReviewSheet(design: $design, lr: $lr, interval: $interval, launch: launch, ladder: startLadder)
+        }
+        .familySheet($familySheet)
+    }
+
+    /// 3.5: model families — a lineup without a new pre-training run: distil a cheaper tier or post-train a model you have.
+    @ViewBuilder
+    private func upgradeStrip(_ s: GameState) -> some View {
+        let mine = s.models.filter { !$0.retired && !$0.preview }.sorted { $0.index > $1.index }
+        if !mine.isEmpty {
+            HStack(spacing: 10) {
+                Image(systemName: "square.stack.3d.down.right.fill").foregroundStyle(.teal)
+                Text("Already have a strong model? Distil a cheaper tier from it or post-train it into a point release.")
+                    .font(.callout).foregroundStyle(.secondary)
+                Spacer()
+                Menu("Distil a tier") {
+                    ForEach(mine.prefix(8)) { m in Button("\(m.name) · index \(Fmt.score(m.index))") { familySheet = .distill(m.id) } }
+                }
+                .fixedSize()
+                Menu("Post-train") {
+                    ForEach(mine.prefix(8)) { m in Button("\(m.name) · index \(Fmt.score(m.index))") { familySheet = .postTrain(m.id) } }
+                }
+                .fixedSize()
+                Button("Model Families") { store.open(.families) }.buttonStyle(.link)
+            }
+        }
+    }
+
+    /// Starts the run. A major run (by compute against the largest known run) gets its launch sequence on the
+    /// Training screen; the simulation doesn't wait for it.
+    private func launch() {
+        let d = design
+        guard store.act("Training started", { $0.startTraining(d, lr: lr, checkpointEvery: interval, autoRollback: autoRollback) }) else { return }
+        if let run = store.game.runs.last(where: { $0.design.name == d.name && $0.kind == .full }) {
+            store.focusRunID = run.id
+            if store.showLaunchSequence, let p = run.plan, (TrainingExperience.RunScale(rawValue: p.scale) ?? .standard) >= .major {
+                store.launchRunID = run.id
+            }
+        }
+        design.name = nextName(design.name)
+        if design.generation > 0 { design.generation += 1 }
+        store.open(.training)
+    }
+
+    private func startLadder() {
+        let d = design
+        if store.act("Scaling ladder started", { $0.startLadder(d) }) {
+            store.focusRunID = store.game.runs.last?.id
+            store.open(.training)
+        }
     }
 
     // MARK: Recipes
@@ -156,6 +212,8 @@ struct ModelLabView: View {
         design.syntheticShare = 0
         design.dataMix = .balanced
         design.mixShift = .keep
+        // A recipe sets the knobs itself; the objective label follows it.
+        design.objective = r == .reasoning ? .reasoning : (r == .overtrained ? .efficient : .general)
         if design.precision == .bf16 { fixPrecision(s) }
         var note: String? = nil
         switch r {
@@ -217,8 +275,44 @@ struct ModelLabView: View {
     private func designForm(_ s: GameState, _ d: Derived, _ b: ResearchBonuses) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             Card {
-                CardHeader("Basics", symbol: "textformat")
+                CardHeader(title: "Identity", symbol: "textformat") {
+                    Toggle("Advanced", isOn: $advanced).toggleStyle(.switch).controlSize(.small)
+                        .help("Show every architecture, data and optimization control")
+                }
                 TextField("Model name", text: $design.name).textFieldStyle(.roundedBorder).font(.title3)
+                HStack(spacing: 8) {
+                    TextField("Family (e.g. \(design.name.split(separator: "-").first.map(String.init) ?? "Atlas"))", text: $design.family)
+                        .textFieldStyle(.roundedBorder)
+                    Stepper(design.generation > 0 ? "Generation \(design.generation)" : "No generation", value: $design.generation, in: 0...99)
+                        .fixedSize()
+                }
+                TextField("One-line description (shown in the review and results)", text: $design.blurb).textFieldStyle(.roundedBorder).font(.callout)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Objective").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    HStack(spacing: 6) {
+                        ForEach(ModelObjective.allCases) { o in
+                            let on = design.objective == o
+                            Button {
+                                let changes = o.apply(to: &design, state: s)
+                                store.show("Objective: \(o.label)" + (changes.isEmpty ? "" : " — " + changes.joined(separator: ", ")))
+                            } label: {
+                                VStack(spacing: 3) {
+                                    Image(systemName: o.symbol).font(.callout)
+                                    Text(o.label).font(.caption2.weight(.semibold)).lineLimit(1)
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 6)
+                                .foregroundStyle(on ? Color.white : Color.primary)
+                                .background(on ? AnyShapeStyle(Color.indigo.gradient) : AnyShapeStyle(.quaternary.opacity(0.5)), in: .rect(cornerRadius: 8))
+                                .contentShape(.rect(cornerRadius: 8))
+                            }
+                            .buttonStyle(.plain)
+                            .help(o.blurb)
+                        }
+                    }
+                    Text(design.objective.blurb + " It works through the settings below, so the forecast shows exactly what it buys.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 Picker("Approach", selection: $design.mode) {
                     ForEach(TrainMode.allCases) { m in Text(m.rawValue).tag(m) }
                 }
@@ -250,6 +344,10 @@ struct ModelLabView: View {
                         ForEach(s.models) { m in Text(m.name).tag(m.id.uuidString) }
                     }
                     Text("Train a smaller student on a big model's outputs. It can get close to the teacher.").font(.caption).foregroundStyle(.secondary)
+                    if let ref = design.baseModelRef, let id = UUID(uuidString: ref) {
+                        Button("Distil it as a family tier instead (per-domain retention, serving cost)…") { familySheet = .distill(id) }
+                            .buttonStyle(.link).font(.caption)
+                    }
                 }
             }
 
@@ -259,14 +357,18 @@ struct ModelLabView: View {
                     Toggle("Mixture-of-Experts", isOn: Binding(get: { design.isMoE }, set: { design.activeFraction = $0 ? 1.0 / 8 : 1 }))
                         .disabled(!b.has(.moe))
                     if design.isMoE {
-                        Picker("Active experts", selection: $design.activeFraction) {
-                            Text("1/4").tag(0.25)
-                            Text("1/8").tag(0.125)
-                            Text("1/16").tag(0.0625)
-                            Text("1/32").tag(0.03125).disabled(!b.has(.fineMoE))
-                            Text("1/64").tag(0.015625).disabled(!b.has(.fineMoE))
+                        // Expert pool and routing: each layout is an active fraction, which is what the MoE math uses.
+                        Picker("Experts", selection: Binding(get: { TrainingExperience.experts(for: design.activeFraction).fraction },
+                                                             set: { design.activeFraction = $0 })) {
+                            ForEach(TrainingExperience.expertLayouts) { l in
+                                Text(l.label + (l.needsFine && !b.has(.fineMoE) ? " 🔒" : "")).tag(l.fraction).disabled(l.needsFine && !b.has(.fineMoE))
+                            }
                         }
                         .pickerStyle(.segmented)
+                        let l = TrainingExperience.experts(for: design.activeFraction)
+                        Text("Each token is routed to \(l.active) of \(l.experts) experts (1/\(Int((1 / l.fraction).rounded())) of the weights active). Sparser pools gain more per FLOP at scale"
+                             + (s.researched.contains("aux_free") ? "." : " but, without aux-loss-free routing, the router collapses more often (+35% loss spikes)."))
+                            .font(.caption).foregroundStyle(.secondary)
                     }
                     VStack(alignment: .leading, spacing: 4) {
                         let paramCap = Physics.maxParamsB(s)
@@ -284,16 +386,21 @@ struct ModelLabView: View {
                                 .font(.caption).foregroundStyle(.orange)
                         }
                     }
-                    LabeledPicker(title: "Attention", selection: $design.attention, options: AttentionKind.allCases,
-                                  enabled: { $0 == .mha || ($0 == .gqa && b.has(.gqa)) || ($0 == .mla && b.has(.mla)) })
-                    let hasAlien = !s.alienArchs.isEmpty
-                    LabeledPicker(title: "Architecture", selection: $design.mixer, options: MixerKind.allCases,
-                                  enabled: { $0 == .transformer || ($0 == .hybrid && b.has(.ssmHybrid)) || ($0 == .diffusion && b.has(.diffusionLM)) || ($0 == .alien && hasAlien) })
-                    if design.mixer != .transformer {
-                        Text(mixerNote(design.mixer, s))
+                    if advanced {
+                        LabeledPicker(title: "Attention", selection: $design.attention, options: AttentionKind.allCases,
+                                      enabled: { $0 == .mha || ($0 == .gqa && b.has(.gqa)) || ($0 == .mla && b.has(.mla)) })
+                        let hasAlien = !s.alienArchs.isEmpty
+                        LabeledPicker(title: "Architecture", selection: $design.mixer, options: MixerKind.allCases,
+                                      enabled: { $0 == .transformer || ($0 == .hybrid && b.has(.ssmHybrid)) || ($0 == .diffusion && b.has(.diffusionLM)) || ($0 == .alien && hasAlien) })
+                        if design.mixer != .transformer {
+                            Text(mixerNote(design.mixer, s))
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        FeatureToggle(title: "Multi-token prediction", detail: "Better training signal + built-in speculative decoding.", isOn: $design.mtp, enabled: b.has(.mtp))
+                    } else {
+                        Text("\(design.attention.rawValue) attention · \(design.mixer.rawValue)\(design.mtp ? " · multi-token prediction" : "") — Advanced to change")
                             .font(.caption).foregroundStyle(.secondary)
                     }
-                    FeatureToggle(title: "Multi-token prediction", detail: "Better training signal + built-in speculative decoding.", isOn: $design.mtp, enabled: b.has(.mtp))
                     Picker("Context window", selection: $design.contextK) {
                         Text("2K").tag(2)
                         Text("8K").tag(8)
@@ -331,16 +438,18 @@ struct ModelLabView: View {
                                 .font(.caption).foregroundStyle(.orange)
                         }
                     }
-                    let avail = Physics.availableTokensT(Array(s.dataSources), y: s.year, bonuses: b) * (design.syntheticShare > 0 && b.has(.syntheticData) ? 1 + design.syntheticShare * 3 : 1)
+                    let avail = Physics.uniqueTokensT(design, state: s)   // 3.6: includes held datasets
                     Text("Unique data available: \(Fmt.tokens(avail)) — more on the Training Data page").font(.caption)
                         .foregroundStyle(design.tokensT > avail * 4 && design.mode == .scratch ? .orange : .secondary)
                     LabeledPicker(title: "Mixture", selection: $design.dataMix, options: DataMix.allCases, enabled: { _ in true })
                     Text(design.dataMix.detail).font(.caption).foregroundStyle(.secondary)
-                    LabeledPicker(title: "Mid-training shift", selection: $design.mixShift, options: MixShift.allCases,
-                                  enabled: { $0 == .keep || b.has(.curriculum) })
-                    Text(b.has(.curriculum) ? design.mixShift.detail : "Research Annealing & Data Curriculum to shift the mix mid-training.")
-                        .font(.caption).foregroundStyle(.secondary)
-                    if b.has(.syntheticData) {
+                    if advanced {
+                        LabeledPicker(title: "Mid-training shift", selection: $design.mixShift, options: MixShift.allCases,
+                                      enabled: { $0 == .keep || b.has(.curriculum) })
+                        Text(b.has(.curriculum) ? design.mixShift.detail : "Research Annealing & Data Curriculum to shift the mix mid-training.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    if advanced && b.has(.syntheticData) {
                         HStack {
                             Text("Synthetic share")
                             Slider(value: $design.syntheticShare, in: 0...0.5, step: 0.05)
@@ -348,34 +457,48 @@ struct ModelLabView: View {
                                 .foregroundStyle(design.syntheticShare > 0.3 ? .orange : .primary)
                         }
                     }
+                    DataPlanPanel(design: design, state: s)   // 3.6: data economy
                 }
 
-                Card {
-                    CardHeader("Optimization", symbol: "dial.medium")
-                    LabeledPicker(title: "Optimizer", selection: $design.optimizer, options: OptimizerKind.allCases,
-                                  enabled: { $0 == .adamw || ($0 == .muon && b.has(.muon)) || ($0 == .shampoo && b.has(.shampoo)) })
-                    Picker("Precision", selection: $design.precision) {
-                        Text("BF16").tag(Precision.bf16)
-                        Text("FP8").tag(Precision.fp8).disabled(!b.has(.fp8Training))
-                        Text("FP4").tag(Precision.fp4).disabled(!b.has(.fp4Training))
+                if !advanced {
+                    Card {
+                        CardHeader(title: "Optimization & operations", symbol: "dial.medium") {
+                            Button("Advanced…") { advanced = true }.buttonStyle(.link)
+                        }
+                        Text("\(design.optimizer.rawValue) · \(design.precision.short) · \(design.schedule.rawValue) · \(lr.label.lowercased()) learning rate · checkpoint every \(Int(interval * 100))%\(autoRollback ? " · auto-rollback" : "")")
+                            .font(.caption).foregroundStyle(.secondary)
+                        opsCoverageRow(s)
                     }
-                    .pickerStyle(.segmented)
-                    LabeledPicker(title: "LR schedule", selection: $design.schedule, options: ScheduleKind.allCases, enabled: { $0 == .cosine || b.has(.wsd) })
-                    Picker("Peak learning rate", selection: $lr) {
-                        ForEach(LRSchedule.allCases) { l in Text(l.label).tag(l) }
+                } else {
+                    Card {
+                        CardHeader("Optimization", symbol: "dial.medium")
+                        LabeledPicker(title: "Optimizer", selection: $design.optimizer, options: OptimizerKind.allCases,
+                                      enabled: { $0 == .adamw || ($0 == .muon && b.has(.muon)) || ($0 == .shampoo && b.has(.shampoo)) })
+                        Picker("Precision", selection: $design.precision) {
+                            Text("BF16").tag(Precision.bf16)
+                            Text("FP8").tag(Precision.fp8).disabled(!b.has(.fp8Training))
+                            Text("FP4").tag(Precision.fp4).disabled(!b.has(.fp4Training))
+                        }
+                        .pickerStyle(.segmented)
+                        LabeledPicker(title: "LR schedule", selection: $design.schedule, options: ScheduleKind.allCases, enabled: { $0 == .cosine || b.has(.wsd) })
+                        Picker("Peak learning rate", selection: $lr) {
+                            ForEach(LRSchedule.allCases) { l in Text(l.label).tag(l) }
+                        }
+                        .pickerStyle(.segmented)
+                        Text(lr.detail).font(.caption).foregroundStyle(.secondary)
+                        FeatureToggle(title: "Annealing on the best data", detail: "Finish pre-training by decaying the LR on curated data.", isOn: $design.anneal, enabled: b.has(.curriculum))
+                        Picker("Eval checkpoints", selection: $interval) {
+                            Text("2%").tag(0.02)
+                            Text("5%").tag(0.05)
+                            Text("10%").tag(0.1)
+                            Text("25%").tag(0.25)
+                        }
+                        .pickerStyle(.segmented)
+                        Text("Each checkpoint runs evals and updates the projection. Saving costs \(Fmt.pct(1 - Sim.checkpointOverhead(interval), decimals: 1)) of throughput at this interval; a loss-spike rollback loses on average half an interval of pre-training.")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Toggle("Auto-rollback on loss spikes", isOn: $autoRollback).toggleStyle(.switch)
+                        opsCoverageRow(s)
                     }
-                    .pickerStyle(.segmented)
-                    Text(lr.detail).font(.caption).foregroundStyle(.secondary)
-                    FeatureToggle(title: "Annealing on the best data", detail: "Finish pre-training by decaying the LR on curated data.", isOn: $design.anneal, enabled: b.has(.curriculum))
-                    Picker("Eval checkpoints", selection: $interval) {
-                        Text("2%").tag(0.02)
-                        Text("5%").tag(0.05)
-                        Text("10%").tag(0.1)
-                        Text("25%").tag(0.25)
-                    }
-                    .pickerStyle(.segmented)
-                    Text("Each checkpoint runs evals and updates the projection. Frequent checkpoints cost a little throughput.").font(.caption).foregroundStyle(.secondary)
-                    Toggle("Auto-rollback on loss spikes", isOn: $autoRollback).toggleStyle(.switch)
                 }
             }
 
@@ -434,6 +557,25 @@ struct ModelLabView: View {
     }
 
     // MARK: Helpers
+
+    /// Ops staffing for this cluster: the coverage unpinned training-ops swarms would give it, and what that buys.
+    private func opsCoverageRow(_ s: GameState) -> some View {
+        let b = store.derived.bonuses
+        let cov = Training.plannedCoverage(s, chips: design.chips)
+        let now = Training.goodput(chips: design.chips, coverage: cov, state: s, bonuses: b)
+        let full = Training.goodput(chips: design.chips, coverage: 1, state: s, bonuses: b)
+        return HStack(spacing: 8) {
+            Image(systemName: "wrench.and.screwdriver.fill").foregroundStyle(cov >= 0.9 ? .green : (cov >= 0.5 ? .orange : .secondary))
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Ops-agent coverage \(Fmt.pct(cov, decimals: 0)) · goodput \(Fmt.pct(now, decimals: 0))").font(.callout)
+                Text(full - now > 0.02 ? "Full coverage would reach \(Fmt.pct(full, decimals: 0)). A run needs one engineer-equivalent per 600 chips."
+                                       : "Failures barely touch a run this size.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            if full - now > 0.02 { Button("Agent Swarms") { store.open(.swarms) }.controlSize(.small) }
+        }
+    }
 
     private func prepare(_ s: GameState, _ d: Derived) {
         let b = d.bonuses
@@ -567,7 +709,7 @@ struct ForecastPanel: View {
                     }
                     if known {
                         HStack(alignment: .firstTextBaseline, spacing: 10) {
-                            Text(Fmt.score(band.mean)).font(.system(size: 46, weight: .bold).monospacedDigit())
+                            Text(Fmt.score(band.mean)).font(TypeRamp.display)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Intelligence Index · \(Fmt.score(band.low))–\(Fmt.score(band.high))").foregroundStyle(.secondary)
                                 if let comparable {
@@ -692,7 +834,7 @@ struct ForecastPanel: View {
                 }
 
                 Button(action: start) {
-                    Label("Start training \(design.name)", systemImage: "play.fill")
+                    Label(est.toy ? "Start training \(design.name)" : "Review & launch \(design.name)", systemImage: est.toy ? "play.fill" : "checklist")
                         .font(.headline)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 6)
@@ -801,7 +943,7 @@ struct DriverList: View {
             }
         }
         .padding(10)
-        .background(.quaternary.opacity(0.35), in: .rect(cornerRadius: 10))
+        .background(Theme.insetFill, in: .rect(cornerRadius: Theme.Radius.inset))
     }
 }
 
@@ -896,10 +1038,7 @@ private struct PlannerStat: View {
     let value: String
     var tint: Color = .primary
     var body: some View {
-        VStack(alignment: .leading, spacing: 1) {
-            Text(value).font(.headline.monospacedDigit()).foregroundStyle(tint)
-            Text(label).font(.caption2).foregroundStyle(.secondary)
-        }
+        MetricTile(label: label, value: value, tint: tint, style: .plain)
     }
 }
 
@@ -969,14 +1108,6 @@ enum StageColors {
         case "Reasoning RL": .pink
         default: .purple
         }
-    }
-}
-
-enum Regulation {
-    static func note(flops: Double, state s: GameState) -> String? {
-        if flops >= 1e26 && s.year >= 2023.83 && s.year < 2025.06 { return "Above 10²⁶ FLOPs: must be reported to the US government (EO 14110)." }
-        if flops >= 1e25 && s.market.euAIAct { return "Above 10²⁵ FLOPs: an EU AI Act systemic-risk model — needs safety evals before release." }
-        return nil
     }
 }
 

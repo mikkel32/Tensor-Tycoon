@@ -9,7 +9,7 @@ import Foundation
 enum VoiceBank {
     static let lines: [String: [String]] = {
         var all: [String: [String]] = [:]
-        for part in [launches, yours, money, deals, policy, careers] { all.merge(part) { a, _ in a } }
+        for part in [launches, yours, money, deals, policy, careers, launchReports] { all.merge(part) { a, _ in a } }
         return all
     }()
 
@@ -310,6 +310,22 @@ enum VoiceBank {
         "plaunch.style.staged": [
             "*|It goes to trusted testers first, with a wider rollout to follow.",
             "*|A staged rollout: trusted testers now, everyone else later.",
+        ],
+        "plaunch.style.stealth": [
+            "*|There was no announcement: developers found it in the model list.",
+            "*|{you} said nothing. It simply appeared in the API overnight.",
+        ],
+        "plaunch.style.open": [
+            "*|The weights went up alongside the API, free to download on day one.",
+            "*|{you} published the weights the same morning: anyone can run it.",
+        ],
+        "plaunch.style.enterprise": [
+            "*|It goes to enterprise design partners first; the public API follows.",
+            "*|{you} launched it with a slate of enterprise customers already signed.",
+        ],
+        "plaunch.style.government": [
+            "*|Officials were briefed before the public, and sovereign partners get early access.",
+            "*|{founder} briefed governments first; public access follows.",
         ],
         "plaunch.ctx.top": [
             "*|It overtakes {prevlab's} {prev} by {margin} points.",
@@ -1042,6 +1058,104 @@ enum VoiceBank {
         "career.scoop": [
             "*|{reporter} at {outlet} first reported the move.",
             "*|The move was first reported by {outlet}.",
+        ],
+    ]
+
+    // MARK: 3.7: launch-day reports
+
+    static let launchReports: [String: [String]] = [
+        "lreport.press.good": [
+            "N|A week in, {model} is the model people are switching to. The numbers back the noise.",
+            "N|Sign-ups, API traffic, developer chatter: {model} is up on all three after a week.",
+            "B|{you} got this launch right. {model} owns the conversation.",
+            "C|A well-run launch. The real test is whether {model} still looks this good in three months.",
+            "*|{model} had the best first week of any launch this year.",
+            "*|Everyone I talk to has tried {model} this week. That doesn't happen often.",
+            "S|Great first week. First weeks are easy.",
+            "T|Strong launch.",
+        ],
+        "lreport.press.mixed": [
+            "N|A respectable first week for {model}: no fireworks, no stumbles.",
+            "C|{model} is a solid model that launched into a crowded week.",
+            "S|The {plan} was fine. The model is fine. Fine doesn't move market share.",
+            "*|{model} is doing what you'd expect from a #{rank} model, no more and no less.",
+            "*|Users like {model}. Whether they like it enough to switch is another question.",
+            "T|Decent. Not decisive.",
+        ],
+        "lreport.press.bad": [
+            "N|After a week, {model} is behind where {you} would have wanted it.",
+            "S|{you} made a lot of noise for a #{rank} model. Buyers noticed the gap.",
+            "W|The launch promised more than {model} delivers, and the complaints are piling up.",
+            "C|{model} needed a quieter launch. The expectations were set too high.",
+            "*|The first-week numbers for {model} are disappointing.",
+            "T|Overpromised.",
+        ],
+        "lreport.stealth": [
+            "N|No launch post, no keynote, and still developers found {model}. That says something.",
+            "*|{you} just switched {model} on and let the benchmarks leak out. Unusual — and clever.",
+            "S|A stealth drop is either confidence or a lack of it. With {model} it's hard to tell.",
+            "C|Quiet launches are underrated. {model} will be judged on use, not hype.",
+        ],
+        "lreport.staged": [
+            "C|A waitlist and a staged rollout is how frontier models should ship. More labs should copy {you}.",
+            "*|The staged rollout gave outside researchers time to probe {model} before everyone had it.",
+            "S|A waitlist is a marketing tactic dressed up as caution. Still, it's the right instinct.",
+            "W|Staging the rollout is good. I'd still like to see what the testers found.",
+        ],
+        "lreport.keynote": [
+            "S|A keynote with lasers for a language model. The industry has become a car show.",
+            "*|{founder} put on a show. Whether {model} lives up to it is a question for next month.",
+            "S|The demo was rehearsed. The real world won't be.",
+            "W|Launch events make every model sound safe and magical. Neither is ever quite true.",
+            "B|Love it or hate it, the keynote worked: everyone was talking about {model}.",
+        ],
+        "lreport.open": [
+            "C|Open weights at this level let researchers study {model} instead of guessing. That's a gift to the field.",
+            "*|Within a day there were fine-tunes of {model} everywhere. That's what open weights buy you.",
+            "W|Once the weights are out, nobody can take them back. I hope {you} tested {model} as hard as they say.",
+            "B|{you} just made every closed lab's pricing look greedy.",
+            "S|Open weights are great marketing. Let's see whether {you} keeps doing it when the models get better.",
+        ],
+        "lreport.enterprise": [
+            "N|Launching {model} through enterprise customers first is how you build revenue, not headlines.",
+            "*|The design partners we spoke to are already rolling {model} out internally.",
+            "C|Enterprise-first is slower, but the contracts it brings are stickier than any consumer spike.",
+            "B|This is the grown-up way to launch a model, and the buyers are responding.",
+        ],
+        "lreport.government": [
+            "C|We appreciated the early briefing on {model}. It's the kind of cooperation we've asked labs for.",
+            "*|Briefing governments before launch should be normal. {you} made it normal.",
+            "C|Early access lets our agencies evaluate {model} properly before it reaches the public.",
+            "W|We'll be watching how {model} is used, but the early engagement is welcome.",
+        ],
+        "lreport.blitz.top": [
+            "C|The published evaluations for {model} hold up. We reproduced the headline numbers.",
+            "*|{you} published the full eval suite for {model}, and it survives scrutiny.",
+            "N|The charts were real: {model} is #{rank} on the numbers that matter.",
+        ],
+        "lreport.blitz.doubt": [
+            "S|A wall of charts doesn't make {model} a frontier model. Some of those evals look contaminated to me.",
+            "C|We couldn't reproduce several of the numbers {you} published for {model}.",
+            "S|When a lab leads with benchmarks, read the footnotes. {model's} are long.",
+        ],
+        "lreport.undercut": [
+            "B|If {you} wants a price war, we'll have one.",
+            "T|We'll respond on price.",
+            "C|Our pricing reflects what it costs to serve a model properly. We'll review it.",
+            "S|Cheap tokens are easy to sell and hard to sustain.",
+            "*|We've noticed {you's} prices. Customers will hear from us shortly.",
+        ],
+        "lreport.safety.light": [
+            "W|{model} shipped with a page of notes where a system card should be. That isn't good enough at this level.",
+            "W|A short model card for a frontier model is a choice, and {you} made it.",
+            "S|No red-team report, no detailed evals. We're asked to trust {you} on {model}.",
+            "C|{you} should publish a proper system card for {model}. It's not too late.",
+        ],
+        "lreport.safety.thorough": [
+            "C|The {model} system card is the most thorough a lab has published. Credit where it's due.",
+            "*|An external red-team report with real findings in it. That's how it should be done.",
+            "W|The red-team report on {model} is reassuring, and honest about what's still unsolved.",
+            "S|A thorough system card is still a document the lab wrote about itself. But this one is good.",
         ],
     ]
 }

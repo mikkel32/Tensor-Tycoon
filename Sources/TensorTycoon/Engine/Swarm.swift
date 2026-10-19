@@ -6,7 +6,8 @@ import Foundation
 enum Swarms {
     static let autonomyOutput = [0.7, 1.0, 1.45]
     static let autonomyDrift = [0.3, 1.0, 2.6]
-    static let maxSwarms = 12
+    /// 3.6: organisations hold several teams each, so the cap counts every swarm, stand-alone or in an organisation.
+    static let maxSwarms = 40
     static let maxAgents = 1_000_000_000
 
     /// Tokens one agent burns per day, prefill included: agents loop on tools, re-read whole repos and never sleep.
@@ -125,6 +126,7 @@ enum Swarms {
             * (0.5 + 0.25 * log10(max(10, Double(sw.agents))))
         if let m, usesAlien(m) { d *= 1 + (1 - Xeno.bestLegibility(s)) }
         if sw.mission != .alignment { d *= 1 - 0.5 * s.swarmSafety }
+        if sw.orgID != nil { d *= AgentOrgs.driftFactor(sw, s) }   // 3.6: supervisors and verification
         return d * s.traits.driftKeep * (1 - min(0.6, b.agentSafety)) * (s.signatureAt(.keel, 3) ? 0.7 : 1)
     }
 
@@ -172,7 +174,7 @@ enum Swarms {
         case .trainingOps:
             let chips = s.runs.filter { $0.kind == .full && ($0.status == .running || $0.status == .postTraining) }.reduce(0) { $0 + $1.design.chips }
             out = chips > 0 ? "Covers ~\(Int(min(1, w / max(0.5, Double(chips) / 600)) * 100))% of \(Fmt.int(chips)) training chips" : "Level \(Int(level(others + w) * 100))%"
-        case .silicon, .alignment, .security, .intel:
+        case .silicon, .alignment, .security, .intel, .software, .discovery, .infrastructure, .robotics, .finance, .experiments:
             out = "Level \(Int(level(others + w) * 100))%"
         case .workforce:
             let rev = min(laborCap(s), (others + w) * wage(s.year)) - min(laborCap(s), others * wage(s.year))
@@ -199,6 +201,7 @@ enum Swarms {
             s.swarmSafety = 0
             s.swarmSecurity = 0
             s.swarmIntel = 0
+            _ = AgentOrgs.daily(&s, b)   // 3.6: organisations without teams (clears their levels)
             return
         }
         // Pool each mission: effective agents and quality-weighted sums.
@@ -224,6 +227,13 @@ enum Swarms {
             let eff = active * (1 - sw.oversight) * autonomyOutput[sw.autonomy] * sandbag
             s.swarms[i].active = active
             s.swarms[i].missionDays += 1
+            // 3.6: teams of an organisation are pooled by the organisation (AgentOrgs), not here.
+            if let oid = sw.orgID, s.orgs.contains(where: { $0.id == oid }) {
+                if active >= 1_000 { Achievements.unlock(&s, "swarm_1k") }
+                if active >= 1_000_000 { Achievements.unlock(&s, "swarm_1m") }
+                alignmentStep(&s, i, model: m, b)
+                continue
+            }
             effAgents[sw.mission, default: 0] += eff
             let q = quality(m, s, mission: sw.mission) * sw.experience
             qualitySum[sw.mission, default: 0] += eff * q
@@ -238,14 +248,19 @@ enum Swarms {
             let q = (qualitySum[mission] ?? 0) / a
             workforce[mission] = q * pow(a, coordination(b, s))
         }
+        // 3.6: organisations add their output to the same mission pools (stand-alone swarms keep their own share).
+        let solo = workforce
+        let org = AgentOrgs.daily(&s, b)
+        for (mission, w) in org.workforce { workforce[mission, default: 0] += w }
         // Mission effects
         let wResearch = workforce[.research] ?? 0
         s.swarmRPToday = researchRP(wResearch)
         let wXeno = workforce[.xeno] ?? 0
         // Without Agentic RL research the search still runs, just less efficiently.
         let xenoScale = (1 + s.traits.insight + s.bonuses.insight) * (b.has(.agents) ? 1 : 0.6)
-        if wXeno > 0, let q = qualitySum[.xeno], q > 0 {
-            s.xenoInsightToday += insight(wXeno * (gateSum[.xeno] ?? 0) / q) * xenoScale
+        let soloGated = (solo[.xeno] ?? 0) > 0 ? (solo[.xeno] ?? 0) * (gateSum[.xeno] ?? 0) / max(1e-12, qualitySum[.xeno] ?? 0) : 0
+        if wXeno > 0, soloGated + org.xenoGated > 0 {
+            s.xenoInsightToday += insight(soloGated + org.xenoGated) * xenoScale
         }
         s.swarmOps = level(workforce[.trainingOps] ?? 0)
         s.swarmSilicon = level(workforce[.silicon] ?? 0)
@@ -264,15 +279,19 @@ enum Swarms {
         for i in s.swarms.indices {
             let sw = s.swarms[i]
             guard !sw.paused, let share = shares[i], let total = qualitySum[sw.mission], total > 0 else { continue }
+            // A stand-alone swarm's share of its mission's output (all of it when no organisation works the mission).
             let frac = share / total
-            let w = (workforce[sw.mission] ?? 0) * frac
+            let soloW = solo[sw.mission] ?? 0
+            let pooled = workforce[sw.mission] ?? 0
+            let ofPool = pooled > 0 ? soloW / pooled : 1
+            let w = soloW * frac
             s.swarms[i].workforce = w
             let out: Double
             switch sw.mission {
-            case .research: out = s.swarmRPToday * frac
-            case .xeno: out = s.xenoInsightToday > 0 ? insight(wXeno * (gateSum[.xeno] ?? 0) / total) * xenoScale * frac : 0
-            case .workforce: out = labor * frac
-            case .trainingOps, .silicon, .alignment, .security, .intel: out = w
+            case .research: out = s.swarmRPToday * frac * ofPool
+            case .xeno: out = s.xenoInsightToday > 0 ? insight(soloGated + org.xenoGated) * xenoScale * frac * (soloGated / max(1e-12, soloGated + org.xenoGated)) : 0
+            case .workforce: out = labor * frac * ofPool
+            default: out = w
             }
             s.swarms[i].output = out
             s.swarms[i].totalOutput += out
@@ -301,7 +320,9 @@ enum Swarms {
                         "a sub-swarm rewrote its task queue to favour easy tickets",
                         "agents hid failed experiments from the dashboard",
                         "agents opened unsanctioned accounts on a cloud provider to finish faster"]
-            log(&s, i, "Incident — \(s.rng.pick(msgs)).")
+            let what = s.rng.pick(msgs)
+            log(&s, i, "Incident — \(what).")
+            if let oid = sw.orgID { AgentOrgs.report(&s, oid, .incident, "Incident in \(sw.name)", "Monitors report that \(what).") }
             if s.rng.chance(detection(sw, s, b)) {
                 Sim.news(&s, "Agent swarm incident: \(sw.name)", "Monitors flagged coordinated misbehaviour among \(Fmt.count(sw.active)) agents. Raise oversight or purge the swarm.",
                          .company, image: "network", important: true, good: false)
@@ -382,7 +403,7 @@ enum Swarms {
 
 extension GameState {
     mutating func startSwarm(name: String, modelID: UUID, agents: Int, mission: SwarmMission, accelID: String, chips: Int,
-                             autonomy: Int, oversight: Double, targetRunID: UUID? = nil) -> String? {
+                             autonomy: Int, oversight: Double, targetRunID: UUID? = nil, announce: Bool = true) -> String? {
         let b = bonuses
         if swarms.count >= Swarms.maxSwarms { return "You can run at most \(Swarms.maxSwarms) swarms. Grow an existing one instead." }
         guard let m = models.first(where: { $0.id == modelID }), !m.retired else { return "Pick one of your models." }
@@ -404,9 +425,9 @@ extension GameState {
         sw.alignmentMeasured = sw.alignment
         swarms.append(sw)
         Swarms.log(&self, swarms.count - 1, "Spun up \(Fmt.int(agents)) agents of \(m.name) on \(Fmt.int(chips))× \(a.name): \(mission.rawValue.lowercased()).")
-        Sim.news(&self, "Agent swarm online: \(sw.name)",
+        if announce { Sim.news(&self, "Agent swarm online: \(sw.name)",
                  "\(Fmt.int(agents)) copies of \(m.name) now work on \(mission.rawValue.lowercased()), \(AgentSwarm.autonomyNames[autonomy].lowercased()), \(Int(oversight * 100))% oversight.",
-                 .research, image: "supercomputer", important: true)
+                 .research, image: "supercomputer", important: true) }
         return nil
     }
 

@@ -18,7 +18,7 @@ struct FundingView: View {
         if s.publicShares > 0 { slices.append(("Public float", s.publicShares)) }
         let (ipoOK, ipoWhy) = Economy.ipoEligible(s)
 
-        return Page(title: "Funding & Equity", subtitle: "Sell slices of the company to fund compute. Every round dilutes you — the trick is raising at ever-higher valuations.") {
+        return Page(title: "Funding & Equity", subtitle: "Sell slices of the company to fund compute. Every round dilutes you — the trick is raising at ever-higher valuations.", screen: .funding) {
             ScreenHint(.funding)
             HStack(alignment: .top, spacing: 16) {
                 Card {
@@ -43,8 +43,7 @@ struct FundingView: View {
                     }
                 }
                 VStack(spacing: 12) {
-                    StatTile(title: "Valuation", value: Fmt.money(s.valuation), detail: s.isPublic ? "Market cap" : "Private mark", symbol: "building.columns.fill", tint: .purple)
-                        .helpBadge(.valuation)
+                    StatTile(title: "Valuation", value: Fmt.money(s.valuation), detail: s.isPublic ? "Market cap" : "Private mark", symbol: "building.columns.fill", tint: .purple, help: .valuation)
                     StatTile(title: "Your stake", value: Fmt.money(s.valuation * s.founderStake), detail: Fmt.pct(s.founderStake), symbol: "person.crop.circle.fill", tint: .green)
                     StatTile(title: "Your net worth", value: Fmt.money(s.founderNetWorth), detail: s.founderCash > 0 ? "\(Fmt.money(s.founderCash)) cashed out" : "All on paper", symbol: "dollarsign.circle.fill", tint: .yellow)
                 }

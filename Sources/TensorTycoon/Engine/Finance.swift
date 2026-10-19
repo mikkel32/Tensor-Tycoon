@@ -44,7 +44,7 @@ enum Finance {
         // Investors price off where the company is marked (which moves slowly) and where its fundamentals say
         // it's heading. Lab identity and how much the board believes in you move the price.
         let anchor = s.valuation > 0 && !s.isPublic ? (s.valuation * v).squareRoot() : v
-        var pre = anchor * s.rng.range(0.85, 1.2) * (strategic ? 1.15 : 1) * max(0.6, 1 + s.traits.valuation) * Board.valuationFactor(s)
+        var pre = anchor * s.rng.range(0.85, 1.2) * (strategic ? 1.15 : 1) * max(0.6, 1 + s.traits.valuation) * Board.valuationFactor(s) * HQ.investorFactor(s, value: anchor)
         pre = max(pre, 2_000_000)
         let f = s.raiseFraction
         let cap = maxRaise(s.year) * s.rng.range(0.5, 1.0)
@@ -165,9 +165,12 @@ enum Monthly {
         XenoScience.monthly(&s)
         ResearchLab.monthly(&s)
         Moonshots.monthly(&s)   // 3.4: late game
+        AdvancedProjects.monthly(&s)   // 3.5: advanced projects
+        Semis.monthly(&s)   // 3.5: semiconductors
         SecurityOps.monthly(&s)
         Policy.monthly(&s)
         RivalIntel.monthly(&s)
+        HQ.monthly(&s)   // 3.5: grants, partnerships and contracts from home
         if s.publication == .secret { s.brand = max(0, s.brand - 0.25) }
         // Enterprise contracts tick
         for i in s.deals.indices where s.deals[i].active {
@@ -187,17 +190,14 @@ enum Monthly {
         }
         Business.generateDeals(&s, b)
 
+        Corporate.monthly(&s)   // 3.5: corporate — subsidiaries trade, corporate debt is serviced, dividends paid
         Finance.payLoans(&s)
         Finance.monthlyRate(&s)
         Finance.settleSupplyDeals(&s)
 
         // Taxes on positive monthly profit
         let pre = s.month.revenue + s.month.interestIncome + s.month.oneOffIncome - s.month.opex - s.month.costInterest
-        if pre > 0 {
-            let tax = pre * 0.21
-            s.month.taxes = tax
-            s.cash -= tax
-        }
+        HQ.settleTaxes(&s, pre: pre)   // 3.5: the home country's rate and R&D credit (21% in the US)
 
         // Market modifiers drift back to normal
         let target = EventCatalog.hypeBase(s.year)
@@ -238,6 +238,7 @@ enum Monthly {
         Victory.monthly(&s)
         Xeno.rivalDiscovery(&s)
         World.monthly(&s)   // 3.4: world and stakeholders
+        Nations.monthly(&s)   // 3.7: national strategies and economies, rival specialisations and answers
 
         // Valuation and records. A private company's mark moves halfway (in log terms) toward its new level each
         // month, so one launch or one bad month doesn't swing it 40× or wipe out two thirds of it overnight.
@@ -248,6 +249,7 @@ enum Monthly {
             s.valuation = mark
         }
         Finance.updateCreditScore(&s)
+        Corporate.closeBooks(&s)   // 3.5: corporate — rating, covenants, audits and the statements snapshot
         s.month.cashEnd = s.cash
         s.month.valuation = s.valuation
         s.month.bestIndex = s.models.map(\.index).max() ?? 0
@@ -276,6 +278,9 @@ enum Business {
         if s.lawsPassed.contains("liability") { p *= clamp(1 + (s.safetyScore - 50) / 150, 0.6, 1.4) }
         // Rivals running enterprise pushes win some of the deals that would have come to you.
         p *= RivalStrategy.playerDealFactor(s)
+        p *= Corporate.dealFactor(s)   // 3.5: a consulting arm brings leads (exactly 1 without one)
+        p *= Nations.dealFactor(s)   // 3.7: a growing home economy buys more
+        p *= Launches.dealFactor(s)   // 3.7: enterprise-first launches and the Startup stage (exactly 1 without either)
         let n = s.rng.chance(p) ? (s.rng.chance(p * 0.5) ? 2 : 1) : 0
         for _ in 0..<n {
             let size = Macro.marketSize(s.year) * Macro.segmentSplit(s.year, chatMoment: s.chatMoment != nil).enterprise

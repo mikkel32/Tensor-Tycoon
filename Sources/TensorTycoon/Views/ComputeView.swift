@@ -11,12 +11,11 @@ struct ComputeView: View {
         let peakPF = pools.reduce(0.0) { $0 + Double($1.total) * $1.accel.best } / 1000
         let rentMonth = s.rentals.reduce(0.0) { $0 + $1.hourly * 24 * 30.4 * Double($1.count) }
         let powerKW = s.owned.reduce(0.0) { acc, b in acc + (HardwareCatalog.get(b.accelID).map(Economy.chipKW) ?? 0) * Double(b.count) }
-        Page(title: "Compute Fleet", subtitle: "Every accelerator you own or rent, and what it's doing right now.") {
+        Page(title: "Compute Fleet", subtitle: "Every accelerator you own or rent, and what it's doing right now.", screen: .compute) {
             ScreenHint(.compute)
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 200), spacing: 12)], spacing: 12) {
+            KPIRow(minWidth: 200) {
                 StatTile(title: "Accelerators", value: Fmt.int(d.totalChips), detail: "\(Fmt.int(s.owned.reduce(0) { $0 + $1.count })) owned · \(Fmt.int(s.rentals.reduce(0) { $0 + $1.count })) rented", symbol: "cpu.fill", tint: .green)
-                StatTile(title: "H100-equivalents", value: Fmt.count(d.h100e), detail: "BF16 dense", symbol: "equal.square.fill", tint: .blue)
-                    .helpBadge(.h100e)
+                StatTile(title: "H100-equivalents", value: Fmt.count(d.h100e), detail: "BF16 dense", symbol: "equal.square.fill", tint: .blue, help: .h100e)
                 StatTile(title: "Peak low-precision", value: Fmt.tflops(peakPF * 1000), detail: "Best format per chip", symbol: "bolt.fill", tint: .orange)
                 StatTile(title: "Rental bill", value: "\(Fmt.money(rentMonth))/mo", detail: s.cloudCredits > 0 ? "\(Fmt.money(s.cloudCredits)) credits left" : "Billed daily", symbol: "cloud.fill", tint: .teal)
                 StatTile(title: "Owned IT load", value: Fmt.watts(powerKW * 1000), detail: "Before PUE overhead", symbol: "powerplug.fill", tint: .yellow)
@@ -31,7 +30,7 @@ struct ComputeView: View {
                 Card {
                     CardHeader("Allocation", symbol: "rectangle.split.3x1.fill", subtitle: "Training · Inference · Research · Self-improvement · Agent swarms · Leased out · Idle")
                     ForEach(pools) { p in PoolRow(pool: p).equatable() }
-                    HStack(spacing: 14) {
+                    LazyVGrid(columns: Theme.columns(min: 130, spacing: 10), alignment: .leading, spacing: 4) {
                         LegendDot(color: .blue, label: "Training")
                         LegendDot(color: .green, label: "Inference")
                         LegendDot(color: .purple, label: "Research")
@@ -44,14 +43,14 @@ struct ComputeView: View {
                 }
             }
 
-            HStack(alignment: .top, spacing: 16) {
+            CardGrid(minWidth: 340, maxColumns: 2) {
                 Card {
                     CardHeader("Cloud rentals", symbol: "cloud")
                     if s.rentals.isEmpty { NextStep("Nothing rented. Rent cloud chips by the hour, or reserve them for a year or three at a discount.", action: "Hardware Store", screen: .hardware) }
                     ForEach(s.rentals) { r in
                         if let a = HardwareCatalog.get(r.accelID) {
                             HStack {
-                                Photo(key: a.image).frame(width: 44, height: 30).clipShape(.rect(cornerRadius: 6))
+                                Photo(key: a.image, illustrative: a.photoIsIllustrative).frame(width: 44, height: 30).clipShape(.rect(cornerRadius: 6))
                                 VStack(alignment: .leading, spacing: 1) {
                                     Text("\(Fmt.int(r.count))× \(a.name)").font(.callout.weight(.semibold))
                                     Text("\(r.term.rawValue) · \(Fmt.price(r.hourly))/hr · \(Fmt.money(r.hourly * 24 * 30.4 * Double(r.count)))/mo\(r.end.map { " · ends \($0.gameShort)" } ?? "")")
@@ -101,7 +100,7 @@ private struct PoolRow: View, Equatable {
         let p = pool
         let total = max(1, Double(p.total))
         HStack(spacing: 12) {
-            Photo(key: p.accel.image).frame(width: 54, height: 36).clipShape(.rect(cornerRadius: 7))
+            Photo(key: p.accel.image, illustrative: p.accel.photoIsIllustrative).frame(width: 54, height: 36).clipShape(.rect(cornerRadius: 7))
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
                     Text(p.accel.name).font(.callout.weight(.semibold))
@@ -140,7 +139,7 @@ private struct OwnedRow: View {
             let site = state.sites.first { $0.id == batch.siteID }
             let unit = Economy.resaleValue(a, state, unitCost: batch.unitCost, purchased: batch.purchased)
             HStack {
-                Photo(key: a.image).frame(width: 44, height: 30).clipShape(.rect(cornerRadius: 6))
+                Photo(key: a.image, illustrative: a.photoIsIllustrative).frame(width: 44, height: 30).clipShape(.rect(cornerRadius: 6))
                 VStack(alignment: .leading, spacing: 1) {
                     Text("\(Fmt.int(batch.count))× \(a.name)").font(.callout.weight(.semibold))
                     Text("\(site?.name ?? "?") · bought \(batch.purchased.gameShort) at \(Fmt.money(batch.unitCost)) · resale \(Fmt.money(unit))")
@@ -171,9 +170,6 @@ private struct LegendDot: View {
     let color: Color
     let label: String
     var body: some View {
-        HStack(spacing: 4) {
-            Circle().fill(color).frame(width: 8, height: 8)
-            Text(label).foregroundStyle(.secondary)
-        }
+        LegendItem(color: color, label: label)
     }
 }

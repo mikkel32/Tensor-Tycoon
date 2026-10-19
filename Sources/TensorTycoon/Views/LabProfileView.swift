@@ -18,6 +18,7 @@ struct LabProfileView: View {
                     VStack(alignment: .leading, spacing: 16) {
                         LabModelsCard(comp: c, state: s)
                         LabStrategyCard(comp: c, state: s)
+                        LabSpecialisationCard(comp: c, state: s)   // 3.7: specialisation & why
                         LabProductsCard(comp: c, state: s)
                         LabCapabilitiesCard(labID: c.id)   // 3.4: domains, milestones, product lines
                     }
@@ -547,8 +548,8 @@ private struct LabNextCard: View {
                 HStack(spacing: 6) {
                     Pill(text: RivalIntel.windowText(o), color: .indigo, symbol: "calendar")
                     Pill(text: r.threat.rawValue, color: RivalWatchView.threatColor(r.threat), symbol: RivalWatchView.threatSymbol(r.threat))
-                    if p.rushed { Pill(text: "Rushed", color: .red) }
-                    if p.delays > 0 { Pill(text: "Delayed", color: .orange) }
+                    if p.rushed { Pill("Rushed", tone: .bad) }
+                    if p.delays > 0 { Pill("Delayed", tone: .warning) }
                 }
                 if o.trainingKnown {
                     Text("Training on about \(Fmt.count(p.chips)) H100e at \(p.site): \(Fmt.flops(p.flops)) FLOPs of pre-training.")

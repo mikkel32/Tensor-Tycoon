@@ -18,13 +18,17 @@ enum Sim {
         Operations.daily(&s, b)
         s.xenoInsightToday = 0
         Training.daily(&s, b)
+        Families.daily(&s, b)   // 3.5: model families (distillation, post-training)
         RSI.daily(&s, b)
         Swarms.daily(&s, b)
         Silicon.daily(&s)
         Xeno.daily(&s, b)
         SecurityOps.daily(&s)
         ResearchLab.daily(&s, b)
+        DataEconomy.daily(&s)   // 3.6: data economy
+        FoundingKit.daily(&s)   // 3.5: starter quests
         XenoScience.daily(&s)
+        Science.daily(&s)   // 3.6: science labs
         Treasury.autoPrice(&s, b)
         dailyMarket(&s, b)
         ChipBusiness.daily(&s)
@@ -37,11 +41,16 @@ enum Sim {
         Events.daily(&s)
         if GameCalendar.components(s.date).day % 7 == 3 { BenchLife.weekly(&s) }
         World.daily(&s)   // 3.4: world and stakeholders
+        AdvancedProjects.daily(&s)   // 3.5: advanced projects
+        Semis.daily(&s)   // 3.5: semiconductors (nothing until you hire a team or book capacity)
         if GameCalendar.components(s.date).day % 7 == 5 { Pulse.weekly(&s) }   // 3.4: industry chatter and buzz
+        Launches.daily(&s)   // 3.7: launch reports and rivals' lagged answers
+        if GameCalendar.components(s.date).day % 7 == 1 { Progression.weekly(&s) }   // 3.7: company stages
 
         if s.date.ym != oldMonth { Monthly.close(&s) }
         Achievements.check(&s)
         checkSolvency(&s)
+        Fun.daily(&s)   // 3.5: conferences, challenges, hackathons, scenarios
         Alerts.daily(&s)
         Alerts.applyStandingAnswers(&s)
         Alerts.expireInbox(&s)
@@ -51,7 +60,9 @@ enum Sim {
 
     static func news(_ s: inout GameState, _ title: String, _ body: String, _ cat: NewsCategory,
                      image: String? = nil, important: Bool = false, good: Bool? = nil) {
-        s.news.insert(NewsItem(date: s.date, title: title, body: body, category: cat, image: image, important: important, good: good), at: 0)
+        // The photo is a pure function of the headline (ImagePicker never draws from the game's RNG).
+        s.news.insert(NewsItem(date: s.date, title: title, body: body, category: cat,
+                               image: ImagePicker.illustrate(image, title: title, category: cat), important: important, good: good), at: 0)
         if s.news.count > 400 { s.news.removeLast(s.news.count - 400) }
         s.unreadNews += 1
     }
@@ -139,7 +150,8 @@ enum Sim {
                 merged[key] = b
             }
         }
-        s.owned = Array(merged.values).sorted { $0.purchased < $1.purchased }
+        // 3.7: ties (same day) by merge key, so the order never depends on the Dictionary's.
+        s.owned = merged.sorted { a, b in a.value.purchased != b.value.purchased ? a.value.purchased < b.value.purchased : a.key < b.key }.map(\.value)
     }
 
     static func rentalExpiry(_ s: inout GameState) {
@@ -217,6 +229,10 @@ enum Sim {
                     RSI.log(&s, ri, "Paused: not enough \(pool.accel.name) chips.")
                 }
             }
+            if excess > 0 && pool.accel.vendor == .custom {
+                // 3.5: your own chips can't be rented as spares, so a run on them carries on with the chips that are left.
+                AlienFab.shrinkRuns(&s, accel: pool.accel, excess: &excess)
+            }
             if excess > 0 {
                 for ri in s.runs.indices where s.runs[ri].design.accelID == id && (s.runs[ri].status == .running || s.runs[ri].status == .postTraining) && excess > 0 {
                     s.runs[ri].status = .paused
@@ -228,6 +244,7 @@ enum Sim {
                                  screen: .training, critical: true, cooldown: 7)
                 }
             }
+            if excess > 0 && !s.families.jobs.isEmpty { Families.shrink(&s, accelID: id, excess: &excess) }   // 3.5: model families
         }
     }
 
@@ -249,11 +266,11 @@ enum Sim {
     // MARK: - Research
 
     static func researchRate(_ s: GameState, _ b: ResearchBonuses) -> Double {
-        let people = s.employees.filter { $0.role == .researcher }.reduce(0.0) { $0 + pow($1.skill / 50, 1.3) * $1.traitMultiplier * (0.6 + $1.morale / 250) }
+        let people = s.employees.filter { $0.role == .researcher && !s.advanced.seconded.contains($0.id) }.reduce(0.0) { $0 + pow($1.skill / 50, 1.3) * $1.traitMultiplier * (0.6 + $1.morale / 250) }
         let t = s.traits
         let founder = 0.8 * (1 + t.founderRP)
         var computePF = 0.0
-        for (id, n) in s.researchChips where n > 0 {
+        for (id, n) in s.researchChips.sorted(by: { $0.key < $1.key }) where n > 0 {   // 3.7: fixed order (float sums)
             if let a = HardwareCatalog.get(id) { computePF += Double(n) * a.bf16 / 1000 }
         }
         let computeRP = 4 * pow(computePF, 0.45)
@@ -299,6 +316,8 @@ enum Sim {
 
         // Consumer
         var chatTokens = 0.0
+        var freeRoute: (id: UUID, share: Double)? = nil
+        var freeServed = 1.0
         // What rival apps earn per weekly user a month (RivalEconomy's assumption).
         let rivalChatARPU = Market.paidConversion(price: 20, freeTier: true) * 20
         if let chat = snap.consumer.first(where: { $0.isPlayer }) {
@@ -318,7 +337,16 @@ enum Sim {
                 * Market.budgetFactor(s.consumerUsers * conv * s.chatPrice / 30.4, pool: snap.consumerRevenuePool, others: others)
             let reasoningMult = chat.reasoning ? 2.2 : 1
             chatTokens = s.consumerUsers * Macro.tokensPerUserDay(y) * reasoningMult
-            if let id = chat.modelID { demand[id, default: 0] += chatTokens }
+            if let id = chat.modelID, let free = Families.freeRoute(s, chatID: id) {
+                // 3.5: model families — free users are served by a cheaper tier, paying users by the chat model.
+                freeRoute = (free.id, Families.freeShare(s))
+                let base = s.consumerUsers * Macro.tokensPerUserDay(y)
+                let paid = base * (1 - freeRoute!.share) * reasoningMult
+                let freeTokens = base * freeRoute!.share * (free.reasoning ? 2.2 : 1)
+                chatTokens = paid + freeTokens
+                demand[id, default: 0] += paid
+                demand[free.id, default: 0] += freeTokens
+            } else if let id = chat.modelID { demand[id, default: 0] += chatTokens }
             // Player can trigger the consumer boom early
             if s.chatMoment == nil, let m = s.models.first(where: { $0.id == chat.modelID }), m.c >= 4.1, m.design.instruct, m.design.rlhf {
                 s.chatMoment = y
@@ -400,6 +428,7 @@ enum Sim {
             s.models[i].revenueDay = r
             revAPI += r
             if id == s.chatModelID { chatServed = frac }
+            if id == freeRoute?.id { freeServed = frac }
             if id == agentModelID { agentServed = frac }
             if ent > 0 && entFrac < 0.95 {
                 for di in s.deals.indices where s.deals[di].active && s.deals[di].modelID == id {
@@ -409,6 +438,7 @@ enum Sim {
             servedTotal += served
             demandTotal += dem
         }
+        if let r = freeRoute { chatServed = chatServed * (1 - r.share) + freeServed * r.share }
         s.consumerServedFraction = chatServed
         let overall = demandTotal > 0 ? servedTotal / demandTotal : 1
         s.reliability = clamp(s.reliability * 0.93 + overall * 0.07, 0.05, 1)
@@ -457,15 +487,17 @@ enum Sim {
         var utilByAccel: [String: Double] = [:]
         for p in pools where p.total > 0 { utilByAccel[p.accel.id] = Double(p.allocated) / Double(p.total) }
         var power = 0.0
+        let grid = Power.gridMultiplier(s)   // 3.5: strained grids cost datacenters more
         for bt in s.owned {
             guard let a = HardwareCatalog.get(bt.accelID), let site = s.sites.first(where: { $0.id == bt.siteID }), site.isReady(s.date) else { continue }
             let util = utilByAccel[a.id] ?? 0
             let draw = Economy.chipKW(a) * Double(bt.count) * (0.3 + 0.65 * util)
-            power += draw * site.pue * 24 * site.powerPrice
+            power += draw * site.pue * 24 * site.powerPrice * (site.kind == .colo || site.kind == .datacenter ? grid : 1)
+                * Nations.powerFactor(s, location: site.locationID)   // 3.7: energy policy where the site is
         }
-        power *= max(0.5, 1 - s.traits.power) * XenoScience.powerFactor(s)
+        power *= max(0.5, 1 - s.traits.power) * XenoScience.powerFactor(s) * AgentOrgs.powerFactor(s) * Science.powerFactor(s) * AdvancedProjects.powerFactor(s)   // 3.6: infrastructure teams; energy discoveries; cooling programmes
         let sites = s.sites.reduce(0) { $0 + $1.monthlyFee } / 30.4
-        let office = Economy.officeLevels[min(s.officeLevel, Economy.officeLevels.count - 1)].monthly / 30.4
+        let office = Economy.office(s, s.officeLevel).monthly / 30.4   // 3.5: local rent
         let payroll = Economy.payrollYear(s) / 365
         let data = Economy.dataMonthlyCost(s) / 30.4
         let marketing = s.marketingBudget / 30.4
