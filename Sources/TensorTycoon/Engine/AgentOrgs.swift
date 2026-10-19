@@ -52,6 +52,10 @@ enum AgentOrgs {
     /// Share of an agent's work products that are wrong (bugs, bad analyses, broken experiments).
     static func errorRate(_ m: AIModel) -> Double { clamp(0.35 * exp(-0.8 * (Swarms.agenticX(m) - 8)), 0.01, 0.6) }
 
+    /// 3.8: the error rate in your organisation, where the model's reliability know-how is known: more reliable models
+    /// than the frontier make fewer mistakes (×0.6–1.4, `Capabilities.agentErrorFactor`).
+    static func errorRate(_ m: AIModel, _ s: GameState) -> Double { clamp(errorRate(m) * Capabilities.agentErrorFactor(m, s), 0.005, 0.7) }
+
     /// 3.9: errors an organisation adds by its depth alone (misread specs, broken interfaces between teams).
     static func coordinationError(depth: Double) -> Double { 0.04 * max(0, depth - 1) }
 
@@ -177,7 +181,7 @@ enum AgentOrgs {
                 e.supervisors += active
                 sups.append((active * (1 - sw.oversight), general))
                 e.teams.append(TeamEval(id: sw.id, name: sw.name, model: m.name, role: .supervisors, active: active, effective: 0,
-                                        perAgent: general, fit: 1, edge: 0, errorRate: errorRate(m)))
+                                        perAgent: general, fit: 1, edge: 0, errorRate: errorRate(m, s)))
                 continue
             }
             let sandbag = sw.alignment < 50 ? 0.5 + sw.alignment / 100 : 1
@@ -192,11 +196,11 @@ enum AgentOrgs {
             qSum += eff * q
             fitSum += eff * fit
             edgeSum += eff * edge
-            errSum += eff * errorRate(m)
+            errSum += eff * errorRate(m, s)
             gateSum += eff * q * Swarms.xenoGate(m, s)
             e.bestQuality = max(e.bestQuality, general)
             e.teams.append(TeamEval(id: sw.id, name: sw.name, model: m.name, role: .specialists, active: active, effective: eff,
-                                    perAgent: q, fit: fit, edge: edge, errorRate: errorRate(m), share: eff * q))
+                                    perAgent: q, fit: fit, edge: edge, errorRate: errorRate(m, s), share: eff * q))
         }
         e.shares = activityShares(o.kind.activities, best: e.bestQuality, focus: o.focus)
         guard e.effective > 0 else { return e }

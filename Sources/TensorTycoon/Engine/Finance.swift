@@ -284,7 +284,6 @@ enum Business {
         let pending = s.deals.filter { !$0.active }.count
         guard pending < 4 else { return }
         let frontier = Macro.frontier(s.year)
-        let quality = exp(1.2 * (best.c - frontier))
         var p = clamp(0.15 + sales * 0.12 + s.brand / 300, 0, 0.9) * (1 + b.enterpriseDemand) * max(0.3, 1 + s.traits.enterprise)
         if s.lawsPassed.contains("liability") { p *= clamp(1 + (s.safetyScore - 50) / 150, 0.6, 1.4) }
         // Rivals running enterprise pushes win some of the deals that would have come to you.
@@ -295,20 +294,22 @@ enum Business {
         p *= Commercial.leadFactor(s)   // 3.8: a team already fully booked finds fewer new leads
         let n = s.rng.chance(p) ? (s.rng.chance(p * 0.5) ? 2 : 1) : 0
         for _ in 0..<n {
+            let titles = s.year < 2022 ? ["custom NLP model", "document classification", "translation pipeline", "search ranking", "chatbot pilot"]
+                                       : ["customer-support agents", "coding assistant rollout", "document intelligence", "internal copilot",
+                                          "research assistant", "claims automation", "contract review", "voice agents"]
+            let title = s.rng.pick(titles)
             let size = Macro.marketSize(s.year) * Macro.segmentSplit(s.year, chatMoment: s.chatMoment != nil).enterprise
-            // A typical deal is a tiny slice of the enterprise market.
-            var monthly = size / 12 * s.rng.range(0.00002, 0.0004) * quality * (1 + sales * 0.05)
+            // A typical deal is a tiny slice of the enterprise market, sized by how well your best model does this
+            // kind of work against the frontier (3.8: its domain mix, not one capability number).
+            var monthly = size / 12 * s.rng.range(0.00002, 0.0004) * Capabilities.dealFit(s, title: title) * (1 + sales * 0.05)
             monthly = max(monthly, 8_000)
             let months = [6, 12, 12, 24, 36][s.rng.int(0, 4)]
             // Clients size their token needs at the market rate for a near-frontier model, not at your price.
             let price = max(0.05, Macro.referencePrice(c: frontier - 0.3, y: s.year) * s.market.apiPricePressure)
             let tokens = monthly / 30.4 / price * 1e6 * s.rng.range(0.4, 0.9)
-            let titles = s.year < 2022 ? ["custom NLP model", "document classification", "translation pipeline", "search ranking", "chatbot pilot"]
-                                       : ["customer-support agents", "coding assistant rollout", "document intelligence", "internal copilot",
-                                          "research assistant", "claims automation", "contract review", "voice agents"]
             // The bar is set by what the market offers (85–100% of the best rival flagship), so some leads
             // need a better model than you have.
-            let deal = EnterpriseDeal(client: s.rng.pick(NameBank.clients), title: s.rng.pick(titles), monthly: monthly,
+            let deal = EnterpriseDeal(client: s.rng.pick(NameBank.clients), title: title, monthly: monthly,
                                       tokensPerDay: tokens, months: months, monthsLeft: months,
                                       minIndex: marketBar(s, fallback: best.index) * s.rng.range(0.85, 1.0),
                                       minSafety: s.rng.range(20, 70), expires: GameCalendar.addDays(s.date, 30))

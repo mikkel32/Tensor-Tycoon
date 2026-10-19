@@ -1076,9 +1076,21 @@ enum Training {
         model.visSkill = fc.vis
         model.usedShadowData = fc.usesShadowData
         model.tuned = d.benchmarkTuning || run.contaminated || (run.dataPlan.map { DataEconomy.silentlyTuned($0, run: run.id) } ?? false)   // contamination nobody caught
-        if let plan = run.dataPlan, !plan.domainBonus.isEmpty {
-            model.domainBonus = CapDomain.allCases.map { plan.domain($0) }   // 3.6: science and robotics data no skill carries
+        // Domain know-how: what a distilled student keeps of its teacher's (3.8: the model families' rule), plus what
+        // the run's data taught that no skill carries (3.6: science and robotics data).
+        var domains = [Double](repeating: 0, count: CapDomain.count)
+        if d.mode == .distill, let ref = d.baseModelRef, let t = s.models.first(where: { $0.id.uuidString == ref }) {
+            let gap = Families.distillGap(teacherParamsB: t.design.paramsB, studentParamsB: d.paramsB, bonuses: b)
+            domains = Families.studentDomainBonus(teacher: t, gap: gap)
+            model.teacherID = t.id
+            model.knowHow = Capabilities.knowHow(t, s)   // the teacher's know-how, not research done since
+            model.passes = t.passes
+            model.passesSinceMerge = t.passesSinceMerge
+            model.tradeoffDomains = t.tradeoffDomains
+            model.tradeoffChat = t.tradeoffChat
         }
+        if let plan = run.dataPlan { for dom in CapDomain.allCases { domains[dom.index] += plan.domain(dom) } }
+        if domains.contains(where: { $0 != 0 }) { model.domainBonus = domains }
         model.safety = clamp(fc.safety + run.dSafety, 0, 100)
         model.cForecast = run.forecast?.c ?? base
         model.forecastSigma = run.forecast?.sigma ?? fc.sigma

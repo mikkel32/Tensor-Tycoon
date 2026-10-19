@@ -446,13 +446,14 @@ enum Economy {
             let then = s.history[s.history.count - 7].recurringRevenue
             if then > 0 { growth = clamp(pow(now / then, 2) - 1, 0, 4) }
         }
-        let revVal = rr * Macro.revenueMultiple(y) * (1 + growth * 0.25) * crisis
+        let momentum = Launches.valuationFactor(s)   // 3.8: what investors make of your recent rank changes
+        let revVal = rr * Macro.revenueMultiple(y) * (1 + growth * 0.25) * crisis * momentum
         let best = s.models.map { $0.released ? $0.c : $0.c - 0.15 }.max() ?? -5
         let gap = best - Macro.frontier(y)
         let age = Double(GameCalendar.daysBetween(s.startDate, s.date)) / 365
         let maturity = clamp(0.3 + age * 0.3, 0.3, 1.0)
         let hypeVal = 0.55 * Macro.frontierValuation(y) * exp(2.4 * min(gap, 0.5)) * (s.market.hype / 1.3)
-            * pow(max(5, s.brand) / 60, 0.4) * maturity * crisis
+            * pow(max(5, s.brand) / 60, 0.4) * maturity * crisis * momentum
         let talent = s.employees.reduce(0.0) { $0 + ($1.role == .researcher ? $1.skill * 40_000 : $1.skill * 10_000) } * (y > 2023 ? 3 : 1)
         let seed = Macro.seedValuation(y) * min(1.5, 0.6 + Double(s.employees.count) * 0.1)
         let stakes = Xeno.moatValue(s) + RivalEconomy.stakesValue(s) * 0.9 + (Corporate.stakesValue(s) + Corporate.feeValue(s)) * 0.9   // 3.5: subsidiaries

@@ -273,7 +273,9 @@ enum Semis {
         let exp = Double(min(team?.experience ?? 0, 4))
         let df = Silicon.designerFactor(s)
         let search = AgentOrgs.respinFactor(s)
-        var r = n.respin * verificationRisk[clamp(v, 0, 2)] * (1 - 0.1 * exp) * (1 - 0.25 * df) * (1 - 0.4 * s.swarmSilicon) * (derived ? 0.7 : 1) * search + link.respin
+        let models = Capabilities.respinFactor(s)   // 3.8: your models' hardware engineering
+        var r = n.respin * verificationRisk[clamp(v, 0, 2)] * (1 - 0.1 * exp) * (1 - 0.25 * df) * (1 - 0.4 * s.swarmSilicon) * (derived ? 0.7 : 1) * search * models
+            + link.respin
         r = clamp(r, 0.03, 0.85)
         var parts = ["\(n.short) first-pass \(Fmt.pct(n.respin, decimals: 0))", "\(verificationName(v).lowercased()) verification ×\(Fmt.trim(verificationRisk[clamp(v, 0, 2)], 2))"]
         if exp > 0 { parts.append("\(Int(exp)) tape-out\(exp == 1 ? "" : "s") of experience ×\(Fmt.trim(1 - 0.1 * exp, 2))") }
@@ -281,6 +283,7 @@ enum Semis {
         if s.swarmSilicon > 0 { parts.append("agent swarms ×\(Fmt.trim(1 - 0.4 * s.swarmSilicon, 2))") }
         if derived { parts.append("port of a proven design ×0.7") }
         if search < 1 { parts.append("architecture-search agents ×\(Fmt.trim(search, 2))") }
+        if abs(models - 1) > 0.005 { parts.append("your models' hardware engineering ×\(Fmt.trim(models, 2))") }
         if link.respin > 0 { parts.append("\(link.short) +\(Fmt.pct(link.respin, decimals: 0)) (new technology)") }
         var t = ["\(n.short) baseline \(Int(n.designMonths)) months for 300 engineers", "\(Int(eng)) engineers ×\(Fmt.trim(teamF, 2))",
                  "\(verificationName(v).lowercased()) verification ×\(Fmt.trim(verificationTime[clamp(v, 0, 2)], 2))"]
@@ -305,7 +308,8 @@ enum Semis {
         let gen = Double(min(g - 1, 5))
         let search = AgentOrgs.archSearch(s)
         let cap = 1.2 + AgentOrgs.archCapBonus(s) + search
-        var v = 0.55 + 0.07 * gen + 0.03 * exp + 0.08 * df + 0.1 * s.swarmSilicon + 0.25 * bonus + search
+        let models = Capabilities.chipArchFactor(s)   // 3.8: your models' hardware engineering explores more of the design space
+        var v = (0.55 + 0.07 * gen + 0.03 * exp + 0.08 * df + 0.1 * s.swarmSilicon + 0.25 * bonus + search) * models
         v = clamp(v, 0.4, cap)
         var parts = ["first design 0.55"]
         if gen > 0 { parts.append("generation \(g) +\(Fmt.trim(0.07 * gen, 2))") }
@@ -314,6 +318,7 @@ enum Semis {
         if s.swarmSilicon > 0 { parts.append("swarms +\(Fmt.trim(0.1 * s.swarmSilicon, 2))") }
         if bonus > 0 { parts.append("research & traits +\(Fmt.trim(0.25 * bonus, 2))") }
         if search > 0 { parts.append("architecture-search agents +\(Fmt.trim(search, 2))") }
+        if abs(models - 1) > 0.005 { parts.append("your models' hardware engineering ×\(Fmt.trim(models, 2))") }
         parts.append("cap \(Fmt.trim(cap, 2))" + (cap > 1.2 ? " (raised by your silicon organisation)" : ""))
         return (v, parts.joined(separator: " · "))
     }
