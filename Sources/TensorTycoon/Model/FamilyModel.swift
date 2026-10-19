@@ -116,11 +116,11 @@ struct ModelFamily: Codable, Identifiable, Hashable {
     var created: Date
     var members: [FamilyMember] = []
     /// The family's own reputation (0–100): grows as tiers ship and the flagship ranks; lifts every member's API demand.
-    @D var brand: Double = 20
+    @DValue<SaveDefaults.Twenty> var brand: Double = 20
     /// The member that serves the chat app's free users (nil: the chat model serves everyone).
     @D var freeTierID: UUID? = nil
     /// Flagship generations that joined (the first flagship is generation 1).
-    @D var generation: Int = 1
+    @DValue<SaveDefaults.OneInt> var generation: Int = 1
 
     func has(_ id: UUID) -> Bool { members.contains { $0.modelID == id } }
     func tier(of id: UUID) -> FamilyTier? { members.first { $0.modelID == id }?.tier }
@@ -278,7 +278,7 @@ struct ModelJob: Codable, Identifiable, Hashable {
     var cost: Double = 0
     @D var paused: Bool = false
     /// Release the result with an API and servers as soon as it's done (distillation).
-    @D var autoLaunch: Bool = true
+    @DValue<SaveDefaults.Yes> var autoLaunch: Bool = true
 
     var progress: Double { flops > 0 ? min(1, done / flops) : 1 }
     var tierValue: FamilyTier { FamilyTier(rawValue: tier) ?? .spark }

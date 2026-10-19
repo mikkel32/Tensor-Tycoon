@@ -388,6 +388,8 @@ enum SaveDefaults {
     enum Yes: SaveDefault { static var value: Bool { true } }
     enum ThreeZeros: SaveDefault { static var value: [Double] { [0, 0, 0] } }
     enum ThreeNo: SaveDefault { static var value: [Bool] { [false, false, false] } }
+    enum Twenty: SaveDefault { static var value: Double { 20 } }
+    enum OneInt: SaveDefault { static var value: Int { 1 } }
 }
 
 /// Like `@D`, but a missing key decodes as `P.value` rather than the type's empty value: for fields declared with
