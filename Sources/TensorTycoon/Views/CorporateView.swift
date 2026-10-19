@@ -591,7 +591,7 @@ private struct StartSubsidiaryCard: View {
                 Slider(value: $seedMultiple, in: 1...4)
                 Text(Fmt.money(seed)).font(.callout.monospacedDigit()).frame(width: 80)
             }
-            Text("At least \(Fmt.money(minSeed)): 18 months of a \(kind.baseTeam)-person team plus set-up. Margin before people \(Fmt.pct(kind.grossMargin, decimals: 0)), valued at about \(Fmt.trim(kind.multiple, 1))× revenue.")
+            Text("At least \(Fmt.money(minSeed)): 18 months of a \(kind.baseTeam)-person team plus set-up. Margin before people \(Fmt.pct(kind.grossMargin, decimals: 0)), valued at about \(Fmt.trim(kind.multiple, 1))× revenue when it grows 80% a year at break-even — faster growth and fatter margins raise that, losses lower it.")
                 .font(.caption).foregroundStyle(.secondary)
             if let why { Label(why, systemImage: "info.circle").font(.caption).foregroundStyle(.orange) }
             Button("Start it") { store.act("Subsidiary started") { $0.startSubsidiary(kind, country: place, seed: seed) } }

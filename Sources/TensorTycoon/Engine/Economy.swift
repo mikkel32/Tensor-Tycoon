@@ -377,7 +377,8 @@ enum Economy {
         if s.isPublic { return s.sharePrice * s.totalShares }
         let y = s.year
         // Chip sales and leased compute earn hardware multiples, not software ones.
-        let rr = max(0, runRate(s) - 0.6 * hardwareRunRate(s))
+        // 3.8: licence fees from your subsidiaries are valued with them (`Corporate.feeValue`), not at the lab's multiple.
+        let rr = max(0, runRate(s) - 0.6 * hardwareRunRate(s) - Corporate.feeRunRate(s))
         var growth = 0.0
         if s.history.count >= 7 {
             let now = s.history.last!.revenue
@@ -395,7 +396,7 @@ enum Economy {
         let seed = Macro.seedValuation(y) * min(1.5, 0.6 + Double(s.employees.count) * 0.1)
         let assets = max(0, hardwareValue(s) + siteValue(s) - debt(s))
         return max(max(revVal, hypeVal, seed, talent) + assets * 0.6 + Xeno.moatValue(s) + RivalEconomy.stakesValue(s) * 0.9
-                   + Corporate.stakesValue(s) * 0.9, roundFloor(s))   // 3.5: subsidiaries
+                   + (Corporate.stakesValue(s) + Corporate.feeValue(s)) * 0.9, roundFloor(s))   // 3.5: subsidiaries
     }
 
     /// The last round's post-money, written down 30% a year (to at most 40% off): a private mark rarely falls faster.

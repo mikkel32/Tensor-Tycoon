@@ -910,6 +910,23 @@ enum TrainingExperience {
     /// validation curve from it without new dice: a 5-point moving average of the training loss (spikes excluded),
     /// plus a generalisation gap that opens once the run repeats its data — 0.01 nats per extra epoch over the unique
     /// tokens it had at launch.
+    /// 3.8: unique tokens the run drew on, counted as its forecast counts them: the sources in its data snapshot, the
+    /// synthetic share, and the data-economy datasets it held when it started (bought, licensed, processed, synthetic).
+    static func validationUniqueT(_ run: TrainingRun, _ s: GameState) -> Double {
+        let b = s.bonuses
+        let d = run.design
+        var unique = Physics.availableTokensT(run.dataSnapshot, y: s.year, bonuses: b)
+        if d.syntheticShare > 0 && b.has(.syntheticData) { unique *= 1 + d.syntheticShare * 3 }
+        let plan = DataEconomy.plan(d, state: s, sources: run.dataSnapshot)
+        if plan.active { unique += plan.extraUniqueT }
+        return unique
+    }
+
+    /// The validation series for the Training page, on the run's own unique data.
+    static func validation(_ run: TrainingRun, state s: GameState) -> [(tokensT: Double, loss: Double)] {
+        validation(run, uniqueTokensT: validationUniqueT(run, s))
+    }
+
     static func validation(_ run: TrainingRun, uniqueTokensT: Double) -> [(tokensT: Double, loss: Double)] {
         let pts = run.loss.filter { !$0.spike }
         guard pts.count >= 2 else { return [] }

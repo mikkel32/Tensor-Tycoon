@@ -145,7 +145,7 @@ struct ModelDomainsSection: View {
         let s = state
         if let v = s.domainScores[model.id.uuidString] {
             let rival = DomainScores(Capabilities.bestRival(s).map(\.score))
-            let firsts = s.milestoneWins.filter { $0.isPlayer && $0.model == model.name }
+            let firsts = s.milestoneWins.filter { $0.isPlayer && $0.credits(model) }
             HStack(alignment: .top, spacing: 18) {
                 DomainRadar(series: [.init(id: "rival", scores: rival, color: .orange),
                                      .init(id: "model", scores: v, color: .accentColor)])

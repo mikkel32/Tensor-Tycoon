@@ -123,16 +123,51 @@ enum Corporate {
         return (revenue, costs, license, tax)
     }
 
-    /// What a subsidiary is worth on its numbers: revenue × a multiple for its kind, the era, its growth and its CEO.
-    static func fundamental(_ sub: Subsidiary, _ s: GameState) -> Double {
-        let y = s.year
-        let rr = sub.revenue * 12
+    /// Annualised revenue growth (from the last quarter) and operating margin after the licence fee (last three months).
+    static func growthAndMargin(_ sub: Subsidiary) -> (growth: Double, margin: Double) {
+        let h = sub.history.suffix(3)
         let back = sub.history.count >= 4 ? sub.history[sub.history.count - 4].revenue : 0
-        let g3 = back > 0 ? clamp(sub.revenue / back - 1, 0, 1.5) : (sub.revenue > 0 ? 0.5 : 0)
-        let era = (Macro.revenueMultiple(y) / 25).squareRoot()
-        let m = sub.kind.multiple * era * (1 + g3 * 1.2) * (0.85 + 0.3 * sub.ceoSkill / 100) * (1 - 0.6 * sub.transferRate)
-        let floor = max(0, sub.cash) + Double(sub.headcount) * sub.kind.payPerHead * payScale(sub.kind, y) * 0.8
-        return max(rr * m, floor)
+        let growth = back > 0 ? clamp(pow(max(sub.revenue, 0) / back, 4) - 1, -0.5, 3) : (sub.revenue > 0 ? 0.4 : 0)
+        let rev = h.reduce(0) { $0 + $1.revenue }
+        // Bought startups arrive with revenue but no cost history: assume break-even until their own months come in.
+        let known = h.contains { $0.costs > 0 }
+        let margin = rev > 0 && known ? clamp((rev - h.reduce(0) { $0 + $1.costs + $1.license }) / rev, -1.5, 0.6) : 0
+        return (growth, margin)
+    }
+
+    /// 3.8: the multiple follows growth and margin together (a "rule of 40" score: half the growth, capped at 100% a
+    /// year, plus the margin after the licence fee — losses count double). 80% growth at break-even earns the kind's
+    /// typical multiple; a fast grower burning cash, or a profitable one that has stopped growing, earns less; strong
+    /// on both, up to 1.6× it.
+    static func multipleFactor(growth: Double, margin: Double) -> Double {
+        let score = 0.5 * min(growth, 1) + (margin < 0 ? 2 * margin : margin)
+        return clamp(0.45 + 1.4 * score, 0.2, 1.6)
+    }
+
+    /// The kind's typical multiple in this era, adjusted for the CEO.
+    static func baseMultiple(_ sub: Subsidiary, _ s: GameState) -> Double {
+        sub.kind.multiple * (Macro.revenueMultiple(s.year) / 25).squareRoot() * (0.85 + 0.3 * sub.ceoSkill / 100)
+    }
+
+    /// What a subsidiary is worth on its numbers: revenue × its kind's multiple, moved by growth and margin.
+    /// The licence fee it pays you is a cost here (it lowers the margin) and is valued once, on your side (`feeValue`).
+    static func fundamental(_ sub: Subsidiary, _ s: GameState) -> Double {
+        let gm = growthAndMargin(sub)
+        let m = baseMultiple(sub, s) * multipleFactor(growth: gm.growth, margin: gm.margin)
+        let floor = max(0, sub.cash) + Double(sub.headcount) * sub.kind.payPerHead * payScale(sub.kind, s.year) * 0.8
+        return max(sub.revenue * 12 * m, floor)
+    }
+
+    /// The licence fees separate subsidiaries pay you, a year at the current rate (intercompany revenue).
+    static func feeRunRate(_ s: GameState) -> Double {
+        s.corp.subs.reduce(0) { $0 + ($1.separate ? ($1.last?.license ?? 0) * 12 : 0) }
+    }
+
+    /// What the fee streams are worth to you: each at the margin it takes from its subsidiary (the same multiple the
+    /// subsidiary would earn on that margin), never at your lab's own revenue multiple — so a fee moves value between
+    /// you and the subsidiary's other holders instead of creating it.
+    static func feeValue(_ s: GameState) -> Double {
+        s.corp.subs.reduce(0) { $0 + ($1.separate ? ($1.last?.license ?? 0) * 12 * baseMultiple($1, s) * 1.4 : 0) }
     }
 
     static func revalue(_ sub: inout Subsidiary, _ s: GameState) {
@@ -146,7 +181,7 @@ enum Corporate {
         }
     }
 
-    /// Your stakes in subsidiaries that still run separately, at their marks.
+    /// Your stakes in subsidiaries that still run separately, at their marks (their fees to you are in `feeValue`).
     static func stakesValue(_ s: GameState) -> Double {
         s.corp.subs.reduce(0) { $0 + ($1.separate ? $1.stake * $1.valuation : 0) }
     }
