@@ -133,7 +133,15 @@ enum IntelligenceHarness {
         let b = s.bonuses
         let p = Families.distillPlan(s, teacher: best, tier: .core, data: .standard, accelID: best.design.accelID, chips: 8)
         let g = Families.distillGap(teacherParamsB: best.design.paramsB, studentParamsB: best.design.paramsB * 0.3, bonuses: b)
-        r.expect("Families and the Model Lab share one distillation gap", abs(p.gap - g) < 1e-12, "\(Fmt.trim(p.gap, 3)) vs \(Fmt.trim(g, 3))")
+        // The Model Lab's distil mode, forecast for the same student.
+        var lab = best.design
+        lab.mode = .distill
+        lab.baseModelRef = best.id.uuidString
+        lab.paramsB = best.design.paramsB * 0.3
+        let fc = ForecastEngine.forecast(lab, state: s, dataSources: s.dataSources.sorted())
+        let labGap = -(fc.drivers.first { $0.name == "Distillation gap" }?.value ?? .nan)
+        r.expect("Families and the Model Lab share one distillation gap", abs(p.gap - g) < 1e-12 && abs(labGap - g) < 1e-12,
+                 "families \(Fmt.trim(p.gap, 3)) · Model Lab \(Fmt.trim(labGap, 3)) · rule \(Fmt.trim(g, 3))")
         let small = Families.distillGap(teacherParamsB: 100, studentParamsB: 1, bonuses: b), big = Families.distillGap(teacherParamsB: 100, studentParamsB: 30, bonuses: b)
         r.expect("a smaller student loses more", small > big, "1% size \(Fmt.trim(small, 2)) · 30% size \(Fmt.trim(big, 2))")
     }

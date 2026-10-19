@@ -489,6 +489,8 @@ struct TrainingRun: Codable, Identifiable, Hashable {
     var failures: Int = 0
     var note: String = ""
     var dataSnapshot: [String] = []
+    /// 3.6: the data plan frozen when the run started (nil for runs started before 3.6, which recompute it).
+    @D var dataPlan: DataPlanSummary? = nil
     var cFinal: Double? = nil
     @D var saved: [TrainCheckpoint] = []
     @D var lr: Int = 0

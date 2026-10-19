@@ -73,7 +73,7 @@ enum TrainingInterventions {
         guard perDay > 0 else { return 0 }
         let preDays = run.flopsTotal / perDay
         let window = max(0, 0.75 - max(run.progress, 0.3)) * preDays
-        let daily = 0.012 * s.bonuses.contaminationKeep * DataEconomy.contaminationFactor(s, run: run)
+        let daily = 0.012 * s.bonuses.contaminationKeep * Training.contaminationRisk(s, run)
         return 1 - pow(1 - min(0.5, daily), window)
     }
 
@@ -248,7 +248,7 @@ enum TrainingInterventions {
         let plan = stopPlan(run, s)
         var partial = run.design
         partial.tokensT = max(run.design.tokensT * p, 0.0001)
-        let f = ForecastEngine.forecast(partial, state: s, dataSources: run.dataSnapshot)
+        let f = Training.forecast(partial, run, s)
         let known = -run.qualityPenalty - plan.penalty + run.lrCredit - (run.bugFound ? run.bugPenalty * 0.25 : 0)
         let c = f.c + run.revealMean + known
         let set = Leaderboard.indexSet(s)
@@ -275,7 +275,7 @@ enum TrainingInterventions {
         let wsd = run.design.schedule == .wsd && s.bonuses.has(.wsd)
         var longer = run.design
         longer.tokensT *= 1 + x
-        let f = ForecastEngine.forecast(longer, state: s, dataSources: run.dataSnapshot)
+        let f = Training.forecast(longer, run, s)
         let known = -run.qualityPenalty - (wsd ? 0 : 0.01) + run.lrCreditAtEnd - (run.bugFound ? run.bugPenalty * 0.25 : 0)
         let extra = (run.dReasoning, run.dCode, run.dChat, run.dSafety, run.dLang)
         let index = ForecastEngine.index(ForecastEngine.profile(f, design: longer, key: "extend", c: f.c + run.revealMean + known, extra: extra),
@@ -310,7 +310,7 @@ enum TrainingInterventions {
         s.runs[i].postTrainFlops = s.runs[i].stages.filter { !$0.isPre }.reduce(0) { $0 + $1.flops }
         // The forecast for what the run now is.
         let d = s.runs[i].design
-        let f = ForecastEngine.forecast(d, state: s, dataSources: s.runs[i].dataSnapshot)
+        let f = Training.forecast(d, s.runs[i], s)
         var withLR = f
         let lr = s.runs[i].forecast?.lrBonus ?? 0
         withLR.c += lr

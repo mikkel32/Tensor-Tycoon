@@ -203,6 +203,7 @@ enum Families {
         m.safety = max(0, t.safety - 3)
         m.efficiencyBoost = t.efficiencyBoost
         m.servingPrecision = t.servingPrecision
+        m.archV2 = t.archV2   // 3.4: serving physics follow the design it was cut from (a fresh model: no QAT, not yet evaluated)
         m.keyTech = t.keyTech.filter { $0 != "Distilled" } + ["Distilled"]
         m.cForecast = m.c
         m.forecastSigma = 0
