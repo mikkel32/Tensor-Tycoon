@@ -195,7 +195,12 @@ enum Competitors {
             let shift = s.difficulty == .hard ? 0.1 : (s.difficulty == .easy ? -0.1 : 0)
             let tries = clamp(0.25 + 0.03 * Double(s.monthsAtTop - 6) + shift, 0.1, 0.6)
             if RivalIntel.unit("\(def.id)|leap|\(comp.releaseCount)") < tries {
-                let goal = mine + 1 + 4 * RivalIntel.unit("\(def.id)|leapsize|\(comp.releaseCount)")
+                // 3.8: a lab betting a run on passing you aims where you'll be when it ships, not where you were: your
+                // best index a quarter before its release plus the pace you kept over the half-year before that.
+                let earlier = GameCalendar.addDays(seenBy, -182)
+                let then = released.filter { ($0.releaseDate ?? $0.created) <= earlier }.map(\.index).max()
+                let pace = then.map { clamp((mine - $0) / 182, 0, 0.1) } ?? 0
+                let goal = mine + pace * 91 + 1 + 4 * RivalIntel.unit("\(def.id)|leapsize|\(comp.releaseCount)")
                 let set = Leaderboard.indexSet(s)
                 func score(_ x: Double) -> Double { RivalIntel.index(s, i, c: x, on: date, set: set) }
                 if score(c) < goal {

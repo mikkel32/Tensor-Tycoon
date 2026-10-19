@@ -139,7 +139,7 @@ private struct ModelCard: View {
                     Button("Distil a tier…") { familySheet = .distill(m.id) }
                         .help("Train a smaller, much cheaper student from this model")
                     Button("Post-train…") { familySheet = .postTrain(m.id) }
-                        .help("Reasoning RL, agentic training, safety tuning, long context or a specialisation, as a point release")
+                        .help("Reasoning RL, agentic training, safety tuning or long context as a point release — or fork a coding, science, medicine, reasoning, vision & voice or robotics specialist into its family")
                 }
             }
             Button("Retire model…", role: .destructive) { confirmRetire = true }
@@ -182,8 +182,7 @@ private struct ModelCard: View {
                         ForEach(ReasoningEffort.allCases) { e in Text(e.label).tag(e) }
                     }
                     .pickerStyle(.segmented)
-                    Text("\(m.effort.blurb) It now generates \(Fmt.trim(Families.thinkingTokens(m, b), 2)) tokens per token of answer\(b.thinkingEfficiency > 0.005 ? " (thinking-efficiency research saves \(Fmt.pct(min(0.8, b.thinkingEfficiency), decimals: 0)) of the thinking)" : ""): chat traffic needs that much more capacity, and every API token sold costs that much more to serve.")
-                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    Text(Self.effortText(m, b)).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
                 ForEach(m.deployments) { d in
                     if let a = HardwareCatalog.get(d.accelID) {
@@ -234,7 +233,7 @@ private struct ModelCard: View {
                 // 3.8: which kinds of API work it wins.
                 let segs = Market.segments(of: m.id, store.derived.snapshot)
                 if m.api && !segs.isEmpty {
-                    Text("API segments: " + segs.prefix(5).map { "\($0.segment.label) \(Fmt.pct($0.share, decimals: 1))" }.joined(separator: " · "))
+                    Text(Self.segmentText(segs))
                         .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                         .help("Its share of each kind of API work. Buyers pick models on the domains the work needs: a coding specialist wins coding traffic from a stronger generalist.")
                 }
@@ -260,6 +259,20 @@ private struct ModelCard: View {
             }
             .frame(width: 420)
         }
+    }
+
+    /// 3.8: what the reasoning effort costs and buys (built here: long strings are slow to type-check in views).
+    static func effortText(_ m: AIModel, _ b: ResearchBonuses) -> String {
+        var t = "\(m.effort.blurb) It now generates \(Fmt.trim(Families.thinkingTokens(m, b), 2)) tokens per token of answer"
+        if b.thinkingEfficiency > 0.005 {
+            t += " (thinking-efficiency research saves \(Fmt.pct(min(0.8, b.thinkingEfficiency), decimals: 0)) of the thinking)"
+        }
+        t += ": chat traffic needs that much more capacity, and every API token sold costs that much more to serve."
+        return t
+    }
+
+    static func segmentText(_ segs: [(segment: APISegment, share: Double)]) -> String {
+        "API segments: " + segs.prefix(5).map { "\($0.segment.label) \(Fmt.pct($0.share, decimals: 1))" }.joined(separator: " · ")
     }
 
     private func applyPrice(_ m: AIModel) {

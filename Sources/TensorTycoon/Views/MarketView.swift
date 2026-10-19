@@ -344,6 +344,19 @@ private struct APISegmentsCard: View {
 private struct MarketMovesCard: View {
     let state: GameState
 
+    static func momentum(_ mm: MarketMovesState) -> String {
+        var t = mm.rankMomentum >= 0 ? "+" : "−"
+        t += Fmt.trim(abs(mm.rankMomentum), 2)
+        t += mm.lastRank > 0 ? " (rank #\(mm.lastRank))" : ""
+        return t
+    }
+
+    static func momentumTone(_ mm: MarketMovesState) -> Tone? {
+        if mm.rankMomentum > 0.05 { return .good }
+        if mm.rankMomentum < -0.05 { return .bad }
+        return nil
+    }
+
     var body: some View {
         let s = state
         let mm = s.marketMoves
@@ -353,8 +366,7 @@ private struct MarketMovesCard: View {
             Meter(value: mm.devEcosystem / 100, tint: Tone.info.color, height: 6)
             Text("Developers build on near-frontier open weights, a big API share and good standing with them. It builds a tenth of the way each month and fades slowly when you stop feeding it.")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            SpecRow(label: "Investor momentum", value: "\(mm.rankMomentum >= 0 ? "+" : "−")\(Fmt.trim(abs(mm.rankMomentum), 2)) (rank #\(mm.lastRank > 0 ? "\(mm.lastRank)" : "—"))",
-                    tone: mm.rankMomentum > 0.05 ? .good : (mm.rankMomentum < -0.05 ? .bad : nil))
+            SpecRow(label: "Investor momentum", value: Self.momentum(mm), tone: Self.momentumTone(mm))
             SpecRow(label: "Leads won from rivals", value: "\(mm.leadsWon)")
             SpecRow(label: "Contracts lost at renewal", value: "\(mm.churned)", tone: mm.churned > 0 ? .warning : nil)
             if !mm.log.isEmpty {

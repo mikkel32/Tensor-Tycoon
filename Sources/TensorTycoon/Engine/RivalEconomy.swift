@@ -347,7 +347,7 @@ enum RivalEconomy {
         defer { s.rivalBooks[c.id] = book }
         guard book.rdPool >= cost else { return }
         let held = Set(s.exoticOwned).union(s.rivalTech.values.flatMap { $0 })
-        let open = ResearchCatalog.exotic.filter { !held.contains($0.id) && $0.year <= s.year + 1.5 && $0.rival != nil }.map(\.id).sorted()
+        let open = ResearchCatalog.exotic.filter { !held.contains($0.id) && $0.year <= s.year + 0.3 && $0.rival != nil }.map(\.id).sorted()
         guard !open.isEmpty else {
             book.rdPool = min(book.rdPool, cost * 2)
             return

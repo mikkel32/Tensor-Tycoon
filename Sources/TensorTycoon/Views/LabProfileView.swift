@@ -322,6 +322,11 @@ private struct LabBusinessCard: View {
         extra.append(Figure(label: "R&D toward next breakthrough", value: "\(Fmt.money(book.rdPool)) / \(Fmt.money(RivalEconomy.techniqueCost(s.year)))"))
         extra.append(Figure(label: "Own breakthroughs", value: "\(book.techniques) · \((s.rivalTech[c.id] ?? []).count) secret techniques"))
         if book.chipsSold > 0 { extra.append(Figure(label: "Chips sold / mo", value: "\(Fmt.count(book.chipsSold)) H100e")) }
+        // 3.8: what its specialisation does to the models it ships now.
+        let shift = Capabilities.focusShift(s, lab: c.id, at: s.year).filter { $0.1 > 0 }
+        if let top = shift.first, let f = Nations.focus(s, c.id) {
+            extra.append(Figure(label: "Specialisation edge", value: "+\(Fmt.trim(top.1 * 10, 1)) pts \(f.domains.map { $0.short.lowercased() }.joined(separator: ", ")), −\(Fmt.trim(top.1 / 3 * 10, 1)) elsewhere"))
+        }
         return extra + [
             Figure(label: "Revenue / yr", value: Fmt.money(c.revenueRun)),
             Figure(label: "Growth (yoy)", value: growth),
@@ -511,6 +516,13 @@ private struct LabDealsList: View {
     let comp: CompetitorState
     let state: GameState
 
+    static func dealText(_ d: ComputeCommitment) -> String {
+        if d.h100e > 0 {
+            return "Rents \(Fmt.count(d.h100e)) H100e of your leased chips in full · \(Fmt.money(d.monthly))/month · \(d.monthsLeft) months left"
+        }
+        return "Buys \(Fmt.money(d.monthly))/month of your compute · \(d.monthsLeft) months left"
+    }
+
     var body: some View {
         let s = state
         let id = comp.id
@@ -519,8 +531,7 @@ private struct LabDealsList: View {
         let alien = s.alienArchs.filter { a in a.licenses.contains { $0.buyerID == id } }
         let armed = Xeno.rivalC(s, id, at: s.date)
         ForEach(deals) { d in
-            Label(d.h100e > 0 ? "Rents \(Fmt.count(d.h100e)) H100e of your leased chips in full · \(Fmt.money(d.monthly))/month · \(d.monthsLeft) months left"
-                              : "Buys \(Fmt.money(d.monthly))/month of your compute · \(d.monthsLeft) months left", systemImage: "server.rack").font(.caption)
+            Label(Self.dealText(d), systemImage: "server.rack").font(.caption)
         }
         ForEach(licenses) { l in
             Label("Licensed your \(ResearchCatalog.byID[l.techID]?.name ?? "technique") · \(Fmt.money(l.royaltyMonthly))/month", systemImage: "doc.text.fill").font(.caption)

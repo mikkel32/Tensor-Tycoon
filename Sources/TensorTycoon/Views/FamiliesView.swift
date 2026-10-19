@@ -118,9 +118,10 @@ struct FamilyCard: View {
         let shares = Families.trafficShares(f, s)
         let cannibal = Families.cannibalisation(s, f)
         let flagship = Families.flagship(f, s)
+        let lift = flagship.map { Families.generationLift(s, $0) } ?? 1   // 3.8
         Card {
             CardHeader(title: f.name, symbol: "square.stack.3d.down.right.fill",
-                       subtitle: "Generation \(f.generation) · \(rows.count) model\(rows.count == 1 ? "" : "s") · family brand \(Int(f.brand.rounded()))/100 (up to +\(Int((0.15 * f.brand).rounded()))% API demand for every tier)") {
+                       subtitle: Self.subtitle(f, models: rows.count, lift: lift)) {
                 if let flagship {
                     Button("Distil a tier…") { sheet = .distill(flagship.id) }
                     Button("Post-train…") { sheet = .postTrain(flagship.id) }
@@ -162,9 +163,36 @@ struct FamilyCard: View {
                 }
             }
             DomainsByTier(rows: rows, state: s)
+            routingRow(f, s, rows: rows)
             freeTierRow(f, s, rows: rows)
             contractsRow(f, s, rows: rows)
             if !cannibal.isEmpty { cannibalisation(cannibal, rows: rows) }
+        }
+    }
+
+    /// The card's subtitle (built here: long interpolated strings are slow to type-check inside views).
+    static func subtitle(_ f: ModelFamily, models: Int, lift: Double) -> String {
+        var t = "Generation \(f.generation) · \(models) model"
+        if models != 1 { t += "s" }
+        t += " · family brand \(Int(f.brand.rounded()))/100 (up to +\(Int((0.15 * f.brand).rounded()))% API demand for every tier)"
+        if f.generation >= 2 { t += "; a new flagship launches on the family name (+\(Int((lift - 1) * 100))% brand gain)" }
+        return t
+    }
+
+    static func routingText(_ routed: Bool) -> String {
+        routed ? "Sold through one router: each API request goes to the member that suits it, and buyers like the single endpoint (+12% in every segment)."
+               : "Each member competes for API buyers on its own. Research Model Routing to sell the family through one router."
+    }
+
+    /// 3.8: how the family is sold on the API: one router, or members competing for the same buyers.
+    @ViewBuilder
+    private func routingRow(_ f: ModelFamily, _ s: GameState, rows: [(member: FamilyMember, model: AIModel)]) -> some View {
+        let selling = rows.map(\.model).filter { $0.released && $0.api }
+        if selling.count >= 2 {
+            let routed = store.derived.bonuses.has(.modelRouting)
+            let symbol = routed ? "arrow.triangle.branch" : "arrow.triangle.swap"
+            Label(Self.routingText(routed), systemImage: symbol)
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -380,13 +408,20 @@ struct DistillSheet: View {
                     let delta = sv[d] - tv[d]
                     Text(tv[d] > 0 ? CapStyle.delta(delta) : "—").font(.caption.monospacedDigit())
                         .foregroundStyle(tv[d] > 0 && delta <= -5 ? Color.orange : Color.secondary)
-                    Text(tv[d] > 0 ? Fmt.pct(pow(10, delta / 10), decimals: pow(10, delta / 10) < 0.1 ? 1 : 0) : "—").font(.caption.monospacedDigit())
+                    Text(Self.computeShare(tv[d], delta)).font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
                     Text("×\(Fmt.trim(Families.retentionWeight(d), 2))").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                 }
             }
         }
         if let b = p.blocker { Label(b, systemImage: "exclamationmark.triangle.fill").font(.callout).foregroundStyle(.orange) }
+    }
+
+    /// What share of the teacher's effective compute a domain's point change amounts to (scores are logarithmic).
+    static func computeShare(_ teacher: Double, _ delta: Double) -> String {
+        guard teacher > 0 else { return "—" }
+        let f = pow(10, delta / 10)
+        return Fmt.pct(f, decimals: f < 0.1 ? 1 : 0)
     }
 }
 
@@ -443,13 +478,9 @@ struct PostTrainSheet: View {
         let idxAfter = BenchmarkCatalog.index(Leaderboard.profile(p.after), set: set)
         let costBefore = Economy.servingCostPerM(m, s)
         let costAfter = Economy.servingCostPerM(p.after, s)
-        Text(pass.forks ? "Fork & specialise \(m.name)" : "Post-train \(m.name)").font(.title2.weight(.bold))
-        Text(pass.forks
-             ? "A specialisation forks a new member of the family: a copy of \(m.name) trained for one kind of work, sold beside it as the \(pass.tier?.label ?? "") tier with servers of its own. \(m.name) itself is unchanged; API buyers who need that work go to whichever member suits them."
-             : "A pass upgrades the model in place: same servers, same products, a new point version (\(Families.versionLabel(m.version)) → \(Families.versionLabel(m.version + 1))). Every pass has a trade-off; merging two or more passes into a point release wins half of it back.")
-            .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-        Text("A pass teaches the model the published techniques of its own domains (\(pass.refreshes.map { $0.short.lowercased() }.joined(separator: ", "))) and nothing else: research in other fields reaches your models through training new ones.")
-            .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        Text(Self.title(pass, m)).font(.title2.weight(.bold))
+        Text(Self.explainer(pass, m)).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        Text(Self.knowHowNote(pass)).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], alignment: .leading, spacing: 8) {
             ForEach(PostTrainPass.allCases) { x in
                 let blocked = Families.passBlocker(s, m, x)
@@ -458,7 +489,7 @@ struct PostTrainSheet: View {
                     HStack(alignment: .top, spacing: 8) {
                         Image(systemName: x.symbol).frame(width: 18)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text((x.forks ? "Fork: " : "") + x.label + (done > 0 ? " (done \(done)×)" : "") + (Families.inRecipe(s, m, x) ? " · family recipe, half cost" : "")).font(.callout.weight(.semibold))
+                            Text(Self.passTitle(x, done: done, recipe: Families.inRecipe(s, m, x))).font(.callout.weight(.semibold))
                             Text(blocked ?? x.blurb).font(.caption2).foregroundStyle(blocked == nil ? Color.secondary : Color.orange).lineLimit(3)
                         }
                         Spacer(minLength: 0)
@@ -518,6 +549,38 @@ struct PostTrainSheet: View {
                 }
             }
         }
+    }
+}
+
+extension PostTrainSheet {
+    /// Strings for the sheet, built here (long interpolated strings are slow to type-check inside views).
+    static func title(_ pass: PostTrainPass, _ m: AIModel) -> String {
+        pass.forks ? "Fork & specialise \(m.name)" : "Post-train \(m.name)"
+    }
+
+    static func explainer(_ pass: PostTrainPass, _ m: AIModel) -> String {
+        if pass.forks {
+            var t = "A specialisation forks a new member of the family: a copy of \(m.name) trained for one kind of work, sold beside it as the "
+            t += "\(pass.tier?.label ?? "specialist") tier with servers of its own. \(m.name) itself is unchanged; API buyers who need that work go to whichever member suits them."
+            return t
+        }
+        var t = "A pass upgrades the model in place: same servers, same products, a new point version "
+        t += "(\(Families.versionLabel(m.version)) → \(Families.versionLabel(m.version + 1))). "
+        t += "Every pass has a trade-off; merging two or more passes into a point release wins half of it back."
+        return t
+    }
+
+    static func knowHowNote(_ pass: PostTrainPass) -> String {
+        let domains = pass.refreshes.map { $0.short.lowercased() }.joined(separator: ", ")
+        return "A pass teaches the model the published techniques of its own domains (\(domains)) and nothing else: research in other fields reaches your models through training new ones."
+    }
+
+    static func passTitle(_ x: PostTrainPass, done: Int, recipe: Bool) -> String {
+        var t = x.forks ? "Fork: " : ""
+        t += x.label
+        if done > 0 { t += " (done \(done)×)" }
+        if recipe { t += " · family recipe, half cost" }
+        return t
     }
 }
 
