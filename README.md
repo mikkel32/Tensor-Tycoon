@@ -59,8 +59,8 @@ open "build/Tensor Tycoon.app"
 ```
 
 Or open `Package.swift` in Xcode and press Run. `swift run TensorTycoon --simulate 2022` prints a
-headless balance report: benchmark calibration, a scripted playthrough, the benchmark lifecycle, an RSI
-test and a custom-silicon test (including a year of selling the chip). `swift run TensorTycoon --ventures 2026` checks
+headless balance report: benchmark calibration, a scripted playthrough, the benchmark lifecycle and an RSI
+test (the custom-chip programme is played end to end by `--scenarios G`). `swift run TensorTycoon --ventures 2026` checks
 agent swarms, alien architectures, chip sales, licensing, compute leasing and the money systems from a frontier lab
 in that year. `swift run TensorTycoon --strategy 2022` prints what each doctrine and founder background changes, three
 years of board goals, and rival acquisitions. `swift run TensorTycoon --forecast-check` replays real training runs (GPT-3,
