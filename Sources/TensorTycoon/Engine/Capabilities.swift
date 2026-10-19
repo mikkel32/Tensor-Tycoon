@@ -264,6 +264,7 @@ enum Capabilities {
             guard let item = ResearchCatalog.byID[tech], item.year <= y + 0.3, let fx = effectsByID[tech] else { continue }
             for (d, v) in fx { e[d.index] += v }
         }
+        for (d, v) in AdvancedProjects.rivalDomainEffects(s, lab: lab) { e[d.index] += v }   // 3.8: government contracts it delivered
         return e
     }
 

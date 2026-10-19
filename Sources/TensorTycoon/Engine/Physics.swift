@@ -40,7 +40,7 @@ enum Physics {
 
     static func mfu(accel: Accelerator, chips: Int, state s: GameState, bonuses b: ResearchBonuses) -> Double {
         var base = accel.baseMFU + min(0.10, b.mfu) + Partners.mfuBonus(accel, s)
-        let engineers = s.employees.filter { $0.role == .mlEngineer }.reduce(0.0) { $0 + $1.weight }
+        let engineers = s.workforce(.mlEngineer)
         let needed = 0.5 + Double(chips) / 1_500
         base += 0.04 * min(1, engineers / needed)
         // Agent swarms on training operations tune kernels and route around bad nodes.
@@ -60,7 +60,7 @@ enum Physics {
 
     /// Infra engineers on the team, weighted by skill (a skill-50 engineer counts as one).
     static func infraWeight(_ s: GameState) -> Double {
-        s.employees.filter { $0.role == .infra }.reduce(0.0) { $0 + $1.weight }
+        s.workforce(.infra)
     }
 
     /// Chips of the biggest run going (or about to go: `planned`), which the infra team is staffed against.

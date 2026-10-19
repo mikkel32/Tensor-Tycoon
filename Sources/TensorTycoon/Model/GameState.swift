@@ -927,8 +927,10 @@ struct MonthRecord: Codable, Identifiable, Hashable {
     // 3.5: corporate — subsidiaries you folded back in, booked as divisions of the company
     @D var revGroup: Double = 0
     @D var costGroup: Double = 0
+    /// Government contract payments (Advanced Projects milestones, reimbursements and settlements).
+    @D var revContracts: Double = 0
 
-    var revenue: Double { revAPI + revConsumer + revEnterprise + revOther + revAgents + revCloud + revChips + revLicensing + revLabor + revGroup }
+    var revenue: Double { revAPI + revConsumer + revEnterprise + revOther + revAgents + revCloud + revChips + revLicensing + revLabor + revGroup + revContracts }
     /// Selling hardware and leasing compute: valued like a hardware business, not a software one.
     var hardwareRevenue: Double { revCloud + revChips }
     var opex: Double { costRent + costPower + costSites + costPayroll + costData + costMarketing + costOther + costChips + costGroup }

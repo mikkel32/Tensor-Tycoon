@@ -37,10 +37,10 @@ enum ContractType: String, Codable, CaseIterable, Identifiable, Sendable {
 
     var risk: String {
         switch self {
-        case .fixedPrice: "You're paid the price you bid at milestones, whatever it costs you. Overruns come out of your margin; far behind schedule, the government can terminate for default."
-        case .costPlus: "Your costs are reimbursed monthly plus a fixed fee at milestones. Stable, but you carry compliance overhead, and audits can disallow costs."
-        case .grant: "Fixed payments at milestones that cover most of the cost (you co-fund the rest). Little upside, little risk — and you usually keep the rights to what you build."
-        case .prize: "No pay until you finish. The first team to deliver takes the purse; a rival may get there first."
+        case .fixedPrice: "You're paid the price you bid at milestones, whatever it costs you. Every failed trial adds rework and cost growth, all of it out of your margin; far behind schedule, the government can terminate for default and take back a fifth of what it paid."
+        case .costPlus: "Your costs are reimbursed monthly (up to 125% of the target cost) plus a fixed fee at milestones. Overruns from failed trials are mostly reimbursed, but you carry compliance overhead, audits can disallow costs, and walking away forfeits the fee you haven't earned."
+        case .grant: "Fixed payments at milestones that cover about 85% of the government's cost estimate: you co-fund the rest, so on a full-cost basis a grant usually loses money unless the work goes well. In return you keep most of the rights, and the know-how is the point."
+        case .prize: "No pay until you finish. The first team to deliver takes the purse; a rival or an outside team may get there first, and the challenge closes at twice its planned length."
         }
     }
 }
@@ -123,8 +123,8 @@ enum Classification: Int, Codable, CaseIterable, Comparable, Sendable {
     var publication: String {
         switch self {
         case .unclassified: "Publish freely"
-        case .controlled: "Pre-publication review"
-        case .secret, .topSecret: "No publication"
+        case .controlled: "Pre-publication review: papers in the field wait 3–6 months for clearance"
+        case .secret, .topSecret: "No publication: your science labs can't publish in the field while the work runs"
         }
     }
 
@@ -250,6 +250,10 @@ struct Solicitation: Codable, Identifiable, Hashable, Sendable {
     /// A follow-on offered to the incumbent: few or no competitors.
     @D var followOn: Bool = false
     @D var bid: ProposalBid? = nil
+    /// Phase of a phased programme: 0 single phase, 1 a Phase I feasibility study (seedling), 2+ follow-on phases.
+    @D var phase: Int = 0
+    /// A seedling's subject: the full programme it scouts (its follow-on is that programme's Phase II).
+    @D var target: String = ""
 
     var agencyDef: AgencyDef? { AgencyCatalog.byID[agency] }
     var templateDef: ProgrammeTemplate? { AgencyCatalog.templateByID[template] }
@@ -363,10 +367,20 @@ struct Programme: Codable, Identifiable, Hashable, Sendable {
     @D var royaltyMonthsLeft: Int = 0
     /// How much of the template's research effects you can use (0–1).
     @D var effectScale: Double = 0
+    /// Cost growth from failed trials (rework costs on top of `costGrowth`).
+    @D var trialGrowth: Double = 0
+    /// Royalties and licence income included in `revenue` (the rest is contract payments).
+    @D var royalties: Double = 0
+    /// The research item and moonshot results have been handed over (classified ones wait for the secrecy decision).
+    @D var handedOver: Bool = false
 
     var level: Classification { sol.level }
     var template: ProgrammeTemplate? { sol.templateDef }
     var agency: AgencyDef? { sol.agencyDef }
+    /// Contract payments only (milestones, reimbursements, settlements), without royalties.
+    var contractRevenue: Double { revenue - royalties }
+    /// Cost growth so far: what the work turned out to need over plan, and rework after failed trials.
+    var growth: Double { costGrowth + trialGrowth }
     var profit: Double { revenue - direct - allocated - proposalCost - disallowed }
     var cashProfit: Double { revenue - direct - proposalCost - disallowed }
 
@@ -424,15 +438,16 @@ enum FacilityKind: String, Codable, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    /// Illustrative photo (a generic server room, workshop or laboratory, not a real classified site).
+    /// Illustrative photo: a generic server room, datacenter aisle, workshop bench or teaching laboratory (see
+    /// ImageCredits), never a named supercomputer or a real classified site. Always shown with the Illustrative label.
     var image: String {
         switch self {
         case .secureLab: "server_room"
-        case .restrictedCompute: "hpc_frontier"
+        case .restrictedCompute: "rack_rear"
         case .clearedHall: "dc_hall"
         case .engineering: "lab_electronics"
-        case .confidentialScience: "lab_physics"
-        case .certified: "rack_rear"
+        case .confidentialScience: "lab_chemistry"
+        case .certified: "dc_servers"
         }
     }
 
@@ -442,7 +457,7 @@ enum FacilityKind: String, Codable, CaseIterable, Identifiable, Sendable {
         case .restrictedCompute: "An air-gapped compute centre with its own accelerators, accredited for classified work. Capacity is H100-equivalents."
         case .clearedHall: "A hall inside one of your own datacenters, walled off and accredited. Cheaper and faster than a standalone centre; it draws on the site's power."
         case .engineering: "Clean workshops, environmental chambers and test bays for hardware programmes: satellites, edge accelerators, fab process control, cooling and aircraft. Each bay hosts one programme. Draws real power."
-        case .confidentialScience: "An accredited annex to one of your science labs, where cleared scientists run classified experiments (materials, instruments). Needs a science lab. Each bench hosts one programme."
+        case .confidentialScience: "An accredited annex to one of your science labs, where cleared scientists run classified experiments (materials, instruments). Built at one of your science labs and suspended if that lab closes. Each bench hosts one programme."
         case .certified: "A certified research environment: approved networks, audited enclaves and key management, for cryptography, secure communications and verified software. Needs a secure lab at the same level; audited every year."
         }
     }
@@ -493,10 +508,16 @@ struct SecureFacility: Codable, Identifiable, Hashable, Sendable {
     @D var audits: Int = 0
     @D var auditFindings: Int = 0
     @D var suspendedUntil: Date? = nil
+    /// Power it draws at full use (kW), fixed when it was built (0 in older saves: worked out from its kind and size).
+    @D var kw: Double = 0
+    /// Confidential science annexes: the science-lab site (ScienceCatalog site ID) it belongs to.
+    @D var labSite: String = ""
+    /// Why it's out of use until the cause is fixed ("" = in use): no cleared security officer, its lab closed.
+    @D var suspension: String = ""
 
     func isReady(_ d: Date) -> Bool { d >= ready }
-    /// Ready and not suspended by a failed certification audit.
-    func isUsable(_ d: Date) -> Bool { d >= ready && (suspendedUntil.map { d >= $0 } ?? true) }
+    /// Ready and not suspended (a failed certification audit, no cleared security officer, its science lab gone).
+    func isUsable(_ d: Date) -> Bool { d >= ready && suspension.isEmpty && (suspendedUntil.map { d >= $0 } ?? true) }
 }
 
 /// a discovery a programme produced, in the shared discovery, patent and history flow. Classified results are
@@ -519,6 +540,8 @@ struct ProgrammeDiscovery: Codable, Identifiable, Hashable, Sendable {
     var lastMonth: Double = 0
     var lifetime: Double = 0
     var published: Bool = false
+    /// Controlled (CUI) work: the paper waits for pre-publication review until this date.
+    @D var reviewUntil: Date? = nil
 
     var classified: Bool { level >= Classification.secret.rawValue }
 }
@@ -533,6 +556,10 @@ struct Clearance: Codable, Hashable, Sendable {
     /// Highest level an investigation turned down.
     var deniedAt: Int = 0
     var cost: Double = 0
+    /// When the clearance was granted or last renewed: a periodic reinvestigation is due five years on.
+    @D var granted: Date? = nil
+    /// The investigation under way is a periodic reinvestigation (the clearance stays valid meanwhile).
+    @D var renewal: Bool = false
 }
 
 /// A bid that has been decided, win or lose.
@@ -544,6 +571,31 @@ struct BidRecord: Codable, Hashable, Sendable {
     var odds: Double
     var won: Bool
     var price: Double
+}
+
+/// A contract a rival lab won (on a solicitation you bid on, or one you passed over), and how it went.
+struct RivalProgramme: Codable, Identifiable, Hashable, Sendable {
+    var id = StableID.next()
+    var lab: String
+    var agency: String
+    var template: String
+    var title: String
+    var type: ContractType
+    var level: Int
+    var value: Double
+    var start: Date
+    /// Months the lab will take (the plan, stretched or shortened by how well its models fit the work).
+    var planned: Int
+    /// "active", "completed" or "terminated" (for default).
+    var status: String = "active"
+    var ended: Date? = nil
+    /// Paid to the lab so far, and months worked.
+    var paid: Double = 0
+    var months: Int = 0
+
+    var active: Bool { status == "active" }
+    /// What the agency pays the lab each month while the work runs.
+    var monthly: Double { value / Double(max(1, planned)) }
 }
 
 /// Everything the Advanced Projects division keeps.
@@ -566,6 +618,21 @@ struct AdvancedState: Codable, Hashable, Sendable {
     @D var lastOpex: Double = 0
     /// discoveries from programmes (open and classified), with their patents.
     @D var discoveries: [ProgrammeDiscovery] = []
+    /// Agency → how far it trusts you with classified work (−10…+10), from delivered Secret work and what you did with
+    /// its discoveries. Gates Top Secret bids and moves follow-on offers.
+    @D var trust: [String: Double] = [:]
+    /// Agency → until when its classified evaluations mark you down for commercialising one of its discoveries.
+    @D var commercialised: [String: Date] = [:]
+    /// Agency → record credited for serious bids that lost (capped at +1).
+    @D var lossCredit: [String: Double] = [:]
+    /// Contracts rival labs won, active and past.
+    @D var rivalProgrammes: [RivalProgramme] = []
+    /// "agency|lab" → a rival lab's record with an agency (as `ratings` is yours).
+    @D var rivalRatings: [String: Double] = [:]
+    /// Science project ID → until when its paper waits for pre-publication review (controlled work in its field).
+    @D var reviews: [String: Date] = [:]
+    /// Last month's clearance pay premium, for the division's page.
+    @D var lastPremium: Double = 0
 
     var isEmpty: Bool { programmes.isEmpty && facilities.isEmpty && clearances.isEmpty }
 }

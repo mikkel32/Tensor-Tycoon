@@ -7,7 +7,8 @@ import Foundation
 ///
 /// flags (comma-separated, optional): cautious (20% of cash per run, current-gen chips only, slow hiring, no research
 /// compute, no growth rounds), norent (never rents: garage GPUs only), hard / easy (difficulty), noresearchcompute,
-/// autorollback, noquick.
+/// autorollback, noquick; advproj (government contracts, one unclassified programme at a time) and classified (also
+/// prepares for and runs Secret work: security, clearances, facilities; it retains classified discoveries internally).
 ///
 /// Output: a monthly table (every 3rd month unless mode is `full`), an event log, every training run (plan vs actual
 /// days, forecast vs actual capability), a summary of pacing metrics, and `CSV,` rows for offline aggregation.
@@ -333,7 +334,7 @@ enum PTPlay {
             "\(CompanyStage(rawValue: k)?.title ?? "?") \(Fmt.trim(Double(d(start, v)) / 30.44, 0))mo"
         }   // 3.7
         if mode != "quiet" { printGame(rows, sum, bot, s, mode: mode) }
-        if flags.contains("advproj") { for line in AdvancedProjects.report(s) { print(line) } }
+        if (flags.contains("advproj") || flags.contains("classified")) && !flags.contains("noreport") { for line in AdvancedProjects.report(s) { print(line) } }
         if flags.contains("science") { scienceSummary(s, seed: seed) }
         lastState = s
         return sum
@@ -396,6 +397,7 @@ enum PTPlay {
 
     static func choice(_ dd: Decision, _ s: GameState) -> Int {
         switch dd.kind {
+        case AdvancedProjects.secrecyKind: return AdvancedProjects.botSecrecyChoice(dd)   // 3.8: retain it internally
         case "loss_spike": return 0                           // roll back, safest
         case "train_bug": return 1                            // hot-fix and keep going
         case "contamination": return 0
@@ -467,7 +469,9 @@ enum PTPlay {
             // 3.4: launch product lines once they open, when the launch is small next to the cash pile.
             for p in ProductLines.catalog where ProductLines.status(p, s).ok && !s.productLines.contains(where: { $0.id == p.id })
                 && s.cash > 10 * ProductLines.launchCost(p, s.year) { _ = s.launchProduct(p.id) }
-            if bot.flags.contains("advproj") { AdvancedProjects.botAct(&s) }   // 3.5: bid on one government contract at a time
+            if bot.flags.contains("advproj") || bot.flags.contains("classified") {   // 3.5: bid on one government contract at a time
+                AdvancedProjects.botAct(&s, classified: bot.flags.contains("classified"))   // 3.8: and get ready for Secret work
+            }
             if bot.flags.contains("science") { science(&s) }   // 3.6: science labs (only with the flag)
         }
     }

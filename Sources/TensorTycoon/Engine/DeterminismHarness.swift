@@ -15,16 +15,18 @@ enum DeterminismHarness {
         let years = Double(days) / 365.25
         print("== Determinism: same seed, same game (\(days) days per era) ==")
         var failed = false
-        for era in ["2017", "2022", "2026"] {
-            let one = play(era, seed: 11, years: years)
-            let two = play(era, seed: 11, years: years)
-            let other = play(era, seed: 12, years: years)
+        // 3.8: the last row plays government contracts and classified work (bot flags advproj and classified).
+        for (era, flags) in [("2017", Set<String>()), ("2022", []), ("2026", []), ("2026", ["advproj", "classified", "noreport"])] {
+            let one = play(era, seed: 11, years: years, flags: flags)
+            let two = play(era, seed: 11, years: years, flags: flags)
+            let other = play(era, seed: 12, years: years, flags: flags)
             let same = one.digest == two.digest, differs = one.digest != other.digest
             // A saved game, loaded and played on, plays the same way every time.
             let r1 = resumed(one.state, days: 30), r2 = resumed(one.state, days: 30)
             let resumes = r1 == r2
             if !(same && differs && resumes) { failed = true }
-            print("  \(era): seed 11 \(hex(one.digest)) / \(hex(two.digest)) \(same ? "same" : "MISMATCH") · "
+            let tag = flags.subtracting(["noreport"]).sorted().map { "+" + $0 }.joined()
+            print("  \(era)\(tag): seed 11 \(hex(one.digest)) / \(hex(two.digest)) \(same ? "same" : "MISMATCH") · "
                   + "seed 12 \(hex(other.digest)) \(differs ? "differs" : "SAME (seed ignored?)") · "
                   + "save, load, 30 days ×2 \(resumes ? "same" : "MISMATCH")")
         }
@@ -32,8 +34,8 @@ enum DeterminismHarness {
         if failed { exit(1) }
     }
 
-    static func play(_ era: String, seed: UInt64, years: Double) -> (digest: UInt64, state: GameState) {
-        _ = PTPlay.play(era: era, seed: seed, years: years, mode: "quiet", flags: [])
+    static func play(_ era: String, seed: UInt64, years: Double, flags: Set<String> = []) -> (digest: UInt64, state: GameState) {
+        _ = PTPlay.play(era: era, seed: seed, years: years, mode: "quiet", flags: flags)
         var s = PTPlay.lastState!
         s.idStream = StableID.current   // as a save would record it
         return (digest(s), s)

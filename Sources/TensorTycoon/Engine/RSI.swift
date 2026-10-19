@@ -20,7 +20,7 @@ enum RSI {
     }
 
     static func safetyFactor(_ s: GameState, _ b: ResearchBonuses) -> Double {
-        let team = s.employees.filter { $0.role == .safety }.reduce(0.0) { $0 + $1.weight }
+        let team = s.workforce(.safety)
         var f = b.safety / 160 + 0.15 * min(1, team / 6)
         if s.researched.contains("interpretability") { f += 0.08 }
         if s.researched.contains("scalable_oversight") { f += 0.12 }

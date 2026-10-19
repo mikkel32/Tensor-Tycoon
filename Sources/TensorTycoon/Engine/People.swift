@@ -65,6 +65,7 @@ enum People {
             // Rival labs poach unhappy, highly skilled people (never the loyal ones)
             var risk = (s.employees[i].skill / 100) * max(0, 0.6 - s.employees[i].morale / 100) * 0.12 + (s.employees[i].star ? 0.01 : 0)
             risk *= HQ.poachFactor(s)   // 3.5: big labs abroad recruit harder where pay is lower
+            risk *= AdvancedProjects.poachFactor(s, s.employees[i].id)   // 3.8: defence contractors want cleared staff
             if s.employees[i].talent == .loyal { risk = 0 }
             if s.rng.chance(risk) { poached.append(s.employees[i]) }
         }
