@@ -2,6 +2,7 @@ import SwiftUI
 
 /// 3.6: data economy — the Model Lab's data plan: domain-relevant tokens for this design, what the datasets add, and
 /// warnings (too little code for a coding model, synthetic overuse, contamination, provenance, expiring licences).
+/// A run freezes this plan when it starts.
 struct DataPlanPanel: View {
     let design: ModelDesign
     let state: GameState
@@ -17,11 +18,11 @@ struct DataPlanPanel: View {
             HStack {
                 Text("Data plan").font(.subheadline.weight(.semibold))
                 Spacer()
-                if p.active {
+                if p.datasets {
                     Pill(text: "Datasets in play", color: .purple, symbol: "externaldrive.fill.badge.plus")
                 }
             }
-            Text("Unique tokens relevant to each domain, and quality-weighted (curated tokens count many times raw crawl).")
+            Text("Unique tokens relevant to each domain, and quality-weighted (curated tokens count many times raw crawl; noise counts for nothing). Domains this design is built for count 30% more. Frozen when the run starts.")
                 .font(.caption2).foregroundStyle(.secondary)
             ForEach(shown) { dm in
                 let e = p.effective[dm.index]
@@ -33,25 +34,55 @@ struct DataPlanPanel: View {
                     Text(Fmt.tokens(p.relevantT[dm.index])).font(.caption2.monospacedDigit()).frame(width: 56, alignment: .trailing)
                     Text(abs(g) < 0.005 ? "—" : String(format: "%+.2f", g))
                         .font(.caption2.monospacedDigit()).frame(width: 36, alignment: .trailing)
-                        .foregroundStyle(g > 0.005 ? .green : (g < -0.005 ? .orange : .secondary))
-                        .help("log10 of quality-weighted tokens vs. your original sources alone")
+                        .foregroundStyle(Self.gainColor(g))
+                        .help("log10 of quality-weighted tokens vs. your original sources alone, weighted by what the design is for")
                 }
             }
             if p.active {
-                let parts = [("data", p.dData), ("code", p.dCode), ("reasoning", p.dReasoning), ("agents", p.dAgent), ("chat", p.dChat),
-                             ("languages", p.dLang), ("vision", p.dVis), ("long context", p.dLongctx)].filter { abs($0.1) >= 0.005 }
-                if !parts.isEmpty {
-                    Text("Datasets add: " + parts.map { "\($0.0) \(String(format: "%+.2f", $0.1))" }.joined(separator: " · ")
-                         + (p.extraUniqueT > 0.001 ? " · +\(Fmt.tokens(p.extraUniqueT)) unique" : ""))
-                        .font(.caption).foregroundStyle(.purple)
+                let adds = Self.addsLine(p)
+                if !adds.isEmpty {
+                    Text(adds).font(.caption).foregroundStyle(.purple)
+                }
+                if p.syntheticRawT > 0.0005 {
+                    Text(Self.syntheticLine(p))
+                        .font(.caption2).foregroundStyle(p.collapseFactor < 1 ? Tone.warning.color : Color.secondary)
                 }
             }
             ForEach(warnings, id: \.self) { w in
-                Label(w, systemImage: "exclamationmark.triangle.fill")
-                    .font(.caption).foregroundStyle(.orange)
+                Label(w, systemImage: Tone.warning.symbol)
+                    .font(.caption).foregroundStyle(Tone.warning.color)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(.top, 4)
+    }
+
+    static func gainColor(_ g: Double) -> Color {
+        if g > 0.005 { return Tone.good.color }
+        return g < -0.005 ? Tone.warning.color : Color.secondary
+    }
+
+    /// "Datasets add: code +0.07 · science +0.4 pts · +2T unique" ("" when nothing).
+    static func addsLine(_ p: DataPlan) -> String {
+        let skills: [(String, Double)] = [("data", p.dData), ("code", p.dCode), ("reasoning", p.dReasoning), ("agents", p.dAgent), ("chat", p.dChat),
+                                          ("languages", p.dLang), ("vision", p.dVis), ("long context", p.dLongctx)]
+        var parts: [String] = []
+        for (name, v) in skills where abs(v) >= 0.005 { parts.append("\(name) \(String(format: "%+.2f", v))") }
+        for d in CapDomain.allCases where abs(p.domain[d.index]) >= 0.005 {
+            parts.append("\(d.short.lowercased()) \(String(format: "%+.1f", 10 * p.domain[d.index])) pts")
+        }
+        guard !parts.isEmpty else { return "" }
+        var t = "Datasets add: "
+        t += parts.joined(separator: " · ")
+        if p.extraUniqueT > 0.001 { t += " · +\(Fmt.tokens(p.extraUniqueT)) unique" }
+        return t
+    }
+
+    /// Synthetic data in this plan: generated, counted as new, share, collapse.
+    static func syntheticLine(_ p: DataPlan) -> String {
+        var t = "Synthetic data (slider and datasets): \(Fmt.tokens(p.syntheticRawT)) generated, "
+        t += "\(Fmt.tokens(p.syntheticUniqueT)) count as new tokens · \(Int(p.syntheticShare * 100))% of the corpus"
+        if p.collapseFactor < 1 { t += " · collapse keeps ×\(Fmt.trim(p.collapseFactor, 2)) of the gains" }
+        return t
     }
 }
