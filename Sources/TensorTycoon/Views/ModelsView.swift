@@ -270,7 +270,7 @@ private struct DeploymentRow: View {
         let cap = Physics.capacity(model, deployment: dep, bonuses: b)
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Photo(key: accel.image).frame(width: 46, height: 32).clipShape(.rect(cornerRadius: 6))
+                Photo(key: accel.image).frame(width: 46, height: 32).clipShape(.rect(cornerRadius: 6)).acceleratorPhotoLabel(accel)
                 VStack(alignment: .leading, spacing: 1) {
                     Text("\(Fmt.int(dep.chips))× \(accel.name)").font(.callout.weight(.semibold))
                     Text("\(k) chip\(k == 1 ? "" : "s") per replica · \(dep.chips / k) replicas · \(Int(tps)) tok/s · \(Fmt.count(cap))/day")

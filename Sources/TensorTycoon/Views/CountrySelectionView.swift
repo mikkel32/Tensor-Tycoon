@@ -176,6 +176,7 @@ private struct CountryDetails: View {
         let loc = country.location
         VStack(alignment: .leading, spacing: 12) {
             Text(country.overview).font(.caption).fixedSize(horizontal: false, vertical: true)
+            CountryPhotoStrip(keys: ImagePicker.countryPhotos(country: country.id, city: city.id, skyline: city.image))
 
             Section2(title: "Economy", symbol: "chart.line.uptrend.xyaxis") {
                 SpecRow(label: "Corporate tax", value: Fmt.pct(country.corporateTax, decimals: 1))
@@ -235,6 +236,36 @@ private struct CountryDetails: View {
         }
         .padding(10)
         .background(Theme.insetFill, in: .rect(cornerRadius: 10))
+    }
+}
+
+/// The HQ city's other sites and the country's universities, national supercomputer and parliament, each captioned
+/// with what it shows (they are photos of those places, not stand-ins). Nothing for a country without extra photos.
+private struct CountryPhotoStrip: View {
+    let keys: [String]
+
+    var body: some View {
+        if !keys.isEmpty {
+            Section2(title: "Around here", symbol: "photo.on.rectangle") {
+                HStack(alignment: .top, spacing: 8) {
+                    ForEach(keys, id: \.self) { key in
+                        let credit = ImageLibrary.credit(key)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Photo(key: key)
+                                .frame(height: 64)
+                                .frame(maxWidth: .infinity)
+                                .clipShape(.rect(cornerRadius: 6))
+                            Text(credit?.subject ?? "")
+                                .font(.caption2).foregroundStyle(.secondary)
+                                .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                        .help(ImageLibrary.tooltip(key))
+                        .accessibilityElement(children: .combine)
+                    }
+                }
+            }
+        }
     }
 }
 

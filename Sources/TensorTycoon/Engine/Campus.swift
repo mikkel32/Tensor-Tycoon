@@ -202,7 +202,8 @@ extension GameState {
         }
         owned.removeAll { $0.count <= 0 }
         let from = sites.first { $0.id == batch.siteID }?.name ?? "storage"
-        Sim.news(&self, "Moved \(Fmt.int(n))× \(a.name)", "From \(from) to \(dest.name). Logistics: \(Fmt.money(cost)).", .company, image: a.image)
+        Sim.news(&self, "Moved \(Fmt.int(n))× \(a.name)", "From \(from) to \(dest.name). Logistics: \(Fmt.money(cost)).", .company, image: a.image,
+                 illustrative: a.photoIsStandIn)
         return nil
     }
 }

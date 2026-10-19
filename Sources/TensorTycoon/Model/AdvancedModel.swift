@@ -427,7 +427,7 @@ enum FacilityKind: String, Codable, CaseIterable, Identifiable, Sendable {
     /// Illustrative photo (a generic server room, workshop or laboratory, not a real classified site).
     var image: String {
         switch self {
-        case .secureLab: "server_room"
+        case .secureLab: "lab_anechoic"   // a university RF-shielded test chamber standing in for a shielded lab
         case .restrictedCompute: "hpc_frontier"
         case .clearedHall: "dc_hall"
         case .engineering: "lab_electronics"

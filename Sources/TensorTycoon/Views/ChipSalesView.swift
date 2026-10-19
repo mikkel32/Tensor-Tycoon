@@ -87,7 +87,7 @@ private struct LeaseRow: View {
         let rate = ChipBusiness.listRate(p.accel, s)
         let maxLease = min(p.owned, p.free + leased)
         HStack(spacing: 12) {
-            Photo(key: p.accel.image).frame(width: 54, height: 36).clipShape(.rect(cornerRadius: 7))
+            Photo(key: p.accel.image).frame(width: 54, height: 36).clipShape(.rect(cornerRadius: 7)).acceleratorPhotoLabel(p.accel)
             VStack(alignment: .leading, spacing: 2) {
                 Text(p.accel.name).font(.callout.weight(.semibold))
                 Text("\(Fmt.int(p.owned)) owned · \(Fmt.int(p.free)) idle · \(Fmt.int(leased)) leased · market \(Fmt.price(rate))/chip-hour")

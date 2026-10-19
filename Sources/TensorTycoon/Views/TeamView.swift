@@ -18,6 +18,7 @@ struct TeamView: View {
                         .overlay(alignment: .bottomLeading) {
                             Text(office.name).font(.title3.weight(.bold)).foregroundStyle(.white).padding(12)
                         }
+                        .illustrativePhoto(true, key: office.image, alignment: .topTrailing)
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
                             Text("Headcount").font(.caption)

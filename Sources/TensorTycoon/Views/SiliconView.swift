@@ -226,7 +226,8 @@ private struct CustomChipCard: View {
         let c = chip
         let ref = Silicon.reference(state)
         Card(padding: 0) {
-            Photo(key: c.focus == .training ? "wafer" : "wafer_closeup")
+            // Your own chip has no photo: a wafer stands in for it.
+            Photo(key: c.focus == .training ? "wafer" : "wafer_closeup", illustrative: true)
                 .frame(height: 110)
                 .clipped()
             VStack(alignment: .leading, spacing: 8) {

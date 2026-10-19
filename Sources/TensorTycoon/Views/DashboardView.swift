@@ -120,7 +120,8 @@ private struct TodayHeader: View {
         let day = GameCalendar.daysBetween(s.startDate, s.date) + 1
         let change = Agenda.revenueChange(s)
         VStack(spacing: 12) {
-            HeroBanner(image: heroImage(s), height: 150) {
+            // Your biggest site or your office: a stand-in photo, never the real thing.
+            HeroBanner(image: heroImage(s), height: 150, illustrative: true) {
                 HStack(alignment: .bottom) {
                     CompanyLogo(symbol: s.logoSymbol, color: Theme.logoColor(s.logoColor), size: 52)
                     VStack(alignment: .leading, spacing: 4) {

@@ -496,6 +496,7 @@ private struct CommandCentre: View {
                 Photo(key: a.image)
                     .frame(width: 120, height: 80)
                     .clipShape(.rect(cornerRadius: 10))
+                    .acceleratorPhotoLabel(a)
             }
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 6) {

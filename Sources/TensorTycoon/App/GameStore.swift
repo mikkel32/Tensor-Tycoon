@@ -83,6 +83,8 @@ final class GameStore {
     var showEraIntro = false
     /// The ⌘K "Go to…" palette.
     var showPalette = false
+    /// The Photo Credits sheet, opened from the Help menu or the main menu when no game is running.
+    var showPhotoCredits = false
     var showRunReports = UserDefaults.standard.object(forKey: "showRunReports") as? Bool ?? true {
         didSet { UserDefaults.standard.set(showRunReports, forKey: "showRunReports") }
     }
@@ -281,6 +283,11 @@ final class GameStore {
         case .competitors: rivalsTab = .labs; screen = .rivals
         default: screen = s
         }
+    }
+
+    /// The photo credits: the Credits screen in a game, a sheet from the main menu.
+    func openPhotoCredits() {
+        if state != nil { open(.credits) } else { showPhotoCredits = true }
     }
 
     /// A rival lab's profile in the Rivals hub.

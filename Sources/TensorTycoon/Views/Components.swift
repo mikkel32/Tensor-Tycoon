@@ -279,11 +279,16 @@ struct PageBackground: View {
     }
 }
 
-/// Wide photo banner with a gradient and overlay text.
+/// Wide photo banner with a gradient and overlay text. Hovering it names what the photo shows and who took it.
+/// `illustrative: true` marks a photo standing in for something it doesn't show (the player's own office or site,
+/// a fictional facility) with the "Illustrative photo" pill, top-trailing so it never covers the overlay text.
 struct HeroBanner<Overlay: View>: View {
     let image: String
     var height: CGFloat = 190
+    var illustrative = false
     @ViewBuilder var overlay: Overlay
+
+    private var credit: String { ImageLibrary.tooltip(image, illustrative: illustrative) }
 
     var body: some View {
         Photo(key: image, thumb: false)
@@ -302,8 +307,16 @@ struct HeroBanner<Overlay: View>: View {
                     .shadow(color: .black.opacity(0.45), radius: 4, y: 1)
                     .padding(20)
             }
+            .overlay(alignment: .topTrailing) {
+                if illustrative {
+                    PhotoPill(text: "Illustrative photo", symbol: "photo")
+                        .padding(10)
+                        .accessibilityLabel("Illustrative photo, not the actual place")
+                }
+            }
             .clipShape(.rect(cornerRadius: Theme.Radius.hero))
             .overlay(RoundedRectangle(cornerRadius: Theme.Radius.hero).strokeBorder(.white.opacity(0.08)))
+            .help(credit)
     }
 }
 
@@ -871,6 +884,7 @@ struct PhotoPill: View {
 }
 
 /// A generic photo standing in for one of the player's (fictional) facilities or deals, captioned as such.
+/// `Photo` measures the banner and decodes a banner-sized copy, so wide strips stay sharp.
 struct IllustrativeBanner: View {
     let key: String
     var height: CGFloat = 80
@@ -882,10 +896,11 @@ struct IllustrativeBanner: View {
             .clipped()
             .clipShape(.rect(cornerRadius: 8))
             .overlay(alignment: .bottomLeading) { PhotoPill(text: "Illustrative photo", symbol: "photo").padding(6) }
-            .help(ImageLibrary.credit(key).map { "Illustrative photo · \($0.author) · \($0.license) · Wikimedia Commons" } ?? "Illustrative photo")
+            .help(ImageLibrary.tooltip(key, illustrative: true))
     }
 }
 
+/// A one-line photo credit (author, licence, source) with the full attribution and any edits in its tooltip.
 struct ImageCreditLabel: View {
     let key: String
     var representative = false
@@ -895,6 +910,7 @@ struct ImageCreditLabel: View {
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
                 .lineLimit(1)
+                .help(ImageLibrary.attributionTooltip(c))
         }
     }
 }

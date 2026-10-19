@@ -117,7 +117,7 @@ enum PowerDeal: String, Codable, CaseIterable, Identifiable, Sendable {
         case .wind: "power_wind"
         case .gas: "power_gas"
         case .nuclear: "nuclear"
-        case .smr: "nuclear"
+        case .smr: "power_nuclear_build"
         case .fusion: "power_fusion"
         }
     }
@@ -157,6 +157,9 @@ struct Location: Identifiable, Sendable {
     let coloFee: Double      // $/kW-month for space + cooling
     let image: String
     let blurb: String
+    /// True when `image` really shows this place (its datacenters, landscape or power plants). When false the photo is
+    /// of somewhere else and the location picker marks it "Illustrative". Static catalog data; never saved.
+    var photoShowsPlace = false
 
     /// Grid capacity for one site in year `y`: utilities keep building transmission as AI demand grows.
     func gridCap(_ y: Double) -> Double {
@@ -169,28 +172,36 @@ enum LocationCatalog {
     static let core: [Location] = [
         Location(id: "nova", name: "Ashburn, Virginia", region: "US East", powerPrice: 0.085, pueDelta: 0.0, buildSpeed: 0.8,
                  gridCapMW: 1_200, coloFee: 185, image: "dc_ashburn",
-                 blurb: "Data Center Alley — the densest datacenter market on Earth. Great connectivity, long grid queues."),
+                 blurb: "Data Center Alley — the densest datacenter market on Earth. Great connectivity, long grid queues.",
+                 photoShowsPlace: true),
         Location(id: "texas", name: "Abilene, Texas", region: "US South", powerPrice: 0.060, pueDelta: 0.03, buildSpeed: 1.25,
-                 gridCapMW: 5_000, coloFee: 140, image: "dc_construction",
-                 blurb: "Cheap ERCOT power, fast permits and endless land. Home of gigawatt campuses. Watch for summer price spikes."),
+                 gridCapMW: 5_000, coloFee: 140, image: "loc_abilene",
+                 blurb: "Cheap ERCOT power, fast permits and endless land. Home of gigawatt campuses. Watch for summer price spikes.",
+                 photoShowsPlace: true),
         Location(id: "iowa", name: "Council Bluffs, Iowa", region: "US Midwest", powerPrice: 0.068, pueDelta: -0.01, buildSpeed: 1.0,
                  gridCapMW: 2_000, coloFee: 130, image: "hyperscale_campus",
-                 blurb: "Wind-heavy grid, cool winters and hyperscaler neighbours."),
+                 blurb: "Wind-heavy grid, cool winters and hyperscaler neighbours.",
+                 photoShowsPlace: true),
         Location(id: "oregon", name: "The Dalles, Oregon", region: "US West", powerPrice: 0.055, pueDelta: -0.03, buildSpeed: 0.9,
-                 gridCapMW: 1_000, coloFee: 150, image: "substation",
-                 blurb: "Columbia River hydropower: cheap, clean and constrained."),
+                 gridCapMW: 1_000, coloFee: 150, image: "loc_the_dalles",
+                 blurb: "Columbia River hydropower: cheap, clean and constrained.",
+                 photoShowsPlace: true),
         Location(id: "arizona", name: "Phoenix, Arizona", region: "US Southwest", powerPrice: 0.075, pueDelta: 0.08, buildSpeed: 1.1,
-                 gridCapMW: 3_000, coloFee: 150, image: "dc_rows",
-                 blurb: "Lots of land and solar, but 45 °C summers punish air cooling."),
+                 gridCapMW: 3_000, coloFee: 150, image: "dc_cooling_tower",
+                 blurb: "Lots of land and solar, but 45 °C summers punish air cooling.",
+                 photoShowsPlace: true),
         Location(id: "quebec", name: "Montréal, Québec", region: "Canada", powerPrice: 0.045, pueDelta: -0.06, buildSpeed: 0.8,
-                 gridCapMW: 800, coloFee: 140, image: "dc_hall",
-                 blurb: "Some of the cheapest hydro power in the world and free cooling most of the year."),
+                 gridCapMW: 800, coloFee: 140, image: "loc_quebec",
+                 blurb: "Some of the cheapest hydro power in the world and free cooling most of the year.",
+                 photoShowsPlace: true),
         Location(id: "iceland", name: "Reykjanes, Iceland", region: "Nordics", powerPrice: 0.040, pueDelta: -0.10, buildSpeed: 0.7,
-                 gridCapMW: 300, coloFee: 160, image: "power_geothermal",
-                 blurb: "Geothermal power and arctic air. Small grid, far from users."),
+                 gridCapMW: 300, coloFee: 160, image: "loc_reykjanes",
+                 blurb: "Geothermal power and arctic air. Small grid, far from users.",
+                 photoShowsPlace: true),
         Location(id: "uae", name: "Abu Dhabi, UAE", region: "Middle East", powerPrice: 0.050, pueDelta: 0.10, buildSpeed: 1.35,
-                 gridCapMW: 5_000, coloFee: 150, image: "gpu_cluster",
-                 blurb: "Sovereign money, cheap gas power and very fast construction — if you can handle the heat."),
+                 gridCapMW: 5_000, coloFee: 150, image: "uae_barakah",
+                 blurb: "Sovereign money, cheap gas power and very fast construction — if you can handle the heat.",
+                 photoShowsPlace: true),
     ]
 
     static let byID: [String: Location] = Dictionary(uniqueKeysWithValues: all.map { ($0.id, $0) })
