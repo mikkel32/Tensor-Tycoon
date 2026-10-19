@@ -29,7 +29,7 @@ struct PartnerDef: Sendable, Identifiable {
 }
 
 struct Partnership: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var partner: PartnerID
     var exclusive: Bool
     var start: Date

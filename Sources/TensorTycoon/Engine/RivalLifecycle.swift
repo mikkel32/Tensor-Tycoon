@@ -45,7 +45,7 @@ struct RivalEvent: Codable, Hashable, Identifiable {
         var isExit: Bool { self == .acquired || self == .merged || self == .bankrupt || self == .shutdown || self == .bought }
     }
 
-    var id = UUID()
+    var id = StableID.next()
     var date: Date
     /// Kind raw value.
     var kind: String
@@ -62,7 +62,7 @@ struct RivalEvent: Codable, Hashable, Identifiable {
 
 /// A rival takeover waiting on your right of first refusal.
 struct RivalDeal: Codable, Hashable, Identifiable {
-    var id = UUID()
+    var id = StableID.next()
     var targetID: String
     var buyerID: String
     var price: Double

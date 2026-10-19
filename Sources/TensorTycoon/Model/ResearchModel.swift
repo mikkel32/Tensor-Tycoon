@@ -80,7 +80,7 @@ enum ResearchFocus: String, Codable, CaseIterable, Identifiable, Sendable {
 
 /// A licence you sold on one of your unique breakthroughs.
 struct ExoticLicense: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var techID: String
     var buyerID: String
     var buyerName: String

@@ -20,7 +20,7 @@ import Foundation
 
 /// A laboratory you've built.
 struct SciLab: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var kind: LabKind
     /// Lab site (ScienceCatalog.sites / an HQ city).
     var site: String
@@ -68,7 +68,7 @@ struct SciStageLog: Codable, Hashable {
 }
 
 struct SciProject: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var def: String
     var lab: UUID
     var started: Date
@@ -128,7 +128,7 @@ struct SciReport: Codable, Hashable {
 }
 
 struct SciDiscovery: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var def: String
     var project: UUID
     var date: Date
@@ -156,7 +156,7 @@ struct SciDiscovery: Codable, Identifiable, Hashable {
 }
 
 struct SciPatent: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var discovery: UUID
     var title: String
     var field: SciField
@@ -170,7 +170,7 @@ struct SciPatent: Codable, Identifiable, Hashable {
 
 /// A result a rival lab's science arm announced.
 struct RivalSciResult: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var lab: String
     var def: String
     var date: Date

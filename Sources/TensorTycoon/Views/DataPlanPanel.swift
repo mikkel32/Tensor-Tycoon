@@ -8,7 +8,7 @@ struct DataPlanPanel: View {
 
     var body: some View {
         let s = state
-        let p = DataEconomy.plan(design, state: s, sources: Array(s.dataSources), detail: true)
+        let p = DataEconomy.plan(design, state: s, sources: s.dataSources.sorted(), detail: true)
         let warnings = DataEconomy.warnings(design, state: s, plan: p, est: Physics.estimate(design, state: s))
         let focus = Set(design.objective.focus + DataEconomy.wantedShare(design).map(\.0))
         let shown = CapDomain.allCases.filter { focus.contains($0) || p.relevantT[$0.index] > 0.0005 || p.gains[$0.index] != 0 }

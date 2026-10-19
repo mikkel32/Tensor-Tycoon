@@ -11,7 +11,7 @@ struct BriefingLine: Codable, Hashable {
 
 /// What changed last month and why: revenue moves with their causes, what rivals did, what's coming, and what to do.
 struct MonthlyBriefing: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var month: Date
     var headline: String
     var revenue: Double

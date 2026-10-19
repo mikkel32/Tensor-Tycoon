@@ -319,7 +319,7 @@ enum CorpDebtKind: String, Codable, CaseIterable, Identifiable, Sendable {
 }
 
 struct CorpDebt: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var kind: CorpDebtKind
     var principal: Double
     var balance: Double

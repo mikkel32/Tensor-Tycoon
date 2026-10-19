@@ -147,7 +147,7 @@ struct CastMember: Codable, Hashable, Identifiable {
 
 /// A post on the Pulse, the industry's chatter feed.
 struct PulsePost: Codable, Hashable, Identifiable {
-    var id = UUID()
+    var id = StableID.next()
     var date: Date
     /// Cast member ID, or empty for an anonymous account.
     var author: String

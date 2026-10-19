@@ -165,7 +165,7 @@ enum Physics {
         }
         return Estimate(flops: pre, postFlops: post, days: days, dailyCost: daily, totalCost: days.isFinite ? daily * days : .infinity,
                         mfu: m, goodput: g, memory: trainingMemory(d, accel: accel, bonuses: b),
-                        forecast: ForecastEngine.forecast(d, state: s, dataSources: Array(s.dataSources)),
+                        forecast: ForecastEngine.forecast(d, state: s, dataSources: s.dataSources.sorted()),
                         coverage: cov, incidentDays: incidents, toy: toy)
     }
 
@@ -198,7 +198,7 @@ enum Physics {
     /// Unique tokens (trillions) a design can draw on: your data sources, data research and its synthetic share.
     static func uniqueTokensT(_ d: ModelDesign, state s: GameState) -> Double {
         let b = s.bonuses
-        let raw = availableTokensT(Array(s.dataSources), y: s.year, bonuses: b)
+        let raw = availableTokensT(s.dataSources.sorted(), y: s.year, bonuses: b)
         return raw * (d.syntheticShare > 0 && b.has(.syntheticData) ? 1 + d.syntheticShare * 3 : 1) + DataEconomy.extraUniqueT(s)   // 3.6
     }
 
@@ -228,7 +228,7 @@ enum Physics {
     // MARK: Data
 
     static func availableTokensT(_ sources: [String], y: Double, bonuses b: ResearchBonuses) -> Double {
-        let raw = sources.compactMap { DataCatalog.byID[$0] }.reduce(0) { $0 + $1.tokensT(y) }
+        let raw = sources.sorted().compactMap { DataCatalog.byID[$0] }.reduce(0) { $0 + $1.tokensT(y) }   // 3.7: fixed order
         return raw * (1 + b.dataTokens)
     }
 

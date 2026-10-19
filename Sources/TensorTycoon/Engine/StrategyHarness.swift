@@ -13,7 +13,7 @@ extension BalanceHarness {
             var settings = NewGameSettings(companyName: "Probe", founderName: "Bot", eraID: era, difficulty: .normal)
             settings.doctrine = d
             let s = NewGame.create(settings, seed: 5)
-            let f = ForecastEngine.forecast(design, state: s, dataSources: Array(s.dataSources))
+            let f = ForecastEngine.forecast(design, state: s, dataSources: s.dataSources.sorted())
             let t = s.traits
             let h100 = Economy.price(HardwareCatalog.h100, s) ?? 0
             print(String(format: "%-28@ %6.2f  %7.0f  %10.2f  %6.0f  %8.2f  %9.2f  %8.2f",
@@ -114,7 +114,7 @@ extension BalanceHarness {
             s.securityRaw = 2
             // A real frontier lab has hundreds of staff: enough for insider risk.
             if let e = s.employees.first {
-                for _ in 0..<60 { var c = e; c.id = UUID(); s.employees.append(c) }
+                for _ in 0..<60 { var c = e; c.id = StableID.next(); s.employees.append(c) }
             }
             for day in 0..<(365 * 3) {
                 Sim.advanceDay(&s)

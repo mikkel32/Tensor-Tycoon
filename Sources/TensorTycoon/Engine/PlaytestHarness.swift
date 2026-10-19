@@ -378,7 +378,7 @@ enum PTPlay {
         r.brand = s.brand
         r.board = s.boardConfidence
         r.idleDays = idle
-        r.fleet = Economy.pools(s).sorted { $0.total > $1.total }.prefix(2).map { "\($0.total)× \($0.accel.id) (train \($0.training), serve \($0.inference), research \($0.research))" }.joined(separator: ", ")
+        r.fleet = Economy.pools(s).sorted { $0.total != $1.total ? $0.total > $1.total : $0.accel.id < $1.accel.id }.prefix(2).map { "\($0.total)× \($0.accel.id) (train \($0.training), serve \($0.inference), research \($0.research))" }.joined(separator: ", ")
         if let run = s.runs.last(where: { isLive($0) && $0.kind == .full }) {
             r.training = "\(run.design.name) \(Int(run.progress * 100))%\(run.status == .paused ? " PAUSED" : "")"
         }
@@ -957,7 +957,7 @@ enum PTPlay {
         }
         print("\nEvents:")
         for r in rows where !r.events.isEmpty || r.decisions > 0 {
-            let k = r.kinds.sorted { $0.value > $1.value }.map { "\($0.key)×\($0.value)" }.joined(separator: " ")
+            let k = r.kinds.sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }.map { "\($0.key)×\($0.value)" }.joined(separator: " ")
             print("  \(r.label): \(r.events.joined(separator: "; "))\(k.isEmpty ? "" : " | decisions: \(k)")")
         }
         print("\nRuns:")
@@ -983,7 +983,7 @@ enum PTPlay {
         print("  bot actions/mo \(Fmt.trim(sum.actionsAvg, 1)) · days/mo with nothing to do \(Fmt.trim(sum.idleAvg, 1)) · candidate designs skipped for goodput<60%: \(sum.lowGoodputSkips) · stalled runs cancelled: \(sum.cancelledStalls) · days waiting because nothing beats current model: \(sum.ceilingDays)")
         print("  valuation month-on-month: max jump ×\(Fmt.trim(sum.maxValJump, 1)), max drop \(Fmt.pct(sum.maxValDrop, decimals: 0)) · peak fleet \(sum.maxChips) chips (\(sum.maxChipsWhat))")
         for n in sum.notes.prefix(12) { print("  note: \(n)") }
-        let top = sum.kinds.sorted { $0.value > $1.value }.prefix(10).map { "\($0.key) \($0.value)" }.joined(separator: ", ")
+        let top = sum.kinds.sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }.prefix(10).map { "\($0.key) \($0.value)" }.joined(separator: ", ")
         print("  decisions: \(sum.decisionsTotal) (\(Fmt.trim(Double(sum.decisionsTotal) / Double(max(1, sum.months)), 2))/mo, max \(sum.decisionMax) in \(sum.decisionMaxLabel)) · \(top)")
         print("  world news/mo avg \(Fmt.trim(sum.newsAvg, 1)) max \(sum.newsMax) · important/mo \(Fmt.trim(sum.importantAvg, 1)) · quiet months \(sum.quietMonths) (longest streak \(sum.longestQuiet) from \(sum.longestQuietFrom))")
         print("  research/yr \(Fmt.trim(sum.researchPerYear, 1)) · idle share of rented chip-days \(Fmt.pct(sum.idleRentFrac)) · rental-cap hits \(sum.rentalCapHits) · days with no main run \(sum.waitDays) · paused-run days \(sum.stalledDays)")
@@ -991,7 +991,7 @@ enum PTPlay {
             print("  clock stops per month (default settings): " + sum.daysByYear.sorted { $0.key < $1.key }.map {
                 "\($0.key) \(Fmt.trim(Double(sum.stopsByYear[$0.key] ?? 0) / Double(max($0.value, 1)) * 30.44, 1))"
             }.joined(separator: " · "))
-            print("  why: " + sum.stopCauses.sorted { $0.value > $1.value }.prefix(10).map { "\($0.key) \($0.value)" }.joined(separator: ", "))
+            print("  why: " + sum.stopCauses.sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }.prefix(10).map { "\($0.key) \($0.value)" }.joined(separator: ", "))
         }
         let e = sum.end
         print("  end: cash \(m(e.cash)) rev/mo \(m(e.revenue)) val \(m(e.valuation)) chips \(e.chips) gap \(Fmt.trim(e.gap, 2)) rank #\(e.rank) users \(Fmt.count(e.users)) staff \(e.employees) stake \(Fmt.pct(e.stake)) API share \(Fmt.pct(e.apiShare)) of-market \(Fmt.pct(e.marketShare))")
@@ -1010,7 +1010,7 @@ enum PTPlay {
         print("  decisions/mo \(all.map { Fmt.trim(Double($0.decisionsTotal) / Double(max(1, $0.months)), 2) }) · max/mo \(all.map(\.decisionMax)) · quiet months \(all.map(\.quietMonths)) · game over \(all.map { $0.gameOver == nil ? "no" : "YES" })")
         var kinds: [String: Int] = [:]
         for s in all { for (k, v) in s.kinds { kinds[k, default: 0] += v } }
-        print("  decision kinds: " + kinds.sorted { $0.value > $1.value }.map { "\($0.key) \($0.value)" }.joined(separator: ", "))
+        print("  decision kinds: " + kinds.sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }.map { "\($0.key) \($0.value)" }.joined(separator: ", "))
         print("  end valuations \(all.map { m($0.end.valuation) }) · end rev/mo \(all.map { m($0.end.revenue) }) · end rank \(all.map(\.end.rank))")
         var stops: [Int: Int] = [:], days: [Int: Int] = [:], causes: [String: Int] = [:]
         for s in all {
@@ -1021,6 +1021,6 @@ enum PTPlay {
         print("  clock stops/month (default settings): " + days.sorted { $0.key < $1.key }.map {
             "\($0.key) \(Fmt.trim(Double(stops[$0.key] ?? 0) / Double(max($0.value, 1)) * 30.44, 1))"
         }.joined(separator: " · "))
-        print("  stopped by: " + causes.sorted { $0.value > $1.value }.prefix(12).map { "\($0.key) \($0.value)" }.joined(separator: ", "))
+        print("  stopped by: " + causes.sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }.prefix(12).map { "\($0.key) \($0.value)" }.joined(separator: ", "))
     }
 }

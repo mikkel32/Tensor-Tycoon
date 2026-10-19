@@ -37,7 +37,7 @@ enum BalanceHarness {
             d.mtp = b.has(.mtp) && k.y > 2024.9
             d.anneal = b.has(.curriculum)
             d.instruct = b.has(.chat)
-            let f = ForecastEngine.forecast(d, state: s, dataSources: Array(s.dataSources))
+            let f = ForecastEngine.forecast(d, state: s, dataSources: s.dataSources.sorted())
             print(String(format: "%-27@ %.2f  %5.2f  %5.2f  %5.2f  %5.2f  %6.2f   %5.2f  %+5.2f  %.2f",
                          k.name as NSString, k.y, f.rawC, f.allocation + f.repetition, f.algo, f.data, f.c, k.target, f.c - k.target, f.sigma))
         }

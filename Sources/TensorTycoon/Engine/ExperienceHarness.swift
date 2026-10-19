@@ -20,7 +20,7 @@ extension BalanceHarness {
         s.chatModelID = id
         if let i = s.models.firstIndex(where: { $0.id == id }) {
             var next = s.models[i]
-            next.id = UUID()
+            next.id = StableID.next()
             next.name = "Probe-2"
             next.c += 0.4
             next.released = false

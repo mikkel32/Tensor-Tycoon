@@ -146,7 +146,8 @@ enum Sim {
                 merged[key] = b
             }
         }
-        s.owned = Array(merged.values).sorted { $0.purchased < $1.purchased }
+        // 3.7: ties (same day) by merge key, so the order never depends on the Dictionary's.
+        s.owned = merged.sorted { a, b in a.value.purchased != b.value.purchased ? a.value.purchased < b.value.purchased : a.key < b.key }.map(\.value)
     }
 
     static func rentalExpiry(_ s: inout GameState) {
@@ -265,7 +266,7 @@ enum Sim {
         let t = s.traits
         let founder = 0.8 * (1 + t.founderRP)
         var computePF = 0.0
-        for (id, n) in s.researchChips where n > 0 {
+        for (id, n) in s.researchChips.sorted(by: { $0.key < $1.key }) where n > 0 {   // 3.7: fixed order (float sums)
             if let a = HardwareCatalog.get(id) { computePF += Double(n) * a.bf16 / 1000 }
         }
         let computeRP = 4 * pow(computePF, 0.45)

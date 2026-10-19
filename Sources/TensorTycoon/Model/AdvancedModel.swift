@@ -314,7 +314,7 @@ extension SecrecyChoice: DefaultValue { static var defaultValue: SecrecyChoice {
 
 /// A won contract and its execution.
 struct Programme: Codable, Identifiable, Hashable, Sendable {
-    var id = UUID()
+    var id = StableID.next()
     var sol: Solicitation
     /// Contract value: the price (fixed-price), award (grant), target cost + fee (cost-plus) or purse (prize).
     var value: Double
@@ -418,7 +418,7 @@ enum FacilityKind: String, Codable, CaseIterable, Identifiable, Sendable {
 
 /// A classified facility you built.
 struct SecureFacility: Codable, Identifiable, Hashable, Sendable {
-    var id = UUID()
+    var id = StableID.next()
     var name: String
     var kind: FacilityKind
     /// Accreditation level 1–3 (CUI, Secret, TS/SCI).

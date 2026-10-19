@@ -65,7 +65,7 @@ struct FamilyMember: Codable, Hashable {
 
 /// A flagship and the smaller tiers distilled from it, sold under one name.
 struct ModelFamily: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var name: String
     var created: Date
     var members: [FamilyMember] = []
@@ -165,7 +165,7 @@ enum ModelJobKind: String, Codable, Sendable {
 
 /// Compute set aside for a distillation, a post-training pass or a merge. Its chips count as training chips.
 struct ModelJob: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var kind: ModelJobKind
     /// The teacher (distillation) or the model being improved.
     var modelID: UUID

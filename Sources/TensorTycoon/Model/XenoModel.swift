@@ -50,7 +50,7 @@ enum XenoKind: String, Codable, CaseIterable, Identifiable, Sendable {
 
 /// A non-architecture alien discovery.
 struct XenoArtifact: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var kind: XenoKind
     var name: String
     var generation: Int

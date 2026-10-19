@@ -246,7 +246,11 @@ enum Economy {
                                    inference: inference[id] ?? 0, research: research[id] ?? 0, rsi: rsi[id] ?? 0,
                                    swarm: swarm[id] ?? 0, leased: leased[id] ?? 0))
         }
-        return out.sorted { $0.accel.best * Double($0.total) > $1.accel.best * Double($1.total) }
+        // 3.7: ties by chip ID, so the order never depends on the Set's (which changes from launch to launch).
+        return out.sorted { a, b in
+            let x = a.accel.best * Double(a.total), y = b.accel.best * Double(b.total)
+            return x != y ? x > y : a.accel.id < b.accel.id
+        }
     }
 
     static func pool(_ s: GameState, _ accelID: String) -> ComputePool? {
@@ -353,7 +357,7 @@ enum Economy {
     static func officeCapacity(_ s: GameState) -> Int { officeLevels[min(s.officeLevel, officeLevels.count - 1)].capacity }
 
     static func dataMonthlyCost(_ s: GameState) -> Double {
-        s.dataSources.compactMap { DataCatalog.byID[$0] }.reduce(0) { $0 + $1.monthly } + DataEconomy.monthlyCost(s)   // 3.6: data economy
+        s.dataSources.sorted().compactMap { DataCatalog.byID[$0] }.reduce(0) { $0 + $1.monthly } + DataEconomy.monthlyCost(s)   // 3.6: data economy; 3.7: fixed order
     }
 
     // MARK: Revenue & valuation

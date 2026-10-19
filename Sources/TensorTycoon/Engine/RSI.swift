@@ -57,9 +57,12 @@ enum RSI {
         let drift = 1.1 * autonomyDrift[autonomy] * max(0.05, 1 - 1.6 * oversight) * (1 - safetyFactor(s, b)) * (b.has(.aiControl) ? 0.65 : 1) * s.traits.driftKeep
             * (s.signatureAt(.keel, 3) ? 0.7 : 1)
         let rp = target == .research ? researchRP(pf: pf, c: c, autonomy: autonomy, s) : 0
-        var probe = RSIRun(name: "", baseModelID: UUID(), design: ModelDesign(), started: s.date, target: target, autonomy: autonomy,
-                           oversight: oversight, checkpointEvery: 1, accelID: accelID, chips: chips, cStart: c, c: c, cMeasured: c,
-                           reasoning: 0, code: 0, agent: 0, arena: 0)
+        // A what-if probe: built without drawing game IDs (StableID), so forecasting never changes the game.
+        var probe = StableID.isolated {
+            RSIRun(name: "", baseModelID: StableID.next(), design: ModelDesign(), started: s.date, target: target, autonomy: autonomy,
+                   oversight: oversight, checkpointEvery: 1, accelID: accelID, chips: chips, cStart: c, c: c, cMeasured: c,
+                   reasoning: 0, code: 0, agent: 0, arena: 0)
+        }
         probe.oversight = oversight
         let insight = target == .architecture ? architectureInsight(pf: pf, c: c, autonomy: autonomy, s) : 0
         return Forecast(effectivePF: pf, daysPerGeneration: days, firstGain: gain, maxGain: maxGain,

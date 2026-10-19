@@ -100,6 +100,7 @@ enum ForecastEngine {
     // MARK: Forecast
 
     static func forecast(_ d: ModelDesign, state s: GameState, dataSources: [String]) -> Forecast {
+        let dataSources = dataSources.sorted()   // 3.7: fixed order (float sums), whatever order a run's snapshot was saved in
         let b = s.bonuses
         let y = s.year
         var f = Forecast()

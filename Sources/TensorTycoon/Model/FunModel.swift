@@ -29,7 +29,7 @@ enum PaperOutcome: String, Codable, Sendable {
 
 /// One paper you sent to a conference.
 struct PaperRecord: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var venue: String
     var year: Int
     var title: String
@@ -106,7 +106,7 @@ enum HackTheme: String, Codable, CaseIterable, Identifiable, Sendable {
 
 /// A hackathon week: running, or done with its result.
 struct Hackathon: Codable, Identifiable, Hashable {
-    var id = UUID()
+    var id = StableID.next()
     var theme: HackTheme
     var started: Date
     var ends: Date
