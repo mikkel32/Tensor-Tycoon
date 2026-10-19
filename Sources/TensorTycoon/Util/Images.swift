@@ -131,13 +131,14 @@ struct Photo: View {
     private var bucket: ImageLibrary.Size { size ?? (thumb ? .card : .full) }
 
     var body: some View {
-        if illustrative {
-            // Fill the frame the caller gives and clip to it, so the pill sits inside the visible
-            // area even when a `.fill` photo overflows its frame.
+        if illustrative || contentMode == .fill {
+            // Fill the frame the caller gives and clip to it. On its own a `.fill` photo reports the
+            // size of the scaled image, so a wide one (the San Francisco skyline) widened the card or
+            // sheet around it past its column; this also keeps the pill inside the visible area.
             Color.clear
                 .overlay { picture }
                 .clipped()
-                .illustrativePhoto(true, key: key)
+                .illustrativePhoto(illustrative, key: key)
         } else {
             picture
         }
