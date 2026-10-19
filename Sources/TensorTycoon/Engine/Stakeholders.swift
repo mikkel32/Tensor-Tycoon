@@ -62,6 +62,7 @@ enum Stakeholders {
             add("Public mood toward AI", 0.3 * (s.world.sentiment - 50))
             add("Your safety record", 0.25 * (s.safetyScore - 50))
             add("Reliability", clamp((s.reliability - 0.95) * 60, -6, 2))
+            add("Public-service programmes", AdvancedProjects.publicTrustBonus(s))   // disaster response, emissions data
             add("Blamed for AI job losses", -min(6, automationShare(s) * max(0, s.world.jobPressure - 0.5) * 4))
         case .researchers:
             add("Publication policy", s.publication == .open ? 8 : (s.publication == .secret ? -8 : 0))

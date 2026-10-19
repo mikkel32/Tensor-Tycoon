@@ -291,7 +291,7 @@ enum ProgrammeStatus: String, Codable, Sendable {
 
 /// What you did with a classified discovery.
 enum SecrecyChoice: String, Codable, Sendable {
-    case none = "", pending, classified, review, approved, denied, cleanRoom, cleanRoomDone, tainted, licensed, partnered
+    case none = "", pending, classified, review, approved, denied, cleanRoom, cleanRoomDone, tainted, licensed, partnered, retained
 
     var title: String {
         switch self {
@@ -306,8 +306,12 @@ enum SecrecyChoice: String, Codable, Sendable {
         case .tainted: "Clean-room version withdrawn"
         case .licensed: "Permitted parts licensed"
         case .partnered: "Commercialised with an authorised partner"
+        case .retained: "Retained for internal use only"
         }
     }
+
+    /// The result may be used commercially (sold, licensed, put into products) and its patent can be licensed.
+    var commercial: Bool { self == .approved || self == .cleanRoomDone || self == .licensed || self == .partnered }
 }
 
 extension SecrecyChoice: DefaultValue { static var defaultValue: SecrecyChoice { .none } }
@@ -377,6 +381,12 @@ struct Programme: Codable, Identifiable, Hashable, Sendable {
 
 enum FacilityKind: String, Codable, CaseIterable, Identifiable, Sendable {
     case secureLab, restrictedCompute, clearedHall
+    /// workshops and test bays for hardware programmes (satellites, edge chips, fab process control, cooling).
+    case engineering
+    /// an accredited annex to one of your science labs, for classified experiments.
+    case confidentialScience
+    /// a government-certified research environment: certified networks and enclaves, audited every year.
+    case certified
 
     var id: String { rawValue }
 
@@ -385,6 +395,21 @@ enum FacilityKind: String, Codable, CaseIterable, Identifiable, Sendable {
         case .secureLab: "Secure research lab"
         case .restrictedCompute: "Restricted compute centre"
         case .clearedHall: "Cleared datacenter hall"
+        case .engineering: "Specialised engineering facility"
+        case .confidentialScience: "Confidential science laboratory"
+        case .certified: "Government-certified research environment"
+        }
+    }
+
+    /// For facility names ("Paris Engineering Facility 1").
+    var nameSuffix: String {
+        switch self {
+        case .secureLab: "Secure Lab"
+        case .restrictedCompute: "Restricted Compute"
+        case .clearedHall: "Cleared Hall"
+        case .engineering: "Engineering Facility"
+        case .confidentialScience: "Confidential Lab"
+        case .certified: "Certified Environment"
         }
     }
 
@@ -393,15 +418,21 @@ enum FacilityKind: String, Codable, CaseIterable, Identifiable, Sendable {
         case .secureLab: "lock.rectangle.stack.fill"
         case .restrictedCompute: "cpu.fill"
         case .clearedHall: "server.rack"
+        case .engineering: "wrench.and.screwdriver.fill"
+        case .confidentialScience: "flask.fill"
+        case .certified: "checkmark.seal.fill"
         }
     }
 
-    /// Illustrative photo (a generic server room or datacenter, not a real classified site).
+    /// Illustrative photo (a generic server room, workshop or laboratory, not a real classified site).
     var image: String {
         switch self {
         case .secureLab: "server_room"
         case .restrictedCompute: "hpc_frontier"
         case .clearedHall: "dc_hall"
+        case .engineering: "lab_electronics"
+        case .confidentialScience: "lab_physics"
+        case .certified: "rack_rear"
         }
     }
 
@@ -410,10 +441,39 @@ enum FacilityKind: String, Codable, CaseIterable, Identifiable, Sendable {
         case .secureLab: "Accredited workspace where cleared staff work on classified programmes. Capacity is desks."
         case .restrictedCompute: "An air-gapped compute centre with its own accelerators, accredited for classified work. Capacity is H100-equivalents."
         case .clearedHall: "A hall inside one of your own datacenters, walled off and accredited. Cheaper and faster than a standalone centre; it draws on the site's power."
+        case .engineering: "Clean workshops, environmental chambers and test bays for hardware programmes: satellites, edge accelerators, fab process control, cooling and aircraft. Each bay hosts one programme. Draws real power."
+        case .confidentialScience: "An accredited annex to one of your science labs, where cleared scientists run classified experiments (materials, instruments). Needs a science lab. Each bench hosts one programme."
+        case .certified: "A certified research environment: approved networks, audited enclaves and key management, for cryptography, secure communications and verified software. Needs a secure lab at the same level; audited every year."
         }
     }
 
-    var unit: String { self == .secureLab ? "desks" : "H100e" }
+    var unit: String {
+        switch self {
+        case .secureLab: "desks"
+        case .restrictedCompute, .clearedHall: "H100e"
+        case .engineering: "bays"
+        case .confidentialScience: "benches"
+        case .certified: "enclaves"
+        }
+    }
+
+    /// Compute facilities (capacity in H100e).
+    var isCompute: Bool { self == .restrictedCompute || self == .clearedHall }
+
+    /// Facilities a programme template can require (one unit per programme).
+    var isProgrammeSpace: Bool { self == .engineering || self == .confidentialScience || self == .certified }
+
+    /// One-line role, for requirement lists.
+    var short: String {
+        switch self {
+        case .secureLab: "secure lab"
+        case .restrictedCompute: "restricted compute"
+        case .clearedHall: "cleared hall"
+        case .engineering: "engineering bay"
+        case .confidentialScience: "confidential lab bench"
+        case .certified: "certified enclave"
+        }
+    }
 }
 
 /// A classified facility you built.
@@ -429,8 +489,38 @@ struct SecureFacility: Codable, Identifiable, Hashable, Sendable {
     var ready: Date
     var capex: Double
     var opex: Double
+    /// certified environments — audits passed and failed, and a suspension after a failed audit.
+    @D var audits: Int = 0
+    @D var auditFindings: Int = 0
+    @D var suspendedUntil: Date? = nil
 
     func isReady(_ d: Date) -> Bool { d >= ready }
+    /// Ready and not suspended by a failed certification audit.
+    func isUsable(_ d: Date) -> Bool { d >= ready && (suspendedUntil.map { d >= $0 } ?? true) }
+}
+
+/// a discovery a programme produced, in the shared discovery, patent and history flow. Classified results are
+/// patented under a secrecy order (no licences, no publication) until they're cleared for commercial use.
+struct ProgrammeDiscovery: Codable, Identifiable, Hashable, Sendable {
+    var id = StableID.next()
+    var programme: UUID
+    var template: String
+    var title: String
+    var agency: String
+    /// Classification of the work it came from (0–3).
+    var level: Int
+    var date: Date
+    /// Patent filed the day it was delivered (a secrecy order keeps classified ones sealed).
+    var patentFiled: Date
+    var secrecyOrder: Bool
+    /// Cleared for commercial use (approval, clean-room, licence or partner) — the secrecy order is lifted.
+    var cleared: Date? = nil
+    var licensees: Int = 0
+    var lastMonth: Double = 0
+    var lifetime: Double = 0
+    var published: Bool = false
+
+    var classified: Bool { level >= Classification.secret.rawValue }
 }
 
 /// An employee's clearance: granted level and any investigation under way.
@@ -474,6 +564,8 @@ struct AdvancedState: Codable, Hashable, Sendable {
     @D var engaged: Bool = false
     /// Last month's facility opex, for the dashboard.
     @D var lastOpex: Double = 0
+    /// discoveries from programmes (open and classified), with their patents.
+    @D var discoveries: [ProgrammeDiscovery] = []
 
     var isEmpty: Bool { programmes.isEmpty && facilities.isEmpty && clearances.isEmpty }
 }

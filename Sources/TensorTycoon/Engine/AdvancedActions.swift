@@ -138,6 +138,7 @@ extension GameState {
     mutating func buildFacility(_ kind: FacilityKind, level: Int, capacity: Double, site: UUID) -> String? {
         guard let st = AdvancedProjects.sitesFor(kind, self).first(where: { $0.id == site }) else { return "That site can't host a \(kind.title.lowercased())." }
         let q = AdvancedProjects.quote(kind, level: level, capacity: capacity, year)
+        if let b = AdvancedProjects.facilityBlockers(kind, level: clamp(level, 1, 3), self).first { return "It needs \(b.prefix(1).lowercased() + b.dropFirst())." }
         if kind == .clearedHall {
             let free = st.capacityKW - Economy.siteLoadKW(self, st.id) - AdvancedProjects.facilityKW(self, site: st.id)
             guard free >= q.kw else { return "\(st.name) has \(Fmt.watts(max(0, free) * 1000)) free; the hall needs \(Fmt.watts(q.kw * 1000))." }
@@ -147,7 +148,7 @@ extension GameState {
         month.capex += q.capex
         advanced.engaged = true
         let n = advanced.facilities.filter { $0.kind == kind }.count + 1
-        let name = "\(st.name) \(kind == .secureLab ? "Secure Lab" : (kind == .clearedHall ? "Cleared Hall" : "Restricted Compute")) \(n)"
+        let name = "\(st.name) \(kind.nameSuffix) \(n)"
         advanced.facilities.append(SecureFacility(name: name, kind: kind, level: clamp(level, 1, 3), siteID: site, capacity: capacity, started: date,
                                                   ready: GameCalendar.addDays(date, Int(q.months * 30.4)), capex: q.capex, opex: q.opex))
         return nil
@@ -184,7 +185,8 @@ extension AdvancedProjects {
         }
         guard active.isEmpty, !s.advanced.solicitations.contains(where: { $0.bid != nil }) else { return }
         var best: (id: String, price: Double, score: Double)? = nil
-        for sol in s.advanced.solicitations where sol.bid == nil && sol.closes > s.date && sol.level == .unclassified && sol.type != .prize {
+        for sol in s.advanced.solicitations where sol.bid == nil && sol.closes > s.date && sol.level == .unclassified && sol.type != .prize
+            && (sol.templateDef?.facility.map { facilityFree(s, $0, level: sol.level) >= 1 } ?? true) {
             let price = sol.type == .costPlus ? 0.08 : 0.95
             let p = odds(sol, s, price: price).p
             guard p >= 0.25, s.cash > 20 * proposalCost(sol), staffReadiness(sol, s) >= 0.6 else { continue }
@@ -202,7 +204,7 @@ extension AdvancedProjects {
             out.append("  bid \(b.date.gameShort) \(b.title) (\(b.agency)) odds \(Fmt.pct(b.odds, decimals: 0)) → \(b.won ? "WON" : "lost to \(b.winner)")")
         }
         for p in s.advanced.programmes {
-            out.append("  \(p.sol.title) [\(p.sol.type.short), \(p.sol.level.short), \(p.sol.agencyDef?.short ?? "")] \(p.awarded.gameShort) → \(p.status.title)"
+            out.append("  \(p.sol.title) [\(p.template?.topic ?? ""), \(p.sol.type.short), \(p.sol.level.short), \(p.sol.agencyDef?.short ?? "")] \(p.awarded.gameShort) → \(p.status.title)"
                        + " at \(p.stage.title) after \(p.months)/\(p.sol.months) mo, \(p.reworks) reworks · value \(Fmt.money(p.value)) · revenue \(Fmt.money(p.revenue))"
                        + " · direct \(Fmt.money(p.direct)) · allocated \(Fmt.money(p.allocated)) · bid \(Fmt.money(p.proposalCost))"
                        + " · P&L \(signed(p.profit)) (cash \(signed(p.cashProfit))) · effect \(Fmt.pct(p.effectScale, decimals: 0))")

@@ -11,15 +11,31 @@ import Foundation
 enum AdvancedProjects {
     static let secrecyKind = "adv_secrecy"
     static let bonusPrefix = "adv:"
+    /// Open solicitations you could bid on, and others (work for other countries' labs), at most.
     static let maxOpen = 9
+    static let maxForeign = 4
 
     // MARK: Basics
 
     /// A hashed roll in 0..<1 for this game (no RNG draw).
     static func roll(_ s: GameState, _ key: String) -> Double { RivalIntel.unit("adv|\(s.advanced.salt)|\(key)") }
 
-    /// Your headquarters' region. Until labs can choose their home country, every lab is American.
+    /// Your headquarters' region (from the HQ country you chose).
     static func homeRegion(_ s: GameState) -> Region { HQ.region(s) }
+
+    /// Your headquarters' country code ("us", "fr", …).
+    static func homeCountry(_ s: GameState) -> String { HQ.country(s).id }
+
+    /// The HQ country of a rival lab, for national agencies' classified work ("" when it isn't one of the playable countries).
+    static func labCountry(_ id: String) -> String {
+        let hq = CompetitorCatalog.def(id).hq.lowercased()
+        let table: [(String, String)] = [
+            ("paris", "fr"), ("lyon", "fr"), ("grenoble", "fr"), ("toulouse", "fr"), ("milan", "it"), ("rome", "it"), ("turin", "it"),
+            ("copenhagen", "dk"), ("aarhus", "dk"), ("bucharest", "ro"), ("cluj", "ro"),
+        ]
+        if let hit = table.first(where: { hq.contains($0.0) }) { return hit.1 }
+        return labRegion(id) == .us ? "us" : ""
+    }
 
     /// The region a rival lab is based in, from its headquarters.
     static func labRegion(_ id: String) -> Region {
@@ -46,6 +62,19 @@ enum AdvancedProjects {
         }
     }
 
+    /// The same for a specific agency: a national agency keeps its Secret and Top Secret work for labs headquartered in
+    /// its own country; its unclassified and controlled work follows the region's rules.
+    static func eligible(home: Region, country: String, agency a: AgencyDef, level: Classification) -> Bool {
+        if !a.country.isEmpty && level >= .secret { return country == a.country }
+        return eligible(home: home, agency: a.region, level: level)
+    }
+
+    /// Whether you may bid on a solicitation at all (headquarters rules only).
+    static func openToYou(_ sol: Solicitation, _ s: GameState) -> Bool {
+        guard let a = sol.agencyDef else { return true }
+        return eligible(home: homeRegion(s), country: homeCountry(s), agency: a, level: sol.level)
+    }
+
     static func standing(_ s: GameState, _ r: Region) -> Double {
         s.world.governments.indices.contains(r.index) ? s.world.governments[r.index] : 50
     }
@@ -67,6 +96,20 @@ enum AdvancedProjects {
         let concernMult = 1 + a.kind.concernSensitivity * (w.concern - 25) / 50
         let rulesMult = 1 + a.kind.rulesSensitivity * (strict - 40) / 60
         return budgetScale(s.year) * a.budget * clamp(concernMult * rulesMult, 0.5, 2.2) * Nations.agencyFactor(s, a.region)   // 3.7: sovereign-AI programmes
+            * leverFactor(a, s)
+    }
+
+    /// National agencies' budgets also follow one strategy dial of their region (energy funds follow energy policy, research
+    /// councils compute subsidies): ×0.75 at 0, ×1 at 50, ×1.25 at 100.
+    static func leverFactor(_ a: AgencyDef, _ s: GameState) -> Double {
+        guard let l = a.lever, s.nations.ready else { return 1 }
+        return clamp(1 + 0.25 * (s.nations.level(a.region, l) - 50) / 50, 0.75, 1.25)
+    }
+
+    /// Agencies size what they offer to the lab they're talking to: a ten-person startup sees smaller lots, a lab with
+    /// thousands of staff sees larger, more ambitious programmes (×0.6 … ×2).
+    static func companyScale(_ s: GameState) -> Double {
+        clamp(pow(Double(max(5, s.employees.count)) / 60, 0.3), 0.6, 2.0)
     }
 
     /// Cloud price of one H100-equivalent for a month.
@@ -155,7 +198,9 @@ enum AdvancedProjects {
         for i in s.advanced.programmes.indices where s.advanced.programmes[i].status == .active { step(&s, i) }
         afterProgrammes(&s)
         payFacilities(&s)
+        auditCertified(&s)
         payRoyalties(&s)
+        payPatents(&s)
         publicationRisk(&s)
         syncSeconded(&s)
     }
@@ -166,7 +211,9 @@ enum AdvancedProjects {
         let ym = s.date.ym
         let y = s.year
         for a in AgencyCatalog.all {
-            guard s.advanced.solicitations.filter({ $0.bid == nil }).count < maxOpen else { break }
+            let open = s.advanced.solicitations.filter { $0.bid == nil }
+            let mine = open.filter { openToYou($0, s) }.count
+            guard mine < maxOpen || open.count - mine < maxForeign else { break }
             let rel = agencyBudget(a, s) / budgetScale(y)
             let p = clamp(0.05 + 0.13 * rel, 0.04, 0.32)
             guard roll(s, "post|\(a.id)|\(ym.year)-\(ym.month)") < p else { continue }
@@ -183,7 +230,10 @@ enum AdvancedProjects {
             }
             // An agency doesn't post the same programme twice at once.
             guard !s.advanced.solicitations.contains(where: { $0.agency == a.id && $0.template == pick.id }) else { continue }
-            s.advanced.solicitations.append(make(pick, a, s, key: "\(a.id)|\(ym.year)-\(ym.month)", followOn: false))
+            let sol = make(pick, a, s, key: "\(a.id)|\(ym.year)-\(ym.month)", followOn: false)
+            // Work you can't bid on is listed too (it shows the market), but it never crowds out work you can.
+            if openToYou(sol, s) ? mine >= maxOpen : open.count - mine >= maxForeign { continue }
+            s.advanced.solicitations.append(sol)
             s.advanced.counter += 1
         }
     }
@@ -196,7 +246,11 @@ enum AdvancedProjects {
         let type = t.types[min(t.types.count - 1, Int(r("type") * Double(t.types.count)))]
         let ip = t.ip[min(t.ip.count - 1, Int(r("ip") * Double(t.ip.count)))]
         let months = max(4, Int((Double(t.months) * (0.85 + 0.3 * r("months"))).rounded()))
-        var value = agencyBudget(a, s) * t.size * (0.7 + 0.6 * r("value")) * scale
+        let budget = agencyBudget(a, s)
+        let size = companyScale(s)
+        // The year sets the agency's budget; the lab's size sets how ambitious a lot it offers; no single award takes more
+        // than 40% of the agency's annual AI budget.
+        var value = min(budget * 0.4, budget * t.size * (0.7 + 0.6 * r("value")) * scale * size)
         // Seedlings stay small whatever the agency's budget.
         if t.id == "seedling" { value = min(value, 2.5e7 * (0.6 + 0.4 * r("seedcap"))) }
         let markup: Double
@@ -212,7 +266,7 @@ enum AdvancedProjects {
         let avgSalary = t.staff.reduce(0) { $0 + Macro.salary($1.0, y) * $1.1 } / max(0.01, totalW)
         let seed = t.id == "seedling"
         var n = Int((estCost * 0.25 / (avgSalary / 12 * Double(months))).rounded())
-        n = seed ? clamp(n, 1, 3) : clamp(n, 2, 10)
+        n = seed ? clamp(n, 1, 3) : clamp(n, 2, Int((10 * max(1, size)).rounded()))
         var staff: [String: Int] = [:]
         var left = n
         for (i, (role, w)) in t.staff.enumerated() {
@@ -246,7 +300,7 @@ enum AdvancedProjects {
         guard let a = sol.agencyDef else { return [] }
         var bids: [RivalBid] = []
         for c in s.competitors where c.alive {
-            guard let v = s.labDomains[c.id], eligible(home: labRegion(c.id), agency: a.region, level: sol.level) else { continue }
+            guard let v = s.labDomains[c.id], eligible(home: labRegion(c.id), country: labCountry(c.id), agency: a, level: sol.level) else { continue }
             let tech = margin(sol, v)
             guard tech > -6 else { continue }
             var interest = 0.42
@@ -294,8 +348,8 @@ enum AdvancedProjects {
     /// Things that stop you bidding at all.
     static func blockers(_ sol: Solicitation, _ s: GameState) -> [String] {
         var out: [String] = []
-        if let a = sol.agencyDef, !eligible(home: homeRegion(s), agency: a.region, level: sol.level) {
-            out.append(sol.level == .unclassified ? "\(a.short) doesn't contract with labs from your country" : "\(sol.level.title) work for \(a.region.title) is open to its own labs only")
+        if let a = sol.agencyDef, !openToYou(sol, s) {
+            out.append(sol.level == .unclassified ? "\(a.short) doesn't contract with labs from your country" : "\(sol.level.title) work for \(a.homeName) is open to its own labs only")
         }
         for id in missingResearch(sol, s) { out.append("Research \(ResearchCatalog.byID[id]?.name ?? id)") }
         if margin(sol, playerScores(s)) < -5 { out.append("Your best model is more than 5 points under the bars on average") }
@@ -315,9 +369,12 @@ enum AdvancedProjects {
             if s.security.rawValue < sol.level.requiredSL { ready -= 3 }
             if sol.level >= .secret && s.publication == .open { ready -= 3 }
         }
+        if let k = sol.templateDef?.facility, facilityFree(s, k, level: sol.level) >= 1 { ready += 1 }
         let past = rating(s, sol.agency) + (standing(s, sol.agencyDef?.region ?? .us) - 50) / 5
         let pScore = priceScore(sol.type, price)
         o.parts = [("Technical margin", w.tech * tech), ("Readiness", w.tech * ready), ("Price", w.price * pScore), ("Record & standing", w.past * past)]
+        let pref = homePreference(sol, s)
+        if pref != 0 { o.parts.append(("Home-country preference", pref)) }
         o.score = o.parts.reduce(0) { $0 + $1.1 }
         o.rivals = sol.bidders.map { b in
             let name = CompetitorCatalog.def(b.lab).name
@@ -330,6 +387,15 @@ enum AdvancedProjects {
         o.acceptable = o.blockers.isEmpty
         o.p = o.acceptable ? clamp((sol.type == .prize ? 1 : mine / total) * accept * 0.95, 0, 0.95) : 0
         return o
+    }
+
+    /// National agencies favour labs headquartered at home (more when the sovereign-AI dial is high); region-wide bodies
+    /// favour labs from their region a little.
+    static func homePreference(_ sol: Solicitation, _ s: GameState) -> Double {
+        guard let a = sol.agencyDef else { return 0 }
+        let sovereign = s.nations.ready ? clamp((s.nations.level(a.region, .sovereign) - 40) / 60, 0, 1) : 0
+        if !a.country.isEmpty { return homeCountry(s) == a.country ? 3 + 2 * sovereign : 0 }
+        return homeRegion(s) == a.region && a.region != .us ? 1 + sovereign : 0
     }
 
     /// Bids decided on the solicitation's closing date.
@@ -403,7 +469,38 @@ enum AdvancedProjects {
     }
 
     static func computeCapacity(_ s: GameState, atLeast level: Int) -> Double {
-        s.advanced.facilities.filter { $0.kind != .secureLab && $0.level >= level && $0.isReady(s.date) }.reduce(0) { $0 + $1.capacity }
+        s.advanced.facilities.filter { $0.kind.isCompute && $0.level >= level && $0.isReady(s.date) }.reduce(0) { $0 + $1.capacity }
+    }
+
+    // MARK: Programme spaces (engineering bays, confidential lab benches, certified enclaves)
+
+    /// The accreditation a programme needs from its facility: its classification, CUI at least.
+    static func spaceLevel(_ level: Classification) -> Int { max(1, level.rawValue) }
+
+    /// Usable units of a kind accredited at `level` or higher (suspended certified environments don't count).
+    static func spaceCapacity(_ s: GameState, _ kind: FacilityKind, atLeast level: Int) -> Double {
+        s.advanced.facilities.filter { $0.kind == kind && $0.level >= level && $0.isUsable(s.date) }.reduce(0) { $0 + $1.capacity }
+    }
+
+    /// Active programmes that need this kind of space at `level` or higher, oldest award first.
+    static func spaceUsers(_ s: GameState, _ kind: FacilityKind, atLeast level: Int) -> [Programme] {
+        s.advanced.programmes.filter { $0.status == .active && $0.template?.facility == kind && spaceLevel($0.sol.level) >= level }
+    }
+
+    /// Free units for a new programme at this classification.
+    static func facilityFree(_ s: GameState, _ kind: FacilityKind, level: Classification) -> Double {
+        let l = spaceLevel(level)
+        var free = Double.infinity
+        for k in 1...l { free = min(free, spaceCapacity(s, kind, atLeast: k) - Double(spaceUsers(s, kind, atLeast: k).count)) }
+        return max(0, free)
+    }
+
+    /// Whether a running programme has its space: programmes take units in award order.
+    static func hasSpace(_ s: GameState, _ p: Programme) -> Bool {
+        guard let kind = p.template?.facility else { return true }
+        let l = spaceLevel(p.sol.level)
+        let before = spaceUsers(s, kind, atLeast: l).filter { ($0.awarded, $0.id.uuidString) < (p.awarded, p.id.uuidString) }.count
+        return Double(before) < spaceCapacity(s, kind, atLeast: l)
     }
 
     static func seatCapacity(_ s: GameState, atLeast level: Int) -> Double {
@@ -440,9 +537,11 @@ enum AdvancedProjects {
         var agents = 1.0
         var security = true
         var mobilised = false
+        /// The bay, bench or enclave the work needs (×0.5 without it once mobilised).
+        var space = 1.0
         var missing: [String] = []
         /// Pace against plan (1 = on schedule). Test campaigns and reviews keep even a great team from finishing much early.
-        var total: Double { security ? min(1.15, staffing * compute * capability * agents) : 0 }
+        var total: Double { security ? min(1.15, staffing * compute * capability * agents * space) : 0 }
     }
 
     /// What drives a programme's pace this month, and what's missing.
@@ -470,12 +569,18 @@ enum AdvancedProjects {
                 f.missing.append("Weight security SL\(sol.level.requiredSL) (you have SL\(s.security.rawValue)) — stop-work order")
             }
         }
+        var spaceOK = true
+        if let kind = p.template?.facility, !hasSpace(s, p) {
+            spaceOK = false
+            f.space = 0.5
+            f.missing.append("A \(kind.short) accredited \(facilityLevelName(spaceLevel(sol.level))) or higher")
+        }
         f.capability = clamp(1 + 0.02 * margin(sol, playerScores(s)), 0.6, 1.25)
         if sol.level.agentsAllowed, let id = p.swarm, let sw = s.swarms.first(where: { $0.id == id }), !sw.paused {
             f.agents = 1 + min(0.3, 0.07 * log10(1 + sw.active))
         }
         let total = sol.staffTotal
-        f.mobilised = rolesCovered && Double(team.count) >= 0.6 * Double(total) && f.security && (sol.level == .unclassified || p.compute >= 0.5 * sol.computeH100e)
+        f.mobilised = rolesCovered && Double(team.count) >= 0.6 * Double(total) && f.security && (sol.level == .unclassified || p.compute >= 0.5 * sol.computeH100e) && spaceOK
         return f
     }
 
@@ -713,6 +818,11 @@ enum AdvancedProjects {
         }
         log(&p, s.date, "Delivered \(onTime ? "on time" : "late") after \(p.months) months. Contract P&L \(signed(p.profit)) (cash \(signed(p.cashProfit))).", 1)
         s.advanced.programmes[i] = p
+        recordDiscovery(&s, i)
+        // Public-facing work (disaster response, emissions data) earns trust the day it's delivered, if you may talk about it.
+        if p.secrecy != .pending, let t {
+            for case .publicTrust(let v) in t.legacy { Stakeholders.move(&s, ["public": v * p.effectScale], "Delivered \(sol.title) for \(a?.short ?? sol.agency)") }
+        }
         // A research item handed over with the deliverables.
         if let u = t?.unlock, !s.researched.contains(u), let item = ResearchCatalog.byID[u] {
             s.researchProgress[u] = max(s.researchProgress[u] ?? 0, Sim.researchCost(item, year: s.year))
@@ -796,15 +906,18 @@ enum AdvancedProjects {
 
     /// Facility running costs charged to a classified programme (its share of compute and desks in use).
     static func facilityShare(_ s: GameState, _ p: Programme) -> Double {
-        guard p.sol.level > .unclassified, p.status == .active else { return 0 }
+        guard p.sol.level > .unclassified || p.template?.facility != nil, p.status == .active else { return 0 }
         var share = 0.0
         let usedCompute = computeAssigned(s, atLeast: 1)
         let usedSeats = seatsAssigned(s, atLeast: 1)
         for f in s.advanced.facilities where f.isReady(s.date) {
             if f.kind == .secureLab {
                 if usedSeats > 0 { share += f.opex * Double(p.staff.count) / max(usedSeats, f.capacity) }
-            } else if usedCompute > 0 {
-                share += f.opex * p.compute / max(usedCompute, computeCapacity(s, atLeast: 1))
+            } else if f.kind.isCompute {
+                if usedCompute > 0 { share += f.opex * p.compute / max(usedCompute, computeCapacity(s, atLeast: 1)) }
+            } else if p.template?.facility == f.kind && f.level >= spaceLevel(p.sol.level) {
+                let users = Double(spaceUsers(s, f.kind, atLeast: 1).count)
+                share += f.opex / max(users, f.capacity)
             }
         }
         return share
@@ -826,6 +939,31 @@ enum AdvancedProjects {
         guard total > 0 else { return }
         s.cash -= total
         s.month.costOther += total
+    }
+
+    /// Certified environments are audited once a year after accreditation. A finding suspends the certification for two
+    /// months (programmes that need it slow to half pace) and costs record with every agency in your home region.
+    static func auditCertified(_ s: inout GameState) {
+        for i in s.advanced.facilities.indices where s.advanced.facilities[i].kind == .certified && s.advanced.facilities[i].isReady(s.date) {
+            let f = s.advanced.facilities[i]
+            let years = GameCalendar.daysBetween(f.ready, s.date) / 365
+            guard years > f.audits else { continue }
+            s.advanced.facilities[i].audits += 1
+            let chance = 0.12 + 0.03 * Double(f.level) - (s.safetyScore > 70 ? 0.04 : 0) + (s.security.rawValue < f.level + 1 ? 0.1 : 0)
+            let r = roll(s, "certaudit|\(f.id.uuidString)|\(f.audits)")
+            if r < chance {
+                s.advanced.facilities[i].auditFindings += 1
+                s.advanced.facilities[i].suspendedUntil = GameCalendar.addMonths(s.date, 2)
+                for a in AgencyCatalog.all where a.region == homeRegion(s) && s.advanced.ratings[a.id] != nil {
+                    s.advanced.ratings[a.id] = clamp(rating(s, a.id) - 0.3, -10, 10)
+                }
+                Sim.news(&s, "\(f.name): certification suspended", "The annual audit found gaps in key management and access logs (roll \(Fmt.trim(r, 2)) under \(Fmt.pct(chance, decimals: 0))). Two months to fix them; programmes that need it run at half pace.",
+                         .company, image: f.kind.image, good: false)
+                alert(&s, "certaudit|\(f.id)", "\(f.name) suspended", "A failed certification audit: programmes in it slow down for two months.")
+            } else if s.advanced.engaged {
+                Sim.news(&s, "\(f.name) recertified", "The annual audit is clean (roll \(Fmt.trim(r, 2)) over \(Fmt.pct(chance, decimals: 0)) finding odds).", .company, image: f.kind.image, good: true)
+            }
+        }
     }
 
     static func payRoyalties(_ s: inout GameState) {
@@ -938,6 +1076,7 @@ enum AdvancedProjects {
     /// Sizes on offer for a facility kind this year.
     static func sizes(_ kind: FacilityKind, _ y: Double) -> [Double] {
         if kind == .secureLab { return [12, 40, 120] }
+        if kind.isProgrammeSpace { return [1, 3, 8] }
         let base = typicalCompute(y)
         return [0.5, 2, 6].map { max(32, (base * $0 / 32).rounded() * 32) }
     }
@@ -952,6 +1091,7 @@ enum AdvancedProjects {
     static func quote(_ kind: FacilityKind, level: Int, capacity: Double, _ y: Double) -> Quote {
         var q = Quote()
         let l = clamp(level, 1, 3) - 1
+        let era = 1 + 0.03 * max(0, y - 2016)
         switch kind {
         case .secureLab:
             q.capex = capacity * [90_000, 300_000, 750_000][l] * (1 + 0.03 * max(0, y - 2016))
@@ -967,9 +1107,50 @@ enum AdvancedProjects {
             q.opex = q.capex * 0.015
             q.months = [3, 5, 9][l]
             q.kw = capacity * World.kwPerH100e(y)
+        case .engineering:
+            // Clean workshops and test bays (environmental chambers, antenna ranges, a small fab line for process trials).
+            q.capex = capacity * [6e6, 12e6, 22e6][l] * era
+            q.kw = capacity * 900
+            q.opex = q.capex * 0.012 * levelPremium[l] + q.kw * 24 * 30.4 * 0.09
+            q.months = [5, 8, 12][l]
+        case .confidentialScience:
+            q.capex = capacity * [4e6, 9e6, 18e6][l] * era
+            q.kw = capacity * 250
+            q.opex = q.capex * 0.015 * levelPremium[l] + q.kw * 24 * 30.4 * 0.09
+            q.months = [4, 7, 11][l]
+        case .certified:
+            // Certified networks, enclaves and key management, plus the yearly audit.
+            q.capex = capacity * [2.5e6, 6e6, 14e6][l] * era
+            q.kw = capacity * 60
+            q.opex = q.capex * 0.02 * levelPremium[l] + q.kw * 24 * 30.4 * 0.09
+            q.months = [6, 9, 14][l]
         }
         q.months /= Campus.speedup(y)
         return q
+    }
+
+    /// Running-cost premium by accreditation level for the programme spaces (guards, inspections, separate networks).
+    static let levelPremium = [1.0, 1.3, 1.7]
+
+    /// People who must hold a clearance at the facility's level before you build one (facility security officers).
+    static func officersNeeded(_ kind: FacilityKind, level: Int) -> Int { kind.isProgrammeSpace ? clamp(level, 1, 3) + 1 : 0 }
+
+    /// What stops you building a facility kind (other than money and a site).
+    static func facilityBlockers(_ kind: FacilityKind, level: Int, _ s: GameState) -> [String] {
+        var out: [String] = []
+        let need = officersNeeded(kind, level: level)
+        let have = s.employees.filter { clearanceLevel(s, $0.id) >= level }.count
+        if have < need { out.append("\(need) staff cleared \(Classification(rawValue: level)?.clearance ?? "") to run it (you have \(have))") }
+        switch kind {
+        case .confidentialScience:
+            if s.science.labs.isEmpty { out.append("A science lab to annex it to") }
+        case .certified:
+            if seatCapacity(s, atLeast: level) < 1 && !s.advanced.facilities.contains(where: { $0.kind == .secureLab && $0.level >= level }) {
+                out.append("A secure lab accredited \(facilityLevelName(level)) or higher")
+            }
+        default: break
+        }
+        return out
     }
 
     /// Sites a facility kind can go on.
@@ -980,6 +1161,7 @@ enum AdvancedProjects {
             case .secureLab: return site.kind != .garage
             case .restrictedCompute: return site.kind == .colo || site.kind == .datacenter
             case .clearedHall: return site.kind == .datacenter
+            case .engineering, .confidentialScience, .certified: return site.kind != .garage
             }
         }
     }
@@ -1005,7 +1187,8 @@ enum AdvancedProjects {
                                      DecisionOption(label: "Seek civilian-use approval", detail: "4–9 months of review. \(Fmt.pct(approval, decimals: 0)) odds at your standing; if approved you use it in full."),
                                      DecisionOption(label: "Rebuild it clean-room", detail: "\(Fmt.money(clean)) and 6–10 months for an independent team: 70% of the effect, small risk of a taint finding."),
                                      DecisionOption(label: "License the permitted parts", detail: "About \(Fmt.money(royalty * 36)) in royalties over three years; a fifth of the effect."),
-                                     DecisionOption(label: "Partner with an authorised organisation", detail: "\(Fmt.money(p.value * 0.08)) now from a cleared partner, 45% of the effect, record +0.5.")],
+                                     DecisionOption(label: "Partner with an authorised organisation", detail: "\(Fmt.money(p.value * 0.08)) now from a cleared partner, 45% of the effect, record +0.5."),
+                                     DecisionOption(label: "Retain it for internal use only", detail: "Use it inside your own company (half the internal effect: costs, infrastructure, chips — no products, no licences, no papers). Record +1, standing +1, political capital +1.")],
                            amount: p.value, ref: p.id.uuidString)
     }
 
@@ -1060,6 +1243,15 @@ enum AdvancedProjects {
             p = s.advanced.programmes[i]
             s.advanced.ratings[p.sol.agency] = clamp(rating(s, p.sol.agency) + 0.5, -10, 10)
             log(&p, s.date, "Partnered with an authorised organisation: \(Fmt.money(p.value * 0.08)) up front.", 1)
+        case 5:
+            // Retained internally: it stays classified (no products, licences or papers) but your own teams use it.
+            p.secrecy = .retained
+            p.effectScale = retainedScale
+            p.stage = .commercialisation
+            s.advanced.ratings[p.sol.agency] = clamp(rating(s, p.sol.agency) + 1, -10, 10)
+            s.politicalCapital = min(100, s.politicalCapital + 1)
+            if let agency { Stakeholders.move(&s, [agency.region.rawValue: 1], "Kept a classified discovery from \(p.sol.title) inside the company") }
+            log(&p, s.date, "Retained for internal use only: your own teams use it; nothing leaves the company.", 1)
         default:
             p.secrecy = .classified
             s.advanced.ratings[p.sol.agency] = clamp(rating(s, p.sol.agency) + 1.5, -10, 10)
@@ -1068,6 +1260,7 @@ enum AdvancedProjects {
             log(&p, s.date, "Kept the discovery classified.", 1)
         }
         s.advanced.programmes[i] = p
+        syncDiscovery(&s, i)
     }
 
     static func finishSecrecy(_ s: inout GameState, _ i: Int) {
@@ -1108,33 +1301,225 @@ enum AdvancedProjects {
         default: break
         }
         s.advanced.programmes[i] = p
+        syncDiscovery(&s, i)
+    }
+
+    // MARK: Discoveries and patents
+
+    /// Share of a result's internal effects you keep when it's retained for internal use only.
+    static let retainedScale = 0.5
+
+    /// A delivered programme's discovery joins your discoveries and patents: open work is published and patented at once;
+    /// classified work is patented under a secrecy order and can't be published until it's cleared.
+    static func recordDiscovery(_ s: inout GameState, _ i: Int) {
+        let p = s.advanced.programmes[i]
+        guard let t = p.template, let what = t.discovery, !s.advanced.discoveries.contains(where: { $0.programme == p.id }) else { return }
+        let classified = p.sol.level >= .secret
+        var d = ProgrammeDiscovery(programme: p.id, template: t.id, title: what, agency: p.sol.agency, level: p.sol.classification, date: s.date,
+                                   patentFiled: s.date, secrecyOrder: classified)
+        if !classified {
+            d.cleared = s.date
+            d.published = p.sol.level == .unclassified
+            d.licensees = p.sol.ip == .government ? 0 : 2 + Int(roll(s, "licensees|\(p.sol.id)") * 3)
+        }
+        s.advanced.discoveries.append(d)
+        log(&s.advanced.programmes[i], s.date, classified ? "Discovery recorded: \(what). Patent filed under a secrecy order; no publication."
+            : "Discovery recorded: \(what). Patent filed\(d.published ? " and the paper published" : " (pre-publication review)")\(d.licensees > 0 ? "; \(d.licensees) licensees" : "").", 1)
+        if classified { return }
+        if let f = t.sciField { Science.bumpMomentum(&s, f, 0.01) }
+    }
+
+    /// Keep a programme's discovery in step with the secrecy decision: cleared for commercial use lifts the secrecy order
+    /// and opens the patent to licensees; anything else keeps it sealed.
+    static func syncDiscovery(_ s: inout GameState, _ i: Int) {
+        let p = s.advanced.programmes[i]
+        guard let k = s.advanced.discoveries.firstIndex(where: { $0.programme == p.id }), s.advanced.discoveries[k].secrecyOrder else { return }
+        guard p.secrecy.commercial else { return }
+        s.advanced.discoveries[k].secrecyOrder = false
+        s.advanced.discoveries[k].cleared = s.date
+        // A licence deal pays its own royalties; otherwise licensees take the newly unsealed patent.
+        s.advanced.discoveries[k].licensees = p.secrecy == .licensed ? 0 : 1 + Int(roll(s, "licensees|\(p.sol.id)") * 3)
+        s.advanced.discoveries[k].published = p.secrecy == .approved
+        if let f = p.template?.sciField { Science.bumpMomentum(&s, f, 0.01) }
+        log(&s.advanced.programmes[i], s.date, "Secrecy order lifted on the patent for \(s.advanced.discoveries[k].title).", 1)
+    }
+
+    /// What one licensee pays a month for a programme patent (era-scaled, smaller for government-owned IP).
+    static func patentRoyalty(_ d: ProgrammeDiscovery, _ s: GameState) -> Double {
+        guard let p = s.advanced.programmes.first(where: { $0.id == d.programme }) else { return 25_000 * Science.eraScale(s.year) }
+        return p.value * 0.0006 * (p.sol.ip == .government ? 0.5 : 1)
+    }
+
+    /// Patent royalties for cleared discoveries (twenty years from filing; nothing while under a secrecy order).
+    static func payPatents(_ s: inout GameState) {
+        guard !s.advanced.discoveries.isEmpty else { return }
+        for k in s.advanced.discoveries.indices {
+            let d = s.advanced.discoveries[k]
+            guard !d.secrecyOrder, d.licensees > 0, s.date < GameCalendar.addMonths(d.patentFiled, 240) else {
+                s.advanced.discoveries[k].lastMonth = 0
+                continue
+            }
+            let r = patentRoyalty(d, s) * Double(d.licensees)
+            s.advanced.discoveries[k].lastMonth = r
+            s.advanced.discoveries[k].lifetime += r
+            s.cash += r
+            s.month.revLicensing += r
+            s.lifetimeRevenue += r
+        }
+    }
+
+    /// Entries for the company history timeline (contracts, deliveries, discoveries, clearances for civilian use).
+    /// Hook: `Science.companyHistory` can append these (`out += AdvancedProjects.historyEntries(s)`).
+    static func historyEntries(_ s: GameState) -> [Science.HistoryEntry] {
+        var out: [Science.HistoryEntry] = []
+        for p in s.advanced.programmes {
+            let agency = p.sol.agencyDef?.short ?? p.sol.agency
+            out.append(Science.HistoryEntry(id: "ap|\(p.id)", date: p.awarded, title: "Contract won: \(p.sol.title)", detail: "\(agency) · \(p.sol.level.title)",
+                                            symbol: "building.columns.fill", kind: "programme"))
+            if p.status == .completed, let e = p.ended {
+                out.append(Science.HistoryEntry(id: "apd|\(p.id)", date: e, title: "Programme delivered: \(p.sol.title)", detail: agency,
+                                                symbol: "checkmark.seal.fill", kind: "programme"))
+            }
+        }
+        for d in s.advanced.discoveries {
+            let restricted = d.classified && d.secrecyOrder
+            out.append(Science.HistoryEntry(id: "apx|\(d.id)", date: d.date, title: restricted ? "Classified discovery: \(d.title)" : "Discovery: \(d.title)",
+                                            detail: "\(AgencyCatalog.byID[d.agency]?.short ?? d.agency) programme\(restricted ? " · patent under secrecy order" : "")",
+                                            symbol: restricted ? "lock.doc.fill" : "atom", kind: restricted ? "classified" : "discovery"))
+            if d.classified, let c = d.cleared {
+                out.append(Science.HistoryEntry(id: "apc|\(d.id)", date: c, title: "Cleared for civilian use: \(d.title)", detail: "Secrecy order lifted",
+                                                symbol: "lock.open.fill", kind: "commercial"))
+            }
+        }
+        return out.filter { $0.date <= s.date }.sorted { ($0.date, $0.id) < ($1.date, $1.id) }
     }
 
     // MARK: Effects
 
+    static let internalPrefix = "adv:i:"
+
+    /// Effects a result retained for internal use still gives: what your own operations use (costs, efficiency,
+    /// infrastructure, security), not what goes into products or sales (demand, model skills and domains).
+    static func internalEffects(_ t: ProgrammeTemplate) -> [ResearchEffect] {
+        t.effects.filter { e in
+            switch e {
+            case .consumerDemand, .apiDemand, .enterpriseDemand, .domain, .skill, .product, .unlock: false
+            default: true
+            }
+        }
+    }
+
     static var virtualItems: [ResearchItem] {
         AgencyCatalog.templates.map {
             ResearchItem(id: bonusPrefix + $0.id, name: $0.title, category: .science, year: 0, cost: 0, prereqs: [], effects: $0.effects, blurb: $0.reward)
+        } + AgencyCatalog.templates.map {
+            ResearchItem(id: internalPrefix + $0.id, name: "\($0.title) (internal use)", category: .science, year: 0, cost: 0, prereqs: [],
+                         effects: internalEffects($0), blurb: "Retained for internal use: \($0.reward)")
         }
+    }
+
+    /// The strongest usable result per kind of programme, split into commercial use and internal-only use.
+    static func strongest(_ s: GameState) -> (commercial: [String: Double], internal: [String: Double]) {
+        var best: [String: Double] = [:], inside: [String: Double] = [:]
+        for p in s.advanced.programmes where p.status != .active && p.effectScale > 0 {
+            if p.secrecy == .retained {
+                inside[p.sol.template] = max(inside[p.sol.template] ?? 0, p.effectScale)
+            } else {
+                best[p.sol.template] = max(best[p.sol.template] ?? 0, p.effectScale)
+            }
+        }
+        // A commercial result of the same kind covers the internal one.
+        for (k, v) in best where (inside[k] ?? 0) <= v { inside[k] = nil }
+        return (best, inside)
     }
 
     /// Effects of finished programmes (strongest result per kind of programme).
     static func bonusSources(_ s: GameState) -> [(String, Double)] {
         guard !s.advanced.programmes.isEmpty else { return [] }
-        var best: [String: Double] = [:]
-        for p in s.advanced.programmes where p.status != .active && p.effectScale > 0 {
-            best[p.sol.template] = max(best[p.sol.template] ?? 0, p.effectScale)
-        }
+        let (best, inside) = strongest(s)
         return best.sorted { $0.key < $1.key }.map { (bonusPrefix + $0.key, $0.value) }
+            + inside.sorted { $0.key < $1.key }.map { (internalPrefix + $0.key, $0.value) }
     }
 
-    /// Domain know-how from finished programmes (Capabilities adds it to new models).
+    /// Domain know-how from finished programmes (Capabilities adds it to new models). Retained results don't count:
+    /// they never go into a product.
     static func domainEffects(_ s: GameState) -> [(CapDomain, Double)] {
+        guard !s.advanced.programmes.isEmpty else { return [] }
         var out: [(CapDomain, Double)] = []
-        for (id, scale) in bonusSources(s) {
-            guard let t = AgencyCatalog.templateByID[String(id.dropFirst(bonusPrefix.count))] else { continue }
+        for (id, scale) in strongest(s).commercial.sorted(by: { $0.key < $1.key }) {
+            guard let t = AgencyCatalog.templateByID[id] else { continue }
             for e in t.effects { if case .domain(let d, let v) = e { out.append((d, v * scale)) } }
         }
+        return out
+    }
+
+    // MARK: Legacies (hooks elsewhere; each exactly neutral with no finished programmes)
+    //
+    //   power bill      Sim.dailyCosts and Power.settle multiply by `powerFactor`       (advanced cooling, grids, materials)
+    //   grid stress     Power.gridMultiplier scales its premium by `gridFactor`          (energy infrastructure)
+    //   chip yields     Semis.productYield / fabYield multiply D0 by `defectFactor`      (semiconductor manufacturing, materials)
+    //   edge chips      Semis.makeChips multiplies inference parts' TDP by `edgeChipPower` (edge AI hardware)
+    //   government line ProductLines multiplies the Government line's pull by `productPull` (satellite comms, secure comms, aerospace)
+    //   public trust    Stakeholders.target adds `publicTrustBonus`                     (disaster response, emissions data)
+
+    /// Total of one legacy kind across finished programmes (strongest result per programme kind × its value).
+    static func legacy(_ s: GameState, _ pick: (ProgrammeLegacy) -> Double?) -> Double {
+        guard !s.advanced.programmes.isEmpty else { return 0 }
+        let (best, inside) = strongest(s)
+        var total = 0.0
+        for (id, scale) in best.sorted(by: { $0.key < $1.key }) {
+            guard let t = AgencyCatalog.templateByID[id] else { continue }
+            for l in t.legacy { if let v = pick(l) { total += v * scale } }
+        }
+        for (id, scale) in inside.sorted(by: { $0.key < $1.key }) {
+            guard let t = AgencyCatalog.templateByID[id] else { continue }
+            for l in t.legacy where l.internalUse { if let v = pick(l) { total += v * scale } }
+        }
+        return total
+    }
+
+    static func powerFactor(_ s: GameState) -> Double {
+        let v = legacy(s) { if case .powerBill(let x) = $0 { x } else { nil } }
+        return v > 0 ? 1 - min(0.12, v) : 1
+    }
+
+    static func gridFactor(_ s: GameState) -> Double {
+        let v = legacy(s) { if case .gridRelief(let x) = $0 { x } else { nil } }
+        return v > 0 ? 1 - min(0.6, v) : 1
+    }
+
+    static func defectFactor(_ s: GameState) -> Double {
+        let v = legacy(s) { if case .defects(let x) = $0 { x } else { nil } }
+        return v > 0 ? 1 - min(0.25, v) : 1
+    }
+
+    static func edgeChipPower(_ s: GameState) -> Double {
+        let v = legacy(s) { if case .edgeChips(let x) = $0 { x } else { nil } }
+        return v > 0 ? 1 - min(0.2, v) : 1
+    }
+
+    /// Extra pull for the Government & Defence product line.
+    static func productPull(_ p: ProductDef, _ s: GameState) -> Double {
+        guard p.id == "government" else { return 1 }
+        let v = legacy(s) { if case .governmentPull(let x) = $0 { x } else { nil } }
+        return 1 + min(0.3, v)
+    }
+
+    /// Lasting public trust from public-facing programmes.
+    static func publicTrustBonus(_ s: GameState) -> Double {
+        min(6, legacy(s) { if case .publicTrust(let x) = $0 { x } else { nil } })
+    }
+
+    /// The legacies in use right now, in words (for the Agencies & Record page).
+    static func legacyLines(_ s: GameState) -> [String] {
+        var out: [String] = []
+        func pct(_ f: Double) -> String { "\(Fmt.trim((1 - f) * 100, 1))%" }
+        if powerFactor(s) < 1 { out.append("Datacenter power bill −\(pct(powerFactor(s)))") }
+        if gridFactor(s) < 1 { out.append("Grid-stress premium −\(pct(gridFactor(s)))") }
+        if defectFactor(s) < 1 { out.append("Chip defect density −\(pct(defectFactor(s)))") }
+        if edgeChipPower(s) < 1 { out.append("Inference-chip board power −\(pct(edgeChipPower(s)))") }
+        if let g = ProductLines.byID["government"], productPull(g, s) > 1 { out.append("Government & Defence pull +\(Fmt.trim((productPull(g, s) - 1) * 100, 1))%") }
+        if publicTrustBonus(s) >= 0.5 { out.append("Public trust +\(Fmt.trim(publicTrustBonus(s), 1))") }
         return out
     }
 
