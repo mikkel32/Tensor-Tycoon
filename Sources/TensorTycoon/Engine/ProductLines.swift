@@ -221,7 +221,7 @@ enum ProductLines {
         for p in catalog {
             var entrants: [(key: String, q: Double, brand: Double, reach: Double)] = []
             if s.productLines.contains(where: { $0.id == p.id }) {
-                entrants.append(("player", quality(p, s.labDomains["player"]) + AgentOrgs.productQualityBonus(s, p.id), s.brand, myPull * HQ.productPull(p, s) * Science.productPull(p, s)))   // 3.6: software teams; discoveries
+                entrants.append(("player", quality(p, s.labDomains["player"]) + AgentOrgs.productQualityBonus(s, p.id), s.brand, myPull * HQ.productPull(p, s) * Science.productPull(p, s) * AdvancedProjects.productPull(p, s)))   // 3.6: software teams; discoveries; government programmes
             }
             for r in s.rivalProducts where r.product == p.id {
                 guard let c = s.competitors.first(where: { $0.id == r.lab }) else { continue }

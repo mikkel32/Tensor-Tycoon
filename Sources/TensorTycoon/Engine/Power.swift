@@ -217,7 +217,7 @@ struct PowerSummary {
 enum Power {
     /// Grid power for datacenters gets dearer once AI strains the grids (none below a stress of 30, +40% at 100).
     /// Purchase agreements and on-site generation are the hedge.
-    static func gridMultiplier(_ s: GameState) -> Double { 1 + 0.4 * max(0, s.world.gridStress - 30) / 70 }
+    static func gridMultiplier(_ s: GameState) -> Double { 1 + 0.4 * max(0, s.world.gridStress - 30) / 70 * AdvancedProjects.gridFactor(s) }   // grid programmes
 
     static func summary(_ s: GameState) -> PowerSummary {
         var p = PowerSummary()
@@ -366,7 +366,7 @@ enum Power {
             // Take-or-pay: the rest is sold into the market at 70% of the local wholesale price.
             delta += left * 24 * (c.location.powerPrice * grid * 0.7 - c.priceMWh / 1000)
         }
-        delta *= max(0.5, 1 - s.traits.power) * XenoScience.powerFactor(s) * Science.powerFactor(s)   // 3.6: energy discoveries
+        delta *= max(0.5, 1 - s.traits.power) * XenoScience.powerFactor(s) * Science.powerFactor(s) * AdvancedProjects.powerFactor(s)   // 3.6: energy discoveries; cooling programmes
         s.cash += delta
         s.month.costPower -= delta
     }

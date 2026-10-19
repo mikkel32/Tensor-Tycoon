@@ -7,6 +7,7 @@ enum AdvancedTab: String, CaseIterable, Identifiable {
     case programmes = "Programmes"
     case facilities = "Facilities & Clearances"
     case agencies = "Agencies & Record"
+    case discoveries = "Discoveries & Patents"
     var id: String { rawValue }
 }
 
@@ -26,7 +27,7 @@ struct AdvancedProjectsView: View {
             HeroBanner(image: "supercomputer", height: 150) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Advanced Projects division").font(.title2.weight(.bold))
-                    Text("\(active.count) active programme\(active.count == 1 ? "" : "s") · \(a.solicitations.filter { $0.bid == nil }.count) open solicitations · home: \(AdvancedProjects.homeRegion(s).title)")
+                    Text("\(active.count) active programme\(active.count == 1 ? "" : "s") · \(a.solicitations.filter { $0.bid == nil }.count) open solicitations · home: \(HQ.country(s).name) (\(AdvancedProjects.homeRegion(s).title))")
                         .font(.callout)
                     PhotoPill(text: "Illustrative photo — not a real facility", symbol: "photo")
                 }
@@ -46,6 +47,7 @@ struct AdvancedProjectsView: View {
             case .programmes: ProgrammesSection(state: s)
             case .facilities: FacilitiesSection(state: s)
             case .agencies: AgenciesSection(state: s)
+            case .discoveries: DiscoveriesSection(state: s)
             }
         }
     }
@@ -115,6 +117,10 @@ private struct RequirementsList: View {
             } else {
                 RequirementLine(ok: true, text: "\(Fmt.int(Int(sol.computeH100e))) H100e of cloud compute, billed to the contract")
             }
+            if let k = sol.templateDef?.facility {
+                let free = AdvancedProjects.facilityFree(s, k, level: sol.level)
+                RequirementLine(ok: free >= 1, text: "A \(k.short) accredited \(AdvancedProjects.facilityLevelName(AdvancedProjects.spaceLevel(sol.level))) or higher (free: \(Fmt.int(Int(free))))")
+            }
         }
     }
 }
@@ -132,6 +138,7 @@ private struct MarketplaceSection: View {
     @State private var type: ContractType? = nil
     @State private var maxLevel: Classification = .topSecret
     @State private var region: Region? = nil
+    @State private var topic: String? = nil
     @State private var biddable = false
     @State private var sort: MarketSort = .closing
     @State private var proposal: Solicitation? = nil
@@ -141,6 +148,7 @@ private struct MarketplaceSection: View {
         let all = s.advanced.solicitations
         var list = all.filter { sol in
             (type == nil || sol.type == type) && sol.level <= maxLevel && (region == nil || sol.agencyDef?.region == region)
+                && (topic == nil || sol.templateDef?.topic == topic)
                 && (!biddable || sol.bid != nil || AdvancedProjects.blockers(sol, s).isEmpty)
         }
         switch sort {
@@ -165,6 +173,11 @@ private struct MarketplaceSection: View {
                         ForEach(Region.allCases) { r in Text(r.title).tag(Region?.some(r)) }
                     }
                     .frame(maxWidth: 220)
+                    Picker("Topic", selection: $topic) {
+                        Text("All topics").tag(String?.none)
+                        ForEach(Array(Set(AgencyCatalog.templates.map(\.topic))).sorted(), id: \.self) { t in Text(t).tag(String?.some(t)) }
+                    }
+                    .frame(maxWidth: 240)
                     Picker("Sort", selection: $sort) {
                         ForEach(MarketSort.allCases) { m in Text(m.rawValue).tag(m) }
                     }
@@ -221,7 +234,7 @@ private struct SolicitationCard: View {
                 Image(systemName: a?.symbol ?? "building.columns").font(.title3).foregroundStyle(Color.accentColor).frame(width: 28)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(sol.title).font(.headline)
-                    Text("\(a?.name ?? sol.agency) · \(a?.region.short ?? "")").font(.caption).foregroundStyle(.secondary)
+                    Text("\(a?.name ?? sol.agency) · \(a?.homeShort ?? "")").font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 3) {
@@ -234,6 +247,8 @@ private struct SolicitationCard: View {
                 Pill(text: sol.level.title, color: AdvStyle.color(sol.level), symbol: "lock.fill")
                 Pill(text: sol.ip.short, color: .secondary)
                 if sol.followOn { Pill(text: "Follow-on", color: .green, symbol: "arrow.turn.down.right") }
+                if let t = sol.templateDef, !t.topic.isEmpty { Pill(text: t.topic, color: .secondary) }
+                if !AdvancedProjects.openToYou(sol, s) { Pill(text: "Not open to you", color: .red, symbol: "nosign") }
             }
             Text(sol.templateDef?.objective ?? "").font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             RequirementsList(sol: sol, state: s)
@@ -381,7 +396,14 @@ private struct ProposalSheet: View {
                     SpecRow(label: "Publication", value: sol.level.publication)
                     SpecRow(label: "Agents", value: sol.level.agentsAllowed ? "Agent swarms may help" : "Not allowed on classified networks")
                     ForEach(AdvancedProjects.conditions(sol), id: \.self) { c in Label(c, systemImage: "doc.text").font(.caption).foregroundStyle(.secondary) }
-                    if let t = sol.templateDef { SpecRow(label: "Leaves behind", value: t.reward) }
+                    if let t = sol.templateDef {
+                        SpecRow(label: "Leaves behind", value: t.reward)
+                        ForEach(t.legacy.map { $0.describe() }, id: \.self) { l in Label("Lasting: \(l)", systemImage: "arrow.forward.circle").font(.caption).foregroundStyle(.secondary) }
+                        if let k = t.facility { SpecRow(label: "Needs", value: "\(k.title) (one \(k.short))") }
+                        if t.discovery != nil {
+                            SpecRow(label: "Discovery", value: sol.level >= .secret ? "Patented under a secrecy order; you choose later whether to seek approval, rebuild, license, partner, retain it internally or keep it classified" : "Patented and published; licensees pay royalties")
+                        }
+                    }
                 }
                 Button {
                     if store.act("Proposal submitted", { $0.submitProposal(sol.id, price: p) }) { dismiss() }
@@ -647,7 +669,7 @@ private struct FinishedProgrammeRow: View {
                 Spacer()
                 VStack(alignment: .trailing, spacing: 2) {
                     Text("P&L \(AdvancedProjects.signed(p.profit))").font(TypeRamp.tableNumber).foregroundStyle(p.profit >= 0 ? Theme.good : Theme.bad)
-                    Text("Research effects in use: \(Fmt.pct(p.effectScale, decimals: 0))\(p.royaltyMonthsLeft > 0 ? " · \(Fmt.money(p.royaltyMonthly))/mo royalties" : "")")
+                    Text("Research effects in use: \(Fmt.pct(p.effectScale, decimals: 0))\(p.secrecy == .retained ? " (internal only)" : "")\(p.royaltyMonthsLeft > 0 ? " · \(Fmt.money(p.royaltyMonthly))/mo royalties" : "")")
                         .font(.caption2).foregroundStyle(.secondary)
                 }
             }
@@ -686,8 +708,10 @@ private struct FacilitiesSection: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(f.name).font(.callout.weight(.semibold))
                                 Text("\(f.kind.title) · \(AdvancedProjects.facilityLevelName(f.level)) · \(Fmt.int(Int(f.capacity))) \(f.kind.unit)").font(.caption).foregroundStyle(.secondary)
-                                Text(f.isReady(s.date) ? "Accredited · \(Fmt.money(f.opex))/mo" : "Accreditation \(f.ready.gameShort) · \(Fmt.money(f.capex)) spent")
-                                    .font(.caption2).foregroundStyle(f.isReady(s.date) ? Color.secondary : Color.orange)
+                                Text(!f.isReady(s.date) ? "Accreditation \(f.ready.gameShort) · \(Fmt.money(f.capex)) spent"
+                                     : (f.isUsable(s.date) ? "Accredited · \(Fmt.money(f.opex))/mo\(f.kind == .certified ? " · \(f.audits) audit\(f.audits == 1 ? "" : "s"), \(f.auditFindings) finding\(f.auditFindings == 1 ? "" : "s")" : "")"
+                                        : "Certification suspended until \(f.suspendedUntil?.gameShort ?? "")"))
+                                    .font(.caption2).foregroundStyle(f.isUsable(s.date) ? Color.secondary : Color.orange)
                             }
                             Spacer()
                             Button("Close") { store.mutate { $0.closeFacility(f.id) } }.buttonStyle(.link).font(.caption)
@@ -695,8 +719,13 @@ private struct FacilitiesSection: View {
                     }
                     Divider()
                     ForEach(1...3, id: \.self) { l in
+                        let c = Classification(rawValue: l) ?? .controlled
+                        let spaces = FacilityKind.allCases.filter(\.isProgrammeSpace).compactMap { k -> String? in
+                            let n = AdvancedProjects.facilityFree(s, k, level: c)
+                            return n > 0 ? "\(Fmt.int(Int(n))) \(k.unit)" : nil
+                        }
                         SpecRow(label: AdvancedProjects.facilityLevelName(l) + " or higher",
-                                value: "\(Fmt.int(Int(AdvancedProjects.freeCompute(s, Classification(rawValue: l) ?? .controlled)))) H100e · \(Fmt.int(Int(AdvancedProjects.freeSeats(s, Classification(rawValue: l) ?? .controlled)))) desks free")
+                                value: "\(Fmt.int(Int(AdvancedProjects.freeCompute(s, c)))) H100e · \(Fmt.int(Int(AdvancedProjects.freeSeats(s, c)))) desks\(spaces.isEmpty ? "" : " · " + spaces.joined(separator: " · ")) free")
                     }
                     Text("Photos are generic server rooms and datacenters, for illustration only.").font(.caption2).foregroundStyle(.tertiary)
                 }
@@ -723,11 +752,17 @@ private struct FacilitiesSection: View {
                     SpecRow(label: "Running cost", value: "\(Fmt.money(q.opex))/mo")
                     SpecRow(label: "Accreditation in", value: "\(Fmt.trim(q.months, 1)) months")
                     if q.kw > 0 { SpecRow(label: "Power", value: Fmt.watts(q.kw * 1000)) }
+                    if kind.isProgrammeSpace {
+                        Text("Running cost includes the \(AdvancedProjects.facilityLevelName(level)) premium (×\(Fmt.trim(AdvancedProjects.levelPremium[level - 1], 1)) on upkeep) and its power. Needs \(AdvancedProjects.officersNeeded(kind, level: level)) staff cleared \(Classification(rawValue: level)?.clearance ?? "") as facility security officers.")
+                            .font(.caption2).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    }
+                    let blockers = AdvancedProjects.facilityBlockers(kind, level: level, s)
+                    ForEach(blockers, id: \.self) { b in RequirementLine(ok: false, text: b) }
                     Button("Build for \(Fmt.money(q.capex))") {
                         if let id = site?.id { store.act("Construction started") { $0.buildFacility(kind, level: level, capacity: capacity, site: id) } }
                     }
                     .buttonStyle(.borderedProminent)
-                    .disabled(site == nil || s.cash < q.capex)
+                    .disabled(site == nil || s.cash < q.capex || !blockers.isEmpty)
                 }
             }
             ClearancesCard(state: s, roleFilter: $roleFilter)
@@ -792,27 +827,89 @@ private struct AgenciesSection: View {
     var body: some View {
         let s = state
         let home = AdvancedProjects.homeRegion(s)
-        LazyVGrid(columns: Theme.columns(min: 380), alignment: .leading, spacing: Theme.gap) {
-            ForEach(AgencyCatalog.all) { a in
-                let rating = AdvancedProjects.rating(s, a.id)
-                let levels = Classification.allCases.filter { AdvancedProjects.eligible(home: home, agency: a.region, level: $0) }
-                let done = s.advanced.programmes.filter { $0.sol.agency == a.id }
+        let country = AdvancedProjects.homeCountry(s)
+        let legacies = AdvancedProjects.legacyLines(s)
+        VStack(alignment: .leading, spacing: Theme.gap) {
+            if !legacies.isEmpty {
                 Card {
+                    CardHeader("What your programmes left behind", symbol: "arrow.forward.circle.fill")
+                    ForEach(legacies, id: \.self) { l in Label(l, systemImage: "checkmark.circle").font(.callout) }
+                }
+            }
+            LazyVGrid(columns: Theme.columns(min: 380), alignment: .leading, spacing: Theme.gap) {
+                ForEach(AgencyCatalog.all) { a in
+                    let rating = AdvancedProjects.rating(s, a.id)
+                    let levels = Classification.allCases.filter { AdvancedProjects.eligible(home: home, country: country, agency: a, level: $0) }
+                    let done = s.advanced.programmes.filter { $0.sol.agency == a.id }
+                    Card {
+                        HStack(alignment: .top) {
+                            Image(systemName: a.symbol).font(.title3).foregroundStyle(Color.accentColor).frame(width: 28)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(a.name).font(.headline)
+                                Text("\(a.short) · \(a.kind.label) · \(a.homeName)\(a.country.isEmpty ? "" : " (\(a.region.short))")").font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Text(Fmt.money(AdvancedProjects.agencyBudget(a, s)) + "/yr").font(.callout.monospacedDigit())
+                        }
+                        Text(a.blurb).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                        SpecRow(label: "Your record", value: rating == 0 ? "None yet" : Fmt.signed(rating, 1), tone: rating == 0 ? nil : Tone.sign(rating))
+                        SpecRow(label: "Standing with \(a.region.short) government", value: Fmt.trim(AdvancedProjects.standing(s, a.region), 0))
+                        SpecRow(label: "Work open to you", value: levels.isEmpty ? "None" : levels.map(\.short).joined(separator: ", "))
+                        if let l = a.lever { SpecRow(label: "Budget follows", value: "\(a.region.short) \(l.phrase) (and its sovereign-AI programme)") }
+                        if !done.isEmpty {
+                            Text("Programmes: " + done.map { "\($0.sol.title) (\($0.status.title.lowercased()))" }.joined(separator: " · ")).font(.caption2).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Discoveries & patents
+
+private struct DiscoveriesSection: View {
+    let state: GameState
+
+    var body: some View {
+        let s = state
+        let list = s.advanced.discoveries.sorted { $0.date > $1.date }
+        let history = AdvancedProjects.historyEntries(s).reversed()
+        VStack(alignment: .leading, spacing: Theme.gap) {
+            Card {
+                CardHeader("Discoveries and patents", symbol: "doc.badge.gearshape",
+                           subtitle: "Open work is patented and published when it's delivered. Classified work is patented under a secrecy order: no licensees, no papers, until it's cleared for commercial use (approval, a clean-room rebuild, a licence or an authorised partner). Kept classified or retained internally, it stays sealed.")
+                if list.isEmpty {
+                    Text("No discoveries yet. Programmes that list a discovery under “Leaves behind” produce one when delivered.").font(.callout).foregroundStyle(.secondary)
+                }
+                ForEach(list) { d in
                     HStack(alignment: .top) {
-                        Image(systemName: a.symbol).font(.title3).foregroundStyle(Color.accentColor).frame(width: 28)
+                        Image(systemName: d.secrecyOrder ? "lock.doc.fill" : "doc.text.fill").foregroundStyle(d.secrecyOrder ? Color.orange : Color.accentColor)
+                            .accessibilityLabel(d.secrecyOrder ? "Under a secrecy order" : "Open patent")
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(a.name).font(.headline)
-                            Text("\(a.short) · \(a.kind.label) · \(a.region.title)").font(.caption).foregroundStyle(.secondary)
+                            Text(d.title).font(.callout.weight(.semibold))
+                            Text("\(AgencyCatalog.byID[d.agency]?.short ?? d.agency) · \(Classification(rawValue: d.level)?.title ?? "") · \(d.date.gameShort)\(d.published ? " · published" : (d.secrecyOrder ? " · no publication" : ""))")
+                                .font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()
-                        Text(Fmt.money(AdvancedProjects.agencyBudget(a, s)) + "/yr").font(.callout.monospacedDigit())
+                        VStack(alignment: .trailing, spacing: 2) {
+                            Text(d.secrecyOrder ? "Patent under secrecy order" : "\(d.licensees) licensee\(d.licensees == 1 ? "" : "s") · \(Fmt.money(d.lastMonth))/mo").font(.caption)
+                            Text("Lifetime \(Fmt.money(d.lifetime))").font(.caption2).foregroundStyle(.secondary)
+                        }
                     }
-                    Text(a.blurb).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                    SpecRow(label: "Your record", value: rating == 0 ? "None yet" : Fmt.signed(rating, 1), tone: rating == 0 ? nil : Tone.sign(rating))
-                    SpecRow(label: "Standing with \(a.region.short) government", value: Fmt.trim(AdvancedProjects.standing(s, a.region), 0))
-                    SpecRow(label: "Work open to you", value: levels.isEmpty ? "None" : levels.map(\.short).joined(separator: ", "))
-                    if !done.isEmpty {
-                        Text("Programmes: " + done.map { "\($0.sol.title) (\($0.status.title.lowercased()))" }.joined(separator: " · ")).font(.caption2).foregroundStyle(.secondary)
+                }
+            }
+            if !history.isEmpty {
+                Card {
+                    CardHeader("Programme history", symbol: "clock.arrow.circlepath")
+                    ForEach(Array(history.prefix(40))) { e in
+                        HStack {
+                            Image(systemName: e.symbol).frame(width: 20).foregroundStyle(.secondary).accessibilityHidden(true)
+                            Text(e.title).font(.callout)
+                            Text(e.detail).font(.caption).foregroundStyle(.secondary)
+                            Spacer()
+                            Text(e.date.gameShort).font(.caption.monospacedDigit()).foregroundStyle(.tertiary)
+                        }
                     }
                 }
             }

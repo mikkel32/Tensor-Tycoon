@@ -167,7 +167,7 @@ enum Semis {
         let n = SemiCatalog.node(d.node)
         let ind = industryD0(n, s.year)
         let learn = 1 + exp(-d.wafersDone / 15_000)
-        let d0 = ind * f.d0Factor * learn
+        let d0 = ind * f.d0Factor * learn * AdvancedProjects.defectFactor(s)   // fab process-control programmes
         return yield(d0: d0, area: SemiCatalog.die(d.die).area, wafersDone: d.wafersDone,
                      why: "D0 \(Fmt.trim(d0, 3))/cm² = \(n.short) industry \(Fmt.trim(ind, 3)) × \(f.name) \(Fmt.trim(f.d0Factor, 2)) × your learning \(Fmt.trim(learn, 2)) (\(Fmt.count(d.wafersDone)) wafers so far)")
     }
@@ -178,7 +178,7 @@ enum Semis {
         let ind = industryD0(n, s.year)
         let fabF = fabD0Factor(fab)
         let learn = 1 + exp(-d.wafersDone / 15_000)
-        let d0 = ind * fabF * learn
+        let d0 = ind * fabF * learn * AdvancedProjects.defectFactor(s)   // fab process-control programmes
         return yield(d0: d0, area: SemiCatalog.die(d.die).area, wafersDone: d.wafersDone,
                      why: "D0 \(Fmt.trim(d0, 3))/cm² = \(n.short) industry \(Fmt.trim(ind, 3)) × \(fab.name) ramp \(Fmt.trim(fabF, 2)) × your learning \(Fmt.trim(learn, 2))")
     }
@@ -189,7 +189,7 @@ enum Semis {
     static func previewYield(node: String, die: String, foundry f: Foundry, _ s: GameState, at y: Double? = nil) -> Yield {
         let n = SemiCatalog.node(node)
         let yy = max(y ?? s.year, n.launch + f.lag)
-        let d0 = industryD0(n, yy) * f.d0Factor * 2
+        let d0 = industryD0(n, yy) * f.d0Factor * 2 * AdvancedProjects.defectFactor(s)   // fab process-control programmes
         return yield(d0: d0, area: SemiCatalog.die(die).area, wafersDone: 0, why: "")
     }
 
@@ -326,7 +326,7 @@ enum Semis {
                 bf16: ref.bf16 * p * (training ? 1 : 0.75),
                 fp8: (ref.fp8 > 0 ? ref.fp8 : ref.bf16 * 2) * p * (training ? 1 : 1.1),
                 fp4: ref.fp4 > 0 ? ref.fp4 * p * (training ? 0.9 : 1.2) : 0,
-                tdpW: tdp(node: d.node, die: d.die) * binPower[b] * (training ? 1 : 0.85),
+                tdpW: tdp(node: d.node, die: d.die) * binPower[b] * (training ? 1 : 0.85 * AdvancedProjects.edgeChipPower(s)),   // edge AI hardware programmes
                 unitCost: systemCost(s),
                 decodeEff: clamp((training ? 0.66 : 0.78) + 0.04 * log2(max(0.25, bw / max(0.1, ref.bandwidthTBs))), 0.5, 0.9),
                 scaleUp: training ? 128 : 64, generation: d.generation)
