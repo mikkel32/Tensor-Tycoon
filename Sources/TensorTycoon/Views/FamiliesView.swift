@@ -35,7 +35,7 @@ struct FamiliesView: View {
     var body: some View {
         let s = store.game
         let loose = s.models.filter { !$0.retired && !$0.preview && Families.family(of: $0.id, s) == nil }.sorted { $0.index > $1.index }
-        Page(title: "Model Families", subtitle: "A lineup, not just a flagship: distil cheaper tiers from your best model, post-train upgrades, and let each tier serve the traffic it's priced for.") {
+        Page(title: "Model Families", subtitle: "A lineup, not just a flagship: distil cheaper tiers from your best model, post-train upgrades, and let each tier serve the traffic it's priced for.", screen: .families) {
             ScreenHint(.families)
             if !s.families.jobs.isEmpty { JobsCard(state: s) }
             if s.families.families.isEmpty {
@@ -89,7 +89,7 @@ private struct JobsCard: View {
                         Image(systemName: j.kind == .distill ? "arrow.down.right.and.arrow.up.left" : (j.kind == .merge ? "arrow.triangle.merge" : (j.passValue?.symbol ?? "wand.and.stars")))
                             .foregroundStyle(.secondary)
                         Text(j.name).font(.callout.weight(.semibold))
-                        if j.paused { Pill(text: "Paused", color: .orange) }
+                        if j.paused { Pill("Paused", tone: .warning) }
                         Spacer()
                         Text("\(Fmt.int(j.chips))× \(HardwareCatalog.get(j.accelID)?.name ?? j.accelID) · \(left.isFinite ? "\(Int(left.rounded(.up))) days left" : "stalled") · \(Fmt.money(j.cost)) so far")
                             .font(.caption).foregroundStyle(.secondary)

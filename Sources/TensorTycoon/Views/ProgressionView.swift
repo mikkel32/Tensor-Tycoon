@@ -9,7 +9,7 @@ struct ProgressionView: View {
     var body: some View {
         let s = store.game
         let current = s.progression.current
-        Page(title: "Progression", subtitle: "How big a company you've become, what the next stage takes, and how your launches landed.") {
+        Page(title: "Progression", subtitle: "How big a company you've become, what the next stage takes, and how your launches landed.", screen: .progression) {
             ScreenHint(.progression)
             if Progression.celebrating(s) { PromotionCeremony(state: s) }
             StageLadder(state: s)
@@ -58,8 +58,8 @@ struct PromotionCeremony: View {
         }
         .padding(14)
         .background(LinearGradient(colors: [Color.yellow.opacity(0.18), Color.orange.opacity(0.08)], startPoint: .leading, endPoint: .trailing),
-                    in: .rect(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.orange.opacity(0.4)))
+                    in: .rect(cornerRadius: Theme.Radius.tile))
+        .overlay(RoundedRectangle(cornerRadius: Theme.Radius.tile).strokeBorder(Color.orange.opacity(0.4)))
         .accessibilityElement(children: .combine)
     }
 }
@@ -116,7 +116,8 @@ struct NextStageCard: View {
             ForEach(crit) { c in
                 VStack(alignment: .leading, spacing: 3) {
                     HStack {
-                        Image(systemName: c.met ? "checkmark.circle.fill" : "circle").foregroundStyle(c.met ? .green : .secondary)
+                        Image(systemName: c.met ? "checkmark.circle.fill" : "circle").foregroundStyle(c.met ? Theme.good : .secondary)
+                            .accessibilityLabel(c.met ? "Met" : "Not yet")
                         Text(c.label).font(.callout.weight(.semibold))
                         Spacer()
                         Text("\(c.have)  /  \(c.need)").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
@@ -192,8 +193,11 @@ struct ProgressionCard: View {
                 HStack(spacing: 8) {
                     ForEach(crit) { c in
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(c.label).font(.caption2).foregroundStyle(.secondary)
-                            Meter(value: c.progress, tint: c.met ? .green : .accentColor, height: 5)
+                            HStack(spacing: 2) {
+                                if c.met { Image(systemName: "checkmark").font(.caption2.weight(.bold)).foregroundStyle(Theme.good).accessibilityLabel("Met") }
+                                Text(c.label).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                            }
+                            Meter(value: c.progress, tint: c.met ? Theme.good : .accentColor, height: 5)
                         }
                         .help("\(c.label): \(c.have) of \(c.need)")
                     }

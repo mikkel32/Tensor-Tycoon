@@ -24,10 +24,10 @@ struct LeaderboardView: View {
         let race = Leaderboard.race(labs, today: s.date)
         let colors = labColors(labs, s)
 
-        return Page(title: "Leaderboard", subtitle: "The AI race, lab by lab: each lab's flagship model, ranked by Intelligence Index, with a capability score that stays comparable across years.") {
+        return Page(title: "Leaderboard", subtitle: "The AI race, lab by lab: each lab's flagship model, ranked by Intelligence Index, with a capability score that stays comparable across years.", screen: .leaderboard) {
             ScreenHint(.leaderboard)
             StandingCard(standing: standing)
-            HStack(alignment: .top, spacing: 16) {
+            HStack(alignment: .top, spacing: Theme.gap) {
                 Card {
                     CardHeader("The race", symbol: "chart.line.uptrend.xyaxis", subtitle: "Flagship capability of the leading labs over the last four years")
                     RaceChart(points: race.points, colors: colors)
@@ -220,7 +220,7 @@ private struct StandingCard: View {
             HStack(alignment: .top, spacing: 20) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Your place").font(.caption).foregroundStyle(.secondary)
-                    Text(verbatim: standing.rank.map { "#\($0)" } ?? "—").font(.system(size: 40, weight: .bold).monospacedDigit())
+                    Text(verbatim: standing.rank.map { "#\($0)" } ?? "—").font(TypeRamp.display)
                     Text("of \(standing.labs) labs").font(.caption).foregroundStyle(.secondary)
                 }
                 .frame(width: 100, alignment: .leading)

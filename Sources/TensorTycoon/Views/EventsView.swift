@@ -54,9 +54,9 @@ struct EventsView: View {
         let awards = s.fun.papers.filter { $0.outcome == .best }.count
         let wins = s.fun.contests.filter { $0.standings.first?.lab == "player" }.count
         Page(title: "Events & Records",
-             subtitle: "Conferences, public challenges and hackathons: the industry's calendar, and what you've won on it. Your models enter every challenge automatically; papers wait in your inbox.") {
+             subtitle: "Conferences, public challenges and hackathons: the industry's calendar, and what you've won on it. Your models enter every challenge automatically; papers wait in your inbox.", screen: .events) {
             if let d = Scenarios.def(s) { ScenarioCard(state: s, def: d) }
-            HStack(spacing: 14) {
+            KPIRow {
                 StatTile(title: "Papers accepted", value: "\(accepted)", detail: "\(s.fun.papers.count) submitted", symbol: "doc.text.magnifyingglass", tint: .indigo)
                 StatTile(title: "Best papers", value: "\(awards)", detail: s.fun.keynotes > 0 ? "\(s.fun.keynotes) keynote\(s.fun.keynotes == 1 ? "" : "s")" : "Orals and awards lift your brand",
                          symbol: "rosette", tint: .orange)
@@ -64,12 +64,12 @@ struct EventsView: View {
                          symbol: "trophy.circle.fill", tint: .yellow)
                 StatTile(title: "Hackathons", value: "\(s.fun.hackathons.count)", detail: "\(s.fun.hackathons.filter { $0.tier == 2 }.count) hits", symbol: "party.popper.fill", tint: .pink)
             }
-            HStack(alignment: .top, spacing: 16) {
+            HStack(alignment: .top, spacing: Theme.gap) {
                 FunCalendarCard(state: s)
                 HackathonCard(state: s)
                     .frame(width: 420)
             }
-            HStack(alignment: .top, spacing: 16) {
+            CardGrid(minWidth: 340, maxColumns: 2) {
                 PapersCard(state: s)
                 ContestsCard(state: s)
             }
@@ -213,7 +213,7 @@ struct ContestsCard: View {
                     }
                     Spacer()
                     if r.grand { Pill(text: "Grand prize", color: .orange, symbol: "star.fill") }
-                    if top?.lab == "player" { Pill(text: "Won", color: .green) }
+                    if top?.lab == "player" { Pill("Won", tone: .good) }
                 }
             }
             let open = FunCatalog.contests.filter { state.year >= Double($0.opens) }
@@ -260,7 +260,7 @@ struct ConferenceHistoryCard: View {
                     }
                     .padding(10)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(.quaternary.opacity(0.5), in: .rect(cornerRadius: 10))
+                    .background(Theme.insetFill, in: .rect(cornerRadius: Theme.Radius.inset))
                 }
             }
         }

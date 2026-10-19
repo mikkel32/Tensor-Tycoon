@@ -42,7 +42,7 @@ struct LaunchPlanPicker: View {
                 }
             }
             .padding(8)
-            .background(.quaternary.opacity(0.35), in: .rect(cornerRadius: 8))
+            .background(Theme.insetFill, in: .rect(cornerRadius: Theme.Radius.inset))
             if let e = Launches.blocker(plan, s), !plan.isDefault {
                 Label(e, systemImage: "exclamationmark.triangle.fill").font(.caption).foregroundStyle(.orange)
             } else if Launches.cost(plan, s) > 0 {
@@ -160,7 +160,7 @@ struct LaunchReportSheet: View {
     @ViewBuilder
     private func report(_ s: GameState, _ r: LaunchRecord, _ rep: LaunchReport) -> some View {
         Text(rep.verdictText).font(.callout).fixedSize(horizontal: false, vertical: true)
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 10)], spacing: 10) {
+        KPIRow(minWidth: 150) {
             StatTile(title: "Sign-ups (week)", value: (rep.signUps >= 0 ? "+" : "") + Fmt.count(rep.signUps),
                      detail: "\(Fmt.count(rep.chatUsers)) chat users", symbol: "person.badge.plus", tint: .purple)
             StatTile(title: "API traffic", value: "\(Fmt.count(rep.apiTokensDay))/day",

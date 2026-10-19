@@ -268,7 +268,7 @@ struct RunReportSheet: View {
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.quaternary.opacity(0.4), in: .rect(cornerRadius: 10))
+        .background(Theme.insetFill, in: .rect(cornerRadius: Theme.Radius.inset))
     }
 
     private func firstsStrip(_ firsts: [TrainingFirst]) -> some View {
@@ -322,7 +322,7 @@ struct RunReportSheet: View {
             Text("10 points is 10× effective compute. \(CapStyle.scaleNote)").font(.caption2).foregroundStyle(.tertiary)
         }
         .padding(12)
-        .background(.quaternary.opacity(0.3), in: .rect(cornerRadius: 12))
+        .background(Theme.insetFill, in: .rect(cornerRadius: Theme.Radius.inset))
     }
 
     private func margin(_ v: Double) -> String { (v >= 0 ? "+" : "−") + Fmt.trim(abs(v), 1) }
@@ -389,7 +389,7 @@ struct RunReportSheet: View {
             }
         }
         .padding(12)
-        .background(.quaternary.opacity(0.3), in: .rect(cornerRadius: 12))
+        .background(Theme.insetFill, in: .rect(cornerRadius: Theme.Radius.inset))
     }
 
     private func footer(_ model: AIModel?, _ run: TrainingRun, _ s: GameState, _ d: Derived) -> some View {
@@ -603,14 +603,7 @@ private struct ReportStat: View {
     let symbol: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Image(systemName: symbol).font(.caption).foregroundStyle(.secondary)
-            Text(value).font(.callout.weight(.semibold).monospacedDigit()).lineLimit(1).minimumScaleFactor(0.7)
-            Text(label).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-        }
-        .padding(8)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.quaternary.opacity(0.4), in: .rect(cornerRadius: 8))
+        MetricTile(label: label, value: value, symbol: symbol, tint: .secondary, style: .tinted)
     }
 }
 

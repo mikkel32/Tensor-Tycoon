@@ -9,9 +9,9 @@ struct FinanceView: View {
         let debt = Economy.debt(s)
         let payments = s.loans.reduce(0) { $0 + $1.payment }
         let rows = Array(s.history.suffix(18).reversed())
-        Page(title: "Finance", subtitle: "Profit & loss, cash and debt. Interest rates follow the real Fed funds rate until late 2026, then drift.") {
+        Page(title: "Finance", subtitle: "Profit & loss, cash and debt. Interest rates follow the real Fed funds rate until late 2026, then drift.", screen: .finance) {
             ScreenHint(.finance)
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 190), spacing: 12)], spacing: 12) {
+            KPIRow(minWidth: 190) {
                 StatTile(title: "Cash", value: Fmt.money(s.cash), detail: s.cloudCredits > 0 ? "+ \(Fmt.money(s.cloudCredits)) cloud credits" : nil, symbol: "banknote.fill", tint: s.cash >= 0 ? .green : .red)
                 StatTile(title: "Debt", value: Fmt.money(debt), detail: "\(Fmt.money(payments))/mo payments", symbol: "creditcard.fill", tint: .orange)
                 StatTile(title: "Credit score", value: "\(Int(s.creditScore))", detail: rating(s.creditScore), symbol: "checkmark.seal.fill", tint: .blue)
@@ -20,11 +20,10 @@ struct FinanceView: View {
                 StatTile(title: "Lifetime revenue", value: Fmt.money(s.lifetimeRevenue), detail: "\(Fmt.flops(s.lifetimeFLOPs)) FLOPs trained", symbol: "sum", tint: .teal)
                 StatTile(title: "Interest on cash", value: "\(Fmt.trim(Treasury.yieldRate(s), 2))%", detail: "Idle cash sits in T-bills · \(Fmt.money(s.cash * Treasury.yieldRate(s) / 100 / 12))/mo", symbol: "building.columns", tint: .mint)
                 StatTile(title: "Runway", value: Treasury.runwayMonths(s).map { $0 > 48 ? "4+ years" : "\(Fmt.trim($0, 1)) months" } ?? (s.history.isEmpty ? "—" : "Profitable"),
-                         detail: s.history.isEmpty ? "After your first month closes" : "At last month's burn", symbol: "hourglass", tint: (Treasury.runwayMonths(s) ?? 99) < 6 ? .red : .green)
-                    .helpBadge(.runway)
+                         detail: s.history.isEmpty ? "After your first month closes" : "At last month's burn", symbol: "hourglass", tint: (Treasury.runwayMonths(s) ?? 99) < 6 ? .red : .green, help: .runway)
             }
 
-            HStack(alignment: .top, spacing: 16) {
+            CardGrid(minWidth: 340, maxColumns: 2) {
                 Card {
                     CardHeader("Cash balance", symbol: "chart.xyaxis.line")
                     if s.history.count < 2 {

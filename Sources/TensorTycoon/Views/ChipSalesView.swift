@@ -9,7 +9,7 @@ struct ChipSalesView: View {
         let owned = d.pools.filter { $0.owned > 0 }
         let leased = s.leases.values.reduce(0, +)
         let chipRevenueDay = s.chipLines.reduce(0) { acc, l in acc + l.unitsToday * l.price }
-        Page(title: "Chip & Cloud Sales", subtitle: "Sell compute two ways: lease idle accelerators to the market like a neocloud, or manufacture your own chips for hyperscalers, sovereign funds — and, if you dare, rival labs.") {
+        Page(title: "Chip & Cloud Sales", subtitle: "Sell compute two ways: lease idle accelerators to the market like a neocloud, or manufacture your own chips for hyperscalers, sovereign funds — and, if you dare, rival labs.", screen: .chipSales) {
             HeroBanner(image: "hyperscale_campus", height: 150) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Sell the shovels").font(.title.weight(.bold))
@@ -17,7 +17,7 @@ struct ChipSalesView: View {
                         .font(.callout).opacity(0.9)
                 }
             }
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 190), spacing: 12)], spacing: 12) {
+            KPIRow(minWidth: 190) {
                 StatTile(title: "Cloud leasing", value: "\(Fmt.money(s.leaseRevenueToday * 365))/yr", detail: "\(Fmt.int(leased)) chips leased out", symbol: "cloud.fill", tint: .teal)
                 StatTile(title: "Chip sales", value: "\(Fmt.money(chipRevenueDay * 365))/yr", detail: "This month \(Fmt.money(s.month.revChips))", symbol: "shippingbox.fill", tint: .green)
                 StatTile(title: "Vendor reputation", value: "\(Int(ChipBusiness.reputation(s) * 100))/100", detail: "Grows with chips shipped", symbol: "star.fill", tint: .orange)
@@ -145,7 +145,7 @@ private struct ChipLineCard: View {
                     .help("Rival labs are half the market. Every chip they buy makes their next models stronger.")
                 Toggle("On sale", isOn: Binding(get: { l.active }, set: { v in store.act { $0.setChipLine(l.chipID, active: v) } }))
             }
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 5), spacing: 10) {
+            EqualColumns(minWidth: 120, spacing: 10, maxColumns: 5) {
                 LineStat(label: "Shipping", value: "\(Fmt.count(l.unitsToday * 30.4))/mo", tint: .blue)
                 LineStat(label: "Demand", value: "\(Fmt.count(l.demandToday * 30.4))/mo", tint: l.demandToday > lineCap ? .orange : .secondary)
                 LineStat(label: "Shipped", value: Fmt.count(l.shipped), tint: .indigo)
@@ -216,12 +216,6 @@ private struct LineStat: View {
     let tint: Color
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(label).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-            Text(value).font(.headline.monospacedDigit()).foregroundStyle(tint).lineLimit(1).minimumScaleFactor(0.6)
-        }
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.quaternary.opacity(0.35), in: .rect(cornerRadius: 10))
+        MetricTile(label: label, value: value, tint: tint)
     }
 }

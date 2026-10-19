@@ -5,7 +5,7 @@ struct StrategyView: View {
 
     var body: some View {
         let s = store.game
-        Page(title: "Strategy & Traits", subtitle: "Who your lab is: the doctrine you founded it on, your own background, the culture you build with culture points — and the board that judges you.") {
+        Page(title: "Strategy & Traits", subtitle: "Who your lab is: the doctrine you founded it on, your own background, the culture you build with culture points — and the board that judges you.", screen: .strategy) {
             HeroBanner(image: "sf_skyline", height: 150) {
                 HStack(alignment: .bottom) {
                     VStack(alignment: .leading, spacing: 4) {
@@ -16,13 +16,13 @@ struct StrategyView: View {
                     Spacer()
                     VStack(alignment: .trailing, spacing: 2) {
                         Text("Culture points").font(.caption).opacity(0.8)
-                        Text("\(s.culturePoints)").font(.system(size: 34, weight: .bold).monospacedDigit())
+                        Text("\(s.culturePoints)").font(TypeRamp.bannerMetric)
                         Text("Earned from achievements, board goals and anniversaries").font(.caption2).opacity(0.8)
                     }
                 }
             }
 
-            HStack(alignment: .top, spacing: 16) {
+            CardGrid(minWidth: 340, maxColumns: 3) {
                 Card {
                     CardHeader("Doctrine", symbol: s.doctrine.symbol, subtitle: s.doctrine.tagline)
                     TraitLines(pros: s.doctrine.pros, cons: s.doctrine.cons)
@@ -79,7 +79,7 @@ private struct VictoryCard: View {
                         Text("\(Int(p * 100))%").font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
                     }
                     .padding(10)
-                    .background(Color.secondary.opacity(0.06), in: .rect(cornerRadius: 10))
+                    .background(Theme.insetFill, in: .rect(cornerRadius: Theme.Radius.inset))
                 }
             }
         }

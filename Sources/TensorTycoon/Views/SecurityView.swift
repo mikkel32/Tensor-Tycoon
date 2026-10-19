@@ -5,7 +5,7 @@ struct SecurityView: View {
 
     var body: some View {
         let s = store.game
-        Page(title: "Security & Policy", subtitle: "Protect the weights that make you valuable, and shape the laws that govern you. Security levels follow RAND's SL1–SL5 framework for securing frontier model weights.") {
+        Page(title: "Security & Policy", subtitle: "Protect the weights that make you valuable, and shape the laws that govern you. Security levels follow RAND's SL1–SL5 framework for securing frontier model weights.", screen: .security) {
             HeroBanner(image: "network", height: 150) {
                 HStack(alignment: .bottom) {
                     VStack(alignment: .leading, spacing: 4) {
@@ -16,11 +16,11 @@ struct SecurityView: View {
                     Spacer()
                     VStack(alignment: .trailing, spacing: 2) {
                         Text("Political capital").font(.caption).opacity(0.8)
-                        Text("\(Int(s.politicalCapital))").font(.system(size: 34, weight: .bold).monospacedDigit())
+                        Text("\(Int(s.politicalCapital))").font(TypeRamp.bannerMetric)
                     }
                 }
             }
-            HStack(alignment: .top, spacing: 16) {
+            CardGrid(minWidth: 340, maxColumns: 2) {
                 SecurityCard(state: s)
                 ThreatCard(state: s)
             }

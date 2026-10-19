@@ -6,7 +6,7 @@ struct PartnersView: View {
     var body: some View {
         let s = store.game
         let active = Partners.active(s)
-        Page(title: "Compute Partners", subtitle: "Every frontier lab is married to a chip or cloud giant. Strategic deals trade equity and loyalty for money, discounts and early access to the next generation.") {
+        Page(title: "Compute Partners", subtitle: "Every frontier lab is married to a chip or cloud giant. Strategic deals trade equity and loyalty for money, discounts and early access to the next generation.", screen: .partners) {
             HeroBanner(image: "nvidia_hq", height: 150) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Pick your side").font(.title.weight(.bold))

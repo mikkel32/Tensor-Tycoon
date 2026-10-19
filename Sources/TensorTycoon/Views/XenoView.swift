@@ -7,7 +7,7 @@ struct XenoView: View {
         let s = store.game
         let n = XenoScience.discoveries(s)
         let ventures = s.xenoArtifacts.reduce(0) { $0 + $1.ventureRevenue }
-        Page(title: "Alien Tech", subtitle: "Designs your agents found where no human would look. Architectures and chips, optimizers and codecs that make every run cheaper, superconductors, mathematics, biology — and minds unlike ours. Study them to unlock their full power, build businesses on them, and attempt the mega-projects they make possible.") {
+        Page(title: "Alien Tech", subtitle: "Designs your agents found where no human would look. Architectures and chips, optimizers and codecs that make every run cheaper, superconductors, mathematics, biology — and minds unlike ours. Study them to unlock their full power, build businesses on them, and attempt the mega-projects they make possible.", screen: .xeno) {
             HeroBanner(image: "wafer_closeup", height: 160) {
                 HStack(alignment: .bottom) {
                     VStack(alignment: .leading, spacing: 4) {
@@ -19,7 +19,7 @@ struct XenoView: View {
                     if ventures > 0 {
                         VStack(alignment: .trailing, spacing: 2) {
                             Text("Alien ventures have earned").font(.caption).opacity(0.8)
-                            Text(Fmt.money(ventures)).font(.system(size: 30, weight: .bold).monospacedDigit())
+                            Text(Fmt.money(ventures)).font(TypeRamp.bannerMetric)
                         }
                     }
                 }
@@ -172,7 +172,7 @@ private struct ArtifactCard: View {
                 }
                 Spacer()
             }
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3), spacing: 10) {
+            EqualColumns(minWidth: 120, spacing: 10, maxColumns: 3) {
                 XenoStat(label: "Potency", value: "×\(Fmt.trim(a.potency, 2))", symbol: "bolt.fill", tint: .purple)
                 XenoStat(label: "Legibility", value: "\(Int(a.legibility * 100))%", symbol: "eye.trianglebadge.exclamationmark", tint: a.legibility >= 0.5 ? .green : .red)
                 XenoStat(label: "Usable strength", value: "×\(Fmt.trim(XenoScience.strength(a), 2))", symbol: "gauge.with.dots.needle.67percent", tint: .orange)
@@ -211,7 +211,7 @@ private struct ArtifactCard: View {
                 }
                 .padding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.secondary.opacity(0.06), in: .rect(cornerRadius: 10))
+                .background(Theme.insetFill, in: .rect(cornerRadius: Theme.Radius.inset))
                 VStack(alignment: .leading, spacing: 4) {
                     Label("Build it yourself", systemImage: "building.2.fill").font(.callout.weight(.semibold))
                     Text("\(Fmt.money(capex)) and \(XenoCatalog.inhouseMonths(a.kind)) months, then about \(Fmt.money(monthly))/month that grows with the market.").font(.caption).foregroundStyle(.secondary)
@@ -220,7 +220,7 @@ private struct ArtifactCard: View {
                 }
                 .padding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.secondary.opacity(0.06), in: .rect(cornerRadius: 10))
+                .background(Theme.insetFill, in: .rect(cornerRadius: Theme.Radius.inset))
             }
         } else {
             let ready = a.ventureReady ?? s.date
@@ -309,7 +309,7 @@ private struct AlienArchCard: View {
                 }
                 Spacer()
             }
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 5), spacing: 10) {
+            EqualColumns(minWidth: 120, spacing: 10, maxColumns: 5) {
                 XenoStat(label: "Model efficiency", value: "×\(Fmt.trim(a.multiplier, 2)) compute", symbol: "cpu", tint: .purple)
                 XenoStat(label: "Chip throughput", value: "\(Fmt.trim(a.chipPerf, 1))× best GPU", symbol: "bolt.fill", tint: .orange)
                 XenoStat(label: "Production cost", value: "\(Int((a.costFactor * 100).rounded()))% of a GPU", symbol: "dollarsign.circle", tint: .green)
@@ -490,12 +490,6 @@ private struct XenoStat: View {
     let tint: Color
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Label(label, systemImage: symbol).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-            Text(value).font(.headline.monospacedDigit()).foregroundStyle(tint).lineLimit(1).minimumScaleFactor(0.6)
-        }
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.quaternary.opacity(0.35), in: .rect(cornerRadius: 10))
+        MetricTile(label: label, value: value, symbol: symbol, tint: tint)
     }
 }

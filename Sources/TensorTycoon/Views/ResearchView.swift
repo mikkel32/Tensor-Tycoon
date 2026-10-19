@@ -12,11 +12,11 @@ struct ResearchView: View {
         let core = ResearchCatalog.core + ResearchCatalog.lateGame + ResearchCatalog.capabilityTech
         let doneCount = core.filter { s.researched.contains($0.id) }.count
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
-        Page(title: "Research", subtitle: "Researchers generate research points (RP); compute multiplies their output. Every technique is an experiment: in your lab it can land better or worse than the paper. Leftover points roll into the next project, and idle research feeds your signature programme, so nothing is wasted.") {
+        Page(title: "Research", subtitle: "Researchers generate research points (RP); compute multiplies their output. Every technique is an experiment: in your lab it can land better or worse than the paper. Leftover points roll into the next project, and idle research feeds your signature programme, so nothing is wasted.", screen: .research) {
             ScreenHint(.research)
             SignatureCard(state: s)
             RLLabCard(state: s)   // 3.5
-            HStack(alignment: .top, spacing: 16) {
+            HStack(alignment: .top, spacing: Theme.gap) {
                 QueueCard(state: s, rate: rate)
                 CapacityCard(state: s, rate: rate)
                     .frame(width: 400)

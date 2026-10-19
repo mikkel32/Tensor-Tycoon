@@ -9,7 +9,7 @@ struct TeamView: View {
         let s = store.game
         let office = Economy.office(s, s.officeLevel)   // 3.5: local name and rent
         let next = s.officeLevel + 1 < Economy.officeLevels.count ? Economy.office(s, s.officeLevel + 1) : nil
-        Page(title: "Team", subtitle: "AI talent is the scarcest resource after GPUs. Underpaid stars get poached. Stars bring traits; promote veterans (a year in, skill 65+) into the trait you choose.") {
+        Page(title: "Team", subtitle: "AI talent is the scarcest resource after GPUs. Underpaid stars get poached. Stars bring traits; promote veterans (a year in, skill 65+) into the trait you choose.", screen: .team) {
             ScreenHint(.team)
             HStack(alignment: .top, spacing: 16) {
                 VStack(alignment: .leading, spacing: 0) {

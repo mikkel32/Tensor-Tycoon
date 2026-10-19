@@ -6,7 +6,7 @@ struct SiliconView: View {
     var body: some View {
         let s = store.game
         let unlocked = store.derived.bonuses.has(.customSilicon)
-        Page(title: "Custom Silicon", subtitle: "Google has TPUs, Amazon has Trainium, Microsoft has Maia, Meta has MTIA. Design your own accelerator — years of work, a nine-figure budget, and a chip nobody else can buy.") {
+        Page(title: "Custom Silicon", subtitle: "Google has TPUs, Amazon has Trainium, Microsoft has Maia, Meta has MTIA. Design your own accelerator — years of work, a nine-figure budget, and a chip nobody else can buy.", screen: .silicon) {
             HeroBanner(image: "wafer", height: 160) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Your own accelerator").font(.title.weight(.bold))
@@ -120,7 +120,7 @@ private struct NewChipProgram: View {
                 }
                 .padding(12)
                 .frame(width: 320)
-                .background(.quaternary.opacity(0.35), in: .rect(cornerRadius: 12))
+                .background(Theme.insetFill, in: .rect(cornerRadius: Theme.Radius.inset))
             }
         }
     }

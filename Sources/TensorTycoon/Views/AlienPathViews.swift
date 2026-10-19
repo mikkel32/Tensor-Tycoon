@@ -149,7 +149,7 @@ struct AlienFabCard: View {
                        subtitle: "One line makes every alien chip you own. Your orders queue on it — no world allocation caps — and merchant customers get what's left (a quarter while you're ordering).") {
                 if f.yieldLevel > 0 { Pill(text: "Yield level \(f.yieldLevel)", color: .green, symbol: "sparkles") }
             }
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 170), spacing: 10)], spacing: 10) {
+            KPIRow(minWidth: 170) {
                 StatTile(title: "Capacity", value: "\(Fmt.count(f.capacityMonth))/mo",
                          detail: f.pendingCapacity > 0 ? "+\(Fmt.count(f.pendingCapacity)) on \(f.pendingReady?.gameShort ?? "")" : "Your own line", symbol: "gearshape.2.fill", tint: .purple)
                 StatTile(title: "Your queue", value: AlienFab.queueDays(s) > 0.5 ? Fmt.days(AlienFab.queueDays(s)) : "Empty",

@@ -18,7 +18,7 @@ struct HardwareStoreView: View {
         let items = filtered(s, catalog)
         let forSale = catalog.filter { Economy.canBuy($0, s) }.count
         let rentable = catalog.filter { Economy.canRent($0, s) }.count
-        Page(title: "Hardware Store", subtitle: "Real accelerators with real specs. Dense TFLOPS shown (vendor headline numbers are often sparse). Buy for your sites or rent by the chip-hour.") {
+        Page(title: "Hardware Store", subtitle: "Real accelerators with real specs. Dense TFLOPS shown (vendor headline numbers are often sparse). Buy for your sites or rent by the chip-hour.", screen: .hardware) {
             ScreenHint(.hardware)
             HeroBanner(image: "gb200_rack", height: 150) {
                 HStack(alignment: .bottom) {
@@ -92,7 +92,7 @@ struct HardwareStoreView: View {
                 }
             }
             if items.isEmpty {
-                EmptyStateView(symbol: "magnifyingglass", title: "Nothing matches", message: "Try a different filter.")
+                Card { EmptyStateView(symbol: "magnifyingglass", title: "Nothing matches", message: "Try a different filter.") }
             }
         }
         .sheet(item: $selected) { a in

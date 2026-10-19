@@ -97,7 +97,7 @@ struct BriefingSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     Text(b.headline).font(.title2.weight(.bold)).fixedSize(horizontal: false, vertical: true)
-                    HStack(spacing: 10) {
+                    KPIRow {
                         StatTile(title: "Revenue", value: Fmt.money(b.revenue),
                                  detail: "\(b.revenueChange >= 0 ? "+" : "−")\(Fmt.pct(abs(b.revenueChange), decimals: 1)) per day vs. the month before",
                                  symbol: "chart.line.uptrend.xyaxis", tint: b.revenueChange >= 0 ? .green : .orange)

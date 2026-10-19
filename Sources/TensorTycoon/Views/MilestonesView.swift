@@ -13,8 +13,8 @@ struct MilestonesView: View {
         let top = tally.filter { $0.key != "player" }.max { $0.value != $1.value ? $0.value < $1.value : $0.key > $1.key }
         let next = Milestones.nextUp(s, count: 6)
         Page(title: "AI Milestones",
-             subtitle: "The firsts every lab races for, from beating people at reading in 2018 to robots in every home. The first released model to clear a milestone's bars gets it: its lab makes the news and gains brand. \(CapStyle.scaleNote)") {
-            HStack(spacing: 14) {
+             subtitle: "The firsts every lab races for, from beating people at reading in 2018 to robots in every home. The first released model to clear a milestone's bars gets it: its lab makes the news and gains brand. \(CapStyle.scaleNote)", screen: .milestones) {
+            KPIRow {
                 StatTile(title: "Reached", value: "\(wins.count) of \(MilestoneCatalog.all.count)",
                          detail: wins.last.map { "Latest: \(MilestoneCatalog.byID[$0.id]?.title ?? $0.id)" }, symbol: "signpost.right.fill", tint: .indigo)
                 StatTile(title: "Yours first", value: "\(mine)", detail: mine == 0 ? "Ship a model that clears one first" : "Each one adds brand",
@@ -25,7 +25,7 @@ struct MilestonesView: View {
                          detail: next.first.map { "Expected \($0.real ? "" : "around ")\($0.real ? $0.whenLabel : String(Int($0.year)))" },
                          symbol: "scope", tint: .purple)
             }
-            HStack(alignment: .top, spacing: 16) {
+            HStack(alignment: .top, spacing: Theme.gap) {
                 MilestoneNextUpCard(state: s, next: next)
                 MilestoneProgressCard(state: s)
                     .frame(width: 430)

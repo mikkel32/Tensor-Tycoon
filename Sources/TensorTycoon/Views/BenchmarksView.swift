@@ -23,15 +23,15 @@ struct BenchmarksView: View {
         let families = Dictionary(grouping: visible, by: \.family)
             .sorted { ($0.value.map(\.mid).max() ?? 0) > ($1.value.map(\.mid).max() ?? 0) }
         let active = all.filter { $0.isActive(s.date, saturated: s.benchSaturated) }
-        Page(title: "Benchmarks", subtitle: "Real benchmarks from SQuAD to ARC-AGI-3 — knowledge, math, code, agents, vision, speech, long context, instruction following, safety and dangerous capabilities. When models from two labs pass a benchmark's saturation line it retires, and a harder successor pitched at the field appears.") {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 190), spacing: 12)], spacing: 12) {
+        Page(title: "Benchmarks", subtitle: "Real benchmarks from SQuAD to ARC-AGI-3 — knowledge, math, code, agents, vision, speech, long context, instruction following, safety and dangerous capabilities. When models from two labs pass a benchmark's saturation line it retires, and a harder successor pitched at the field appears.", screen: .benchmarks) {
+            KPIRow(minWidth: 190) {
                 StatTile(title: "Benchmarks tracked", value: "\(all.count)", detail: "\(all.filter(\.generated).count) created during your game", symbol: "checklist", tint: .blue)
                 StatTile(title: "Live", value: "\(active.count)", detail: "Not yet saturated", symbol: "flame.fill", tint: .orange)
                 StatTile(title: "Saturated", value: "\(s.benchSaturated.count)", detail: "Rotate out of the index as successors arrive", symbol: "checkmark.seal.fill", tint: .green)
                 StatTile(title: "Upcoming", value: "\(all.filter { $0.introduced > s.date.ym }.count)", detail: "Announced, not released", symbol: "calendar.badge.clock", tint: .purple)
             }
 
-            HStack(alignment: .top, spacing: 16) {
+            HStack(alignment: .top, spacing: Theme.gap) {
                 Card {
                     CardHeader("Intelligence Index — current composition", symbol: "function",
                                subtitle: "10 text benchmarks from the hardest to nearly saturated. A saturated one stays until a successor is ready; slots rotate one at a time and a newcomer phases in over eight weeks.")

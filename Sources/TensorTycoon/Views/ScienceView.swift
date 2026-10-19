@@ -12,8 +12,8 @@ struct ScienceView: View {
         let running = sc.projects.filter { $0.status == .running }
         let pending = Science.pending(s)
         Page(title: "Science Labs",
-             subtitle: "Build laboratories, staff them and run real research: hypothesis to commercialisation, ten stages that can fail. Discoveries lower your costs, sharpen your models, open product lines and feed moonshots.") {
-            HStack(spacing: 14) {
+             subtitle: "Build laboratories, staff them and run real research: hypothesis to commercialisation, ten stages that can fail. Discoveries lower your costs, sharpen your models, open product lines and feed moonshots.", screen: .science) {
+            KPIRow {
                 StatTile(title: "Laboratories", value: "\(sc.labs.count)", detail: sc.labs.isEmpty ? "None yet" : "\(sc.labs.reduce(0) { $0 + $1.staff }) scientists",
                          symbol: "building.2.fill", tint: .indigo)
                 StatTile(title: "Projects running", value: "\(running.count)", detail: "\(sc.projects.filter { $0.status == .done }.count) commercialised",
@@ -189,7 +189,7 @@ private struct StartProjectList: View {
                             Text(d.name).font(.callout.weight(.medium))
                             Pill(text: f.name, color: .secondary)
                             Pill(text: d.speculative ? "Speculative" : "Grounded", color: d.speculative ? .orange : .green)
-                            if !lab.def.primary.contains(d.field) { Pill(text: "Lab less suited", color: .orange) }
+                            if !lab.def.primary.contains(d.field) { Pill("Lab less suited", tone: .warning) }
                         }
                         Text(d.pitch).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                         Text(d.basis).font(.caption2).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
@@ -206,7 +206,7 @@ private struct StartProjectList: View {
             }
         }
         .padding(12)
-        .background(.quaternary.opacity(0.4), in: .rect(cornerRadius: 10))
+        .background(Theme.insetFill, in: .rect(cornerRadius: Theme.Radius.inset))
     }
 }
 
@@ -261,29 +261,20 @@ private struct BuildLabCard: View {
 // MARK: - Projects
 
 /// The ten stages as a strip: done, current, ahead, skipped.
-struct StageStrip: View {
+/// A project's stages on the shared `StageStrip`: passed, under way, dead end or still to come, with reruns noted.
+struct ScienceStageStrip: View {
     let project: SciProject
     var body: some View {
         let field = project.projectDef?.field ?? .materials
-        let list = Science.stages(field)
-        HStack(spacing: 3) {
-            ForEach(list) { st in
-                let passed = project.log.contains { $0.stage == st.rawValue && $0.outcome == "passed" }
-                let dead = project.log.contains { $0.stage == st.rawValue && $0.outcome == "dead end" }
-                let reruns = project.log.filter { $0.stage == st.rawValue && $0.outcome == "rerun" }.count
-                let current = project.status == .running && project.stage == st.rawValue
-                VStack(spacing: 3) {
-                    Capsule()
-                        .fill(dead ? Color.red : (passed ? Color.green : (current ? Color.blue : Color.secondary.opacity(0.25))))
-                        .frame(height: 6)
-                    Text(Science.stageName(st, field)).font(.system(size: 9)).lineLimit(2).multilineTextAlignment(.center)
-                        .foregroundStyle(current ? .primary : .secondary)
-                    if reruns > 0 { Text("↺\(reruns)").font(.system(size: 9).weight(.bold)).foregroundStyle(.orange) }
-                }
-                .frame(maxWidth: .infinity)
-                .help(ScienceCatalog.stage(st).blurb)
-            }
-        }
+        StageStrip(steps: Science.stages(field).map { st in
+            let passed = project.log.contains { $0.stage == st.rawValue && $0.outcome == "passed" }
+            let dead = project.log.contains { $0.stage == st.rawValue && $0.outcome == "dead end" }
+            let reruns = project.log.filter { $0.stage == st.rawValue && $0.outcome == "rerun" }.count
+            let current = project.status == .running && project.stage == st.rawValue
+            return StageStep(id: "\(st.rawValue)", title: Science.stageName(st, field),
+                             status: dead ? .failed : (passed ? .done : (current ? .current : .upcoming)),
+                             note: reruns > 0 ? "↺\(reruns)" : nil, help: ScienceCatalog.stage(st).blurb)
+        }, tint: Theme.info)
     }
 }
 
@@ -318,7 +309,7 @@ private struct ProjectCard: View {
                         Text("chance to commercialise").font(.caption2).foregroundStyle(.secondary)
                     }
                 }
-                StageStrip(project: p)
+                ScienceStageStrip(project: p)
                 HStack(alignment: .top, spacing: 16) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("\(Science.stageName(st, d.field)) · attempt \(p.attempts + 1)").font(.subheadline.weight(.semibold))
@@ -493,7 +484,7 @@ struct DiscoveryReportSheet: View {
                                     Spacer()
                                 }
                                 .padding(10)
-                                .background(.quaternary.opacity(0.5), in: .rect(cornerRadius: 10))
+                                .background(Theme.insetFill, in: .rect(cornerRadius: Theme.Radius.inset))
                                 .contentShape(.rect)
                             }
                             .buttonStyle(.plain)
@@ -640,7 +631,7 @@ struct ScienceDashboardCard: View {
                             Text("\(Science.stageName(p.currentStage, d.field)) · \(Int((Science.odds(p, p.currentStage, s).p * 100).rounded()))%")
                                 .font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
                         }
-                        StageStrip(project: p)
+                        ScienceStageStrip(project: p)
                     }
                 }
             }

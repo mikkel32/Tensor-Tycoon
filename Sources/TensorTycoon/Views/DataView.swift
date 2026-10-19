@@ -18,18 +18,14 @@ struct DataView: View {
         let active = s.dataSources.compactMap { DataCatalog.byID[$0] }
         let tokens = Physics.availableTokensT(s.dataSources.sorted(), y: s.year, bonuses: b) + DataEconomy.extraUniqueT(s)
         let risk = active.reduce(0) { $0 + $1.legalRisk } + Double(s.dataEco.holdings.filter { $0.active && $0.quality.provenance < 0.5 }.count) * 0.2
-        Page(title: "Training Data", subtitle: "Models are what they eat. Unique tokens let you train bigger without repeating; relevant, high-quality tokens raise the skills a model is built for.") {
-            HStack(spacing: 12) {
+        Page(title: "Training Data", subtitle: "Models are what they eat. Unique tokens let you train bigger without repeating; relevant, high-quality tokens raise the skills a model is built for.", screen: .data) {
+            KPIRow {
                 StatTile(title: "Unique tokens", value: Fmt.tokens(tokens), detail: b.dataTokens > 0 ? "Incl. +\(Int(b.dataTokens * 100))% from data research" : "Text you can train on", symbol: "text.word.spacing", tint: .blue)
                 StatTile(title: "Datasets", value: "\(active.count + s.dataEco.holdings.filter(\.active).count)", detail: "\(s.dataEco.holdings.filter(\.exclusive).count) exclusive", symbol: "externaldrive.fill", tint: .purple)
                 StatTile(title: "Data bill", value: "\(Fmt.money(Economy.dataMonthlyCost(s)))/mo", detail: "Licences, annotation, storage", symbol: "doc.text.fill", tint: .orange)
                 StatTile(title: "Legal risk", value: risk > 0.3 ? "High" : (risk > 0.05 ? "Moderate" : "Low"), detail: "Copyright & provenance", symbol: "exclamationmark.shield.fill", tint: risk > 0.3 ? .red : .green)
             }
-            Picker("", selection: $tab) {
-                ForEach(DataTab.allCases) { Text($0.rawValue).tag($0) }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
+            SectionTabs(selection: $tab, options: DataTab.allCases)
             switch tab {
             case .inventory: inventory(s)
             case .market: market(s)
@@ -178,7 +174,7 @@ struct DataView: View {
                         Pill(text: "\(Fmt.tokens(def.tokensT)) \(def.kind.label.lowercased())", color: .blue)
                         Pill(text: "Quality \(Int(def.quality.effective * 100))", color: .purple)
                         if def.quality.provenance < 0.5 { Pill(text: "Provenance", color: .red, symbol: "exclamationmark.triangle.fill") }
-                        if def.quality.contamination > 0.5 { Pill(text: "Contamination", color: .orange) }
+                        if def.quality.contamination > 0.5 { Pill("Contamination", tone: .warning) }
                         if def.rivalValue > 0 { Pill(text: "Rivals use it", color: .teal) }
                     }
                     Text("From \(def.seller).").font(.caption2).foregroundStyle(.tertiary)
@@ -278,7 +274,7 @@ struct DataView: View {
                         Image(systemName: v.kind.symbol).foregroundStyle(.secondary)
                         Text(v.name).font(.headline)
                         Spacer()
-                        if contract != nil { Pill(text: "Active", color: .green) }
+                        if contract != nil { Pill("Active", tone: .good) }
                         else if s.year < v.available { Pill(text: "From \(Int(v.available))", color: .secondary) }
                     }
                     Text(v.blurb).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
