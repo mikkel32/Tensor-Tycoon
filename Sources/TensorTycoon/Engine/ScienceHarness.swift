@@ -444,6 +444,19 @@ extension PTPlay {
                   && s.dataEco.holdings.contains { $0.id.hasPrefix("lab:") } && Power.billFactor(s) >= 0.1,
                   "6 vs 2 licensees pay ×\(Fmt.trim(ratio, 2)); cloud price ×\(Fmt.trim(rentWith / max(1e-9, rentWithout), 4)) with the energy results; fusion before/after burning plasma: \(fusionBefore)/\(PowerKind.fusion.available(s)); lab notebooks held: \(s.dataEco.holdings.contains { $0.id.hasPrefix("lab:") })")
         }
+        // 11. The 2D transistor brings the 2D-channel node forward: a year after it reproduces, years before the industry.
+        do {
+            var s = fresh(2028)
+            let n = SemiCatalog.node(Semis.twoDNode)
+            let before = Semis.launch(n, s)
+            s.science.discoveries.append(SciDiscovery(def: "two_d_transistor", project: UUID(), date: s.date, title: "2D"))
+            let after = Semis.launch(n, s)
+            var later = s
+            later.date = GameCalendar.addDays(s.date, 400)
+            let open = SemiCatalog.foundries.contains { Semis.offered(n, $0, later) }
+            check("2D-channel node", before == n.launch && abs(after - (s.year + 1)) < 0.01 && open && !SemiCatalog.foundries.contains { Semis.offered(n, $0, s) },
+                  "opens \(Fmt.trim(before, 1)) for the industry, \(Fmt.trim(after, 1)) after your discovery; offered 400 days on: \(open)")
+        }
         print(failed == 0 ? "  OK: all checks passed" : "  FAILED: \(failed) check\(failed == 1 ? "" : "s")")
         return failed
     }

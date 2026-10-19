@@ -400,7 +400,7 @@ enum ScienceCatalog {
         ("burning_plasma", .fusionPower, "Fusion power plants",
          "With a control stack that holds a burning plasma, utilities will build fusion plants for you now instead of in the mid-2030s: fusion is on the Power page (plants still take years to build).", nil),
         ("two_d_transistor", .twoDProcess, "A 2D-channel process node",
-         "Atom-thin channels give foundries a node beyond silicon: a 2D-channel process for your chip programmes.", nil),
+         "Atom-thin channels give foundries a node beyond silicon: a year after the result reproduces, a 2D-channel process opens to your chip programmes (Semiconductors), years before the industry has it.", nil),
         ("rt_superconductor", .losslessPower, "Lossless power delivery",
          "Superconducting busbars and cryo-free cooling loops: every campus you build from now on starts with a lower PUE (shown on the Datacenters page), more as the superconductor matures.", nil),
         ("logical_qubit", .quantumChemistry, "Error-corrected quantum chemistry",

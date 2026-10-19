@@ -170,7 +170,7 @@ private struct NewDesignCard: View {
     var body: some View {
         let s = state
         let nodes = Semis.designable(s)
-        let nodeID = nodes.contains(where: { $0.id == node }) ? node : (nodes.last { $0.launch <= s.year }?.id ?? nodes.first?.id ?? "n7")
+        let nodeID = nodes.contains(where: { $0.id == node }) ? node : (nodes.last { Semis.launch($0, s) <= s.year }?.id ?? nodes.first?.id ?? "n7")
         let team = Semis.team(s, teamID) ?? s.semi.teams.first { Semis.teamBusy(s, $0.id) == nil } ?? s.semi.teams.first
         let parents = Semis.portable(s, focus: focus, node: nodeID)
         let parent = parents.first { $0.id == portOf }
@@ -183,7 +183,7 @@ private struct NewDesignCard: View {
         let probe = SemiDesign(name: "", generation: gen, node: nodeID, die: die, stacks: stacks, focus: focus, verification: verification, teamID: team?.id,
                                link: link.rawValue, started: s.date)
         let n = SemiCatalog.node(nodeID)
-        let opensAt = SemiCatalog.foundries.map { Semis.opens(n, $0) }.min() ?? n.launch
+        let opensAt = SemiCatalog.foundries.map { Semis.opens(n, $0, s) }.min() ?? Semis.launch(n, s)
         let fsw = SemiCatalog.foundryByID["fsw"]!
         let launchYield = Semis.previewYield(node: nodeID, die: die, foundry: fsw, s, at: s.year + p.months / 12)
         Card {
@@ -193,7 +193,7 @@ private struct NewDesignCard: View {
                 GridRow {
                     Text("Process node").font(.callout)
                     Picker("Node", selection: Binding(get: { nodeID }, set: { node = $0 })) {
-                        ForEach(nodes) { nd in Text("\(nd.name) — opens \(Fmt.trim(nd.launch, 1))").tag(nd.id) }
+                        ForEach(nodes) { nd in Text(nodeLabel(nd, s)).tag(nd.id) }
                     }.labelsHidden()
                 }
                 GridRow {
@@ -280,6 +280,13 @@ private struct NewDesignCard: View {
 
 extension NewDesignCard {
     /// The interconnect's trade-off, and what a port gives up.
+    /// A node in the picker, with when it opens (and why, for the 2D-channel node your lab brought forward).
+    func nodeLabel(_ n: ProcessNode, _ s: GameState) -> String {
+        let at = Semis.launch(n, s)
+        let early = at < n.launch ? " (your 2D-transistor discovery)" : ""
+        return "\(n.name) — opens \(Fmt.trim(at, 1))" + early
+    }
+
     func linkNote(_ port: Bool) -> String {
         var t = link.blurb
         if port { t += " A port reuses its parent's architecture: 60% of the time, 0.7× the respin odds and 0.8× the masks, but no architecture step — the node does the work." }
@@ -414,7 +421,7 @@ private struct FoundryBookingCard: View {
     var body: some View {
         let s = state
         let f = SemiCatalog.foundryByID[foundry] ?? SemiCatalog.foundries[0]
-        let offers = SemiCatalog.nodes.filter { Semis.offered($0, f, s.year) }
+        let offers = SemiCatalog.nodes.filter { Semis.offered($0, f, s) }
         let nodeID = offers.contains(where: { $0.id == node }) ? node : (offers.last?.id ?? "")
         let n = SemiCatalog.node(nodeID)
         let cap = Semis.waferCap(f, n, s)
@@ -427,7 +434,7 @@ private struct FoundryBookingCard: View {
             CardHeader("Book wafers at a foundry", symbol: "building.2.fill",
                        subtitle: "Take-or-pay: you pay for every wafer booked from its start date, used or not. Wafers that arrive before a design qualifies are wasted — time the start.")
             ForEach(SemiCatalog.foundries) { fd in
-                let o = SemiCatalog.nodes.filter { Semis.offered($0, fd, s.year) }
+                let o = SemiCatalog.nodes.filter { Semis.offered($0, fd, s) }
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(fd.name).font(.callout.weight(.semibold))
@@ -542,7 +549,7 @@ private struct OwnFabCard: View {
     var body: some View {
         let s = state
         let st = SemiCatalog.siteByID[site] ?? SemiCatalog.sites[0]
-        let nodes = SemiCatalog.nodes.filter { $0.launch <= s.year && $0.launch >= s.year - 8 }
+        let nodes = SemiCatalog.nodes.filter { Semis.launch($0, s) <= s.year && Semis.launch($0, s) >= s.year - 8 }
         let nodeID = nodes.contains(where: { $0.id == node }) ? node : (nodes.last?.id ?? "n7")
         let n = SemiCatalog.node(nodeID)
         let cost = Semis.fabCost(n, wafers: size) * Progression.fabFactor(s)   // 3.7

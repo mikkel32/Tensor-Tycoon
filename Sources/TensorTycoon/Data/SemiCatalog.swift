@@ -131,6 +131,10 @@ enum SemiCatalog {
                     d0: 0.12, density: 6.0, power: 0.36, respin: 0.45, fabPerWafer: 1_100_000, fabMW: 9, fabWater: 1_050, tfmm: 20),
         ProcessNode(id: "a10", name: "A10-class (1 nm)", launch: 2031.0, waferPrice: 65_000, maskCost: 220e6, designMonths: 28, ipMonth: 13e6, fabDays: 125,
                     d0: 0.13, density: 8.0, power: 0.3, respin: 0.48, fabPerWafer: 1_400_000, fabMW: 10, fabWater: 1_100, tfmm: 37),
+        // 3.6: atom-thin 2D channels (MoS₂/WSe₂) beyond silicon. The industry gets there in the mid-2030s; a lab that
+        // reproduces the 2D transistor gets it a year after its discovery (Semis.launch).
+        ProcessNode(id: "x2d", name: "2D-channel (atom-thin transistors)", launch: 2034.5, waferPrice: 90_000, maskCost: 300e6, designMonths: 30, ipMonth: 16e6, fabDays: 140,
+                    d0: 0.18, density: 11.0, power: 0.22, respin: 0.55, fabPerWafer: 2_000_000, fabMW: 12, fabWater: 1_150, tfmm: 60),
     ]
     static let nodeByID: [String: ProcessNode] = Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, $0) })
     static func node(_ id: String) -> ProcessNode { nodeByID[id] ?? nodes[1] }
