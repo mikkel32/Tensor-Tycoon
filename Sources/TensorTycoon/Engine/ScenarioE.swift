@@ -122,6 +122,10 @@ extension ScenarioHarness {
             // A preview forked from the newest checkpoint skips the run's evaluation stage: it can be evaluated afterwards.
             if let cp = early.saved.last, t.forkCheckpoint(runID, checkpoint: cp.id) == nil, let fork = t.models.last {
                 r.expect("a forked preview starts unevaluated", !Evaluations.isEvaluated(t, fork))
+                // Launched with a full system card and red-team report, it would count as evaluated at once.
+                var card = t
+                _ = card.release(fork.id, api: true, openWeights: false, plan: LaunchPlan(safety: .thorough))
+                r.expect("a full system card counts as the evaluation", card.models.first { $0.id == fork.id }?.evaluated == true)
                 let cash = t.cash, price = Evaluations.cost(t, fork)
                 r.expect("evaluations can be commissioned for it", t.evaluateModel(fork.id) == nil, Evaluations.blocker(t, fork) ?? "")
                 r.expect("evaluations are paid for", abs(cash - t.cash - price) < 1, Fmt.money(price))
