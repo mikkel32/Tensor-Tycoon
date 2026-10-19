@@ -190,6 +190,21 @@ struct ModelLabView: View {
         .scrollIndicators(.never)
     }
 
+    /// What the chosen expert layout costs and buys (built step by step: one long concatenation is too slow to type-check).
+    private func moeNote(_ b: ResearchBonuses, _ s: GameState) -> String {
+        let l = TrainingExperience.layout(design)
+        let keep = HardwareCatalog.get(design.accelID).map { Physics.moeEfficiency(design, accel: $0, bonuses: b) } ?? 1
+        let share = Int((1 / l.fraction).rounded())
+        var t = "Each token goes to \(l.active) of \(l.experts) experts (1/\(share) of the weights active). "
+        t += "Routing traffic and load imbalance cost \(Fmt.pct(1 - keep, decimals: 0)) of training throughput"
+        if !s.researched.contains("dualpipe") { t += " (DualPipe research hides most of it)" }
+        t += ". More, smaller experts specialise more"
+        if !b.has(.fineMoE) { t += " once fine-grained experts are researched" }
+        t += " and send more traffic"
+        t += s.researched.contains("aux_free") ? "." : "; without aux-loss-free routing, big pools also spike more."
+        return t
+    }
+
     private func bestRecipe(_ b: ResearchBonuses) {
         design.optimizer = b.has(.muon) ? .muon : (b.has(.shampoo) ? .shampoo : .adamw)
         design.attention = b.has(.mla) ? .mla : (b.has(.gqa) ? .gqa : .mha)
@@ -363,7 +378,8 @@ struct ModelLabView: View {
                         Picker("Sparsity", selection: Binding(get: { TrainingExperience.experts(for: design.activeFraction).fraction },
                                                               set: { design.activeFraction = $0; design.experts = 0 })) {
                             ForEach(TrainingExperience.expertLayouts) { l in
-                                Text("1/\(Int((1 / l.fraction).rounded()))" + (l.needsFine && !b.has(.fineMoE) ? " 🔒" : "")).tag(l.fraction).disabled(l.needsFine && !b.has(.fineMoE))
+                                let locked = l.needsFine && !b.has(.fineMoE)
+                                Text(locked ? "1/\(Int((1 / l.fraction).rounded())) 🔒" : "1/\(Int((1 / l.fraction).rounded()))").tag(l.fraction).disabled(locked)
                             }
                         }
                         .pickerStyle(.segmented)
@@ -371,16 +387,12 @@ struct ModelLabView: View {
                         Picker("Expert pool", selection: Binding(get: { design.experts == 0 ? standard.experts : design.experts },
                                                                  set: { design.experts = $0 == standard.experts ? 0 : $0 })) {
                             ForEach(TrainingExperience.expertChoices(for: design.activeFraction), id: \.self) { n in
-                                Text("\(n)" + (n > 64 && !b.has(.fineMoE) ? " 🔒" : "")).tag(n).disabled(n > 64 && !b.has(.fineMoE))
+                                let locked = n > 64 && !b.has(.fineMoE)
+                                Text(locked ? "\(n) 🔒" : "\(n)").tag(n).disabled(locked)
                             }
                         }
                         .pickerStyle(.segmented)
-                        let l = TrainingExperience.layout(design)
-                        let keep = HardwareCatalog.get(design.accelID).map { Physics.moeEfficiency(design, accel: $0, bonuses: b) } ?? 1
-                        Text("Each token goes to \(l.active) of \(l.experts) experts (1/\(Int((1 / l.fraction).rounded())) of the weights active). Routing traffic and load imbalance cost \(Fmt.pct(1 - keep, decimals: 0)) of training throughput"
-                             + (s.researched.contains("dualpipe") ? "" : " (DualPipe research hides most of it)")
-                             + ". More, smaller experts specialise more" + (b.has(.fineMoE) ? "" : " once fine-grained experts are researched") + " and send more traffic"
-                             + (s.researched.contains("aux_free") ? "." : "; without aux-loss-free routing, big pools also spike more."))
+                        Text(moeNote(b, s))
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     VStack(alignment: .leading, spacing: 4) {

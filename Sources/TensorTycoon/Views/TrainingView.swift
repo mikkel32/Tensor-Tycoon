@@ -240,14 +240,9 @@ private struct LaunchSequence: View {
                             }
                         }
                     case .compute:
-                        line("bolt.fill", "Compute",
-                             "\(Fmt.flops(run.flopsTotal + run.postTrainFlops)) FLOPs"
-                             + (run.plan.map { $0.frontierShare >= 0.05 ? " · \(Fmt.trim($0.frontierShare, 2))× the largest known run" + (ref.source.isEmpty ? "" : " (\(ref.source))") : "" } ?? "")
-                             + (run.plan.map { $0.days > 0 ? " · \(Fmt.days($0.days)), done ~\($0.finish.gameShort)" : "" } ?? ""))
+                        line("bolt.fill", "Compute", computeLine(ref.source))
                     case .power:
-                        line("powerplug.fill", "Power",
-                             "\(powerText(run.plan?.powerMW ?? 0)) at the wall\(run.plan.map { $0.powerMW > 0 ? ", about as much as \(Fmt.count($0.powerMW * 1_000 / 1.2)) homes" : "" } ?? "")"
-                             + (run.plan.map { $0.cost > 0 ? " · \(Fmt.money($0.cost)) budgeted" : "" } ?? ""))
+                        line("powerplug.fill", "Power", powerLine())
                     case .started:
                         HStack(spacing: 10) {
                             Image(systemName: "play.circle.fill").font(.title).foregroundStyle(.green)
@@ -288,6 +283,27 @@ private struct LaunchSequence: View {
                 }
             }
         }
+    }
+
+    private func computeLine(_ refSource: String) -> String {
+        var t = "\(Fmt.flops(run.flopsTotal + run.postTrainFlops)) FLOPs"
+        if let p = run.plan {
+            if p.frontierShare >= 0.05 {
+                t += " · \(Fmt.trim(p.frontierShare, 2))× the largest known run"
+                if !refSource.isEmpty { t += " (\(refSource))" }
+            }
+            if p.days > 0 { t += " · \(Fmt.days(p.days)), done ~\(p.finish.gameShort)" }
+        }
+        return t
+    }
+
+    private func powerLine() -> String {
+        var t = "\(powerText(run.plan?.powerMW ?? 0)) at the wall"
+        if let p = run.plan {
+            if p.powerMW > 0 { t += ", about as much as \(Fmt.count(p.powerMW * 1_000 / 1.2)) homes" }
+            if p.cost > 0 { t += " · \(Fmt.money(p.cost)) budgeted" }
+        }
+        return t
     }
 
     private func line(_ symbol: String, _ title: String, _ text: String) -> some View {
@@ -476,6 +492,11 @@ private struct CommandCentre: View {
                 LiveStat(label: "Ops coverage", value: Fmt.pct(run.opsCoverage, decimals: 0), symbol: "wrench.and.screwdriver.fill",
                          tint: run.opsCoverage >= 0.9 ? .green : (run.opsCoverage >= 0.5 ? .orange : .red))
                 LiveStat(label: "Forecast confidence", value: confidence(run), symbol: "scope", tint: .purple)
+                // 3.4: how much of the cluster's peak moved the model, and how held-out loss compares with training loss.
+                LiveStat(label: "Useful share of peak", value: run.ledger.tracked ? Fmt.pct(run.ledger.useful / run.ledger.peak, decimals: 0) : "—",
+                         symbol: "gauge.with.dots.needle.67percent", tint: .green)
+                LiveStat(label: "Held-out gap", value: heldOutGap(run), symbol: "chart.line.text.clipboard",
+                         tint: (run.loss.last.map { $0.val > 0 && $0.val - $0.loss > 0.02 } ?? false) ? .orange : .teal)
             }
 
             HStack(alignment: .top, spacing: 16) {
@@ -747,6 +768,15 @@ private struct CommandCentre: View {
         return "Red: a fault today · amber: faults this week (\(week)) · purple: corrupt nodes quarantined · cyan: watched by ops agents · brightness: MFU \(Fmt.pct(mfu, decimals: 0)) · a fault every \(every). Click a cell."
     }
 
+    /// Held-out loss minus training loss over the last few points (positive: the model fits training data better than
+    /// fresh data — repetition or a bug).
+    private func heldOutGap(_ run: TrainingRun) -> String {
+        let pts = run.loss.suffix(5).filter { $0.val > 0 && !$0.spike }
+        guard !pts.isEmpty else { return "—" }
+        let gap = pts.reduce(0) { $0 + ($1.val - $1.loss) } / Double(pts.count)
+        return (gap >= 0 ? "+" : "−") + String(format: "%.3f", abs(gap))
+    }
+
     private func lossDelta(_ run: TrainingRun) -> String {
         guard let last = run.loss.last(where: { !$0.spike }), last.pred > 0 else { return run.loss.last.map { String(format: "%.3f", $0.loss) } ?? "—" }
         let d = last.loss - last.pred
@@ -782,9 +812,7 @@ private struct InterventionsPanel: View {
                 Text("Every call costs cluster time or money; what it does is shown first.").font(.caption).foregroundStyle(.secondary)
             }
             LazyVGrid(columns: Theme.columns(min: 260), alignment: .leading, spacing: 10) {
-                tile("Diagnostic sweep", symbol: "stethoscope",
-                     body: "Evaluate the latest checkpoint and the held-out loss, scan the data for leaked benchmarks and look for a silent bug. \(Fmt.money(cost.money)) and a quarter-day of cluster time."
-                        + (rep.epochs > 0 ? " Data so far: \(Fmt.trim(rep.epochs, 2)) passes\(rep.gap > 0.001 ? ", held-out gap \(Fmt.trim(rep.gap, 3))" : "")." : ""),
+                tile("Diagnostic sweep", symbol: "stethoscope", body: diagnoseBody(cost.money, rep),
                      result: latest("Diagnostic sweep"), blocker: diag, action: "Run the sweep") {
                     store.act("Diagnostic sweep done") { $0.diagnoseRun(run.id) }
                 }
@@ -802,20 +830,12 @@ private struct InterventionsPanel: View {
                         store.act("Red team assigned") { $0.redTeamRun(run.id) }
                     }
                 }
-                tile("End pre-training now", symbol: "flag.checkered",
-                     body: stopPreview.map { p in
-                         "Index ≈ \(Fmt.score(p.indexNow)) if it stops now, against ≈ \(Fmt.score(p.indexPlanned)) as planned. Saves \(Fmt.days(p.daysLeft)) and \(Fmt.money(p.costLeft))."
-                             + (p.decayShare > 0 ? " The learning rate decays over a final \(Int(p.decayShare * 100))%." : " The cosine schedule stops undecayed (×\(Fmt.trim(pow(10, -p.schedulePenalty), 3)) quality).")
-                     } ?? (run.endedEarlyAt > 0 ? "Ended at \(Int(run.endedEarlyAt * 100))% of the original plan." : "Stop pre-training where it is, decay the learning rate and move on to post-training."),
+                tile("End pre-training now", symbol: "flag.checkered", body: stopBody(stopPreview),
                      result: nil, blocker: stop, action: "End pre-training…") {
                     confirmStop = true
                 }
                 VStack(alignment: .leading, spacing: 6) {
-                    tile("Extend pre-training", symbol: "plus.forwardslash.minus",
-                         body: extPreview.map { p in
-                             "+\(Int(extendBy * 100))% tokens: index ≈ \(Fmt.score(p.index)) (\(Fmt.signed(p.index - planned, 1))) for \(Fmt.days(p.days)) and \(Fmt.money(p.cost)) more."
-                                 + (run.design.schedule == .wsd && s.bonuses.has(.wsd) ? " WSD carries on at its stable learning rate." : " A cosine schedule must be re-warmed (2% more compute, a little quality).")
-                         } ?? "Train on more tokens than planned, if your data allows.",
+                    tile("Extend pre-training", symbol: "plus.forwardslash.minus", body: extendBody(extPreview, planned: planned, wsd: run.design.schedule == .wsd && s.bonuses.has(.wsd)),
                          result: run.extendedBy > 0 ? "Extended by \(Int(run.extendedBy * 100))% so far." : nil, blocker: ext, action: "Extend") {
                         store.act("Run extended") { $0.extendRun(run.id, by: extendBy) }
                     }
@@ -834,6 +854,40 @@ private struct InterventionsPanel: View {
         } message: {
             Text(stopPreview.map { "Projected index ≈ \(Fmt.score($0.indexNow)) instead of ≈ \(Fmt.score($0.indexPlanned)); you save \(Fmt.money($0.costLeft))." } ?? "")
         }
+    }
+
+    private func diagnoseBody(_ money: Double, _ rep: (epochs: Double, gap: Double)) -> String {
+        var t = "Evaluate the latest checkpoint and the held-out loss, scan the data for leaked benchmarks and look for a silent bug. "
+        t += "\(Fmt.money(money)) and a quarter-day of cluster time."
+        if rep.epochs > 0 {
+            t += " Data so far: \(Fmt.trim(rep.epochs, 2)) passes"
+            if rep.gap > 0.001 { t += ", held-out gap \(Fmt.trim(rep.gap, 3))" }
+            t += "."
+        }
+        return t
+    }
+
+    private func stopBody(_ preview: TrainingInterventions.StopPreview?) -> String {
+        guard let p = preview else {
+            return run.endedEarlyAt > 0 ? "Ended at \(Int(run.endedEarlyAt * 100))% of the original plan."
+                                        : "Stop pre-training where it is, decay the learning rate and move on to post-training."
+        }
+        var t = "Index ≈ \(Fmt.score(p.indexNow)) if it stops now, against ≈ \(Fmt.score(p.indexPlanned)) as planned. "
+        t += "Saves \(Fmt.days(p.daysLeft)) and \(Fmt.money(p.costLeft))."
+        if p.decayShare > 0 {
+            t += " The learning rate decays over a final \(Int(p.decayShare * 100))%."
+        } else {
+            t += " The cosine schedule stops undecayed (×\(Fmt.trim(pow(10, -p.schedulePenalty), 3)) quality)."
+        }
+        return t
+    }
+
+    private func extendBody(_ preview: (index: Double, days: Double, cost: Double)?, planned: Double, wsd: Bool) -> String {
+        guard let p = preview else { return "Train on more tokens than planned, if your data allows." }
+        var t = "+\(Int(extendBy * 100))% tokens: index ≈ \(Fmt.score(p.index)) (\(Fmt.signed(p.index - planned, 1))) "
+        t += "for \(Fmt.days(p.days)) and \(Fmt.money(p.cost)) more."
+        t += wsd ? " WSD carries on at its stable learning rate." : " A cosine schedule must be re-warmed (2% more compute, a little quality)."
+        return t
     }
 
     /// The latest run-log line that starts with `prefix` (what the last call found).
@@ -1378,12 +1432,23 @@ struct ClusterHeatmap: View {
             }
             .accessibilityLabel("Cluster map: \(cells) cells of \(Fmt.int(chipsPerCell)) chips, \(st.filter { ($0.lastFault ?? 99) <= 6 }.count) with faults in the last week, MFU \(Int(mfu * 100))%")
             if let i = selected, i < st.count {
-                let cell = st[i]
-                Text("Cell \(i + 1): \(Fmt.int(chipsPerCell)) chips · \(cell.faults == 0 ? "no faults in 14 days" : "\(cell.faults) fault\(cell.faults == 1 ? "" : "s") in 14 days, the last \(cell.lastFault == 0 ? "today" : "\(cell.lastFault ?? 0) days ago")")"
-                     + "\(cell.quarantined > 0 ? " · \(cell.quarantined) corrupt node\(cell.quarantined == 1 ? "" : "s") quarantined" : "") · \(cell.watched ? "watched by ops agents" : "not watched")")
+                Text(cellDetail(i, st[i]))
                     .font(.caption2).foregroundStyle(.secondary).lineLimit(2)
             }
         }
+    }
+
+    private func cellDetail(_ i: Int, _ cell: CellState) -> String {
+        var t = "Cell \(i + 1): \(Fmt.int(chipsPerCell)) chips · "
+        if cell.faults == 0 {
+            t += "no faults in 14 days"
+        } else {
+            t += "\(cell.faults) fault\(cell.faults == 1 ? "" : "s") in 14 days, the last "
+            t += cell.lastFault == 0 ? "today" : "\(cell.lastFault ?? 0) days ago"
+        }
+        if cell.quarantined > 0 { t += " · \(cell.quarantined) corrupt node\(cell.quarantined == 1 ? "" : "s") quarantined" }
+        t += cell.watched ? " · watched by ops agents" : " · not watched"
+        return t
     }
 
     private static func mix(_ x: UInt64) -> UInt64 {

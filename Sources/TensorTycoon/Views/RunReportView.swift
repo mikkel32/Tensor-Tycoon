@@ -485,6 +485,19 @@ private struct ForecastVerdict: View {
     let index: Double
     let set: [Benchmark]
 
+    /// A silent bug that was found: hot-fixed (some damage stayed) or fixed by rolling back.
+    private func bugFactor(_ run: TrainingRun, _ compute: (Double) -> String) -> Factor {
+        if run.penaltyBug > 0 {
+            var detail = "Fixed mid-run; the damage already done stayed"
+            let saved = run.bugFixedPenalty - run.penaltyBug
+            if saved > 0.001 { detail += " (fixing it saved \(compute(saved)))" }
+            return Factor(id: "Silent bug — hot-fixed", detail: detail, value: compute(-run.penaltyBug), good: false)
+        }
+        var detail = "Found from the loss curve and fixed"
+        detail += run.bugFixedPenalty > 0.001 ? ": left alone it would have cost \(compute(-run.bugFixedPenalty))" : " before it did lasting damage"
+        return Factor(id: "Silent bug — caught", detail: detail, value: "fixed", good: nil)
+    }
+
     private struct Factor: Identifiable {
         let id: String
         let detail: String
@@ -574,11 +587,7 @@ private struct ForecastVerdict: View {
                                                      : "A data or code bug quietly hurt every token after it appeared",
                               value: compute(-run.bugPenalty), good: false))
         } else if run.bugFound {
-            let saved = run.bugFixedPenalty - run.penaltyBug
-            out.append(Factor(id: run.penaltyBug > 0 ? "Silent bug — hot-fixed" : "Silent bug — caught",
-                              detail: run.penaltyBug > 0 ? "Fixed mid-run; the damage already done stayed\(saved > 0.001 ? " (fixing it saved \(compute(saved)))" : "")"
-                                                         : "Found from the loss curve and fixed\(run.bugFixedPenalty > 0.001 ? ": left alone it would have cost \(compute(-run.bugFixedPenalty))" : " before it did lasting damage")",
-                              value: run.penaltyBug > 0 ? compute(-run.penaltyBug) : "fixed", good: run.penaltyBug > 0 ? false : nil))
+            out.append(bugFactor(run, compute))
         }
         // Older saves only kept the total; the part nobody itemised shows as instabilities, as it did before.
         let other = run.qualityPenalty - run.penaltySpikes - run.penaltyBug - run.penaltySDC
