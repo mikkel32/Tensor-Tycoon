@@ -280,6 +280,7 @@ enum Business {
         p *= RivalStrategy.playerDealFactor(s)
         p *= Corporate.dealFactor(s)   // 3.5: a consulting arm brings leads (exactly 1 without one)
         p *= Nations.dealFactor(s)   // 3.7: a growing home economy buys more
+        p *= Launches.dealFactor(s)   // 3.7: enterprise-first launches and the Startup stage (exactly 1 without either)
         let n = s.rng.chance(p) ? (s.rng.chance(p * 0.5) ? 2 : 1) : 0
         for _ in 0..<n {
             let size = Macro.marketSize(s.year) * Macro.segmentSplit(s.year, chatMoment: s.chatMoment != nil).enterprise

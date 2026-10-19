@@ -216,7 +216,7 @@ enum Operations {
     static func autoLaunch(_ s: inout GameState) {
         let bestReleased = s.models.filter { $0.released && !$0.retired }.map(\.index).max() ?? -1
         if let m = s.models.filter({ !$0.released && !$0.retired && !$0.preview }).max(by: { $0.index < $1.index }), m.index > bestReleased + 0.5 {
-            if s.launch(m.id) == nil {
+            if s.launch(m.id, by: "delegate") == nil {
                 log(&s, "Launched \(m.name) (index \(Fmt.score(m.index))) and moved your products onto it.")
             }
         }
@@ -336,9 +336,9 @@ extension GameState {
 
     /// Ship a finished model properly: release it with an API, give it servers, and move your chat app, agent
     /// product and contracts onto it when it's better than what they run on.
-    mutating func launch(_ id: UUID, style: LaunchStyle = .standard) -> String? {
+    mutating func launch(_ id: UUID, plan: LaunchPlan? = nil, by: String = "") -> String? {
         guard let i = models.firstIndex(where: { $0.id == id }) else { return "Not found." }
-        if !models[i].released, let e = release(id, api: true, openWeights: false, launch: style) { return e }
+        if !models[i].released, let e = release(id, api: true, openWeights: false, plan: plan ?? Launches.delegatePlan(self), by: by) { return e }
         let m = models[i]
         let b = bonuses
         // Servers: on its training hardware if there are idle chips, as many as the model it replaces had.

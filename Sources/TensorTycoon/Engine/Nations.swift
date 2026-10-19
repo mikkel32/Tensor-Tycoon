@@ -787,6 +787,8 @@ extension Nations {
     /// A lab answers at most one launch every five months, and has one answer in hand at a time.
     static func ready(_ s: GameState, _ lab: String) -> Bool {
         if s.nations.reactions.contains(where: { $0.lab == lab }) { return false }
+        // A lab already answering a launch plan (Launches) doesn't answer twice.
+        if s.launches.suffix(6).contains(where: { r in r.responses.contains { $0.lab == lab && $0.happened == nil } }) { return false }
         guard let last = s.nations.focus[lab]?.lastReaction else { return true }
         return GameCalendar.daysBetween(last, s.date) >= 150
     }

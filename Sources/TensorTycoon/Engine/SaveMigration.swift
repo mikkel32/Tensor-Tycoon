@@ -61,6 +61,8 @@ enum SaveMigration {
         AlienFab.migrate(&s)
         // 3.7: national strategies replayed to the save's year; rivals pick their first specialties.
         Nations.bootstrap(&s)
+        // 3.7: the company stage the record earns, credited silently (no news, no rewards).
+        Progression.bootstrap(&s)
     }
 
     /// Decodes a save, migrates it and plays 90 days on a copy, resolving decisions with their first option.

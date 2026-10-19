@@ -131,7 +131,7 @@ enum Market {
             let ref = Macro.referencePrice(c: p.c, y: y) * s.market.apiPricePressure
             p.attraction = attraction(c: p.c, price: p.price, refPrice: ref, tps: p.tps, brand: p.brand, frontier: frontier, elasticity: 1.4,
                                       floor: p.isPlayer ? priceFloorFactor : 0)
-            if p.isPlayer { p.attraction *= (1 + b.apiDemand) * s.reliability * max(0.3, 1 + s.traits.api) * Stakeholders.demandFactor(s, .api) }
+            if p.isPlayer { p.attraction *= (1 + b.apiDemand) * s.reliability * max(0.3, 1 + s.traits.api) * Stakeholders.demandFactor(s, .api) * Launches.demandFactor(s, p.modelID) }   // 3.7: launch curve
             if p.open { p.attraction *= 1.15 }
             snap.api[i] = p
             totalA += p.attraction
@@ -154,7 +154,7 @@ enum Market {
             // pay (paidConversion), not how many use it.
             p.attraction = attraction(c: p.c, price: p.price, refPrice: 20, tps: p.tps, brand: p.brand, frontier: frontier, elasticity: 0)
             if p.isPlayer && !s.freeTier { p.attraction *= 0.3 }
-            if p.isPlayer { p.attraction *= max(0.3, 1 + s.traits.consumer) * Stakeholders.demandFactor(s, .consumer) }
+            if p.isPlayer { p.attraction *= max(0.3, 1 + s.traits.consumer) * Stakeholders.demandFactor(s, .consumer) * Launches.demandFactor(s, p.modelID, consumer: true) }   // 3.7
             snap.consumer[i] = p
             totalC += p.attraction
         }

@@ -38,6 +38,7 @@ struct DashboardView: View {
                 .frame(maxWidth: .infinity)
                 VStack(spacing: 16) {
                     ComingUpCard(items: upcoming, today: s.date)
+                    ProgressionCard(state: s)   // 3.7
                     GettingStarted(state: s)
                     FoundingKitCard(state: s)   // 3.5
                     MilestonesCard()

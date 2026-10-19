@@ -533,7 +533,7 @@ extension GameState {
         if n.launch > year { return "Nobody can build a \(n.short) fab before the node exists (\(Fmt.trim(n.launch, 1)))." }
         if HQ.region(self) == .china && market.exportControls && st.region != .china && n.density > 1.0 { return "Export controls: tool makers won't ship leading-edge tools to a Chinese company's fab abroad." }
         if HQ.region(self) == .china && market.exportControls && n.density > 1.8 { return "Export controls: you can't buy EUV tools for anything finer than 5 nm." }
-        let cost = Semis.fabCost(n, wafers: wafersMonth)
+        let cost = Semis.fabCost(n, wafers: wafersMonth) * Progression.fabFactor(self)   // 3.7: Hyperscaler stage
         let net = cost * (1 - st.subsidy)
         if net * 0.15 > cash { return "A fab like this costs \(Fmt.money(cost)) (\(Fmt.money(net)) after \(Fmt.pct(st.subsidy, decimals: 0)) incentives); you need 15% (\(Fmt.money(net * 0.15))) to break ground." }
         Semis.engage(&self)

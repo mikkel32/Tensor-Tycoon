@@ -531,6 +531,9 @@ enum ScreenGuide {
         case .semiconductors:
             Hint(title: "Semiconductors", text: "Make your own accelerators: a design team designs a chip for a process node and tapes it out, then wafers, advanced packaging and HBM turn into chips you keep or sell. Every number shows where it comes from.",
                       firstStep: "Hire a design team on the Design tab, then start a design on a node a foundry already offers.", term: nil)
+        case .progression:   // 3.7: company stages and launches
+            Hint(title: "Progression", text: "How big a company you've become — Garage to Civilisational — and what it takes to grow: capability, revenue, compute and headcount. Each promotion unlocks a power. Below it, every launch you've made and its report.",
+                      firstStep: "Look at the criterion furthest from its bar: that's what holds your next promotion back.", term: nil)
         default:
             nil
         }

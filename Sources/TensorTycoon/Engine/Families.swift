@@ -461,7 +461,7 @@ enum Families {
         let cheaper = plan.studentCostPerM > 0 ? plan.teacherCostPerM / plan.studentCostPerM : 0
         var body = "Distilled from \(t.name): Intelligence Index \(Fmt.score(m.index)) against the teacher's \(Fmt.score(t.index)), "
             + "about \(Fmt.trim(cheaper, 0))× cheaper to serve per token."
-        if j.autoLaunch, s.release(m.id, api: true, openWeights: false) == nil {
+        if j.autoLaunch, s.release(m.id, api: true, openWeights: false, plan: LaunchPlan(), by: "family") == nil {
             // Servers for about a third of the teacher's traffic, on the job's chips (they're free again now).
             var chips = 0
             if let a = HardwareCatalog.get(j.accelID) {

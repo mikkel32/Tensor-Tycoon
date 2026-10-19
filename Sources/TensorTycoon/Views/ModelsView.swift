@@ -37,7 +37,7 @@ private struct ModelCard: View {
     let model: AIModel
     let state: GameState
     @State private var priceText = ""
-    @State private var launch: LaunchStyle = .standard
+    @State private var launch: LaunchPlan?   // 3.7: nil = your default plan
     @State private var addAccel = ""
     @State private var confirmRetire = false
     @State private var familySheet: FamilySheet?   // 3.5: model families
@@ -105,15 +105,14 @@ private struct ModelCard: View {
             Text("Distribution").font(.headline)
             if !m.released {
                 Text("Releasing boosts your brand. Then deploy chips and set a price.").font(.caption).foregroundStyle(.secondary)
-                Picker("Launch", selection: $launch) {
-                    ForEach(LaunchStyle.allCases) { l in Text(l.title).tag(l) }
-                }
-                Text(launch == .keynote ? "\(launch.detail) \(Fmt.money(GameState.keynoteCost(s)))." : launch.detail)
-                    .font(.caption2).foregroundStyle(.secondary)
+                let plan = launch ?? s.launchDefault
+                LaunchPlanPicker(plan: Binding(get: { launch ?? s.launchDefault }, set: { launch = $0 }), state: s, rank: store.derived.rank(m.id))
                 HStack {
-                    Button("Release via API") { store.act("\(m.name) released") { $0.release(m.id, api: true, openWeights: false, launch: launch) } }
+                    Button("Release via API") { store.act("\(m.name) released") { $0.release(m.id, api: true, openWeights: false, plan: plan) } }
                         .buttonStyle(.borderedProminent)
-                    Button("Release open weights") { store.act("\(m.name) released with open weights") { $0.release(m.id, api: true, openWeights: true, launch: launch) } }
+                    if plan.strategy != .openWeights {
+                        Button("Release open weights") { store.act("\(m.name) released with open weights") { $0.release(m.id, api: true, openWeights: true, plan: plan) } }
+                    }
                 }
             } else {
                 Toggle("Sell via API", isOn: Binding(get: { m.api }, set: { on in store.act { $0.release(m.id, api: on, openWeights: m.openWeights) } }))
