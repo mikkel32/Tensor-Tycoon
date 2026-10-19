@@ -14,7 +14,7 @@ enum Treasury {
 
     /// The going API rate for this model's quality ($/1M tokens), after the price cuts rivals are running.
     static func marketPrice(_ m: AIModel, _ s: GameState) -> Double {
-        let c = m.c - Physics.servingPenalty(m.servingPrecision)
+        let c = m.c - Physics.servingPenalty(m)
         return Macro.referencePrice(c: c, y: s.year) * s.market.apiPricePressure * (1 - rivalPriceCut(s))
     }
 

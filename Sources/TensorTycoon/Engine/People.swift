@@ -162,9 +162,11 @@ enum Events {
                         amount: fine, ref: m.id.uuidString)
         }
 
-        // EU AI Act: near-frontier models without evals
-        if s.market.euAIAct, !s.researched.contains("evals_rsp"),
-           released.contains(where: { $0.c > Macro.frontier(y) - 0.4 }), s.rng.chance(0.2) {
+        // EU AI Act: near-frontier models without evals. Models trained from 3.4 on need their own evaluation stage;
+        // older ones count as evaluated once the lab has the research.
+        if s.market.euAIAct,
+           released.contains(where: { $0.c > Macro.frontier(y) - 0.4 && !($0.evaluated || (!$0.archV2 && s.researched.contains("evals_rsp"))) }),
+           s.rng.chance(0.2) {
             let fine = max(2e6, Economy.runRate(s) * 0.03) * Policy.fineFactor(s)
             s.cash -= fine
             s.month.costOther += fine

@@ -26,8 +26,14 @@ enum Training {
         if d.toolUse { add(d.agentRL && b.has(.agents) ? "Agentic RL" : "Tool use", (d.agentRL ? 0.06 : 0.02) * cut) }
         if d.reasoning && b.has(.reasoning) { add("Reasoning RL", d.effectiveRL.share * (1 - b.rlEfficiency)) }
         if d.safetyTraining { add("Safety & red-teaming", 0.01 * cut) }
+        // 3.4: quantisation-aware training (needs quantised serving) and a dangerous-capability evaluation suite.
+        if d.qat && b.has(.int8Serving) { add(qatStage, 0.015 * cut) }
+        if d.safetyEvals && b.researched.contains("evals_rsp") { add(evalStage, 0.004 * cut) }
         return out
     }
+
+    static let qatStage = "Quantisation-aware training"
+    static let evalStage = "Dangerous-capability evals"
 
     static func currentStageName(_ run: TrainingRun) -> String {
         guard !run.stages.isEmpty else { return run.status == .postTraining ? "Post-training" : "Pre-training" }
@@ -63,6 +69,7 @@ enum Training {
             // 3.5: what the estimate promised, for the command centre and the results screen.
             run.plan = TrainingExperience.plan(run, est: est, expectedRank: Leaderboard.labRank(index: band.mean, board: released, gone: Leaderboard.goneLabs(s)), state: s)
         }
+        run.forecastHidden = d.mode == .scratch && !b.has(.scalingLaws)
         run.epsilon = s.rng.gaussian() * f.sigma
         if s.rng.chance(f.bugRisk * (1 - 0.4 * s.swarmOps)) {
             let penalty = s.rng.range(0.08, 0.32)
@@ -73,10 +80,11 @@ enum Training {
             }
         }
         run.revealSigma = f.sigma
+        run.uniqueT = TrainingExperience.validationUniqueT(run, s)   // 3.4: for the held-out loss
         run.stages = stages(d, pretrain: run.flopsTotal, bonuses: b)
         run.postTrainFlops = run.stages.filter { !$0.isPre }.reduce(0) { $0 + $1.flops }
-        runLogDirect(&run, s.date, "Forecast: index \(Fmt.score(band.mean)) (80%: \(Fmt.score(band.low))–\(Fmt.score(band.high))) — \(run.forecast?.tier ?? "").")
-        TrainingExperience.launched(&s, run: run)
+        runLogDirect(&run, s.date, run.forecastHidden ? "No forecast: without scaling laws the first eval checkpoints will tell."
+                     : "Forecast: index \(Fmt.score(band.mean)) (80%: \(Fmt.score(band.low))–\(Fmt.score(band.high))) — \(run.forecast?.tier ?? "").")
     }
 
     // MARK: Ops coverage
@@ -174,10 +182,10 @@ enum Training {
     /// Expected share of wall-clock time that makes progress on a run of `chips` with ops coverage `cov`: the
     /// failure expectation the daily step draws from, times straggler losses. It can be zero. `infra` overrides the
     /// infra team (for "if you hired…" advice).
-    static func goodput(chips: Int, coverage cov: Double, state s: GameState, bonuses b: ResearchBonuses, infra: Double? = nil) -> Double {
+    static func goodput(chips: Int, coverage cov: Double, state s: GameState, bonuses b: ResearchBonuses, infra: Double? = nil, spares: Double = 0) -> Double {
         let e = opsEffect(cov, s)
         let lambda = Double(chips) * failuresPerChipDay * (1 - e.prevented)
-        let hours = Physics.hoursLostPerFailure(state: s, bonuses: b, chips: chips, infra: infra) * (1 - e.recovery)
+        let hours = Physics.hoursLostPerFailure(state: s, bonuses: b, chips: chips, infra: infra) * (1 - e.recovery) * Physics.spareRecovery(spares)
         let strag = 1 - (1 - Physics.stragglerFactor(chips: chips, bonuses: b)) * (1 - e.stragglers)
         return clamp(expectedUptime(lambda: lambda, hours: hours) * strag, 0, 0.998)
     }
@@ -404,8 +412,16 @@ enum Training {
             }
             if s.runs[i].kind == .proxy { perDay *= 0.33 }
             if s.runs[i].toy || s.runs[i].kind == .proxy { perDay *= AgentOrgs.experimentSpeed(s) }   // 3.6: experiment coordination
-            s.runs[i].cost += Economy.chipDailyCost(accel, count: d.chips, state: s)
+            let dayCost = Economy.chipDailyCost(accel, count: d.chips, state: s)
+            s.runs[i].cost += dayCost
             s.runs[i].opsCoverage = cov
+            // 3.4: today, for the command centre's telemetry.
+            let peak = Double(d.chips) * accel.trainTFLOPS(d.precision) * 1e12 * 86_400
+            let dayMFU = Physics.runMFU(d, accel: accel, coverage: cov, state: s, bonuses: b)
+            let dayGoodput = goodput(chips: d.chips, coverage: cov, state: s, bonuses: b, spares: d.spares)
+            let preventedToday = Double(d.chips) * failuresPerChipDay * ops.prevented
+            var day = RunDay(date: s.date, failures: 0, prevented: preventedToday, hoursLost: 0, useful: 0, peak: peak, mfu: dayMFU,
+                             goodput: dayGoodput, coverage: cov, sdcCaught: 0, sdcMissed: 0, spike: false, cost: dayCost)
 
             // Hardware failures (Llama 3 rates): each one costs the restart time plus work since the last save.
             // Ops agents drain failing nodes before they crash and restart the job from in-memory snapshots.
@@ -416,10 +432,12 @@ enum Training {
             let k = poisson(lambda, &s.rng)
             let beforeFailures = perDay
             if k > 0 {
-                let hours = Double(k) * Physics.hoursLostPerFailure(state: s, bonuses: b, chips: d.chips) * (1 - ops.recovery)
+                let hours = Double(k) * Physics.hoursLostPerFailure(state: s, bonuses: b, chips: d.chips) * (1 - ops.recovery) * Physics.spareRecovery(d.spares)
                 s.runs[i].interruptions += k
                 s.runs[i].failures += k
                 s.runs[i].lostHours += hours
+                day.failures = k
+                day.hoursLost = hours
                 perDay *= max(0, 1 - hours / 24)
                 uptime = max(0, 1 - hours / 24)
                 if hours >= 2 || (k > 0 && s.rng.chance(0.15)) {
@@ -435,6 +453,8 @@ enum Training {
                 let before = Int(s.runs[i].sdcCaught)
                 s.runs[i].sdcCaught += sdc * ops.sdcCaught
                 s.runs[i].sdcMissed += sdc * (1 - ops.sdcCaught)
+                day.sdcCaught = sdc * ops.sdcCaught
+                day.sdcMissed = sdc * (1 - ops.sdcCaught)
                 s.runs[i].qualityPenalty += sdc * (1 - ops.sdcCaught) * sdcPenalty
                 s.runs[i].penaltySDC += sdc * (1 - ops.sdcCaught) * sdcPenalty
                 if cov > 0.2 && Int(s.runs[i].sdcCaught) / 10 > before / 10 {
@@ -445,12 +465,14 @@ enum Training {
             if full && d.chips >= 4_000 && !s.runs[i].decided.contains("fault_storm") && s.rng.chance(0.0025 * (1 - 0.6 * cov) * quiet) {
                 faultStorm(&s, i)
                 s.runs[i].ledger.incidents += perDay
+                TrainingInterventions.recordDay(&s, i, day)
                 continue
             }
 
             if s.runs[i].status == .running {
                 if full && s.runs[i].progress > 0.03 && s.rng.chance(spikeChance(s.runs[i], state: s, bonuses: b) * (1 - ops.spikes) * quiet) {
                     // With most of the run covered, agents catch the spike within steps and rewind a few minutes.
+                    day.spike = true
                     if cov >= 0.5 {
                         s.runs[i].spikes += 1
                         TrainingExperience.rewound(&s, i, min(s.runs[i].flopsDone, perDay * 0.02))
@@ -459,6 +481,7 @@ enum Training {
                     } else if !awaiting(s, "loss_spike", i) {
                         lossSpike(&s, i)
                         s.runs[i].ledger.incidents += perDay
+                        TrainingInterventions.recordDay(&s, i, day)
                         continue
                     }
                 }
@@ -466,6 +489,8 @@ enum Training {
                 creditLR(&s.runs[i])
                 if full { s.runs[i].ledger.useful += perDay }
                 s.lifetimeFLOPs += perDay
+                day.useful = perDay
+                if full { TrainingInterventions.recordDay(&s, i, day) }
                 let frac = s.runs[i].progress
                 recordLoss(&s, i, frac: frac)
                 guard full else {
@@ -473,6 +498,7 @@ enum Training {
                     continue
                 }
                 midRunEvents(&s, i, frac: frac)
+                TrainingExperience.progressed(&s, i)   // 3.4: cluster firsts once a quarter is trained
                 if s.runs[i].status != .running { continue }
                 let lastSaved = s.runs[i].saved.last?.fraction ?? 0
                 if frac - lastSaved >= s.runs[i].interval - 1e-9 && frac < 1 {
@@ -493,6 +519,8 @@ enum Training {
                 s.runs[i].stageDone += perDay
                 if full { s.runs[i].ledger.useful += perDay }
                 s.lifetimeFLOPs += perDay
+                day.useful = perDay
+                if full { TrainingInterventions.recordDay(&s, i, day) }
                 advanceStages(&s, i)
             }
         }
@@ -556,7 +584,8 @@ enum Training {
     static func dailyFlops(_ run: TrainingRun, state s: GameState) -> Double {
         guard let a = HardwareCatalog.get(run.design.accelID) else { return 0 }
         let b = s.bonuses
-        return Double(run.design.chips) * a.trainTFLOPS(run.design.precision) * 1e12 * Physics.mfu(accel: a, chips: run.design.chips, state: s, bonuses: b) * 86_400
+        return Double(run.design.chips) * a.trainTFLOPS(run.design.precision) * 1e12
+            * Physics.runMFU(run.design, accel: a, coverage: run.opsCoverage, state: s, bonuses: b) * 86_400
     }
 
     static func poisson(_ lambda: Double, _ rng: inout GameRNG) -> Int {
@@ -573,7 +602,7 @@ enum Training {
     }
 
     static func spikeChance(_ run: TrainingRun, state s: GameState, bonuses b: ResearchBonuses) -> Double {
-        spikeChance(run.design, lr: run.schedule, state: s, bonuses: b)
+        spikeChance(run.design, lr: run.schedule, state: s, bonuses: b) * (run.stabilised ? 0.55 : 1)
     }
 
     /// Daily chance of a loss spike once pre-training is past 3%.
@@ -581,7 +610,11 @@ enum Training {
         let precision: Double = d.precision == .fp4 ? 2.2 : (d.precision == .fp8 ? 1.4 : 1)
         var arch = 1.0
         if d.optimizer == .muon { arch *= s.researched.contains("muon_clip") ? 0.9 : 1.8 }
-        if d.isMoE { arch *= s.researched.contains("aux_free") ? 1.0 : 1.35 }
+        if d.isMoE {
+            // Routers get touchier with more experts; aux-loss-free balancing keeps most of that in check.
+            let pool = log2(Double(max(8, TrainingExperience.layout(d).experts)) / 8)
+            arch *= s.researched.contains("aux_free") ? 1 + 0.03 * pool : 1.2 + 0.08 * pool
+        }
         if d.mixer == .diffusion { arch *= 1.2 }
         if d.mixer == .alien { arch *= 1.25 }
         arch *= (1 - 0.35 * s.swarmOps) * max(0.3, 1 - s.traits.spikes)
@@ -620,7 +653,14 @@ enum Training {
         let noise = s.rng.gaussian() * 0.0035 * (0.4 + (pred - ForecastEngine.E))
         let loss = ForecastEngine.E + actualExcess + noise
         let gnorm = max(0.05, 0.35 + 0.6 * exp(-frac * 12) + s.rng.gaussian() * 0.05 + (frac > s.runs[i].bugOnset && !s.runs[i].bugFound ? 0.08 : 0))
-        s.runs[i].loss.append(LossPoint(tokensT: seen, loss: loss, spike: false, pred: pred, gnorm: gnorm))
+        // 3.4: the held-out loss, measured on data the model never trains on: the training curve plus the generalisation
+        // gap (repetition, a silent bug) and its own measurement noise.
+        var point = LossPoint(tokensT: seen, loss: loss, spike: false, pred: pred, gnorm: gnorm)
+        if s.runs[i].kind == .full {
+            let valNoise = s.rng.gaussian() * 0.0025 * (0.4 + (pred - ForecastEngine.E))
+            point.val = ForecastEngine.E + actualExcess + TrainingInterventions.validationGap(s.runs[i], at: frac) + valNoise
+        }
+        s.runs[i].loss.append(point)
     }
 
     /// What evals and the loss curve imply about the final model (posterior over epsilon).
@@ -811,7 +851,7 @@ enum Training {
             }
         }
         if name == "Reasoning RL" && !s.runs[i].decided.contains("reward_hack") && !honestRewards {
-            if s.rng.chance(rewardHackRisk(s.runs[i].design, s) * quiet) {
+            if s.rng.chance(rewardHackRisk(s.runs[i].design, s) * quiet * (s.runs[i].redTeamed ? 0.3 : 1)) {
                 s.runs[i].decided.insert("reward_hack")
                 let caught = s.researched.contains("cot_monitoring") ? "Chain-of-thought monitors caught it" : "A researcher noticed by accident"
                 var missing: [String] = []
@@ -896,7 +936,7 @@ enum Training {
             }
         case "contamination":
             if option == 0 {
-                let back = max(0, s.runs[i].progress - 0.05)
+                let back = max(0, s.runs[i].progress - (s.runs[i].contaminationEarly ? 0.03 : 0.05))
                 let cutoff = s.runs[i].design.tokensT * back + 1e-9
                 TrainingExperience.rewound(&s, i, max(0, s.runs[i].flopsDone - s.runs[i].flopsTotal * back)
                                            + (s.runs[i].status == .postTraining ? s.runs[i].postTrainDone : 0))
@@ -908,7 +948,7 @@ enum Training {
                     s.runs[i].stageIndex = 0
                     s.runs[i].stageDone = 0
                 }
-                runLog(&s, i, "Scrubbed contaminated documents and rewound 5%.")
+                runLog(&s, i, "Scrubbed contaminated documents and rewound \(s.runs[i].contaminationEarly ? 3 : 5)%.")
             } else {
                 s.runs[i].contaminated = true
                 runLog(&s, i, "Left the contamination in. Scores will be inflated.")
@@ -1030,9 +1070,12 @@ enum Training {
         model.keyTech = fc.keyTech
         model.apiPrice = max(0.01, (Macro.referencePrice(c: c, y: s.year) * s.market.apiPricePressure * 0.85 * 1000).rounded() / 1000)
         model.servingPrecision = b.has(.int8Serving) ? .fp8 : .bf16
-        if d.mixer == .diffusion { model.efficiencyBoost += 1.5 * b.result("x_diffusion_lm") }
-        if d.mixer == .hybrid { model.efficiencyBoost += 0.3 }
-        if d.mixer == .alien { model.efficiencyBoost += 0.4 }
+        model.efficiencyBoost += Physics.designEfficiency(d, bonuses: b)
+        // 3.4: serving follows the design (attention KV cache, MTP decoding, QAT), and evaluations are on record.
+        model.archV2 = true
+        model.qat = run.stages.contains { $0.name == qatStage }
+        model.evaluated = run.stages.contains { $0.name == evalStage }
+        if model.evaluated { model.safety = min(100, model.safety + 3) }   // what the evals find gets patched before release
         model.autoPrice = true
         let set = Leaderboard.indexSet(s)
         model.index = BenchmarkCatalog.index(Leaderboard.profile(model), set: set)

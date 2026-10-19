@@ -18,12 +18,14 @@ struct RunReportSheet: View {
     @State private var revealed = false
     @State private var launchPlan: LaunchPlan?   // 3.7: nil = your default plan
     @State private var openWeights = false
+    @State private var familySheet: FamilySheet?   // 3.4: distil or post-train straight from the results
 
     var body: some View {
         let d = store.derived
         if let s = store.state, let run = s.runs.first(where: { $0.id == runID }) {
             let model = run.modelID.flatMap { id in s.models.first { $0.id == id } }
             content(s, d, run, model)
+                .familySheet($familySheet)
         } else {
             Text("Run not found").padding(40)
         }
@@ -409,6 +411,18 @@ struct RunReportSheet: View {
                     store.open(.models)
                     close()
                 }
+                // 3.4: the other ways to put a new model to work, besides a public launch.
+                Menu("Put it to work") {
+                    Button("Distil a cheaper, faster tier…") { familySheet = .distill(model.id) }
+                    Button("Post-train it: reasoning, agents or a specialisation…") { familySheet = .postTrain(model.id) }
+                    Divider()
+                    Button("Offer it to enterprise customers (Market)") { store.focusModelID = model.id; store.open(.market); close() }
+                    Button("Bid on government programmes with it (Advanced Projects)") { store.open(.advancedProjects); close() }
+                    Button("Run it as agents (AI Organisations)") { store.open(.swarms); close() }
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .help("Distil it, post-train it, sell it to enterprises, use it for government work or as agents")
                 if !model.released {
                     LaunchPlanButton(plan: Binding(get: { launchPlan ?? s.launchDefault }, set: { launchPlan = $0 }), state: s, rank: d.rank(model.id))
                         .frame(maxWidth: 260)

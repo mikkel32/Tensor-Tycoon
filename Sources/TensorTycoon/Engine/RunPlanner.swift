@@ -25,6 +25,7 @@ enum RunPlanner {
         d.mtp = b.has(.mtp)
         d.anneal = b.has(.curriculum)
         d.schedule = b.has(.wsd) ? .wsd : .cosine
+        d.safetyEvals = s.researched.contains("evals_rsp")   // 3.4: the COO runs the evaluation stage too
         d.syntheticShare = b.has(.syntheticData) ? 0.2 : 0
         d.safetyTraining = s.year >= 2023
         if b.has(.moe) { d.activeFraction = b.has(.fineMoE) ? 1.0 / 32 : 1.0 / 16 }

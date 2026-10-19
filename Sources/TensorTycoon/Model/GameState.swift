@@ -349,6 +349,17 @@ struct ModelDesign: Codable, Hashable {
     @D var family: String = ""
     @D var generation: Int = 0
     @D var blurb: String = ""
+    // 3.4: architecture and systems choices with real trade-offs (Physics).
+    /// Expert pool size for a sparse model (0 = the standard layout for its active share); top-k follows from the share.
+    @D var experts: Int = 0
+    /// How training state fits in memory: recompute activations or move optimizer state to host memory, both slower.
+    @D var memoryPlan: MemoryPlan = .standard
+    /// Share of the cluster held back as hot spares that replace a failed node in seconds.
+    @D var spares: Double = 0
+    /// A quantisation-aware training stage: the model loses far less quality when served in FP8/FP4.
+    @D var qat: Bool = false
+    /// A dangerous-capability evaluation stage before release (needs evaluation research).
+    @D var safetyEvals: Bool = false
 
     var activeParamsB: Double { paramsB * activeFraction }
     var isMoE: Bool { activeFraction < 0.999 }
@@ -359,6 +370,23 @@ struct ModelDesign: Codable, Hashable {
         "\(isMoE ? "moe" : "dense")|\(mixer.rawValue)|\(optimizer.rawValue)|\(attention.rawValue)|\(precision.rawValue)"
     }
 }
+
+/// How a design's training state fits in accelerator memory.
+enum MemoryPlan: String, Codable, CaseIterable, Identifiable {
+    case standard = "Standard"
+    case checkpointing = "Activation checkpointing"
+    case offload = "Optimizer offload"
+    var id: String { rawValue }
+    var detail: String {
+        switch self {
+        case .standard: "Keep every activation and the optimizer state on the chips: fastest."
+        case .checkpointing: "Recompute activations in the backward pass: about a fifth of the activation memory, about 10% slower."
+        case .offload: "Keep the optimizer state in host memory: needs a quarter of the memory per parameter, about 20% slower."
+        }
+    }
+}
+
+extension MemoryPlan: DefaultValue { static var defaultValue: MemoryPlan { .standard } }
 
 enum RunStatus: String, Codable {
     case running = "Training"
@@ -375,6 +403,30 @@ struct LossPoint: Codable, Hashable {
     /// The scaling-law forecast for this point.
     @D var pred: Double = 0
     @D var gnorm: Double = 0
+    /// 3.4: held-out validation loss at this point (0 in older saves, which show a smoothed training curve instead).
+    @D var val: Double = 0
+}
+
+/// One simulated day of a training run, kept for the command centre's live views.
+struct RunDay: Codable, Hashable {
+    var date: Date
+    /// Hardware faults that day (after ops agents drained the predictable ones), and faults prevented.
+    var failures: Int
+    var prevented: Double
+    /// Hours of cluster time lost to restarts.
+    var hoursLost: Double
+    /// FLOPs that moved the model forward, and the cluster's peak FLOPs.
+    var useful: Double
+    var peak: Double
+    /// Model FLOPs utilisation and expected goodput that day.
+    var mfu: Double
+    var goodput: Double
+    /// Ops coverage, corrupt nodes caught and missed, loss spikes, and spend.
+    var coverage: Double
+    var sdcCaught: Double
+    var sdcMissed: Double
+    var spike: Bool
+    var cost: Double
 }
 
 struct TrainCheckpoint: Codable, Identifiable, Hashable {
@@ -491,6 +543,27 @@ struct TrainingRun: Codable, Identifiable, Hashable {
     @D var lrCredit: Double = 0
     /// Pre-training progress the credit covers so far.
     @D var lrCreditTo: Double = 0
+    /// 3.4: launched before the lab had scaling laws, so there was no real forecast to show (only checkpoint evals).
+    @D var forecastHidden: Bool = false
+    // 3.4: interventions (TrainingInterventions)
+    /// Unique tokens the run's data offers (set at launch; 0 in older saves).
+    @D var uniqueT: Double = 0
+    /// When the last diagnostic eval sweep ran.
+    @D var diagnosedAt: Date? = nil
+    /// An instability investigation has run (once per run); `stabilised` when it fixed the cause.
+    @D var investigated: Bool = false
+    @D var stabilised: Bool = false
+    /// The reasoning-RL environments were red-teamed before the stage began.
+    @D var redTeamed: Bool = false
+    /// A contamination scan found leaked benchmarks early, so scrubbing costs less.
+    @D var contaminationEarly: Bool = false
+    /// Pre-training progress at which you ended it early (0 = ran as planned), and how much you extended it.
+    @D var endedEarlyAt: Double = 0
+    @D var extendedBy: Double = 0
+    /// Quality lost to stopping a cosine schedule before it decayed.
+    @D var penaltySchedule: Double = 0
+    /// The last 120 days of the run, as the simulation lived them (heatmap, throughput chart).
+    @D var telemetry: [RunDay] = []
     /// 3.4: where `qualityPenalty` came from, for the results screen (older saves have only the total).
     @D var penaltySpikes: Double = 0
     @D var penaltyBug: Double = 0
@@ -591,6 +664,13 @@ struct AIModel: Codable, Identifiable, Hashable {
     var retired = false
     @D var agentBoost: Double = 0
     @D var efficiencyBoost: Double = 0
+    /// 3.4: trained with design-specific serving physics (attention KV cache, MTP decoding, QAT). Older models keep
+    /// the serving rules they were balanced with.
+    @D var archV2: Bool = false
+    /// 3.4: trained with a quantisation-aware stage (smaller FP8/FP4 serving penalty).
+    @D var qat: Bool = false
+    /// 3.4: went through a dangerous-capability evaluation before release.
+    @D var evaluated: Bool = false
     @D var rsiGeneration: Int = 0
     @D var preview: Bool = false
     @D var safeguards: Bool = false
@@ -1228,6 +1308,8 @@ struct GameState: Codable {
     @D var domainScores: [String: DomainScores] = [:]
     /// Lab ID ("player" for you) → its best released score in each domain.
     @D var labDomains: [String: DomainScores] = [:]
+    /// 3.4: landmark firsts waiting for their full-screen moment (the Training screen shows them, oldest first).
+    @D var ceremonies: [String] = []
     /// AI milestones reached so far, oldest first. Those reached before the game began are credited to the labs that got there.
     @D var milestoneWins: [MilestoneWin] = []
     /// Your product lines, and the rivals' competing ones (ProductLines).

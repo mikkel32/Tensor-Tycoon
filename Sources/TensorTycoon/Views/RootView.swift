@@ -96,6 +96,13 @@ struct GameShell: View {
             GameOverSheet()
                 .interactiveDismissDisabled()
         }
+        .overlay {
+            // 3.4: a landmark first's moment, oldest first.
+            if let id = store.state?.ceremonies.first, let first = store.state?.trainingFirsts.first(where: { $0.id == id }) {
+                FirstCeremony(first: first) { store.mutate { $0.ceremonies.removeAll { $0 == id } } }
+                    .transition(.opacity)
+            }
+        }
     }
 
     private var sheet: ShellSheet? {

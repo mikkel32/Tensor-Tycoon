@@ -199,6 +199,12 @@ enum RSI {
             }
         }
         s.rsiRuns[i] = run
+        // 3.4: a model that has genuinely improved the research it runs (not just its evals) is a landmark.
+        if run.target == .research || run.target == .architecture, run.c - run.cStart >= 0.1, !TrainingExperience.has(s, "self_improving") {
+            TrainingExperience.recordFirst(&s, id: "self_improving", title: "First model that improves its own research tools",
+                                           detail: "\(run.name) has made its own research measurably better over \(run.generation) generations (+\(Fmt.trim(run.c - run.cStart, 2)) capability).",
+                                           model: run.name, symbol: "arrow.triangle.2.circlepath.circle.fill")
+        }
 
         if run.generation % max(1, run.checkpointEvery) == 0 { makeCheckpoint(&s, i, b) }
         incidents(&s, i, b)

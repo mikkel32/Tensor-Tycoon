@@ -423,6 +423,10 @@ extension GameState {
         sw.targetRunID = mission == .trainingOps ? targetRunID : nil
         sw.alignment = clamp(70 + m.safety * 0.3, 0, 100)
         sw.alignmentMeasured = sw.alignment
+        // 3.4: what it will deliver, until its first day of work replaces it, so plans made right after starting a swarm
+        // (the Model Lab's ops coverage) already count it.
+        sw.workforce = Swarms.forecast(model: m, accelID: accelID, chips: chips, agents: agents, mission: mission, autonomy: autonomy,
+                                       oversight: sw.oversight, self, b).workforce
         swarms.append(sw)
         Swarms.log(&self, swarms.count - 1, "Spun up \(Fmt.int(agents)) agents of \(m.name) on \(Fmt.int(chips))× \(a.name): \(mission.rawValue.lowercased()).")
         if announce { Sim.news(&self, "Agent swarm online: \(sw.name)",

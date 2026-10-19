@@ -93,6 +93,10 @@ final class GameStore {
     var showLaunchSequence = UserDefaults.standard.object(forKey: "showLaunchSequence") as? Bool ?? true {
         didSet { UserDefaults.standard.set(showLaunchSequence, forKey: "showLaunchSequence") }
     }
+    /// 3.4: calmer presentation in the game itself (launch sequences, landmark moments), on top of the system's Reduce Motion.
+    var reduceAnimations = UserDefaults.standard.bool(forKey: "reduceAnimations") {
+        didSet { UserDefaults.standard.set(reduceAnimations, forKey: "reduceAnimations") }
+    }
     private(set) var derived = Derived()
     /// Last non-nil state, so views being torn down after "quit to menu" never see a missing game.
     @ObservationIgnored private var lastState: GameState?

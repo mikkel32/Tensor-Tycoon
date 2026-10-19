@@ -173,6 +173,18 @@ enum ForecastEngine {
                 drivers.append(ForecastDriver(name: "Mixture-of-Experts (1/\(Int((1 / d.activeFraction).rounded())))", value: g, kind: .gain,
                                               detail: "Gains grow with sparsity and scale"))
                 f.keyTech.append("MoE 1/\(Int((1 / d.activeFraction).rounded()))")
+                // 3.4: the expert pool. Finer experts (more of them, more per token, same active share) learn more per FLOP
+                // once fine-grained experts are researched; coarser ones learn less. Their traffic costs throughput
+                // (Physics.moeEfficiency), so neither end is free.
+                if d.experts > 0 {
+                    let steps = log2(Double(d.experts) / Double(TrainingExperience.experts(for: d.activeFraction).experts))
+                    let pool = clamp(steps * (steps > 0 ? (b.has(.fineMoE) ? 0.012 : 0.004) : 0.015), -0.045, 0.04)
+                    if abs(pool) > 0.0005 {
+                        algo += pool
+                        drivers.append(ForecastDriver(name: "Expert pool (\(TrainingExperience.layout(d).label))", value: pool, kind: pool > 0 ? .gain : .penalty,
+                                                      detail: pool > 0 ? "Finer experts specialise more; they cost more all-to-all traffic" : "Coarse experts: cheaper routing, less specialisation"))
+                    }
+                }
             }
             // Attention / mixer / heads
             if d.attention == .mla && b.has(.mla) {

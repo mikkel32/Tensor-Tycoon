@@ -299,6 +299,9 @@ enum Economy {
         var m = AIModel(name: d.name, design: d, created: s.date, c: 0, reasoning: d.reasoning, reasoningBoost: 0, codeBoost: 0,
                         arenaBonus: 0, scores: [:], index: 0)
         m.servingPrecision = b.has(.int8Serving) ? .fp8 : .bf16
+        // 3.4: costed the way the finished model will be served (its attention, decoding heads and mixer).
+        m.archV2 = true
+        m.efficiencyBoost = Physics.designEfficiency(d, bonuses: b)
         m.deployments = [Deployment(accelID: a.id, chips: Physics.chipsPerReplica(m, accel: a, precision: m.servingPrecision, bonuses: b))]
         let cost = servingCostPerM(m, s, bonuses: b)
         return cost > 0 ? cost : nil

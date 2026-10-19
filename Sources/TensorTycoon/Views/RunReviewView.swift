@@ -156,9 +156,15 @@ struct RunReviewSheet: View {
         let mine = d.board.filter(\.isPlayer).map(\.index).max()
         let sigma = r.est.forecast.sigma
         return Card {
-            CardHeader(title: "Forecast", symbol: "sparkles", subtitle: r.known ? "Scaling-law prediction · 80% interval" : "No scaling laws yet: a rough guess") {
-                Pill(text: r.tier, color: tierColor(r.tier))
+            CardHeader(title: "Forecast", symbol: "sparkles", subtitle: r.known ? "Scaling-law prediction · 80% interval" : "No scaling laws yet") {
+                if r.known { Pill(text: r.tier, color: tierColor(r.tier)) }
             }
+            if !r.known {
+                // Without scaling laws nobody can say in advance how good a run will be: the first checkpoint evals will.
+                Label("Your lab can't predict this model's quality yet. Research Neural Scaling Laws for real forecasts; until then you'll find out at the first eval checkpoints.",
+                      systemImage: "questionmark.circle")
+                    .font(.callout).foregroundStyle(.secondary)
+            } else {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 Text(Fmt.score(r.mean)).font(TypeRamp.display)
                 VStack(alignment: .leading, spacing: 2) {
@@ -170,6 +176,7 @@ struct RunReviewSheet: View {
             BandStrip(low: r.low, mean: r.mean, high: r.high, top: top, mine: mine).frame(height: 34)
             Text("Expected capability domains").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
             DomainGrid(scores: r.domains, compare: s.labDomains["player"], columns: 3)
+            }
         }
     }
 
@@ -178,12 +185,12 @@ struct RunReviewSheet: View {
             CardHeader("Competitive position", symbol: "flag.checkered")
             HStack(spacing: 18) {
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("#\(r.rankNow)").font(.title2.weight(.bold).monospacedDigit()).foregroundStyle(r.rankNow == 1 ? .yellow : .primary)
+                    Text(r.known ? "#\(r.rankNow)" : "?").font(.title2.weight(.bold).monospacedDigit()).foregroundStyle(r.known && r.rankNow == 1 ? .yellow : .primary)
                     Text("if it shipped today").font(.caption2).foregroundStyle(.secondary)
                 }
                 Image(systemName: "arrow.right").foregroundStyle(.tertiary)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(r.finish == nil ? "—" : "#\(r.rankAtFinish)").font(.title2.weight(.bold).monospacedDigit())
+                    Text(r.finish == nil ? "—" : (r.known ? "#\(r.rankAtFinish)" : "?")).font(.title2.weight(.bold).monospacedDigit())
                         .foregroundStyle(r.rankAtFinish == 1 ? .yellow : (r.rankAtFinish > r.rankNow ? .orange : .primary))
                     Text("when it finishes (Rival Watch)").font(.caption2).foregroundStyle(.secondary)
                 }
@@ -193,7 +200,9 @@ struct RunReviewSheet: View {
                     Text("to serve 1M tokens").font(.caption2).foregroundStyle(.secondary)
                 }
             }
-            if r.rivalsAhead.isEmpty {
+            if !r.known {
+                Text("Without scaling laws there's no forecast to rank.").font(.caption).foregroundStyle(.secondary)
+            } else if r.rivalsAhead.isEmpty {
                 Text(r.finish == nil ? "It never finishes as planned." : "No rival release the Rival Watch expects before then beats its forecast.")
                     .font(.caption).foregroundStyle(.secondary)
             } else {

@@ -196,6 +196,7 @@ struct ModelLabView: View {
         design.mtp = b.has(.mtp)
         design.anneal = b.has(.curriculum)
         design.schedule = b.has(.wsd) ? .wsd : .cosine
+        design.safetyEvals = store.game.researched.contains("evals_rsp")   // 3.4: an evaluation stage once you can run one
         design.mixer = .transformer
     }
 
@@ -357,17 +358,29 @@ struct ModelLabView: View {
                     Toggle("Mixture-of-Experts", isOn: Binding(get: { design.isMoE }, set: { design.activeFraction = $0 ? 1.0 / 8 : 1 }))
                         .disabled(!b.has(.moe))
                     if design.isMoE {
-                        // Expert pool and routing: each layout is an active fraction, which is what the MoE math uses.
-                        Picker("Experts", selection: Binding(get: { TrainingExperience.experts(for: design.activeFraction).fraction },
-                                                             set: { design.activeFraction = $0 })) {
+                        // Sparsity (the active share) sets the MoE gain; the pool size sets how finely experts specialise
+                        // and how much all-to-all traffic every layer sends (3.4).
+                        Picker("Sparsity", selection: Binding(get: { TrainingExperience.experts(for: design.activeFraction).fraction },
+                                                              set: { design.activeFraction = $0; design.experts = 0 })) {
                             ForEach(TrainingExperience.expertLayouts) { l in
-                                Text(l.label + (l.needsFine && !b.has(.fineMoE) ? " 🔒" : "")).tag(l.fraction).disabled(l.needsFine && !b.has(.fineMoE))
+                                Text("1/\(Int((1 / l.fraction).rounded()))" + (l.needsFine && !b.has(.fineMoE) ? " 🔒" : "")).tag(l.fraction).disabled(l.needsFine && !b.has(.fineMoE))
                             }
                         }
                         .pickerStyle(.segmented)
-                        let l = TrainingExperience.experts(for: design.activeFraction)
-                        Text("Each token is routed to \(l.active) of \(l.experts) experts (1/\(Int((1 / l.fraction).rounded())) of the weights active). Sparser pools gain more per FLOP at scale"
-                             + (s.researched.contains("aux_free") ? "." : " but, without aux-loss-free routing, the router collapses more often (+35% loss spikes)."))
+                        let standard = TrainingExperience.experts(for: design.activeFraction)
+                        Picker("Expert pool", selection: Binding(get: { design.experts == 0 ? standard.experts : design.experts },
+                                                                 set: { design.experts = $0 == standard.experts ? 0 : $0 })) {
+                            ForEach(TrainingExperience.expertChoices(for: design.activeFraction), id: \.self) { n in
+                                Text("\(n)" + (n > 64 && !b.has(.fineMoE) ? " 🔒" : "")).tag(n).disabled(n > 64 && !b.has(.fineMoE))
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        let l = TrainingExperience.layout(design)
+                        let keep = HardwareCatalog.get(design.accelID).map { Physics.moeEfficiency(design, accel: $0, bonuses: b) } ?? 1
+                        Text("Each token goes to \(l.active) of \(l.experts) experts (1/\(Int((1 / l.fraction).rounded())) of the weights active). Routing traffic and load imbalance cost \(Fmt.pct(1 - keep, decimals: 0)) of training throughput"
+                             + (s.researched.contains("dualpipe") ? "" : " (DualPipe research hides most of it)")
+                             + ". More, smaller experts specialise more" + (b.has(.fineMoE) ? "" : " once fine-grained experts are researched") + " and send more traffic"
+                             + (s.researched.contains("aux_free") ? "." : "; without aux-loss-free routing, big pools also spike more."))
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     VStack(alignment: .leading, spacing: 4) {
@@ -389,6 +402,10 @@ struct ModelLabView: View {
                     if advanced {
                         LabeledPicker(title: "Attention", selection: $design.attention, options: AttentionKind.allCases,
                                       enabled: { $0 == .mha || ($0 == .gqa && b.has(.gqa)) || ($0 == .mla && b.has(.mla)) })
+                        // 3.4: the KV cache is what serving pays for long contexts.
+                        let kvToken = Physics.kvBytesPerToken(design)
+                        Text("KV cache: \(Fmt.memory(kvToken / 1e9 * 1_000)) per 1,000 tokens of context, \(Fmt.memory(kvToken * Double(design.contextK) * 1024 / 1e9)) for a full \(design.contextK >= 1000 ? "1M" : "\(design.contextK)K") window — \(Fmt.pct(Physics.kvFactor(design), decimals: 0)) of multi-head attention's serving overhead. Smaller caches mean fewer chips per replica and faster long-context decoding.")
+                            .font(.caption).foregroundStyle(.secondary)
                         let hasAlien = !s.alienArchs.isEmpty
                         LabeledPicker(title: "Architecture", selection: $design.mixer, options: MixerKind.allCases,
                                       enabled: { $0 == .transformer || ($0 == .hybrid && b.has(.ssmHybrid)) || ($0 == .diffusion && b.has(.diffusionLM)) || ($0 == .alien && hasAlien) })
@@ -396,7 +413,7 @@ struct ModelLabView: View {
                             Text(mixerNote(design.mixer, s))
                                 .font(.caption).foregroundStyle(.secondary)
                         }
-                        FeatureToggle(title: "Multi-token prediction", detail: "Better training signal + built-in speculative decoding.", isOn: $design.mtp, enabled: b.has(.mtp))
+                        FeatureToggle(title: "Multi-token prediction", detail: "A better training signal, and its extra heads decode several tokens at a time: faster serving, only for models trained with it.", isOn: $design.mtp, enabled: b.has(.mtp))
                     } else {
                         Text("\(design.attention.rawValue) attention · \(design.mixer.rawValue)\(design.mtp ? " · multi-token prediction" : "") — Advanced to change")
                             .font(.caption).foregroundStyle(.secondary)
@@ -497,6 +514,20 @@ struct ModelLabView: View {
                         Text("Each checkpoint runs evals and updates the projection. Saving costs \(Fmt.pct(1 - Sim.checkpointOverhead(interval), decimals: 1)) of throughput at this interval; a loss-spike rollback loses on average half an interval of pre-training.")
                             .font(.caption).foregroundStyle(.secondary)
                         Toggle("Auto-rollback on loss spikes", isOn: $autoRollback).toggleStyle(.switch)
+                        // 3.4: memory and fault tolerance are design choices with costs.
+                        LabeledPicker(title: "Memory plan", selection: $design.memoryPlan, options: MemoryPlan.allCases, enabled: { _ in true })
+                        Text("\(design.memoryPlan.detail) Needs \(Fmt.trim(Physics.trainingBytes(design, bonuses: b), 1)) bytes per parameter (\(Fmt.trim(Physics.stateBytesPerParam(design), 1)) of optimizer state and weights, \(Fmt.trim(Physics.activationBytesPerParam(design, bonuses: b), 1)) of activations at this context).")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Picker("Hot spares", selection: $design.spares) {
+                            Text("None").tag(0.0)
+                            Text("2%").tag(0.02)
+                            Text("5%").tag(0.05)
+                        }
+                        .pickerStyle(.segmented)
+                        Text(design.spares > 0
+                             ? "\(Fmt.int(Int(Double(design.chips) * design.spares))) chips stand by to replace a failed node in seconds: \(Fmt.pct(1 - Physics.spareRecovery(design.spares), decimals: 0)) less time lost per failure, \(Fmt.pct(design.spares, decimals: 0)) less compute."
+                             : "No spares: every failure waits for the job to be rescheduled. Worth it on big clusters, where failures come every few minutes.")
+                            .font(.caption).foregroundStyle(.secondary)
                         opsCoverageRow(s)
                     }
                 }
@@ -511,6 +542,13 @@ struct ModelLabView: View {
                 }
                 FeatureToggle(title: "Reasoning RL", detail: "RL on verifiable problems — gains grow log-linearly with RL compute.",
                               isOn: $design.reasoning, enabled: b.has(.reasoning) && design.instruct)
+                // 3.4: two stages with real consequences for serving and for regulators.
+                FeatureToggle(title: "Quantisation-aware training", detail: "A short stage that teaches the model to run in FP8/FP4: it loses about a third as much quality when served quantised.",
+                              isOn: $design.qat, enabled: b.has(.int8Serving))
+                FeatureToggle(title: "Dangerous-capability evaluations", detail: s.market.euAIAct
+                                ? "Required by the EU AI Act for systemic-risk models: without it, a near-frontier release risks fines. Findings are patched before release."
+                                : "Test for hazardous capabilities before release and patch what you find; required wherever the EU AI Act applies.",
+                              isOn: $design.safetyEvals, enabled: s.researched.contains("evals_rsp"))
                 if design.reasoning && b.has(.reasoning) {
                     Picker("RL compute", selection: $design.rlLevel) {
                         ForEach(RLLevel.allCases.filter { $0 != .off }) { l in Text(l.label).tag(l).disabled(l == .extreme && !b.has(.extremeRL)) }

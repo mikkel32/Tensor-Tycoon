@@ -185,6 +185,9 @@ struct TrainingFirst: Codable, Hashable, Identifiable {
     @D var runID: UUID? = nil
     /// Passed on the way to a bigger first the same day (kept so it never fires later, not shown).
     @D var quiet: Bool = false
+    /// 3.4: a landmark (past the frontier, a trillion parameters, half a million chips, autonomous research…), which
+    /// gets the full-screen moment instead of a banner.
+    @D var landmark: Bool = false
 }
 
 enum TrainingExperience {
@@ -212,6 +215,24 @@ enum TrainingExperience {
         expertLayouts.min { abs(log($0.fraction / max(fraction, 1e-6))) < abs(log($1.fraction / max(fraction, 1e-6))) } ?? expertLayouts[1]
     }
 
+    /// The design's expert layout: its own pool size if it set one (top-k follows from the active share), else the
+    /// standard layout for its sparsity.
+    static func layout(_ d: ModelDesign) -> ExpertLayout {
+        guard d.isMoE else { return ExpertLayout(fraction: 1, experts: 1, active: 1, needsFine: false) }
+        let standard = experts(for: d.activeFraction)
+        guard d.experts > 0 else { return standard }
+        let active = max(1, Int((Double(d.experts) * d.activeFraction).rounded()))
+        return ExpertLayout(fraction: d.activeFraction, experts: d.experts, active: active, needsFine: d.experts > 64 || standard.needsFine)
+    }
+
+    /// Pool sizes the Model Lab offers for a sparsity: 1–16 experts per token, at most 512 in the pool.
+    static func expertChoices(for fraction: Double) -> [Int] {
+        [8, 16, 32, 64, 128, 256, 512].filter { n in
+            let k = Double(n) * fraction
+            return k >= 0.999 && k <= 16.001
+        }
+    }
+
     /// A plausible layer layout for a design, for the architecture diagram. Derived from its parameter count with the
     /// usual transformer proportions (12·L·d² parameters per dense stack, width ≈ 128 × depth); the simulation itself
     /// only uses parameters, sparsity, attention kind, mixer, context and modalities, which the sketch shows as they are.
@@ -237,36 +258,24 @@ enum TrainingExperience {
     }
 
     static func sketch(_ d: ModelDesign, state s: GameState) -> ArchSketch {
-        let active = max(d.activeParamsB, 0.001) * 1e9
-        let layout = d.isMoE ? experts(for: d.activeFraction) : ExpertLayout(fraction: 1, experts: 1, active: 1, needsFine: false)
-        // Per layer: attention 4d² plus the active FFN 8d² (dense) — width ≈ 128 × depth.
-        let l = max(2, Int(pow(active / (12 * 128 * 128), 1.0 / 3).rounded()))
-        let rawD = (active / (12 * Double(l))).squareRoot()
-        let dModel = max(256, Int((rawD / 128).rounded()) * 128)
-        let heads = max(2, dModel / 128)
-        let kv: Int
-        var latent = 0
+        let layout = self.layout(d)
+        // 3.4: the same shape and KV cache the serving simulation uses (Physics.shape, Physics.kvBytesPerToken).
+        let sh = Physics.shape(d)
+        let l = sh.layers, dModel = sh.dModel, heads = sh.heads, kv = sh.kvHeads, latent = sh.latent
         let attNote: String
         switch d.attention {
         case .mha:
-            kv = heads
-            attNote = "Every head keeps its own keys and values: the biggest KV cache."
+            attNote = "Every head keeps its own keys and values: the biggest KV cache, the slowest long-context decoding."
         case .gqa:
-            kv = min(8, heads)
-            attNote = "\(heads) query heads share \(min(8, heads)) key/value heads: a \(max(1, heads / min(8, heads)))× smaller KV cache."
+            attNote = "\(heads) query heads share \(kv) key/value heads: a \(max(1, heads / max(1, kv)))× smaller KV cache."
         case .mla:
-            kv = 0
-            latent = max(256, dModel / 14 / 64 * 64)
             attNote = "Keys and values compressed into a \(latent)-wide latent: a KV cache a few percent of multi-head's."
         }
-        var attnLayers = l, ssm = 0
+        let attnLayers = sh.attentionLayers, ssm = sh.ssmLayers
         let mixNote: String
         switch d.mixer {
         case .transformer: mixNote = "Standard decoder-only transformer."
-        case .hybrid:
-            attnLayers = max(1, l / 8)
-            ssm = l - attnLayers
-            mixNote = "Mamba-style state-space layers with one attention layer in eight: linear-time decoding, long context."
+        case .hybrid: mixNote = "Mamba-style state-space layers with one attention layer in eight: linear-time decoding, long context."
         case .diffusion: mixNote = "Bidirectional transformer that denoises whole blocks of tokens at once instead of one at a time."
         case .alien: mixNote = Xeno.best(s).map { "\($0.name): operators your agents found. Humans follow about \(Int(Xeno.legibility($0, s) * 100))% of it." } ?? "Agent-designed operators."
         }
@@ -282,8 +291,7 @@ enum TrainingExperience {
             routing = "Dense: every parameter works on every token."
         }
         let ffn = Int((Double(dModel) * 8 / 3 / 256).rounded()) * 256 / (d.isMoE ? max(1, layout.active) : 1)
-        let kvWidth = d.attention == .mla ? Double(latent) : Double(2 * kv * 128)
-        let kvGB = Double(attnLayers) * kvWidth * Double(d.contextK) * 1024 * 2 / 1e9
+        let kvGB = Physics.kvBytesPerToken(d) * Double(d.contextK) * 1024 / 1e9
         return ArchSketch(layers: l, dModel: dModel, heads: heads, kvHeads: kv, latent: latent, ffn: max(256, ffn),
                           experts: layout.experts, activeExperts: layout.active, attentionLayers: attnLayers, ssmLayers: ssm,
                           contextK: d.contextK, modalities: modal, routing: routing, attentionNote: attNote, mixerNote: mixNote,
@@ -597,7 +605,9 @@ enum TrainingExperience {
         }
         let rankAtFinish = aheadLabs.count + 1
         let cov = est.coverage
-        let spikes = est.toy ? 0 : Training.spikeChance(d, lr: lr, state: s, bonuses: b) * (1 - Training.opsEffect(cov, s).spikes) * (est.finishes ? est.days : 0) * 0.97
+        // Spikes only happen in pre-training (past 3% of it), so they're counted over pre-training days, as the run draws them.
+        let preDays = est.finishes ? est.flops / max(Physics.flopsPerDay(d, state: s, lr: lr, interval: interval), 1) : 0
+        let spikes = est.toy ? 0 : Training.spikeChance(d, lr: lr, state: s, bonuses: b) * (1 - Training.opsEffect(cov, s).spikes) * preDays * 0.97
         var risks: [String] = []
         if !est.toy {
             risks.append("\(Int((f.bugRisk * 100).rounded()))% chance of a silent bug that drags the loss above forecast until someone finds it.")
@@ -735,6 +745,10 @@ enum TrainingExperience {
 
     static func has(_ s: GameState, _ id: String) -> Bool { s.trainingFirsts.contains { $0.id == id } }
 
+    /// 3.4: the firsts that change what your lab is: they get a full-screen moment, the rest a banner.
+    static let landmarks: Set<String> = ["params_1t", "chips_500k", "past_frontier", "autonomous_research", "self_improving",
+                                          "verified_discovery", "efficiency_breakthrough"]
+
     /// A first an older save already reached before firsts were recorded: (model, date).
     typealias Precedent = (model: String, date: Date)
 
@@ -767,14 +781,26 @@ enum TrainingExperience {
             s.trainingFirsts.sort { $0.date < $1.date }
             return
         }
-        s.trainingFirsts.append(TrainingFirst(id: id, title: title, detail: detail, model: model, date: s.date, symbol: symbol, runID: runID))
+        var first = TrainingFirst(id: id, title: title, detail: detail, model: model, date: s.date, symbol: symbol, runID: runID)
+        first.landmark = landmarks.contains(id)
+        s.trainingFirsts.append(first)
         Sim.news(&s, "\(s.companyName) history: \(title.lowercased())", "\(model): \(detail)", .company, image: "supercomputer", important: true, good: true)
         Alerts.raise(&s, .milestone, key: "first|\(id)", title: title, body: "\(model) — \(detail)", screen: .training, celebrate: true, cooldown: 0)
+        if first.landmark { s.ceremonies.append(id) }
     }
 
-    /// Firsts a run earns when it starts: cluster size.
-    static func launched(_ s: inout GameState, run: TrainingRun) {
-        guard run.kind == .full, !run.toy else { return }
+    /// Firsts earned outside a training run (a self-improvement run, a reproduced discovery). `runID` is a stand-in
+    /// for the record when no training run is involved.
+    static func recordFirst(_ s: inout GameState, id: String, title: String, detail: String, model: String, symbol: String) {
+        record(&s, id: id, title: title, detail: detail, model: model, runID: StableID.next(), symbol: symbol)
+    }
+
+    /// Firsts a run earns once it has proved itself: a quarter of pre-training done on its cluster (3.4: no longer at
+    /// launch, so launching a giant cluster and cancelling it the next day earns nothing).
+    static func progressed(_ s: inout GameState, _ i: Int) {
+        let run = s.runs[i]
+        guard run.kind == .full, !run.toy, run.progress >= 0.25, !run.decided.contains("firsts_chips") else { return }
+        s.runs[i].decided.insert("firsts_chips")
         let chips = run.design.chips
         let ladder = chipFirsts.filter { chips >= $0.n }.map { (id: $0.id, title: $0.title) }
         let a = HardwareCatalog.get(run.design.accelID)?.name ?? "accelerators"
@@ -791,7 +817,9 @@ enum TrainingExperience {
     static func finished(_ s: inout GameState, run: TrainingRun, model m: AIModel, previousBest: Double?, rank: Int) {
         guard run.kind == .full else { return }
         let d = run.design
-        let ladder = paramFirsts.filter { d.paramsB >= $0.b }.map { (id: $0.id, title: $0.title) }
+        // A real model of that size: not an experiment, and trained on at least one token per parameter.
+        let trained = !run.toy && d.tokensT * 1_000 / max(d.paramsB, 1e-9) >= 1
+        let ladder = trained ? paramFirsts.filter { d.paramsB >= $0.b }.map { (id: $0.id, title: $0.title) } : []
         let earlier = s.models.filter { $0.id != m.id && !$0.preview }
         func first(_ ok: (AIModel) -> Bool) -> Precedent? {
             earlier.filter(ok).min { $0.created < $1.created }.map { ($0.name, $0.created) }
@@ -803,7 +831,7 @@ enum TrainingExperience {
         }
         guard !run.toy && !m.preview else { return }
         if d.isMoE, let prev = previousBest, m.index > prev {
-            let layout = experts(for: d.activeFraction)
+            let layout = self.layout(d)
             record(&s, id: "moe_breakthrough", title: "First Mixture-of-Experts breakthrough",
                    detail: "\(layout.label) experts beat every model you had: index \(Fmt.score(m.index)) against \(Fmt.score(prev)).",
                    model: m.name, runID: run.id, symbol: "square.grid.3x3.fill",
@@ -817,14 +845,28 @@ enum TrainingExperience {
                    precedent: before)
         }
         let v = Capabilities.playerScores(m, research: Capabilities.researchDomains(s))
+        // Specialists count when they lead the world in their field, whatever their overall rank.
+        func bestRival(_ d: CapDomain) -> Double { s.labDomains.filter { $0.key != "player" }.map { $0.value[d] }.max() ?? 0 }
         switch d.objective {
-        case .coding:
-            record(&s, id: "specialist_coding", title: "First specialist coding model",
-                   detail: "Trained for code: coding \(Fmt.trim(v[.coding], 0)), agents \(Fmt.trim(v[.agents], 0)).", model: m.name, runID: run.id, symbol: "chevron.left.forwardslash.chevron.right")
-        case .science:
-            record(&s, id: "specialist_science", title: "First specialist science model",
-                   detail: "Trained for science: science \(Fmt.trim(v[.science], 0)), maths \(Fmt.trim(v[.math], 0)).", model: m.name, runID: run.id, symbol: "atom")
+        case .coding where v[.coding] >= bestRival(.coding):
+            record(&s, id: "specialist_coding", title: "First world-leading coding model",
+                   detail: "Trained for code: coding \(Fmt.trim(v[.coding], 0)) against the best rival's \(Fmt.trim(bestRival(.coding), 0)), agents \(Fmt.trim(v[.agents], 0)).",
+                   model: m.name, runID: run.id, symbol: "chevron.left.forwardslash.chevron.right")
+        case .science where v[.science] >= bestRival(.science):
+            record(&s, id: "specialist_science", title: "First exceptional science model",
+                   detail: "Trained for science: science \(Fmt.trim(v[.science], 0)) against the best rival's \(Fmt.trim(bestRival(.science), 0)), maths \(Fmt.trim(v[.math], 0)).",
+                   model: m.name, runID: run.id, symbol: "atom")
         default: break
+        }
+        // An inference-efficiency breakthrough: at least as good as your earlier models, at half the serving cost or less.
+        if let cost = Economy.servingCostPerM(design: d, s) {
+            let peers = earlier.filter { $0.index >= m.index - 2 }
+            let cheapest = peers.compactMap { Economy.servingCostPerM(design: $0.design, s) }.min()
+            if let best = cheapest, cost <= best * 0.5 {
+                record(&s, id: "efficiency_breakthrough", title: "First inference-efficiency breakthrough",
+                       detail: "As capable as your earlier models at \(Fmt.price(cost)) per million tokens to serve, against \(Fmt.price(best)).",
+                       model: m.name, runID: run.id, symbol: "bolt.badge.checkmark.fill")
+            }
         }
         if let ms = MilestoneCatalog.byID["ai_scientist"], Milestones.meets(v, ms) {
             record(&s, id: "autonomous_research", title: "First model capable of autonomous research",
@@ -924,12 +966,14 @@ enum TrainingExperience {
 
     /// The validation series for the Training page, on the run's own unique data.
     static func validation(_ run: TrainingRun, state s: GameState) -> [(tokensT: Double, loss: Double)] {
-        validation(run, uniqueTokensT: validationUniqueT(run, s))
+        validation(run, uniqueTokensT: run.uniqueT > 0 ? run.uniqueT : validationUniqueT(run, s))
     }
 
     static func validation(_ run: TrainingRun, uniqueTokensT: Double) -> [(tokensT: Double, loss: Double)] {
         let pts = run.loss.filter { !$0.spike }
         guard pts.count >= 2 else { return [] }
+        // 3.4: runs record a real held-out loss; older points fall back to a smoothed training curve.
+        if pts.allSatisfy({ $0.val > 0 }) { return pts.map { ($0.tokensT, $0.val) } }
         var out: [(Double, Double)] = []
         out.reserveCapacity(pts.count)
         for i in pts.indices {

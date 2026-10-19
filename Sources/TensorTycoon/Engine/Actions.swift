@@ -251,8 +251,10 @@ extension GameState {
             month.costOther += 25_000_000
             Sim.news(&self, "Federal compute licence granted for \(d.name)", "Runs above 10^27 FLOP need a licence: $25M.", .policy)
         }
-        if pre >= 1e25 && market.euAIAct && !researched.contains("evals_rsp") {
-            Sim.news(&self, "EU flags \(d.name) as a systemic-risk model", "Above 10^25 FLOPs the EU AI Act requires model evaluations. Research Dangerous-Capability Evals before release or expect fines.",
+        if pre >= 1e25 && market.euAIAct && !(d.safetyEvals && researched.contains("evals_rsp")) {
+            let how = researched.contains("evals_rsp") ? "This run has no evaluation stage: add one in the Model Lab next time, or expect fines after release."
+                                                        : "Research Dangerous-Capability Evals and add an evaluation stage before release, or expect fines."
+            Sim.news(&self, "EU flags \(d.name) as a systemic-risk model", "Above 10^25 FLOPs the EU AI Act requires model evaluations. \(how)",
                      .policy, important: true, good: false)
         }
         Sim.news(&self, "Training started: \(d.name)", "\(Fmt.params(d.paramsB)) params on \(Fmt.tokens(d.tokensT)) tokens using \(Fmt.int(d.chips))× \(a.name). \(Fmt.flops(pre)) FLOPs.",
@@ -787,6 +789,8 @@ extension GameState {
         m.autoPrice = true
         m.apiPrice = max(0.01, (Macro.referencePrice(c: cp.c, y: year) * market.apiPricePressure * 0.85 * 1000).rounded() / 1000)
         m.servingPrecision = b.has(.int8Serving) ? .fp8 : .bf16
+        m.archV2 = true
+        m.efficiencyBoost = Physics.designEfficiency(d, bonuses: b)
         m.index = BenchmarkCatalog.index(Leaderboard.profile(m), set: Leaderboard.indexSet(self))
         models.append(m)
         runs[i].saved[ci].forkedModelID = m.id

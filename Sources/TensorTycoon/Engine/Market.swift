@@ -105,7 +105,7 @@ enum Market {
 
         for m in s.models where m.released && !m.retired && m.api && (m.capacityTokensDay > 0 || Families.servesToday(s, m)) {
             snap.api.append(MarketProduct(id: m.id.uuidString, lab: "player", labName: s.companyName, name: m.name,
-                                          c: m.c - Physics.servingPenalty(m.servingPrecision), price: m.apiPrice,
+                                          c: m.c - Physics.servingPenalty(m), price: m.apiPrice,
                                           tps: max(m.tps, 1), brand: s.brand * (0.7 + 0.3 * s.reliability) * (m.design.mode == .finetune ? 0.8 : 1) * Families.brandMult(s, m.id), open: m.openWeights,
                                           reasoning: m.reasoning, isPlayer: true, modelID: m.id))
         }
