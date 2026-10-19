@@ -21,6 +21,7 @@ enum DeterminismHarness {
             ("2017", "2017", []), ("2022", "2022", []), ("2026", "2026", []),
             ("2022, Copenhagen, more systems", "2022", ["hq=dk:copenhagen", "advproj", "science", "data"]),
             ("2026, government and classified work", "2026", ["advproj", "classified"]),   // 3.8
+            ("2026, chips and AI organisations", "2026", ["semis", "orgs"]),   // 3.9
         ]
         for (label, era, flags) in games {
             let one = play(era, seed: 11, years: years, flags: flags)

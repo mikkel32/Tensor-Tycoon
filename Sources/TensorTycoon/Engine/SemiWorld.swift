@@ -21,6 +21,8 @@ extension Semis {
         }
         // Buyers forget a late order after a while.
         s.semi.repHit *= 0.93
+        // 3.9: your chips run as well as your compiler lets them; re-register them as it matures.
+        if abs(s.semi.software - s.semi.softwareRegistered) >= 0.005 && s.customChips.contains(where: { isSemiChip($0.id) }) { refreshChips(&s) }
         expire(&s)
         shocks(&s)
         orders(&s)
@@ -29,20 +31,35 @@ extension Semis {
     static func expire(_ s: inout GameState) {
         let today = s.date
         let monthAgo = GameCalendar.addMonths(today, -1)
-        for bk in s.semi.bookings where bk.end <= today && bk.end > monthAgo {
+        // 3.9: the month paid up front when each booking and contract was signed comes back when it ends.
+        for bk in s.semi.bookings where bk.end <= today {
             let f = SemiCatalog.foundryByID[bk.foundry]?.name ?? bk.foundry
-            log(&s, "Wafer booking ended: \(Fmt.count(bk.wafersMonth))/month of \(SemiCatalog.node(bk.node).short) at \(f).")
-            Sim.news(&s, "Wafer booking ended at \(f)", "\(Fmt.count(bk.wafersMonth)) \(SemiCatalog.node(bk.node).short) wafers a month. Book again on the Semiconductors page if you still need them.", .hardware)
+            refund(&s, bk.deposit)
+            log(&s, "Wafer booking ended: \(Fmt.count(bk.wafersMonth))/month of \(SemiCatalog.node(bk.node).short) at \(f). Deposit of \(Fmt.money(bk.deposit)) returned.")
+            if bk.end > monthAgo {
+                Sim.news(&s, "Wafer booking ended at \(f)", "\(Fmt.count(bk.wafersMonth)) \(SemiCatalog.node(bk.node).short) wafers a month. Your \(Fmt.money(bk.deposit)) deposit is back. Book again on the Semiconductors page if you still need them.", .hardware)
+            }
         }
         s.semi.bookings.removeAll { $0.end <= today }
-        for c in s.semi.supply where !c.own && c.end <= today && c.end > monthAgo {
-            log(&s, "\(SemiCatalog.supplierByID[c.supplier]?.name ?? c.supplier) contract ended (\(Fmt.count(c.units)) \(c.kind == "pack" ? "packaging slots" : "HBM stacks")/month).")
+        for c in s.semi.supply where !c.own && c.end <= today {
+            refund(&s, c.deposit)
+            log(&s, "\(SemiCatalog.supplierByID[c.supplier]?.name ?? c.supplier) contract ended (\(Fmt.count(c.units)) \(c.kind == "pack" ? "packaging slots" : "HBM stacks")/month). Deposit of \(Fmt.money(c.deposit)) returned.")
         }
         s.semi.supply.removeAll { !$0.own && $0.end <= today }
         for sh in s.semi.shocks where sh.end <= today && sh.end > monthAgo {
             log(&s, "Recovered: \(sh.title).", tone: 1)
         }
         s.semi.shocks.removeAll { $0.end <= GameCalendar.addMonths(today, -6) }
+    }
+
+    /// A deposit comes back as cash: set against this month's chip spending (any rest is a one-off receipt).
+    static func refund(_ s: inout GameState, _ amount: Double) {
+        guard amount > 0 else { return }
+        s.cash += amount
+        let offset = min(amount, max(0, s.month.costChips))
+        s.month.costChips -= offset
+        s.month.oneOffIncome += amount - offset
+        s.semi.month.depositsBack += amount
     }
 
     // MARK: Supply shocks
@@ -200,7 +217,9 @@ extension Semis {
                                amount: price, ref: "\(d.id.uuidString)|\(b)|\(pick.id)|\(Int(units))|\(counterOdds)")
             return
         }
-        // A rival lab asks for a block, at a premium, whether or not you sell to rivals.
+        // A rival lab asks for a block, at a premium, whether or not you sell to rivals — unless you promised a
+        // customer exclusive supply.
+        guard exclusiveUntil(s) == nil else { return }
         let rules = exportRules(s)
         let rivals = s.competitors.filter { !$0.acquired && !$0.bankrupt && $0.exitNote.isEmpty && s.year >= $0.def.founded.decimal && $0.cash > 1e9
             && !(rules.china && AdvancedProjects.labRegion($0.id) == .china) }
@@ -235,6 +254,10 @@ extension Semis {
         if rival {
             guard option == 0 else {
                 log(&s, "Refused to sell \(Fmt.count(units)) chips to \(name).")
+                return
+            }
+            if let until = exclusiveUntil(s) {
+                log(&s, "Couldn't sell to \(name): you promised exclusive supply until \(until.gameShort).", tone: -1)
                 return
             }
         } else {
@@ -303,6 +326,12 @@ extension Semis {
                                    title: "Paying for idle wafers at \(SemiCatalog.foundryByID[bk.foundry]?.name ?? bk.foundry)",
                                    detail: "\(Fmt.money(bk.wafersMonth * bk.price))/month of wafers go to no product in production. Assign them or cancel.", screen: .semiconductors))
         }
+        if s.semi.designs.contains(where: { $0.qualified != nil }) && s.semi.software < 0.4 && s.semi.compilerEngineers == 0 {
+            out.append(AdvisorItem(id: "semi-software", level: .warning, symbol: "chevron.left.forwardslash.chevron.right",
+                                   title: "Your chips' software is immature (\(Fmt.pct(s.semi.software, decimals: 0)))",
+                                   detail: "Training on them reaches only \(Fmt.pct(softwareMFU(s.semi.software), decimals: 0)) of the MFU a mature compiler gets, serving \(Fmt.pct(softwareServe(s.semi.software), decimals: 0)) of the throughput, and buyers trust them less. Hire a compiler team.",
+                                   screen: .semiconductors))
+        }
         for t in s.semi.teams where Semis.teamBusy(s, t.id) == nil {
             out.append(AdvisorItem(id: "semi-team-\(t.id)", level: .info, symbol: "person.3.fill", title: "\(t.name) has no design",
                                    detail: "\(t.engineers) engineers cost \(Fmt.money(Double(t.engineers) * engineerCost(s.year)))/yr. Start the next generation, or shrink the team.", screen: .semiconductors))
@@ -340,20 +369,16 @@ extension Semis {
 
     // MARK: Research effects
 
+    /// 3.9: hardware–software co-design is no longer a lab-wide bonus on every accelerator: it lives in your own chips'
+    /// training MFU and serving throughput, through the software maturity of their stack (`softwareMFU`).
     static let virtualItems: [ResearchItem] = [
-        ResearchItem(id: "semi:codesign", name: "Hardware–software co-design", category: .systems, year: 0, cost: 0, prereqs: [],
-                     effects: [.mfu(0.03), .throughput(0.03)], blurb: "Your kernels and compilers are written alongside your own chips."),
         ResearchItem(id: "semi:fab", name: "Fab know-how", category: .systems, year: 0, cost: 0, prereqs: [],
                      effects: [.chipDesign(0.12)], blurb: "Running your own fab teaches your designers what the process can really do."),
     ]
 
     static func bonusSources(_ s: GameState) -> [(String, Double)] {
-        guard !s.semi.designs.isEmpty || !s.semi.fabs.isEmpty else { return [] }
-        var out: [(String, Double)] = []
-        let qualified = s.semi.designs.filter { $0.qualified != nil }.count
-        if qualified > 0 { out.append(("semi:codesign", min(1, Double(qualified) / 2))) }
-        if s.semi.fabs.contains(where: { $0.open(s.date) }) { out.append(("semi:fab", 1)) }
-        return out
+        guard !s.semi.fabs.isEmpty else { return [] }
+        return s.semi.fabs.contains(where: { $0.open(s.date) }) ? [("semi:fab", 1)] : []
     }
 }
 
@@ -370,7 +395,6 @@ extension GameState {
         cash -= fee
         month.costOther += fee
         semi.month.teamCost += fee
-        semi.counter += 1
         let names = ["Silicon Team A", "Silicon Team B", "Silicon Team C", "Silicon Team D", "Silicon Team E"]
         let name = names[min(names.count - 1, semi.teams.count)]
         semi.teams.append(SemiTeam(name: name, engineers: n, hired: date))
@@ -404,28 +428,44 @@ extension GameState {
         return nil
     }
 
-    mutating func startChipDesign(node: String, die: String, stacks: Int, focus: ChipFocus, verification: Int, teamID: UUID?, derivedFrom: String = "") -> String? {
+    mutating func startChipDesign(node: String, die: String, stacks: Int, focus: ChipFocus, verification: Int, teamID: UUID?,
+                                   link: ChipLink = .switched, portOf: UUID? = nil) -> String? {
         guard let team = Semis.team(self, teamID) else { return "Pick a design team (hire one first)." }
         guard Semis.designable(self).contains(where: { $0.id == node }) else { return "That node isn't available to design for yet." }
+        guard SemiCatalog.dieByID[die] != nil else { return "Pick a die configuration." }
+        guard SemiCatalog.stackChoices.contains(stacks) else { return "Pick \(SemiCatalog.stackChoices.map(String.init).joined(separator: ", ")) HBM stacks." }
         let d = SemiCatalog.die(die)
         if year < d.from { return "\(d.name) needs packaging that arrives around \(Int(d.from))." }
+        if year < link.from { return "\(link.title) can't be designed in before \(Int(link.from))." }
         if let busy = Semis.teamBusy(self, team.id) { return "\(team.name) is busy designing \(busy.name)." }
-        let p = Semis.plan(node: node, verification: verification, team: team, derived: !derivedFrom.isEmpty, self)
+        // 3.9: a port reuses a qualified design of the same focus, at most one node step away.
+        var port: SemiDesign? = nil
+        if let pid = portOf {
+            guard let p = semi.designs.first(where: { $0.id == pid }), p.qualified != nil else { return "Only a design that reached production can be ported." }
+            if p.focus != focus { return "A port keeps its parent's focus: \(p.name) is a \(p.focus.rawValue.lowercased()) chip." }
+            if Semis.nodeStep(p.node, node) > 1 { return "A port can move one node at most: \(p.name) is on \(SemiCatalog.node(p.node).short)." }
+            port = p
+        }
+        let p = Semis.plan(node: node, verification: verification, team: team, derived: port != nil, link: link, self)
         if p.ipCost / max(1, p.designDays / 30.4) * 3 > cash { return "Keep three months of EDA and IP licences (\(Fmt.money(p.ipCost / max(1, p.designDays / 30.4) * 3))) in cash to start." }
         Semis.engage(&self)
-        let gen = semi.designs.count + 1
-        let name = "\(SemiCatalog.codenames[(gen - 1) % SemiCatalog.codenames.count])-\(gen)"
+        // 3.9: one past the newest qualified design of this focus; a port stays in its parent's generation.
+        let gen = port?.generation ?? Semis.nextGeneration(focus, self)
+        let name = "\(SemiCatalog.codenames[semi.counter % SemiCatalog.codenames.count])-\(gen)"
+        semi.counter += 1
         var des = SemiDesign(name: name, generation: gen, node: node, die: die, stacks: stacks, focus: focus, verification: clamp(verification, 0, 2),
                              teamID: team.id, started: date)
-        des.derivedFrom = derivedFrom
+        des.derivedFrom = port?.name ?? ""
+        des.parentID = port?.id
+        des.link = link.rawValue
         des.phaseDays = p.phaseDays[0]
         des.phaseDaysLeft = p.phaseDays[0]
         des.respinOdds = p.respin
-        des.timeline = [SemiEvent(date: date, text: "Started on \(SemiCatalog.node(node).short), \(d.name.lowercased()), \(stacks) HBM stacks, \(Semis.verificationName(verification).lowercased()) verification. About \(Int(p.months)) months to production.")]
+        des.timeline = [SemiEvent(date: date, text: "Started on \(SemiCatalog.node(node).short), \(d.name.lowercased()), \(stacks) HBM stacks, \(link.short), \(Semis.verificationName(verification).lowercased()) verification\(port.map { ", porting \($0.name)" } ?? ""). About \(Int(p.months)) months to production.")]
         semi.designs.append(des)
-        Semis.log(&self, "Started \(name): \(SemiCatalog.node(node).short) \(focus.rawValue.lowercased()) chip, ~\(Int(p.months)) months.")
+        Semis.log(&self, "Started \(name): \(SemiCatalog.node(node).short) \(focus.rawValue.lowercased()) chip, generation \(gen), ~\(Int(p.months)) months.")
         Sim.news(&self, "Chip design started: \(name)",
-                 "\(team.name) begins a \(SemiCatalog.node(node).short) \(focus.rawValue.lowercased()) accelerator: about \(Int(p.months)) months and \(Fmt.money(p.total)) to production, \(Fmt.pct(p.respin, decimals: 0)) respin odds.",
+                 "\(team.name) begins a \(SemiCatalog.node(node).short) \(focus.rawValue.lowercased()) accelerator\(port.map { " (a port of \($0.name))" } ?? ""): about \(Int(p.months)) months and \(Fmt.money(p.total)) to production, \(Fmt.pct(p.respin, decimals: 0)) respin odds.",
                  .company, image: "wafer", important: true)
         return nil
     }
@@ -443,9 +483,16 @@ extension GameState {
 
     mutating func retireChipDesign(_ id: UUID) -> String? {
         guard let i = semi.designs.firstIndex(where: { $0.id == id }), semi.designs[i].inProduction else { return "Only products in production can be retired." }
+        // 3.9: a retired product makes nothing more, so its open orders must already be in customer stock.
+        for b in 0..<3 {
+            let owed = semi.contracts.filter { !$0.closed && $0.designID == id && $0.bin == b }.reduce(0) { $0 + $1.remaining }
+            if owed > semi.designs[i].stockSale[b] + 0.5 {
+                return "\(semi.designs[i].name) still owes \(Fmt.count(owed)) \(SemiCatalog.binNames[b]) chips on open orders and has \(Fmt.count(semi.designs[i].stockSale[b])) in customer stock. Make or move enough first, or the late orders pay penalties."
+            }
+        }
         semi.designs[i].phaseRaw = SemiPhase.retired.rawValue
         semi.designs[i].onSale = [false, false, false]
-        Semis.note(&self, i, "Retired. Stock already made can still be taken for your fleet.")
+        Semis.note(&self, i, "Retired. Open orders still ship from customer stock; stock already made can still be taken for your fleet.")
         Semis.log(&self, "Retired \(semi.designs[i].name).")
         return nil
     }
@@ -494,8 +541,9 @@ extension GameState {
         cash -= fee
         month.costOther += fee
         semi.month.penalties += fee
+        Semis.refund(&self, bk.deposit)   // 3.9: the deposit comes back against the fee
         semi.bookings.removeAll { $0.id == id }
-        Semis.log(&self, "Cancelled a wafer booking at \(SemiCatalog.foundryByID[bk.foundry]?.name ?? bk.foundry): \(Fmt.money(fee)) fee.", tone: -1)
+        Semis.log(&self, "Cancelled a wafer booking at \(SemiCatalog.foundryByID[bk.foundry]?.name ?? bk.foundry): \(Fmt.money(fee)) fee, \(Fmt.money(bk.deposit)) deposit returned.", tone: -1)
         return nil
     }
 
@@ -527,8 +575,9 @@ extension GameState {
         cash -= fee
         month.costOther += fee
         semi.month.penalties += fee
+        Semis.refund(&self, c.deposit)   // 3.9: the deposit comes back against the fee
         semi.supply.removeAll { $0.id == id }
-        Semis.log(&self, "Cancelled a \(SemiCatalog.supplierByID[c.supplier]?.name ?? c.supplier) contract: \(Fmt.money(fee)) fee.", tone: -1)
+        Semis.log(&self, "Cancelled a \(SemiCatalog.supplierByID[c.supplier]?.name ?? c.supplier) contract: \(Fmt.money(fee)) fee, \(Fmt.money(c.deposit)) deposit returned.", tone: -1)
         return nil
     }
 
@@ -599,11 +648,42 @@ extension GameState {
         return nil
     }
 
-    mutating func setSemiPolicy(keepShare: Double? = nil, allowRivals: Bool? = nil, allowSovereigns: Bool? = nil, holdExcessDies: Bool? = nil) {
+    @discardableResult
+    mutating func setSemiPolicy(keepShare: Double? = nil, allowRivals: Bool? = nil, allowSovereigns: Bool? = nil, holdExcessDies: Bool? = nil) -> String? {
+        if allowRivals == true, let until = Semis.exclusiveUntil(self) { return "You promised exclusive supply until \(until.gameShort)." }
         if let keepShare { semi.keepShare = clamp(keepShare, 0, 1) }
         if let holdExcessDies { semi.holdExcessDies = holdExcessDies }
         if let allowRivals { semi.allowRivals = allowRivals }
         if let allowSovereigns { semi.allowSovereigns = allowSovereigns }
+        return nil
+    }
+
+    /// 3.9: hire, grow or shrink the compiler and kernel team (0 lets it go). Recruiting and severance cost a quarter
+    /// of a year's pay for the engineers who join or leave.
+    mutating func setCompilerTeam(engineers: Int) -> String? {
+        guard bonuses.has(.customSilicon) else { return "Research Custom Accelerator Design first." }
+        let n = engineers <= 0 ? 0 : clamp(engineers, 25, 1_500)
+        let old = semi.compilerEngineers
+        let cost = Double(abs(n - old)) * Semis.engineerCost(year) * 0.9 * 0.25
+        if n > old && cost > cash { return "Hiring \(n - old) compiler engineers costs \(Fmt.money(cost)) up front." }
+        Semis.engage(&self)
+        cash -= cost
+        month.costOther += cost
+        semi.month.softwareCost += cost
+        semi.compilerEngineers = n
+        Semis.log(&self, n == 0 ? "Let the compiler team go (severance \(Fmt.money(cost)))." : "Compiler team: \(old) → \(n) engineers (\(n > old ? "recruiting" : "severance") \(Fmt.money(cost))).")
+        return nil
+    }
+
+    /// 3.9: where a fab buys its power, as for a datacenter.
+    mutating func setFabPower(_ id: UUID, deal: PowerDeal) -> String? {
+        guard let i = semi.fabs.firstIndex(where: { $0.id == id }) else { return "Not found." }
+        if !deal.available(self) { return "\(deal.rawValue) isn't available yet." }
+        let before = Semis.fabPowerDeal(semi.fabs[i])
+        semi.fabs[i].powerDeal = deal == .grid ? "" : deal.rawValue
+        if deal != before && deal.green >= 1 { brand = min(100, brand + 1) }
+        Semis.log(&self, "\(semi.fabs[i].name) now runs on \(deal.rawValue.lowercased()).")
+        return nil
     }
 
     /// Move finished chips between your stock and customer stock.
@@ -621,4 +701,190 @@ extension GameState {
 
 extension Semis {
     static func fabMWFull(_ n: ProcessNode, _ wafers: Double) -> Double { n.fabMW * wafers / 1_000 }
+}
+
+// MARK: - 3.9: compute economics
+
+extension Semis {
+    /// What one accelerator's compute costs: a day of the chip (four-year amortisation and power, or rent) over the
+    /// PFLOPS it really delivers — training at the MFU your lab reaches on it, serving at your serving utilisation.
+    struct Economics {
+        var name: String
+        var own: Bool
+        /// "bought", "rented" or "made".
+        var how: String
+        var dayCost: Double
+        var trainPF: Double
+        var servePF: Double
+        var trainCost: Double { trainPF > 0 ? dayCost / trainPF : .infinity }
+        var serveCost: Double { servePF > 0 ? dayCost / servePF : .infinity }
+    }
+
+    /// Power, cooling and the building around one chip for a day at your main site.
+    static func chipPowerDay(_ a: Accelerator, _ s: GameState) -> Double {
+        let site = s.sites.first { $0.kind != .garage } ?? s.sites.first
+        return Economy.chipKW(a) * (site?.pue ?? 1.4) * 24 * (site?.powerPrice ?? 0.1)
+    }
+
+    static func economics(_ a: Accelerator, rent: Bool, _ s: GameState, _ b: ResearchBonuses) -> Economics? {
+        let own = isSemiChip(a.id)
+        let day: Double
+        if rent {
+            guard let r = Economy.rent(a, s) else { return nil }
+            day = r * 24
+        } else {
+            guard let p = Economy.price(a, s) else { return nil }
+            day = (p + siliconCost(a.id, s)) / (4 * 365) + chipPowerDay(a, s)
+        }
+        let mfu = Physics.mfu(accel: a, chips: 1_024, state: s, bonuses: b)
+        let train = a.trainTFLOPS(.fp8) * mfu / 1_000
+        let serve = a.inferTFLOPS(.fp8) * Physics.servingUtilization(b) * a.serveFactor / 1_000
+        return Economics(name: a.name, own: own, how: own ? "made" : (rent ? "rented" : "bought"), dayCost: day, trainPF: train, servePF: serve)
+    }
+
+    /// Your chips against the cheapest merchant compute you could buy or rent today, for training and for serving
+    /// ($ per PFLOP-day actually delivered).
+    static func computeEconomics(_ s: GameState, _ b: ResearchBonuses) -> (mine: [Economics], train: Economics?, serve: Economics?) {
+        var mine: [Economics] = []
+        for d in s.semi.designs where d.inProduction || d.phase == .retired {
+            for id in d.chipIDs.prefix(2) {
+                if let a = HardwareCatalog.get(id), let e = economics(a, rent: false, s, b) { mine.append(e) }
+            }
+        }
+        var merchant: [Economics] = []
+        for a in HardwareCatalog.all where a.cls == .datacenter || a.cls == .tpu || a.cls == .custom {
+            if Economy.canBuy(a, s), let e = economics(a, rent: false, s, b) { merchant.append(e) }
+            if Economy.canRent(a, s), let e = economics(a, rent: true, s, b) { merchant.append(e) }
+        }
+        let train = merchant.filter { $0.trainPF > 0 }.min { $0.trainCost != $1.trainCost ? $0.trainCost < $1.trainCost : $0.name < $1.name }
+        let serve = merchant.filter { $0.servePF > 0 }.min { $0.serveCost != $1.serveCost ? $0.serveCost < $1.serveCost : $0.name < $1.name }
+        return (mine, train, serve)
+    }
+}
+
+// MARK: - 3.9: the playtest bot's chip business (`--playtest … semis`)
+
+extension Semis {
+    /// A sensible player's semiconductor programme, run monthly: research custom silicon, hire a design team once rich,
+    /// design a training chip on a node a foundry offers now, hire a compiler team, book wafers, packaging and HBM in
+    /// time for qualification, take chips for the fleet, sell the rest, and start the next generation.
+    static func botAct(_ s: inout GameState) {
+        if !s.bonuses.has(.customSilicon) {
+            if s.cash > 2e9 { s.queueResearch("custom_silicon") }
+            return
+        }
+        if s.semi.teams.isEmpty {
+            guard s.cash > 4e9 else { return }
+            _ = s.hireChipTeam(engineers: 400)
+            return
+        }
+        if s.semi.compilerEngineers == 0 && !s.semi.designs.isEmpty && s.cash > 2e9 { _ = s.setCompilerTeam(engineers: 150) }
+        // A design whenever the team is free and nothing newer than the last qualified chip is under way.
+        if let t = s.semi.teams.first, teamBusy(s, t.id) == nil,
+           !s.semi.designs.contains(where: { $0.phase.rawValue < SemiPhase.production.rawValue }),
+           let fsw = SemiCatalog.foundryByID["fsw"],
+           let node = SemiCatalog.nodes.filter({ offered($0, fsw, s.year) && foundryBlocker(fsw, $0, s) == nil }).last {
+            let newest = s.semi.designs.filter { $0.qualified != nil }.max { $0.qualified! < $1.qualified! }
+            if newest == nil || (s.year - (newest?.qualified?.decimalYear ?? 0) > 1.0 && s.cash > 3e9) {
+                let die = s.year >= 2025 ? "quad" : (s.year >= 2021 ? "dual" : "large")
+                _ = s.startChipDesign(node: node.id, die: die, stacks: 8, focus: .training, verification: 1, teamID: t.id)
+            }
+        }
+        // The newest design past tape-out gets the supply; once it's in production, older ones retire.
+        let newest = s.semi.designs.indices.filter { s.semi.designs[$0].phase.rawValue >= SemiPhase.tapeout.rawValue && s.semi.designs[$0].phase != .retired }
+            .max { s.semi.designs[$0].generation < s.semi.designs[$1].generation }
+        if let n = newest, s.semi.designs[n].inProduction {
+            for d in s.semi.designs where d.inProduction && d.id != s.semi.designs[n].id { _ = s.retireChipDesign(d.id) }
+        }
+        for i in s.semi.designs.indices {
+            let d = s.semi.designs[i]
+            // Book supply when the design tapes out, timed for qualification.
+            if i == newest, !s.semi.bookings.contains(where: { $0.designID == d.id && $0.end > GameCalendar.addDays(s.date, 60) }) {
+                botBook(&s, i)
+            }
+            guard d.inProduction else { continue }
+            if !d.onSale[0] || !d.onSale[1] {
+                _ = s.setChipPrice(d.id, bin: 0, onSale: true)
+                _ = s.setChipPrice(d.id, bin: 1, onSale: true)
+            }
+            // Take a batch for the fleet whenever enough is in your own stock.
+            for b in 0..<2 where d.chipIDs.indices.contains(b) && d.stockMine[b] >= 1_000 {
+                guard let a = HardwareCatalog.get(d.chipIDs[b]) else { continue }
+                var fits = s.bestSite(for: a, count: Int(d.stockMine[b])).fits
+                // No room for them: lease a liquid-cooled cage at the cheapest location, as a player would.
+                if fits < 512, s.cash > 2e9, let loc = LocationCatalog.all.min(by: { $0.coloFee < $1.coloFee }) {
+                    let kw = clamp(d.stockMine[b] * Economy.chipKW(a) * 1.05, 2_000, Campus.coloCapMW * 1_000)
+                    let n = s.sites.filter { $0.name.hasPrefix("Silicon cage") }.count + 1
+                    if s.buildSite(kind: .colo, locationID: loc.id, capacityKW: kw.rounded(), cooling: .liquid, power: .grid, name: "Silicon cage \(n)") == nil {
+                        fits = s.bestSite(for: a, count: Int(d.stockMine[b])).fits
+                    }
+                }
+                let n = min(Int(d.stockMine[b]), fits) / 64 * 64
+                // What doesn't fit at your sites goes to customers instead of sitting in stock.
+                if n < 64 || s.orderOwnChips(d.chipIDs[b], count: n) != nil { s.moveChipStock(d.id, bin: b, toMine: false) }
+            }
+        }
+        // Wafers going to a retired or superseded product move to the newest one on the same node.
+        for bi in s.semi.bookings.indices {
+            guard let d = s.semi.designs.first(where: { $0.id == s.semi.bookings[bi].designID }), d.phase == .retired else { continue }
+            if let next = s.semi.designs.filter({ $0.node == d.node && $0.phase != .retired }).last { s.semi.bookings[bi].designID = next.id }
+        }
+    }
+
+    /// Wafers at the leading foundry starting about when the chip qualifies, sized — as a careful player would — to the
+    /// packaging and HBM still to be had (no point making dies nobody can package), and those contracts signed.
+    static func botBook(_ s: inout GameState, _ i: Int) {
+        let d = s.semi.designs[i]
+        guard let f = SemiCatalog.foundries.first(where: { offered(SemiCatalog.node(d.node), $0, s.year) && foundryBlocker($0, SemiCatalog.node(d.node), s) == nil }) else { return }
+        let n = SemiCatalog.node(d.node)
+        let toQualify = d.inProduction ? 0.0 : d.phaseDaysLeft + (d.phase == .tapeout ? 75 : 0)
+        let y = previewYield(node: d.node, die: d.die, foundry: f, s, at: s.year + toQualify / 365)
+        let chipsPerWafer = y.diesPerWafer * y.good / Double(SemiCatalog.die(d.die).dies)
+        let packable = min(supplyRoom("pack", s) / slotsPerChip(d), supplyRoom("hbm", s) / Double(d.stacks))
+        let cap = waferCap(f, n, s).value - waferBooked(s, foundry: f.id, node: n.id)
+        let wafers = (min(3_000, cap, packable / max(0.01, chipsPerWafer)) / 100).rounded(.down) * 100
+        guard wafers >= 100 else { return }
+        let delay = max(0, Int(toQualify / 30.4) - Int(Double(f.leadDays) / 30.4))
+        guard s.bookWafers(foundry: f.id, node: n.id, wafersMonth: wafers, months: 24, startDelayMonths: delay, designID: d.id) == nil else { return }
+        let chips = wafers * chipsPerWafer
+        for (kind, need) in [("pack", chips * slotsPerChip(d)), ("hbm", chips * Double(d.stacks))] {
+            var left = need
+            for sup in SemiCatalog.suppliers where sup.kind == kind && sup.from <= s.year && left >= 100 {
+                let free = supplyCap(sup, s) - supplyBooked(s, supplier: sup.id)
+                let take = (min(left, free) / 100).rounded(.down) * 100
+                guard take >= 100, s.signSupply(supplier: sup.id, units: take, months: 24) == nil else { continue }
+                left -= take
+            }
+        }
+    }
+
+    /// Packaging slots or HBM stacks a month all suppliers together could still sign you for.
+    static func supplyRoom(_ kind: String, _ s: GameState) -> Double {
+        SemiCatalog.suppliers.filter { $0.kind == kind && $0.from <= s.year }.reduce(0) { $0 + max(0, supplyCap($1, s) - supplyBooked(s, supplier: $1.id)) }
+    }
+
+    /// Summary lines for the playtest (`semis` flag).
+    static func report(_ s: GameState) -> [String] {
+        guard s.semi.engaged else { return ["  semis: never engaged (no team hired)"] }
+        var out: [String] = []
+        let made = s.semi.designs.reduce(0) { $0 + $1.made.reduce(0, +) }
+        let sold = s.semi.designs.reduce(0) { $0 + $1.sold.reduce(0, +) }
+        let taken = s.semi.designs.reduce(0) { $0 + $1.taken.reduce(0, +) }
+        let rev = s.semi.designs.reduce(0) { $0 + $1.revenue }
+        let cost = s.semi.designs.reduce(0) { $0 + $1.cost }
+        out.append("  semis: \(s.semi.designs.count) designs · made \(Fmt.count(made)) chips, sold \(Fmt.count(sold)), kept \(Fmt.count(taken)) · product revenue \(Fmt.money(rev)) vs production cost \(Fmt.money(cost)) · software \(Fmt.pct(s.semi.software, decimals: 0)) (\(s.semi.compilerEngineers) compiler engineers) · reputation \(Fmt.pct(reputation(s), decimals: 0))")
+        for d in s.semi.designs {
+            let ultra = d.chipIDs.first.flatMap { HardwareCatalog.get($0) }
+            out.append("    \(d.name) gen \(d.generation) \(SemiCatalog.node(d.node).short) \(d.die) \(d.focus.rawValue.lowercased()) · \(d.phase.title)\(d.respins + d.metalFixes > 0 ? " · \(d.respins) respins \(d.metalFixes) metal fixes" : "")"
+                       + (ultra.map { " · \(Fmt.count($0.bf16)) TF \(Int($0.tdpW)) W MFU \(Fmt.pct($0.baseMFU, decimals: 0)) (\(perfLabel($0.bf16, s)))" } ?? "")
+                       + " · made \(Fmt.count(d.made.reduce(0, +))) sold \(Fmt.count(d.sold.reduce(0, +))) kept \(Fmt.count(d.taken.reduce(0, +))) bank \(Fmt.count(d.dieBank.reduce(0, +)))")
+        }
+        let ec = computeEconomics(s, s.bonuses)
+        if let best = ec.mine.min(by: { $0.trainCost < $1.trainCost }), let m = ec.train {
+            out.append("    $/PFLOP-day training: yours \(Fmt.money(best.trainCost)) (\(best.name)) vs best merchant \(Fmt.money(m.trainCost)) (\(m.name), \(m.how))")
+        }
+        let toRivals = s.semi.history.reduce(0) { $0 + $1.toRivals }
+        out.append("    last 24 months: wafers \(Fmt.count(s.semi.history.reduce(0) { $0 + $1.wafers })), chips \(Fmt.count(s.semi.history.reduce(0) { $0 + $1.chips })), to rivals \(Fmt.count(toRivals)), packaging-bound months \(s.semi.history.filter { $0.bottleneck == "packaging" }.count), HBM-bound \(s.semi.history.filter { $0.bottleneck == "HBM" }.count)")
+        return out
+    }
 }

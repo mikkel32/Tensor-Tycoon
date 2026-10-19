@@ -167,9 +167,11 @@ enum Semis {
         let n = SemiCatalog.node(d.node)
         let ind = industryD0(n, s.year)
         let learn = 1 + exp(-d.wafersDone / 15_000)
-        let d0 = ind * f.d0Factor * learn * AdvancedProjects.defectFactor(s)   // fab process-control programmes
+        let dfm = AgentOrgs.defectFactor(s)   // 3.9: physical-design agents
+        let d0 = ind * f.d0Factor * learn * AdvancedProjects.defectFactor(s) * dfm   // fab process-control programmes
         return yield(d0: d0, area: SemiCatalog.die(d.die).area, wafersDone: d.wafersDone,
-                     why: "D0 \(Fmt.trim(d0, 3))/cm² = \(n.short) industry \(Fmt.trim(ind, 3)) × \(f.name) \(Fmt.trim(f.d0Factor, 2)) × your learning \(Fmt.trim(learn, 2)) (\(Fmt.count(d.wafersDone)) wafers so far)")
+                     why: "D0 \(Fmt.trim(d0, 3))/cm² = \(n.short) industry \(Fmt.trim(ind, 3)) × \(f.name) \(Fmt.trim(f.d0Factor, 2)) × your learning \(Fmt.trim(learn, 2)) (\(Fmt.count(d.wafersDone)) wafers so far)"
+                        + (dfm < 1 ? " × design-for-manufacturing agents \(Fmt.trim(dfm, 2))" : ""))
     }
 
     /// The same at your own fab: a new fab starts with several times the defects and learns with every wafer.
@@ -178,9 +180,11 @@ enum Semis {
         let ind = industryD0(n, s.year)
         let fabF = fabD0Factor(fab)
         let learn = 1 + exp(-d.wafersDone / 15_000)
-        let d0 = ind * fabF * learn * AdvancedProjects.defectFactor(s)   // fab process-control programmes
+        let dfm = AgentOrgs.defectFactor(s)   // 3.9: physical-design agents
+        let d0 = ind * fabF * learn * AdvancedProjects.defectFactor(s) * dfm   // fab process-control programmes
         return yield(d0: d0, area: SemiCatalog.die(d.die).area, wafersDone: d.wafersDone,
-                     why: "D0 \(Fmt.trim(d0, 3))/cm² = \(n.short) industry \(Fmt.trim(ind, 3)) × \(fab.name) ramp \(Fmt.trim(fabF, 2)) × your learning \(Fmt.trim(learn, 2))")
+                     why: "D0 \(Fmt.trim(d0, 3))/cm² = \(n.short) industry \(Fmt.trim(ind, 3)) × \(fab.name) ramp \(Fmt.trim(fabF, 2)) × your learning \(Fmt.trim(learn, 2))"
+                        + (dfm < 1 ? " × design-for-manufacturing agents \(Fmt.trim(dfm, 2))" : ""))
     }
 
     static func fabD0Factor(_ f: SemiFab) -> Double { 1 + 2.5 * exp(-f.wafersDone / 40_000) }
@@ -189,7 +193,7 @@ enum Semis {
     static func previewYield(node: String, die: String, foundry f: Foundry, _ s: GameState, at y: Double? = nil) -> Yield {
         let n = SemiCatalog.node(node)
         let yy = max(y ?? s.year, n.launch + f.lag)
-        let d0 = industryD0(n, yy) * f.d0Factor * 2 * AdvancedProjects.defectFactor(s)   // fab process-control programmes
+        let d0 = industryD0(n, yy) * f.d0Factor * 2 * AdvancedProjects.defectFactor(s) * AgentOrgs.defectFactor(s)   // fab process-control programmes; 3.9 agents
         return yield(d0: d0, area: SemiCatalog.die(die).area, wafersDone: 0, why: "")
     }
 
@@ -205,6 +209,29 @@ enum Semis {
     static func verificationName(_ v: Int) -> String { ["Lean", "Standard", "Thorough"][clamp(v, 0, 2)] }
     static let verificationTime = [0.8, 1.0, 1.25]
     static let verificationRisk = [1.5, 1.0, 0.55]
+
+    static func link(_ d: SemiDesign) -> ChipLink { ChipLink(rawValue: d.link) ?? .switched }
+
+    static func nodeIndex(_ id: String) -> Int { SemiCatalog.nodes.firstIndex { $0.id == id } ?? 1 }
+
+    /// Node steps between two process nodes (a port may move one).
+    static func nodeStep(_ a: String, _ b: String) -> Int { abs(nodeIndex(a) - nodeIndex(b)) }
+
+    /// 3.9: the next generation of a focus is one past the newest design of that focus you have qualified. Designs that
+    /// never shipped, and designs of the other focus, don't count; a port keeps its parent's generation.
+    static func nextGeneration(_ focus: ChipFocus, _ s: GameState) -> Int {
+        1 + (s.semi.designs.filter { $0.focus == focus && $0.qualified != nil }.map(\.generation).max() ?? 0)
+    }
+
+    /// Qualified designs a new design on `node` can port: the same focus, at most one node step away.
+    static func portable(_ s: GameState, focus: ChipFocus, node: String) -> [SemiDesign] {
+        s.semi.designs.filter { $0.qualified != nil && $0.focus == focus && nodeStep($0.node, node) <= 1 }
+    }
+
+    static func parent(_ d: SemiDesign, _ s: GameState) -> SemiDesign? { d.parentID.flatMap { id in s.semi.designs.first { $0.id == id } } }
+
+    /// A port (new or from an older save, which only kept the parent's name).
+    static func isPort(_ d: SemiDesign) -> Bool { d.parentID != nil || !d.derivedFrom.isEmpty }
 
     /// Everything that speeds a chip team up (lower is faster), with the reasons.
     static func speedFactor(_ s: GameState) -> (value: Double, why: [String]) {
@@ -234,7 +261,7 @@ enum Semis {
     }
 
     /// Time, money and respin odds for a design before you commit.
-    static func plan(node: String, verification v: Int, team: SemiTeam?, derived: Bool, _ s: GameState) -> Plan {
+    static func plan(node: String, verification v: Int, team: SemiTeam?, derived: Bool, link: ChipLink = .switched, _ s: GameState) -> Plan {
         let n = SemiCatalog.node(node)
         let eng = Double(team?.engineers ?? 300)
         let teamF = pow(300 / max(50, eng), 0.5)
@@ -242,16 +269,19 @@ enum Semis {
         let days = n.designMonths * 30.4 * teamF * verificationTime[clamp(v, 0, 2)] * (derived ? 0.6 : 1) * sp.value
         let phases = [days * 0.2, days * 0.5, days * 0.3, n.fabDays, 75]
         let teamCost = eng * engineerCost(s.year) / 365 * days
-        let ipCost = n.ipMonth * days / 30.4
+        let ipCost = n.ipMonth * link.ipFactor * days / 30.4
         let exp = Double(min(team?.experience ?? 0, 4))
         let df = Silicon.designerFactor(s)
-        var r = n.respin * verificationRisk[clamp(v, 0, 2)] * (1 - 0.1 * exp) * (1 - 0.25 * df) * (1 - 0.4 * s.swarmSilicon) * (derived ? 0.7 : 1)
+        let search = AgentOrgs.respinFactor(s)
+        var r = n.respin * verificationRisk[clamp(v, 0, 2)] * (1 - 0.1 * exp) * (1 - 0.25 * df) * (1 - 0.4 * s.swarmSilicon) * (derived ? 0.7 : 1) * search + link.respin
         r = clamp(r, 0.03, 0.85)
         var parts = ["\(n.short) first-pass \(Fmt.pct(n.respin, decimals: 0))", "\(verificationName(v).lowercased()) verification ×\(Fmt.trim(verificationRisk[clamp(v, 0, 2)], 2))"]
         if exp > 0 { parts.append("\(Int(exp)) tape-out\(exp == 1 ? "" : "s") of experience ×\(Fmt.trim(1 - 0.1 * exp, 2))") }
         if df > 0 { parts.append("chip designers ×\(Fmt.trim(1 - 0.25 * df, 2))") }
         if s.swarmSilicon > 0 { parts.append("agent swarms ×\(Fmt.trim(1 - 0.4 * s.swarmSilicon, 2))") }
         if derived { parts.append("port of a proven design ×0.7") }
+        if search < 1 { parts.append("architecture-search agents ×\(Fmt.trim(search, 2))") }
+        if link.respin > 0 { parts.append("\(link.short) +\(Fmt.pct(link.respin, decimals: 0)) (new technology)") }
         var t = ["\(n.short) baseline \(Int(n.designMonths)) months for 300 engineers", "\(Int(eng)) engineers ×\(Fmt.trim(teamF, 2))",
                  "\(verificationName(v).lowercased()) verification ×\(Fmt.trim(verificationTime[clamp(v, 0, 2)], 2))"]
         if derived { t.append("port ×0.6") }
@@ -261,33 +291,109 @@ enum Semis {
                     respinWhy: parts.joined(separator: " · "), timeWhy: t.joined(separator: " · "))
     }
 
-    /// Architecture quality (1.0 = as good as the best GPU maker's at the same node and area).
-    static func archQuality(generation g: Int, team: SemiTeam?, derived: Bool, _ s: GameState) -> (value: Double, why: String) {
+    /// Architecture quality (1.0 = as good as the best GPU maker's design on the same node). A port reuses its
+    /// parent's architecture: no step up, and a little lost re-timing it for another node.
+    static func archQuality(generation g: Int, team: SemiTeam?, port: SemiDesign? = nil, node: String = "", _ s: GameState) -> (value: Double, why: String) {
+        if let p = port {
+            let base = p.arch > 0 ? p.arch : 0.55
+            let retime = node.isEmpty || node == p.node ? 0.0 : 0.02
+            return (max(0.4, base - retime), "port of \(p.name): its architecture \(Fmt.trim(base, 2))" + (retime > 0 ? " − 0.02 re-timed for \(SemiCatalog.node(node).short)" : ""))
+        }
         let df = Silicon.designerFactor(s)
         let bonus = s.traits.chipDesign + s.bonuses.chipDesign
         let exp = Double(min(team?.experience ?? 0, 5))
         let gen = Double(min(g - 1, 5))
-        var v = 0.55 + 0.07 * gen + 0.03 * exp + 0.08 * df + 0.1 * s.swarmSilicon + 0.25 * bonus + (derived ? 0.02 : 0)
-        v = clamp(v, 0.4, 1.2)
+        let search = AgentOrgs.archSearch(s)
+        let cap = 1.2 + AgentOrgs.archCapBonus(s) + search
+        var v = 0.55 + 0.07 * gen + 0.03 * exp + 0.08 * df + 0.1 * s.swarmSilicon + 0.25 * bonus + search
+        v = clamp(v, 0.4, cap)
         var parts = ["first design 0.55"]
         if gen > 0 { parts.append("generation \(g) +\(Fmt.trim(0.07 * gen, 2))") }
         if exp > 0 { parts.append("team experience +\(Fmt.trim(0.03 * exp, 2))") }
         if df > 0 { parts.append("chip designers +\(Fmt.trim(0.08 * df, 2))") }
         if s.swarmSilicon > 0 { parts.append("swarms +\(Fmt.trim(0.1 * s.swarmSilicon, 2))") }
         if bonus > 0 { parts.append("research & traits +\(Fmt.trim(0.25 * bonus, 2))") }
+        if search > 0 { parts.append("architecture-search agents +\(Fmt.trim(search, 2))") }
+        parts.append("cap \(Fmt.trim(cap, 2))" + (cap > 1.2 ? " (raised by your silicon organisation)" : ""))
         return (v, parts.joined(separator: " · "))
     }
 
-    /// Performance vs today's best merchant GPU, with how it was worked out.
-    static func perfRatio(arch: Double, node: String, die: String, erratum: Bool, _ s: GameState) -> (value: Double, why: String) {
+    // MARK: Chip specs (3.9)
+
+    struct Spec {
+        var bf16: Double
+        var fp8: Double
+        var fp4: Double
+        var tdpW: Double
+        var memoryGB: Double
+        var bandwidthTBs: Double
+        var scaleUp: Int
+        var icGBs: Double
+        var link: ChipLink
+        /// Share of the peak that survives training (inference parts train badly).
+        var trainFactor: Double
+        /// Training MFU with a fully mature compiler, before your lab's own bonuses.
+        var mfu: Double
+        var why: String
+    }
+
+    /// Dense BF16 a design delivers: the node's TFLOPS per mm² × logic area × architecture (× an erratum). It is fixed
+    /// when the design tapes out — the same silicon does the same work whenever it ships.
+    static func peakBF16(arch: Double, node: String, die: String, erratum: Bool) -> Double {
+        SemiCatalog.node(node).tfmm * SemiCatalog.die(die).siliconArea * arch * (erratum ? 0.88 : 1)
+    }
+
+    /// Scale-up domain and per-chip interconnect bandwidth of a link generation designed in `y`.
+    static func domain(_ link: ChipLink, focus: ChipFocus, year y: Double) -> (size: Int, gbs: Double) {
+        let nvl = interpolate([(2016, 300), (2020, 600), (2022, 900), (2024, 1_800), (2026, 3_600), (2028, 7_200), (2032, 14_400)], at: y)
+        let train: Int
+        let gbs: Double
+        switch link {
+        case .switched:
+            train = y < 2024 ? 8 : (y < 2027.5 ? 72 : 144)
+            gbs = nvl
+        case .ethernet:
+            train = 8
+            gbs = nvl * 0.25
+        case .optical:
+            train = 576
+            gbs = nvl * 2
+        }
+        return focus == .training ? (train, gbs) : (max(4, train / 4), gbs * 0.5)
+    }
+
+    /// What a design is, from its silicon alone: compute from the node, die and architecture; power from the node;
+    /// memory and interconnect from the generation it taped out in. Training parts run every precision and big
+    /// scale-up domains; inference parts give up high-precision area for FP4, lower power and more memory bandwidth per
+    /// FLOP, and train badly on small domains.
+    static func spec(node: String, die: String, stacks: Int, focus: ChipFocus, link: ChipLink, arch: Double, erratum: Bool, year y: Double,
+                     bin b: Int = 0, _ s: GameState) -> Spec {
+        let base = peakBF16(arch: arch, node: node, die: die, erratum: erratum) * binPerf[clamp(b, 0, 2)]
+        let training = focus == .training
+        let k = Double(b == 2 ? max(2, Int((Double(stacks) * 0.75).rounded())) : stacks)
+        let dom = domain(link, focus: focus, year: y)
+        let mfu = [0.44, 0.41, 0.45][link.rawValue]
         let n = SemiCatalog.node(node)
         let d = SemiCatalog.die(die)
-        let y = s.year
-        let dens = pow(n.density / refDensity(y), 0.7)
-        let area = pow(d.siliconArea / refArea(y), 0.9)
-        let v = arch * dens * area * (erratum ? 0.88 : 1)
-        return (v, "architecture \(Fmt.trim(arch, 2)) × node density \(Fmt.trim(dens, 2)) (\(n.short) vs the GPU makers' node) × silicon area \(Fmt.trim(area, 2)) (\(Int(d.siliconArea)) vs \(Int(refArea(y))) mm²)"
-                + (erratum ? " × erratum 0.88" : ""))
+        let why = "\(Fmt.trim(n.tfmm, 2)) TF/mm² on \(n.short) × \(Int(d.siliconArea)) mm² of logic × architecture \(Fmt.trim(arch, 2))"
+            + (erratum ? " × erratum 0.88" : "") + (b > 0 ? " × \(SemiCatalog.binNames[b]) bin \(Fmt.trim(binPerf[b], 2))" : "")
+            + (training ? "" : "; inference layout: BF16 ×0.55, FP4 6× BF16, 80% of the power, half the training efficiency")
+        return Spec(bf16: base * (training ? 1 : 0.55), fp8: base * 2, fp4: base * (training ? 4 : 6),
+                    tdpW: tdp(node: node, die: die) * binPower[clamp(b, 0, 2)] * (training ? 1 : 0.8 * AdvancedProjects.edgeChipPower(s)),   // edge AI hardware programmes
+                    memoryGB: k * stackGB(y), bandwidthTBs: k * stackTBs(y), scaleUp: dom.size, icGBs: dom.gbs, link: link,
+                    trainFactor: training ? 1 : 0.5, mfu: mfu, why: why)
+    }
+
+    /// The same for a design (its tape-out year, or for older designs the year it qualified).
+    static func spec(_ d: SemiDesign, bin b: Int = 0, _ s: GameState) -> Spec {
+        let y = d.tapeoutYear > 0 ? d.tapeoutYear : (d.qualified?.decimalYear ?? s.year)
+        return spec(node: d.node, die: d.die, stacks: d.stacks, focus: d.focus, link: link(d), arch: d.arch > 0 ? d.arch : 0.55, erratum: d.erratum, year: y, bin: b, s)
+    }
+
+    /// "1.7× B300": a label against today's best merchant part (the spec itself never depends on it).
+    static func perfLabel(_ bf16: Double, _ s: GameState) -> String {
+        let ref = Silicon.reference(s)
+        return "\(Fmt.trim(bf16 / max(1, ref.bf16), 2))× \(ref.name)"
     }
 
     /// Board power for the Ultra part: power per mm² rises with density, falls with each node's efficiency.
@@ -297,9 +403,19 @@ enum Semis {
         return (0.75 * Double(d.dies) * d.area * pow(n.power * n.density / 1.35, 0.7) / 10).rounded() * 10
     }
 
-    /// Server, board and network share around one chip: what taking a chip for your own fleet costs once the silicon is paid.
+    /// Server, board and network share around one chip: what taking a chip for your own fleet costs once the silicon is
+    /// paid. 3.9: a cost of its own (boards, host CPUs, NICs and cables get dearer slowly), no longer a share of the GPU
+    /// makers' list price — the silicon is costed separately (`siliconCost`).
     static func systemCost(_ s: GameState) -> Double {
-        (ChipBusiness.listPrice(Silicon.reference(s), s) * 0.12 / 100).rounded() * 100 + 2_000
+        (interpolate([(2016, 2_500), (2020, 3_500), (2024, 5_000), (2028, 7_000), (2032, 9_000)], at: s.year) / 100).rounded() * 100
+    }
+
+    /// 3.9: what the silicon in one of your chips costs to make today (wafer, packaging, HBM and test per good chip):
+    /// added to the server around it when your fleet's chips are valued and their running cost is worked out, so a model
+    /// served on your own chips pays for the silicon like one on bought chips. Zero for any other chip.
+    static func siliconCost(_ chipID: String, _ s: GameState) -> Double {
+        guard isSemiChip(chipID), let (i, _) = design(ofChip: chipID, s), let fsw = SemiCatalog.foundryByID["fsw"] else { return 0 }
+        return unitCost(s.semi.designs[i], foundry: fsw, s).total
     }
 
     static func stacksFor(bin b: Int, _ d: SemiDesign) -> Int { b == 2 ? max(2, Int((Double(d.stacks) * 0.75).rounded())) : d.stacks }
@@ -307,30 +423,110 @@ enum Semis {
     static let binPerf = [1.0, 0.88, 0.7]
     static let binPower = [1.0, 0.95, 0.8]
 
+    // MARK: Software maturity (3.9)
+
+    /// Training MFU your chips reach against a fully mature compiler: an immature stack leaves a third on the table.
+    static func softwareMFU(_ m: Double) -> Double { 0.62 + 0.38 * clamp(m, 0, 1) }
+
+    /// Serving throughput against a merchant part with the same peak (kernels, graph compiler, quantisation support).
+    static func softwareServe(_ m: Double) -> Double { 0.7 + 0.35 * clamp(m, 0, 1) }
+
+    /// Decode efficiency (share of memory bandwidth that turns into tokens): more bandwidth per FLOP decodes better,
+    /// and a mature stack wastes less of it.
+    static func decodeEff(focus: ChipFocus, bandwidthTBs: Double, bf16: Double, software m: Double) -> Double {
+        let ratio = bandwidthTBs / max(1, bf16) / 0.0034
+        return clamp((focus == .training ? 0.62 : 0.74) + 0.06 * log2(max(0.25, ratio)), 0.5, 0.92) * (0.85 + 0.15 * clamp(m, 0, 1))
+    }
+
+    /// Yearly cost of the compiler and kernel team.
+    static func compilerCostYear(_ s: GameState) -> Double { Double(s.semi.compilerEngineers) * engineerCost(s.year) * 0.9 }
+
+    /// How fast your software stack matures a year, by source (each year it closes that share of the gap to 1).
+    /// Nothing to compile for until you have a design.
+    static func softwareRates(_ s: GameState) -> [(why: String, rate: Double)] {
+        guard !s.semi.designs.isEmpty else { return [] }
+        var out: [(String, Double)] = []
+        let e = Double(s.semi.compilerEngineers)
+        if e > 0 { out.append(("\(Int(e)) compiler & kernel engineers", 0.45 * (e / 150).squareRoot())) }
+        let used = s.semi.shipped + s.semi.designs.reduce(0) { $0 + $1.taken.reduce(0, +) }
+        if used > 0 { out.append(("\(Fmt.count(used)) of your chips in use (bug reports, kernels, users)", 0.08 * log10(1 + used / 10_000))) }
+        let org = AgentOrgs.compilerLevel(s)
+        if org > 0 { out.append(("software organisation's compiler work", 0.8 * org)) }
+        return out
+    }
+
+    static func softwareRate(_ s: GameState) -> Double { softwareRates(s).reduce(0) { $0 + $1.rate } }
+
+    static func softwareDaily(_ s: inout GameState) {
+        let cost = compilerCostYear(s) / 365
+        spend(&s, cost)
+        s.semi.month.softwareCost += cost
+        let r = softwareRate(s)
+        guard r > 0 else { return }
+        s.semi.software = min(1, s.semi.software + (1 - s.semi.software) * r / 365)
+    }
+
     /// The three chips (Ultra, Standard, Lite) a qualified design becomes.
     static func makeChips(_ d: SemiDesign, _ s: GameState) -> [CustomChip] {
-        let ref = Silicon.reference(s)
-        let perf = perfRatio(arch: d.arch, node: d.node, die: d.die, erratum: d.erratum, s).value
-        let training = d.focus == .training
-        let y = s.year
+        let y = d.tapeoutYear > 0 ? d.tapeoutYear : s.year
         let company = s.companyName.split(separator: " ").first.map(String.init) ?? "Custom"
+        let m = s.semi.software
         return (0..<3).map { b in
-            let p = perf * binPerf[b]
-            let stacks = Double(stacksFor(bin: b, d))
-            let bw = stacks * stackTBs(y)
-            return CustomChip(
+            let sp = spec(d, bin: b, s)
+            var c = CustomChip(
                 id: "\(chipPrefix)\(d.id.uuidString.prefix(8).lowercased())_\(b)",
                 name: "\(company) \(d.name) \(SemiCatalog.binNames[b])",
                 focus: d.focus, available: s.date, process: SemiCatalog.node(d.node).name,
-                memoryGB: stacks * stackGB(y), memoryType: hbmGeneration(y), bandwidthTBs: bw,
-                bf16: ref.bf16 * p * (training ? 1 : 0.75),
-                fp8: (ref.fp8 > 0 ? ref.fp8 : ref.bf16 * 2) * p * (training ? 1 : 1.1),
-                fp4: ref.fp4 > 0 ? ref.fp4 * p * (training ? 0.9 : 1.2) : 0,
-                tdpW: tdp(node: d.node, die: d.die) * binPower[b] * (training ? 1 : 0.85 * AdvancedProjects.edgeChipPower(s)),   // edge AI hardware programmes
-                unitCost: systemCost(s),
-                decodeEff: clamp((training ? 0.66 : 0.78) + 0.04 * log2(max(0.25, bw / max(0.1, ref.bandwidthTBs))), 0.5, 0.9),
-                scaleUp: training ? 128 : 64, generation: d.generation)
+                memoryGB: sp.memoryGB, memoryType: hbmGeneration(y), bandwidthTBs: sp.bandwidthTBs,
+                bf16: sp.bf16, fp8: sp.fp8, fp4: sp.fp4, tdpW: sp.tdpW, unitCost: systemCost(s),
+                decodeEff: decodeEff(focus: d.focus, bandwidthTBs: sp.bandwidthTBs, bf16: sp.bf16, software: m),
+                scaleUp: sp.scaleUp, generation: d.generation)
+            c.mfu = sp.mfu * softwareMFU(m)
+            c.trainFactor = sp.trainFactor
+            c.serveFactor = softwareServe(m)
+            c.icGBs = sp.icGBs
+            c.link = sp.link.title
+            return c
         }
+    }
+
+    /// Re-registers your chips with today's software maturity (training MFU, serving throughput, decode efficiency)
+    /// and their interconnect. Their compute, memory and power never change.
+    static func refreshChips(_ s: inout GameState) {
+        let m = s.semi.software
+        for ci in s.customChips.indices where isSemiChip(s.customChips[ci].id) {
+            guard let (i, b) = design(ofChip: s.customChips[ci].id, s) else { continue }
+            let sp = spec(s.semi.designs[i], bin: b, s)
+            let c = s.customChips[ci]
+            s.customChips[ci].mfu = sp.mfu * softwareMFU(m)
+            s.customChips[ci].trainFactor = sp.trainFactor
+            s.customChips[ci].serveFactor = softwareServe(m)
+            s.customChips[ci].decodeEff = decodeEff(focus: c.focus, bandwidthTBs: c.bandwidthTBs, bf16: c.bf16, software: m)
+            s.customChips[ci].icGBs = sp.icGBs
+            s.customChips[ci].link = sp.link.title
+            s.customChips[ci].scaleUp = sp.scaleUp
+        }
+        s.semi.softwareRegistered = m
+        HardwareCatalog.register(s.customChips)
+    }
+
+    /// 3.9: save repair — the three-bin arrays an older or damaged save may hold short, and the chips' new fields.
+    static func repair(_ s: inout GameState) {
+        func pad<T>(_ a: [T], _ v: T) -> [T] { a.count >= 3 ? a : a + Array(repeating: v, count: 3 - a.count) }
+        for i in s.semi.designs.indices {
+            s.semi.designs[i].dieBank = pad(s.semi.designs[i].dieBank, 0)
+            s.semi.designs[i].stockMine = pad(s.semi.designs[i].stockMine, 0)
+            s.semi.designs[i].stockSale = pad(s.semi.designs[i].stockSale, 0)
+            s.semi.designs[i].prices = pad(s.semi.designs[i].prices, 0)
+            s.semi.designs[i].onSale = pad(s.semi.designs[i].onSale, false)
+            s.semi.designs[i].made = pad(s.semi.designs[i].made, 0)
+            s.semi.designs[i].monthMade = pad(s.semi.designs[i].monthMade, 0)
+            s.semi.designs[i].lastMade = pad(s.semi.designs[i].lastMade, 0)
+            s.semi.designs[i].sold = pad(s.semi.designs[i].sold, 0)
+            s.semi.designs[i].taken = pad(s.semi.designs[i].taken, 0)
+        }
+        for i in s.semi.shocks.indices where s.semi.shocks[i].drought <= 0 { s.semi.shocks[i].drought = s.semi.shocks[i].kind == "drought" ? 0.75 : 1 }
+        if s.customChips.contains(where: { isSemiChip($0.id) && $0.mfu <= 0 }) { refreshChips(&s) }
     }
 
     // MARK: Supply caps and prices
@@ -408,12 +604,15 @@ enum Semis {
         activeShocks(s).reduce(1.0) { $0 * mitigatedFactor($1.hbm, $1) }
     }
 
-    /// Export rules in force for your sales: the historical controls plus any tightening shock.
+    /// Export rules in force for your sales: the historical controls, any tightening shock, and (3.9) your home
+    /// country's own export-control dial — strict enough and it stops sales to China, stricter still and the Gulf
+    /// needs licences.
     static func exportRules(_ s: GameState) -> (china: Bool, gulfHalf: Bool) {
         let shock = activeShocks(s).contains { $0.export }
         let home = HQ.region(s)
-        let china = (s.market.exportControls || shock) && home != .china
-        return (china, shock && home != .gulf)
+        let dial = s.nations.ready ? s.nations.level(home, .exports) : 0
+        let china = (s.market.exportControls || shock || dial >= 60) && home != .china
+        return (china, (shock || dial >= 75) && home != .gulf)
     }
 
     /// Why a foundry won't take your booking (export rules), or nil.
@@ -452,10 +651,24 @@ enum Semis {
         SemiCatalog.node(f.node).fabWater * f.wafersMonth / 1_000 * fabRamp(f, s)
     }
 
+    /// 3.9: where a fab's power comes from (the grid unless you signed a deal for it).
+    static func fabPowerDeal(_ f: SemiFab) -> PowerDeal { PowerDeal(rawValue: f.powerDeal) ?? .grid }
+
+    /// 3.9: what a fab pays per kWh, like a datacenter: the site's industrial rate × its power deal, grid strain on
+    /// grid power, the region's energy policy, and the energy research and infrastructure teams that cut your
+    /// datacenters' bill too.
+    static func fabPowerPrice(_ f: SemiFab, _ s: GameState) -> Double {
+        let site = SemiCatalog.siteByID[f.site]
+        let deal = fabPowerDeal(f)
+        var p = (site?.power ?? 0.08) * deal.priceMultiplier * (deal == .grid ? Power.gridMultiplier(s) : 1)
+        if s.nations.ready, let r = site?.region { p *= clamp(1 - 0.1 * (s.nations.level(r, .energy) - 55) / 50, 0.88, 1.12) }   // 3.7: energy policy
+        return p * max(0.5, 1 - s.traits.power) * XenoScience.powerFactor(s) * AgentOrgs.powerFactor(s) * Science.powerFactor(s) * AdvancedProjects.powerFactor(s)
+    }
+
     /// Daily running cost of an open fab: staff and maintenance, consumables per wafer and power.
     static func fabOpexDay(_ f: SemiFab, _ s: GameState, wafersDay: Double) -> (fixed: Double, wafers: Double, power: Double) {
         let n = SemiCatalog.node(f.node)
-        let power = fabMW(f, s) * 1_000 * 24 * (SemiCatalog.siteByID[f.site]?.power ?? 0.08)
+        let power = fabMW(f, s) * 1_000 * 24 * fabPowerPrice(f, s)
         return (f.buildCost * 0.003 / 30.4, wafersDay * 0.22 * n.waferPrice, power)
     }
 
@@ -469,15 +682,28 @@ enum Semis {
 
     // MARK: Production costs (planning)
 
-    /// What one good chip costs to make today at a foundry, by input.
+    /// Packaging slots one chip takes: its die configuration, a bigger interposer for every HBM stack beyond four, and
+    /// the interconnect's SerDes or optics.
+    static func slotsPerChip(_ d: SemiDesign) -> Double {
+        SemiCatalog.die(d.die).slots * (1 + 0.06 * Double(max(0, d.stacks - 4))) + link(d).slots
+    }
+
+    /// Share of packages that survive assembly: the packaging lines' yield, less for a crowded interposer (every stack
+    /// beyond six is another chance to crack or misalign) and for optics on the package.
+    static func assemblyYield(_ d: SemiDesign, _ s: GameState) -> Double {
+        packYield(s) * (1 - 0.012 * Double(max(0, d.stacks - 6))) * link(d).yield
+    }
+
+    /// What one good chip costs to make today at a foundry, by input (per good chip, assembly losses included).
     static func unitCost(_ d: SemiDesign, foundry f: Foundry, _ s: GameState) -> (total: Double, wafer: Double, pack: Double, hbm: Double, test: Double) {
         let n = SemiCatalog.node(d.node)
         let die = SemiCatalog.die(d.die)
         let y = d.inProduction ? productYield(d, foundry: f, s) : previewYield(node: d.node, die: d.die, foundry: f, s)
-        let wafer = waferPrice(n, f, s.year) / max(0.01, y.diesPerWafer * y.good) * Double(die.dies)
         let packSup = SemiCatalog.supplierByID["fsw_pack"]!
-        let pack = supplyPrice(packSup, s) * die.slots / packSup.yield
-        let hbm = supplyPrice(SemiCatalog.supplierByID["hanseong_mem"]!, s) * Double(d.stacks)
+        let assembly = max(0.5, packSup.yield * (1 - 0.012 * Double(max(0, d.stacks - 6))) * link(d).yield)
+        let wafer = waferPrice(n, f, s.year) / max(0.01, y.diesPerWafer * y.good) * Double(die.dies) / assembly
+        let pack = supplyPrice(packSup, s) * slotsPerChip(d) / assembly
+        let hbm = supplyPrice(SemiCatalog.supplierByID["hanseong_mem"]!, s) * Double(d.stacks) / assembly
         let test = 150.0 * Double(die.dies)
         return (wafer + pack + hbm + test, wafer, pack, hbm, test)
     }
@@ -487,6 +713,7 @@ enum Semis {
     static func daily(_ s: inout GameState) {
         guard s.semi.engaged else { return }
         teamsAndDesigns(&s)
+        softwareDaily(&s)
         produce(&s)
         dieBank(&s)
         sell(&s)
@@ -519,7 +746,7 @@ enum Semis {
                     continue
                 }
                 s.semi.designs[i].waiting = ""
-                let ip = SemiCatalog.node(d.node).ipMonth / 30.4
+                let ip = SemiCatalog.node(d.node).ipMonth * link(d).ipFactor / 30.4
                 spend(&s, ip)
                 s.semi.month.designCost += ip
                 s.semi.designs[i].spent += ip + Double(t.engineers) * engineerCost(s.year) / 365
@@ -545,7 +772,7 @@ enum Semis {
 
     static func advance(_ s: inout GameState, _ i: Int) {
         let d = s.semi.designs[i]
-        let p = plan(node: d.node, verification: d.verification, team: team(s, d.teamID), derived: !d.derivedFrom.isEmpty, s)
+        let p = plan(node: d.node, verification: d.verification, team: team(s, d.teamID), derived: isPort(d), link: link(d), s)
         switch d.phase {
         case .architecture, .rtl:
             let next = d.phaseRaw + 1
@@ -560,7 +787,7 @@ enum Semis {
                 s.semi.designs[i].phaseDaysLeft = 7
                 return
             }
-            let masks = n.maskCost * (d.derivedFrom.isEmpty ? 1 : 0.8)
+            let masks = n.maskCost * (isPort(d) ? 0.8 : 1)
             spend(&s, masks, capex: true)
             s.semi.month.designCost += masks
             s.semi.designs[i].spent += masks
@@ -568,8 +795,10 @@ enum Semis {
             s.semi.designs[i].phaseRaw = SemiPhase.tapeout.rawValue
             s.semi.designs[i].phaseDays = n.fabDays
             s.semi.designs[i].phaseDaysLeft = n.fabDays
-            s.semi.designs[i].arch = archQuality(generation: d.generation, team: team(s, d.teamID), derived: !d.derivedFrom.isEmpty, s).value
-            note(&s, i, "Taped out at \(f.name): mask set \(Fmt.money(masks)). First wafers in about \(Int(n.fabDays / 30.4) + 1) months.", tone: 1)
+            s.semi.designs[i].arch = archQuality(generation: d.generation, team: team(s, d.teamID), port: parent(d, s), node: d.node, s).value
+            s.semi.designs[i].tapeoutYear = s.year
+            let sp = spec(s.semi.designs[i], s)
+            note(&s, i, "Taped out at \(f.name): mask set \(Fmt.money(masks)). Architecture \(Fmt.trim(s.semi.designs[i].arch, 2)): \(Fmt.count(sp.bf16)) TFLOPS BF16 at \(Int(sp.tdpW)) W, \(Fmt.memory(sp.memoryGB)) \(hbmGeneration(s.year)). First wafers in about \(Int(n.fabDays / 30.4) + 1) months.", tone: 1)
             Sim.news(&s, "\(d.name) taped out", "Your \(n.short) accelerator went to \(f.name) for its masks (\(Fmt.money(masks))). Respin odds at bring-up: \(Fmt.pct(p.respin, decimals: 0)).",
                      .hardware, image: "wafer")
         case .tapeout:
@@ -642,7 +871,13 @@ enum Semis {
 
     static func qualify(_ s: inout GameState, _ i: Int) {
         var d = s.semi.designs[i]
-        if d.arch <= 0 { d.arch = archQuality(generation: d.generation, team: team(s, d.teamID), derived: !d.derivedFrom.isEmpty, s).value }
+        if d.arch <= 0 { d.arch = archQuality(generation: d.generation, team: team(s, d.teamID), port: parent(d, s), node: d.node, s).value }
+        // 3.9: a new architecture is new work for the compiler (a port runs the code it already has).
+        let newISA = !isPort(d) && s.semi.designs.contains { $0.id != d.id && $0.qualified != nil }
+        if newISA && s.semi.software > 0.05 {
+            s.semi.software *= 0.85
+            log(&s, "\(d.name) is a new architecture: your compiler has to learn its new features (software maturity → \(Fmt.pct(s.semi.software, decimals: 0))).")
+        }
         let chips = makeChips(d, s)
         s.customChips.removeAll { c in chips.contains { $0.id == c.id } }
         s.customChips += chips
@@ -660,8 +895,9 @@ enum Semis {
         let ref = Silicon.reference(s)
         let ultra = chips[0]
         let perf = ultra.bf16 / max(1, ref.bf16)
-        note(&s, i, "Qualified for production: \(Fmt.trim(perf, 2))× \(ref.name) (Ultra bin).", tone: 1)
-        log(&s, "\(d.name) qualified: \(Fmt.trim(perf, 2))× \(ref.name).", tone: 1)
+        s.semi.softwareRegistered = s.semi.software
+        note(&s, i, "Qualified for production: \(Fmt.count(ultra.bf16)) TFLOPS BF16, \(Fmt.trim(perf, 2))× \(ref.name) today (Ultra bin).", tone: 1)
+        log(&s, "\(d.name) qualified: \(Fmt.count(ultra.bf16)) TFLOPS, \(Fmt.trim(perf, 2))× \(ref.name).", tone: 1)
         Achievements.unlock(&s, "silicon")
         let supplied = s.semi.bookings.contains { $0.designID == d.id && $0.end > s.date } || s.semi.fabs.contains { $0.designID == d.id }
         Sim.news(&s, "\(d.name) is in production",
@@ -759,14 +995,15 @@ enum Semis {
             }
         }
         guard anyProduct else { return }
-        // Dies → packages: slots and HBM are shared across products in proportion to the dies waiting.
+        // Dies → packages: slots and HBM are shared across products in proportion to the dies waiting. Bigger
+        // interposers (more HBM, optics) take more of each slot.
         let slots = packSlotsDay(s)
         var slotDemand = 0.0, hbmDemand = 0.0
         for d in s.semi.designs where d.inProduction {
             let die = SemiCatalog.die(d.die)
             for b in 0..<3 {
                 let chips = d.dieBank[b] / Double(die.dies)
-                slotDemand += chips * die.slots
+                slotDemand += chips * slotsPerChip(d)
                 hbmDemand += chips * Double(stacksFor(bin: b, d))
             }
         }
@@ -776,18 +1013,18 @@ enum Semis {
         let f = fSlots * fHBM
         if fSlots < 1 && fSlots <= fHBM { s.semi.month.packDays += 1 } else if fHBM < 1 { s.semi.month.hbmDays += 1 } else { s.semi.month.waferDays += 1 }
         guard f > 0 else { return }
-        let py = packYield(s)
         let slotPrice = averagePrice(s, kind: "pack"), stackPrice = averagePrice(s, kind: "hbm")
         var hbmUsed = 0.0
         for i in s.semi.designs.indices where s.semi.designs[i].inProduction {
             let d = s.semi.designs[i]
             let die = SemiCatalog.die(d.die)
+            let py = assemblyYield(d, s)
             for b in 0..<3 {
                 let chips = d.dieBank[b] / Double(die.dies) * f
                 guard chips > 0 else { continue }
                 s.semi.designs[i].dieBank[b] -= chips * Double(die.dies)
                 hbmUsed += chips * Double(stacksFor(bin: b, d))
-                s.semi.designs[i].cost += chips * (die.slots * slotPrice + Double(stacksFor(bin: b, d)) * stackPrice)
+                s.semi.designs[i].cost += chips * (slotsPerChip(d) * slotPrice + Double(stacksFor(bin: b, d)) * stackPrice)
                 let good = chips * py
                 s.semi.designs[i].made[b] += good
                 s.semi.designs[i].monthMade[b] += good
@@ -804,26 +1041,46 @@ enum Semis {
     /// Dies a day packaging actually takes for this product: last month's finished chips (this month's so far early on).
     static func diesPackedDay(_ d: SemiDesign, _ s: GameState) -> Double {
         let die = SemiCatalog.die(d.die)
-        let py = max(0.5, packYield(s))
+        let py = max(0.5, assemblyYield(d, s))
         let last = d.lastMade.reduce(0, +) / 30.4
         let day = Double(max(1, GameCalendar.components(s.date).day))
         let now = d.monthMade.reduce(0, +) / day
         return max(last, now) * Double(die.dies) / py
     }
 
-    /// Days of packaging the die bank holds (infinite when nothing is being packaged).
+    /// 3.9: dies a day the packaging slots and HBM you've contracted can take for this product — contracts running or
+    /// signed to start within two months — shared across your products by their wafer starts. It sizes the die bank, so
+    /// dies made before packaging starts are kept for it rather than dumped.
+    static func diesContractedDay(_ d: SemiDesign, _ s: GameState) -> Double {
+        let horizon = GameCalendar.addDays(s.date, Int(dieBankTargetDays))
+        let live = s.semi.supply.filter { $0.start <= horizon && ($0.own || $0.end > s.date) }
+        let slots = live.filter { $0.kind == "pack" }.reduce(0) { $0 + $1.units } / 30.4
+        let hbm = live.filter { $0.kind == "hbm" }.reduce(0) { $0 + $1.units * (SemiCatalog.supplierByID[$1.supplier]?.yield ?? 0.97) } / 30.4
+        let chips = min(slots / max(0.1, slotsPerChip(d)), hbm / Double(max(1, d.stacks)))
+        let products = s.semi.designs.filter(\.inProduction)
+        let mine = sources(d, s).reduce(0) { $0 + $1.wafersDay }
+        let all = products.reduce(0.0) { acc, p in acc + sources(p, s).reduce(0) { $0 + $1.wafersDay } }
+        let share = all > 0 ? mine / all : 1 / Double(max(1, products.count))
+        return chips * share * Double(SemiCatalog.die(d.die).dies)
+    }
+
+    /// Dies a day the bank is drawn down at: what packaging takes now, or what your contracts will take.
+    static func dieUseDay(_ d: SemiDesign, _ s: GameState) -> Double { max(diesPackedDay(d, s), diesContractedDay(d, s)) }
+
+    /// Days of packaging the die bank holds (infinite when nothing is being packaged or contracted).
     static func dieBankDays(_ d: SemiDesign, _ s: GameState) -> Double {
         let bank = d.dieBank.reduce(0, +)
         guard bank > 1 else { return 0 }
-        let use = diesPackedDay(d, s)
+        let use = dieUseDay(d, s)
         return use > 0 ? bank / use : .infinity
     }
 
     /// Wafer cost of one good die (what a die in the bank cost to make).
     static func dieCost(_ d: SemiDesign, _ s: GameState) -> Double {
         let f = SemiCatalog.foundryByID["fsw"]!
-        let die = SemiCatalog.die(d.die)
-        return unitCost(d, foundry: f, s).wafer / Double(max(1, die.dies))
+        let n = SemiCatalog.node(d.node)
+        let y = d.inProduction ? productYield(d, foundry: f, s) : previewYield(node: d.node, die: d.die, foundry: f, s)
+        return waferPrice(n, f, s.year) / max(0.01, y.diesPerWafer * y.good)
     }
 
     /// A newer generation of yours is in production (old dies are worth less: nobody wants last year's part).
@@ -841,6 +1098,9 @@ enum Semis {
     /// Dies beyond this many days of packaging are surplus.
     static let dieBankTargetDays = 60.0
 
+    /// Dies the bank should hold: two months of what packaging takes or your contracts will take.
+    static func dieBankTarget(_ d: SemiDesign, _ s: GameState) -> Double { dieBankTargetDays * dieUseDay(d, s) }
+
     /// What other packagers pay per known-good die: well under its wafer cost (they take the packaging risk and the
     /// die is a part they never designed for) — about what the wafer would have earned as foundry service — and less
     /// once a newer generation is out.
@@ -850,7 +1110,7 @@ enum Semis {
     static func dieBankValue(_ d: SemiDesign, _ s: GameState) -> Double { d.dieBank.reduce(0, +) * kgdPrice(d, s) }
 
     /// Daily: dies in the bank age (a generation behind they go faster), cost money to hold, and — unless you hold
-    /// them — the surplus beyond two months of packaging is sold to other packagers as known-good die.
+    /// them — the surplus beyond two months of packaging (made or contracted) is sold to other packagers as known-good die.
     static func dieBank(_ s: inout GameState) {
         for i in s.semi.designs.indices {
             let d = s.semi.designs[i]
@@ -864,7 +1124,7 @@ enum Semis {
             let lost = bank * dieLossMonthly(d, s) / 30.4
             var sold = 0.0
             if !s.semi.holdExcessDies {
-                let surplus = d.phase == .retired ? bank : bank - dieBankTargetDays * diesPackedDay(d, s)
+                let surplus = d.phase == .retired ? bank : bank - dieBankTarget(d, s)
                 if surplus > 0 { sold = min(bank - lost, surplus * 0.5 / 30.4) }
             }
             let out = min(bank, lost + sold)
@@ -889,7 +1149,7 @@ enum Semis {
     /// bookings', to keep packaging busy (plus 10%). Nil when there's nothing to change.
     static func suggestedFabShare(_ fab: SemiFab, _ s: GameState) -> Double? {
         guard fab.open(s.date), let id = fab.designID, let d = s.semi.designs.first(where: { $0.id == id && $0.inProduction && $0.node == fab.node }) else { return nil }
-        let use = diesPackedDay(d, s)
+        let use = dieUseDay(d, s)
         guard use > 0, dieBankDays(d, s) > 45 else { return nil }
         var booked = 0.0
         for src in sources(d, s) where src.price > 0 { booked += src.wafersDay * src.yield.diesPerWafer * src.yield.good }
@@ -950,31 +1210,74 @@ enum Semis {
 
     // MARK: Sales
 
-    /// Your standing as a chip supplier: buyers trust vendors whose chips (and software) have shipped at volume.
+    /// Your standing as a chip supplier: buyers trust vendors whose chips have shipped at volume — and whose software
+    /// stack is mature enough to port their models to (3.9).
     static func reputation(_ s: GameState) -> Double {
         let shipped = s.semi.shipped + ChipBusiness.shippedTotal(s)
-        return clamp(0.05 + 0.15 * log10(1 + shipped / 50_000) - s.semi.repHit, 0.03, 1)
+        return clamp(0.05 + 0.15 * log10(1 + shipped / 50_000) + 0.2 * s.semi.software - s.semi.repHit, 0.03, 1)
+    }
+
+    /// One of your SKUs buyers can order: a design's bin on sale at a price.
+    struct Offer {
+        var index: Int
+        var bin: Int
+        var chip: Accelerator
+        var price: Double
+        var value: Double
+    }
+
+    /// Everything on sale today (optionally with one bin's price replaced, for "what if" forecasts).
+    static func offers(_ s: GameState, override: (id: UUID, bin: Int, price: Double)? = nil) -> [Offer] {
+        var out: [Offer] = []
+        for i in s.semi.designs.indices where s.semi.designs[i].inProduction {
+            let d = s.semi.designs[i]
+            for b in 0..<3 where d.chipIDs.indices.contains(b) {
+                let forced = override.map { $0.id == d.id && $0.bin == b } ?? false
+                guard d.onSale[b] || forced, let chip = HardwareCatalog.get(d.chipIDs[b]) else { continue }
+                let price = forced ? override!.price : d.prices[b]
+                guard price > 0 else { continue }
+                out.append(Offer(index: i, bin: b, chip: chip, price: price, value: ChipBusiness.valueRatio(chip: chip, price: price, s)))
+            }
+        }
+        return out
     }
 
     struct Demand {
-        var perDay: Double
-        var value: Double
+        /// Your share of the market's accelerator spending, as one vendor.
         var share: Double
-        var rep: Double
         var spendDay: Double
+        var rep: Double
+        /// Best value per dollar against a GPU, with the line-up's breadth.
+        var value: Double
+        /// Each offer's share of what buyers spend with you.
+        var split: [Double]
         var why: String
     }
 
-    /// Chips a day the whole market would take at `price` (before export rules and who you sell to).
-    static func demand(_ chip: Accelerator, price: Double, _ s: GameState) -> Demand {
+    /// 3.9: the market treats you as one vendor. Your best value per dollar (a little more for a broader line-up) and
+    /// your reputation set the share of the year's accelerator spending you win; buyers then split it across your SKUs
+    /// by value per dollar. Adding SKUs never adds a whole extra market share.
+    static func vendorDemand(_ s: GameState, offers: [Offer]) -> Demand {
         let spendDay = ChipBusiness.acceleratorSpend(s.year) * clamp(s.market.hype / 1.3, 0.6, 1.6) / 365
-        let v = ChipBusiness.valueRatio(chip: chip, price: price, s)
         let rep = reputation(s)
+        guard let best = offers.map(\.value).max(), best > 0 else { return Demand(share: 0, spendDay: spendDay, rep: rep, value: 0, split: [], why: "") }
+        let v = best * (1 + 0.08 * Double(min(3, offers.count - 1)))
         let share = ChipBusiness.marketShare(value: v, reputation: rep)
+        let w = offers.map { pow(max(0.01, $0.value), 3) }
+        let total = w.reduce(0, +)
+        return Demand(share: share, spendDay: spendDay, rep: rep, value: v, split: w.map { $0 / max(1e-12, total) },
+                      why: "\(Fmt.money(spendDay * 365)) a year of accelerator spending × \(Fmt.pct(share, decimals: 2)) share for you as a vendor (best value \(Fmt.trim(best, 2))× a GPU per dollar\(offers.count > 1 ? " with \(offers.count) SKUs" : ""), supplier reputation \(Fmt.pct(rep, decimals: 0)))")
+    }
+
+    /// Chips a day the market would take of one bin at `price` (before export rules and who you sell to), with the
+    /// rest of your line-up at its current prices.
+    static func demand(_ id: UUID, bin b: Int, price: Double, _ s: GameState) -> (perDay: Double, why: String) {
+        let list = offers(s, override: (id, b, price))
+        let v = vendorDemand(s, offers: list)
+        guard let k = list.firstIndex(where: { s.semi.designs[$0.index].id == id && $0.bin == b }) else { return (0, v.why) }
         let mult = max(0.3, 1 + s.traits.chipSales)
-        let perDay = spendDay * share / max(price, 1) * mult
-        return Demand(perDay: perDay, value: v, share: share, rep: rep, spendDay: spendDay,
-                      why: "\(Fmt.money(spendDay * 365)) a year of accelerator spending × \(Fmt.pct(share, decimals: 2)) share (value \(Fmt.trim(v, 2))× a GPU per dollar, supplier reputation \(Fmt.pct(rep, decimals: 0))) ÷ \(Fmt.money(price))")
+        return (v.spendDay * v.share * v.split[k] / max(price, 1) * mult,
+                v.why + ", \(Fmt.pct(v.split[k], decimals: 0)) of it on this part ÷ \(Fmt.money(price))")
     }
 
     struct Buyer {
@@ -985,23 +1288,39 @@ enum Semis {
         var blocked: String?
     }
 
+    /// You promised a customer exclusive supply: no chips to rival labs until then.
+    static func exclusiveUntil(_ s: GameState) -> Date? { s.exclusiveSupplyUntil.flatMap { $0 > s.date ? $0 : nil } }
+
+    static func rivalAlive(_ c: CompetitorState, _ s: GameState) -> Bool {
+        !c.acquired && !c.bankrupt && c.exitNote.isEmpty && s.year >= c.def.founded.decimal
+    }
+
+    /// What a rival lab will spend on your chips in a day: a sliver of its cash.
+    static func rivalBudgetDay(_ s: GameState, _ id: String) -> Double {
+        guard let c = s.competitors.first(where: { $0.id == id }), rivalAlive(c, s) else { return 0 }
+        return max(0, c.cash) * 0.004
+    }
+
     /// Who buys and in what shares: clouds, sovereigns and enterprises take three quarters of demand, rival labs a quarter
-    /// (by compute) if you let them. Export rules and your own policy block some.
+    /// (by compute) if you let them. Export rules, an exclusive-supply promise and your own policy block some.
     static func buyers(_ s: GameState) -> [Buyer] {
         let rules = exportRules(s)
+        let exclusive = exclusiveUntil(s)
         let total = SemiCatalog.customers.reduce(0) { $0 + $1.weight }
         var out: [Buyer] = SemiCatalog.customers.map { c in
             var blocked: String? = nil
             if c.region == .china && rules.china { blocked = "export controls" }
             if c.kind == "sovereign" && !s.semi.allowSovereigns { blocked = "you don't sell to sovereigns" }
-            let w = c.weight / total * 0.75 * (c.region == .gulf && rules.gulfHalf ? 0.5 : 1)
+            let sovereign = c.kind == "sovereign" ? Nations.agencyFactor(s, c.region) : 1   // 3.7: sovereign-AI programmes
+            let w = c.weight / total * 0.75 * (c.region == .gulf && rules.gulfHalf ? 0.5 : 1) * sovereign
             return Buyer(id: c.id, name: c.name, weight: w, rival: false, blocked: blocked)
         }
-        let rivals = s.competitors.filter { !$0.acquired && !$0.bankrupt && $0.exitNote.isEmpty && s.year >= $0.def.founded.decimal }
+        let rivals = s.competitors.filter { rivalAlive($0, s) }
         let rtotal = rivals.reduce(0) { $0 + $1.def.computeShare }
         for r in rivals where rtotal > 0 {
             var blocked: String? = nil
             if !s.semi.allowRivals { blocked = "you don't sell to rivals" }
+            if let until = exclusive { blocked = "exclusive supply promised until \(until.gameShort)" }
             if AdvancedProjects.labRegion(r.id) == .china && rules.china { blocked = "export controls" }
             out.append(Buyer(id: r.id, name: r.def.name, weight: 0.25 * r.def.computeShare / rtotal, rival: true, blocked: blocked))
         }
@@ -1009,44 +1328,64 @@ enum Semis {
     }
 
     static func sell(_ s: inout GameState) {
-        let buyerList = buyers(s)
-        let open = buyerList.filter { $0.blocked == nil }
+        // Orders first, for every product with stock — a retired product still delivers what it promised.
+        for i in s.semi.designs.indices where s.semi.designs[i].inProduction || s.semi.designs[i].phase == .retired {
+            deliverOrders(&s, i)
+        }
+        let open = buyers(s).filter { $0.blocked == nil }
+        let openW = open.reduce(0) { $0 + $1.weight }
+        let list = offers(s)
+        guard openW > 0, !list.isEmpty else { return }
+        let v = vendorDemand(s, offers: list)
+        let mult = max(0.3, 1 + s.traits.chipSales)
         let h100 = HardwareCatalog.h100.bf16
-        for i in s.semi.designs.indices where s.semi.designs[i].inProduction {
-            let d = s.semi.designs[i]
-            for b in 0..<3 {
-                guard d.chipIDs.indices.contains(b), let chip = HardwareCatalog.get(d.chipIDs[b]) else { continue }
-                // Contracts first.
-                for ci in s.semi.contracts.indices where !s.semi.contracts[ci].closed && s.semi.contracts[ci].designID == d.id && s.semi.contracts[ci].bin == b {
-                    let n = min(s.semi.contracts[ci].remaining, s.semi.designs[i].stockSale[b])
-                    guard n > 0 else { continue }
-                    let c = s.semi.contracts[ci]
-                    s.semi.designs[i].stockSale[b] -= n
-                    s.semi.contracts[ci].delivered += n
-                    record(&s, i, b, units: n, price: c.price, buyer: c.customer, h100e: n * chip.bf16 / h100)
-                }
-                guard d.onSale[b], d.prices[b] > 0, s.semi.designs[i].stockSale[b] > 0 else { continue }
-                let dem = demand(chip, price: d.prices[b], s)
-                let want = dem.perDay * open.reduce(0) { $0 + $1.weight }
-                let units = min(want, s.semi.designs[i].stockSale[b])
-                guard units > 0 else { continue }
-                s.semi.designs[i].stockSale[b] -= units
-                let totalW = max(1e-9, open.reduce(0) { $0 + $1.weight })
-                for buyer in open {
-                    var u = units * buyer.weight / totalW
-                    if buyer.rival, let ci = s.competitors.firstIndex(where: { $0.id == buyer.id }) {
-                        // A rival only buys what its cash can carry.
-                        u = min(u, max(0, s.competitors[ci].cash) * 0.004 / d.prices[b])
-                        s.competitors[ci].cash -= u * d.prices[b]
-                    }
-                    guard u > 0 else { continue }
-                    record(&s, i, b, units: u, price: d.prices[b], buyer: buyer.id, h100e: u * chip.bf16 / h100)
-                }
+        for (k, o) in list.enumerated() {
+            let want = v.spendDay * v.share * v.split[k] / max(o.price, 1) * mult * openW
+            let units = min(want, s.semi.designs[o.index].stockSale[o.bin])
+            guard units > 0 else { continue }
+            var sold = 0.0
+            for buyer in open {
+                var u = units * buyer.weight / openW
+                // A rival only buys what its cash can carry.
+                if buyer.rival { u = min(u, rivalBudgetDay(s, buyer.id) / o.price) }
+                guard u > 0 else { continue }
+                record(&s, o.index, o.bin, units: u, price: o.price, buyer: buyer.id, h100e: u * o.chip.bf16 / h100)
+                sold += u
             }
+            // Only what was sold leaves stock.
+            s.semi.designs[o.index].stockSale[o.bin] = max(0, s.semi.designs[o.index].stockSale[o.bin] - sold)
         }
     }
 
-    /// Book a sale: cash, revenue, the buyer's tally — and a rival's fleet grows with your chips.
+    /// Ship accepted orders for one product from customer stock. A rival that can no longer pay (or no longer exists)
+    /// defaults: the order is cancelled without a penalty.
+    static func deliverOrders(_ s: inout GameState, _ i: Int) {
+        let d = s.semi.designs[i]
+        let h100 = HardwareCatalog.h100.bf16
+        for ci in s.semi.contracts.indices where !s.semi.contracts[ci].closed && s.semi.contracts[ci].designID == d.id {
+            let c = s.semi.contracts[ci]
+            let b = c.bin
+            guard (0..<3).contains(b), d.chipIDs.indices.contains(b) else { continue }
+            var n = min(c.remaining, s.semi.designs[i].stockSale[b])
+            if let r = s.competitors.first(where: { $0.id == c.customer }) {
+                let canPay = rivalAlive(r, s) ? max(0, r.cash) / max(1, c.price) : 0
+                if canPay < 1 {
+                    s.semi.contracts[ci].closed = true
+                    log(&s, "\(r.def.name) can't pay for the rest of its order (\(Fmt.count(c.remaining)) chips): cancelled, no penalty.", tone: -1)
+                    continue
+                }
+                n = min(n, canPay)
+            }
+            guard n > 0 else { continue }
+            s.semi.designs[i].stockSale[b] -= n
+            s.semi.contracts[ci].delivered += n
+            let bf16 = HardwareCatalog.get(d.chipIDs[b])?.bf16 ?? 0
+            record(&s, i, b, units: n, price: c.price, buyer: c.customer, h100e: n * bf16 / h100)
+        }
+    }
+
+    /// Book a sale: cash, revenue, the buyer's tally — a rival lab pays from its own cash, and its fleet grows with
+    /// your chips.
     static func record(_ s: inout GameState, _ i: Int, _ b: Int, units: Double, price: Double, buyer: String, h100e: Double) {
         let rev = units * price
         s.cash += rev
@@ -1059,8 +1398,10 @@ enum Semis {
         s.semi.shipped += units
         s.semi.buyers[buyer, default: 0] += units
         if let ci = s.competitors.firstIndex(where: { $0.id == buyer }) {
+            s.competitors[ci].cash -= rev
             s.competitors[ci].armedH100e += h100e
             s.semi.month.toRivals += units
+            s.semi.month.rivalRevenue += rev
         }
     }
 

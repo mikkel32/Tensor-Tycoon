@@ -30,6 +30,10 @@ struct ProcessNode: Identifiable, Sendable {
     let fabPerWafer: Double
     let fabMW: Double
     let fabWater: Double
+    /// 3.9: dense BF16 TFLOPS per mm² of logic the best GPU maker's design on this node reaches (architecture 1.0):
+    /// what a chip taped out here can do, whenever it ships. Each node's tensor cores, low-precision formats and
+    /// clocks come with it, so it rises much faster than density.
+    let tfmm: Double
 
     var short: String { name.components(separatedBy: " ").first ?? name }
 }
@@ -112,21 +116,21 @@ struct ChipCustomer: Identifiable, Sendable {
 enum SemiCatalog {
     static let nodes: [ProcessNode] = [
         ProcessNode(id: "n16", name: "16 nm FinFET", launch: 2015.5, waferPrice: 6_000, maskCost: 8e6, designMonths: 14, ipMonth: 0.8e6, fabDays: 70,
-                    d0: 0.07, density: 0.35, power: 2.2, respin: 0.22, fabPerWafer: 250_000, fabMW: 3, fabWater: 700),
+                    d0: 0.07, density: 0.35, power: 2.2, respin: 0.22, fabPerWafer: 250_000, fabMW: 3, fabWater: 700, tfmm: 0.12),
         ProcessNode(id: "n7", name: "7 nm FinFET", launch: 2018.5, waferPrice: 9_500, maskCost: 25e6, designMonths: 16, ipMonth: 1.8e6, fabDays: 80,
-                    d0: 0.08, density: 1.0, power: 1.0, respin: 0.26, fabPerWafer: 400_000, fabMW: 4, fabWater: 800),
+                    d0: 0.08, density: 1.0, power: 1.0, respin: 0.26, fabPerWafer: 400_000, fabMW: 4, fabWater: 800, tfmm: 0.38),
         ProcessNode(id: "n5", name: "5 nm FinFET", launch: 2020.6, waferPrice: 16_000, maskCost: 40e6, designMonths: 18, ipMonth: 3e6, fabDays: 90,
-                    d0: 0.08, density: 1.8, power: 0.75, respin: 0.3, fabPerWafer: 500_000, fabMW: 5, fabWater: 850),
+                    d0: 0.08, density: 1.8, power: 0.75, respin: 0.3, fabPerWafer: 500_000, fabMW: 5, fabWater: 850, tfmm: 1.4),
         ProcessNode(id: "n3", name: "3 nm FinFET", launch: 2022.9, waferPrice: 20_000, maskCost: 60e6, designMonths: 20, ipMonth: 4.5e6, fabDays: 100,
-                    d0: 0.09, density: 2.9, power: 0.6, respin: 0.34, fabPerWafer: 600_000, fabMW: 6, fabWater: 900),
+                    d0: 0.09, density: 2.9, power: 0.6, respin: 0.34, fabPerWafer: 600_000, fabMW: 6, fabWater: 900, tfmm: 4.5),
         ProcessNode(id: "n2", name: "2 nm gate-all-around", launch: 2025.8, waferPrice: 30_000, maskCost: 90e6, designMonths: 22, ipMonth: 6e6, fabDays: 110,
-                    d0: 0.1, density: 3.9, power: 0.5, respin: 0.38, fabPerWafer: 750_000, fabMW: 7, fabWater: 950),
+                    d0: 0.1, density: 3.9, power: 0.5, respin: 0.38, fabPerWafer: 750_000, fabMW: 7, fabWater: 950, tfmm: 7.5),
         ProcessNode(id: "a16", name: "A16-class (1.6 nm, backside power)", launch: 2026.9, waferPrice: 40_000, maskCost: 120e6, designMonths: 24, ipMonth: 8e6, fabDays: 115,
-                    d0: 0.11, density: 4.6, power: 0.42, respin: 0.42, fabPerWafer: 900_000, fabMW: 8, fabWater: 1_000),
+                    d0: 0.11, density: 4.6, power: 0.42, respin: 0.42, fabPerWafer: 900_000, fabMW: 8, fabWater: 1_000, tfmm: 11),
         ProcessNode(id: "a14", name: "A14-class (1.4 nm)", launch: 2028.6, waferPrice: 50_000, maskCost: 160e6, designMonths: 26, ipMonth: 10e6, fabDays: 120,
-                    d0: 0.12, density: 6.0, power: 0.36, respin: 0.45, fabPerWafer: 1_100_000, fabMW: 9, fabWater: 1_050),
+                    d0: 0.12, density: 6.0, power: 0.36, respin: 0.45, fabPerWafer: 1_100_000, fabMW: 9, fabWater: 1_050, tfmm: 20),
         ProcessNode(id: "a10", name: "A10-class (1 nm)", launch: 2031.0, waferPrice: 65_000, maskCost: 220e6, designMonths: 28, ipMonth: 13e6, fabDays: 125,
-                    d0: 0.13, density: 8.0, power: 0.3, respin: 0.48, fabPerWafer: 1_400_000, fabMW: 10, fabWater: 1_100),
+                    d0: 0.13, density: 8.0, power: 0.3, respin: 0.48, fabPerWafer: 1_400_000, fabMW: 10, fabWater: 1_100, tfmm: 37),
     ]
     static let nodeByID: [String: ProcessNode] = Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, $0) })
     static func node(_ id: String) -> ProcessNode { nodeByID[id] ?? nodes[1] }

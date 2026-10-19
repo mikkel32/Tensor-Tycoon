@@ -99,6 +99,17 @@ enum ScenarioHarness {
         }
     }
 
+    /// Puts a synthetic harness company at `stage`: its setup skipped the years of play that would have earned it.
+    static func setStage(_ s: inout GameState, _ stage: CompanyStage) {
+        Progression.bootstrap(&s)
+        guard s.progression.current < stage else { return }
+        for v in (s.progression.stage + 1)...stage.rawValue {
+            s.progression.reached[v] = s.date
+            s.progression.credited.insert(v)
+        }
+        s.progression.stage = stage.rawValue
+    }
+
     /// Tops cash up to `floor` as new equity, so a scenario can keep playing without leaving the books unexplained.
     static func fund(_ s: inout GameState, atLeast floor: Double) {
         let add = floor - s.cash
