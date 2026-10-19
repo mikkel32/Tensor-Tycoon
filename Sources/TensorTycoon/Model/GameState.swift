@@ -1551,6 +1551,14 @@ struct CustomChip: Codable, Identifiable, Hashable {
     var generation: Int
     /// Designed by your agents from an alien architecture.
     @D var alien: Bool = false
+    /// 3.9 (chips from the Semiconductors page; 0 or "" = the old defaults): training MFU the part reaches before your
+    /// lab's own bonuses, how much of its peak survives training (inference parts train badly), serving throughput
+    /// against a merchant part with the same peak (compiler maturity), and its scale-up interconnect.
+    @D var mfu: Double = 0
+    @D var trainFactor: Double = 0
+    @D var serveFactor: Double = 0
+    @D var icGBs: Double = 0
+    @D var link: String = ""
 }
 
 // MARK: - Supply agreements

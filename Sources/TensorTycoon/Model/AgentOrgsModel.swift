@@ -47,6 +47,9 @@ struct OrgActivity: Sendable {
     let name: String
     let minQuality: Double
     let effect: String
+    /// 3.9: researcher-equivalents on it for full strength (log-scaled from 1). Work only research leads (≥ 2) or
+    /// superhuman agents (≥ 8) can do takes a far bigger organisation to finish.
+    var full: Double = 1e5
 }
 
 /// An AI organisation: teams of agents (swarms) working one objective under supervisors, with a compute budget (the
@@ -87,6 +90,15 @@ struct AgentOrg: Codable, Identifiable, Hashable {
     /// Architecture research: progress towards the next technique.
     @D var techProgress: Double = 0
     @D var incidents: Int = 0
+    /// 3.9: a measurable objective — a metric (`AgentOrgs.metrics`), the target, where it stood when set, and the
+    /// deadline — and how it ended (0 open, 1 met, 2 missed) and when.
+    @D var goalKey: String = ""
+    @D var goalTarget: Double = 0
+    @D var goalStart: Double = 0
+    @D var goalDeadline: Date? = nil
+    @D var goalSet: Date? = nil
+    @D var goalStatus: Int = 0
+    @D var goalClosed: Date? = nil
 }
 
 extension SwarmMission {
@@ -173,25 +185,38 @@ extension SwarmMission {
         }
     }
 
+    /// 3.9: past the first activities, research leads (≥ 2 researcher-equivalents an agent) and superhuman agents (≥ 8)
+    /// unlock new classes of work with their own effects — and full strength takes 10⁶ or 10⁸ researcher-equivalents,
+    /// so a bigger organisation keeps finding more to do instead of maxing out at a thousand agents.
     var activities: [OrgActivity] {
         switch self {
         case .research: [OrgActivity(name: "Ablations & reproductions", minQuality: 0, effect: "Research points"),
-                         OrgActivity(name: "New techniques", minQuality: 0.6, effect: "Publishes techniques: +0.3% training MFU each (up to 10)")]
+                         OrgActivity(name: "New techniques", minQuality: 0.6, effect: "Publishes techniques: +0.3% training MFU each (up to 10)"),
+                         OrgActivity(name: "Automated research", minQuality: 8, effect: "Techniques 3× faster and up to 20 of them", full: 1e8)]
         case .software: [OrgActivity(name: "Maintenance & serving optimisation", minQuality: 0, effect: "Product lines up to 25% cheaper to serve"),
-                         OrgActivity(name: "Feature shipping", minQuality: 0.2, effect: "Product-line quality up to +2 points")]
+                         OrgActivity(name: "Feature shipping", minQuality: 0.2, effect: "Product-line quality up to +2 points"),
+                         OrgActivity(name: "Compilers & kernels for your chips", minQuality: 0.6, effect: "Your chips' software matures up to 0.8 a year faster"),
+                         OrgActivity(name: "Self-optimising serving stack", minQuality: 2, effect: "Product lines up to 15% more cheaper to serve", full: 1e6)]
         case .discovery: [OrgActivity(name: "Hypotheses & simulation", minQuality: 0, effect: "Moonshot odds up to +10%"),
-                          OrgActivity(name: "Autonomous experiments", minQuality: 0.6, effect: "Running moonshots finish up to 1.5× faster")]
+                          OrgActivity(name: "Autonomous experiments", minQuality: 0.6, effect: "Running moonshots finish up to 1.5× faster"),
+                          OrgActivity(name: "Automated science", minQuality: 2, effect: "Your science labs' stages up to 1.5× faster", full: 1e6)]
         case .infrastructure: [OrgActivity(name: "Fleet monitoring", minQuality: 0, effect: "Site outages up to 60% rarer"),
-                               OrgActivity(name: "Power & cooling optimisation", minQuality: 0.2, effect: "Power bill up to 12% lower")]
+                               OrgActivity(name: "Power & cooling optimisation", minQuality: 0.2, effect: "Power bill up to 12% lower"),
+                               OrgActivity(name: "Construction planning", minQuality: 2, effect: "Campus builds up to 30% faster", full: 1e6)]
         case .robotics: [OrgActivity(name: "Simulation & data", minQuality: 0, effect: "Robotics Brain quality up to +2 points"),
                          OrgActivity(name: "Hardware-in-the-loop", minQuality: 0.6, effect: "Robotics Brain quality up to +3 more points")]
         case .finance: [OrgActivity(name: "Treasury management", minQuality: 0, effect: "Interest on cash up to +0.4 points")]
         case .experiments: [OrgActivity(name: "Experiment scheduling", minQuality: 0, effect: "Experiments and proxy runs up to 1.5× faster")]
         case .xeno: [OrgActivity(name: "Design-space search", minQuality: 0, effect: "Alien-architecture insight")]
-        case .trainingOps: [OrgActivity(name: "Cluster babysitting", minQuality: 0, effect: "Training-run ops coverage and MFU")]
-        case .silicon: [OrgActivity(name: "RTL & verification", minQuality: 0, effect: "Faster, better chip programs")]
-        case .alignment: [OrgActivity(name: "Red-teaming & audits", minQuality: 0, effect: "Safety score, slower drift")]
-        case .workforce: [OrgActivity(name: "Client work", minQuality: 0, effect: "Labour revenue")]
+        case .trainingOps: [OrgActivity(name: "Cluster babysitting", minQuality: 0, effect: "Training-run ops coverage and MFU"),
+                            OrgActivity(name: "Kernel autotuning", minQuality: 2, effect: "Training MFU up to +2 points", full: 1e6)]
+        case .silicon: [OrgActivity(name: "RTL & verification", minQuality: 0, effect: "Faster, better chip programs"),
+                        OrgActivity(name: "Physical design & yield learning", minQuality: 2, effect: "Defect density up to −25%, architecture cap +0.15", full: 1e6),
+                        OrgActivity(name: "Autonomous architecture search", minQuality: 8, effect: "Architecture up to +0.12, respin odds up to −40%", full: 1e8)]
+        case .alignment: [OrgActivity(name: "Red-teaming & audits", minQuality: 0, effect: "Safety score, slower drift"),
+                          OrgActivity(name: "Automated interpretability", minQuality: 2, effect: "Agent drift up to 30% slower", full: 1e6)]
+        case .workforce: [OrgActivity(name: "Client work", minQuality: 0, effect: "Labour revenue"),
+                          OrgActivity(name: "Enterprise automation", minQuality: 2, effect: "Labour market you can reach up to +50%", full: 1e6)]
         case .security: [OrgActivity(name: "Threat hunting", minQuality: 0, effect: "Attacks succeed less often")]
         case .intel: [OrgActivity(name: "Open-source intelligence", minQuality: 0, effect: "Sharper Rival Watch")]
         }

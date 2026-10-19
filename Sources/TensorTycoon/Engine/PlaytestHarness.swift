@@ -7,7 +7,7 @@ import Foundation
 ///
 /// flags (comma-separated, optional): cautious (20% of cash per run, current-gen chips only, slow hiring, no research
 /// compute, no growth rounds), norent (never rents: garage GPUs only), hard / easy (difficulty), noresearchcompute,
-/// autorollback, noquick.
+/// autorollback, noquick, semis (3.9: run a chip business), orgs (3.9: found an AI organisation).
 ///
 /// Output: a monthly table (every 3rd month unless mode is `full`), an event log, every training run (plan vs actual
 /// days, forecast vs actual capability), a summary of pacing metrics, and `CSV,` rows for offline aggregation.
@@ -335,6 +335,8 @@ enum PTPlay {
         if mode != "quiet" { printGame(rows, sum, bot, s, mode: mode) }
         if flags.contains("advproj") { for line in AdvancedProjects.report(s) { print(line) } }
         if flags.contains("science") { scienceSummary(s, seed: seed) }
+        if flags.contains("semis") { print("Seed \(seed) chip business:"); for line in Semis.report(s) { print(line) } }   // 3.9
+        if flags.contains("orgs") { print("Seed \(seed) organisations:"); for line in AgentOrgs.summary(s) { print(line) } }   // 3.9
         lastState = s
         return sum
     }
@@ -426,6 +428,7 @@ enum PTPlay {
         case "swarm_audit": return s.cash > dd.amount * 4 ? 0 : 1
         case Science.decisionKind: return scienceChoice(dd, s)   // 3.6
         case Launches.decisionKind: return 1   // 3.7: let it ride
+        case Semis.rivalKind: return 1   // 3.9: don't arm rival labs with your chips
         default: return 0
         }
     }
@@ -469,6 +472,8 @@ enum PTPlay {
                 && s.cash > 10 * ProductLines.launchCost(p, s.year) { _ = s.launchProduct(p.id) }
             if bot.flags.contains("advproj") { AdvancedProjects.botAct(&s) }   // 3.5: bid on one government contract at a time
             if bot.flags.contains("science") { science(&s) }   // 3.6: science labs (only with the flag)
+            if bot.flags.contains("semis") { Semis.botAct(&s) }   // 3.9: a chip business (design, foundry, packaging, fleet, sales)
+            if bot.flags.contains("orgs") { AgentOrgs.botAct(&s) }   // 3.9: one AI organisation of sensible size
         }
     }
 

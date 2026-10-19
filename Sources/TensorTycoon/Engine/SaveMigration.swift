@@ -63,6 +63,8 @@ enum SaveMigration {
         }
         // 3.5: alien programs in progress get unstuck and existing alien chips get their fab line.
         AlienFab.migrate(&s)
+        // 3.9: semiconductor saves with short three-bin arrays, and your chips' new per-chip fields.
+        Semis.repair(&s)
         // 3.7: national strategies replayed to the save's year; rivals pick their first specialties.
         Nations.bootstrap(&s)
         // 3.7: the company stage the record earns, credited silently (no news, no rewards).

@@ -294,7 +294,7 @@ enum Physics {
         let usable = (dep.chips / k) * k
         guard usable > 0 else { return 0 }
         let flopsPerToken = 2 * max(m.design.activeParamsB, 0.001) * 1e9
-        let tf = accel.inferTFLOPS(m.servingPrecision) * 1e12 * servingUtilization(b)
+        let tf = accel.inferTFLOPS(m.servingPrecision) * 1e12 * servingUtilization(b) * accel.serveFactor   // 3.9: your chips' compiler maturity
         return Double(usable) * tf / flopsPerToken * 86_400 * (1 + m.efficiencyBoost)
     }
 

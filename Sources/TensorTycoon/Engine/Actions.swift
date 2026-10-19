@@ -28,7 +28,8 @@ extension GameState {
         if a.cls == .tpu { Achievements.unlock(&self, "tpu_owner") }
         let days = AlienFab.isAlienChip(a.id) ? AlienFab.book(&self, count: count)
             : (Semis.isSemiChip(a.id) ? Semis.take(&self, a.id, count: count) : Economy.leadTimeDays(a, self))
-        orders.append(HardwareOrder(accelID: accelID, count: count, siteID: siteID, unitCost: unit - rebate / Double(count), ordered: date,
+        // 3.9: your own chips are booked at the server you pay for now plus the silicon the chip business already paid for.
+        orders.append(HardwareOrder(accelID: accelID, count: count, siteID: siteID, unitCost: unit + Semis.siliconCost(a.id, self) - rebate / Double(count), ordered: date,
                                     arrives: GameCalendar.addDays(date, days)))
         Sim.news(&self, "Ordered \(Fmt.int(count))× \(a.name)", "\(Fmt.money(total)) paid. Delivery in about \(days) days to \(site.name).", .company, image: a.image)
         return nil
@@ -135,6 +136,7 @@ extension GameState {
 
     func buildMonths(mw: Double, loc: Location, power: PowerDeal) -> Double {
         var m = (7 + min(22, mw * 0.025)) / loc.buildSpeed * market.buildDelay * Policy.buildFactor(self) * XenoScience.buildFactor(self)
+            * AgentOrgs.buildFactor(self)   // 3.9: infrastructure teams planning construction
         m /= Campus.speedup(year)
         if power == .gas { m *= 0.7 }
         if power == .smr || power == .fusion { m *= 0.85 }

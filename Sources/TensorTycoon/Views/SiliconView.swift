@@ -1,23 +1,26 @@
 import SwiftUI
 
+/// 3.9: Custom Silicon is the summary of your silicon: what your chip business is doing, what your chips cost per
+/// PFLOP-day against merchant parts, every chip you own the design of, and any partner programme an older save still
+/// has running. New chips are designed on the Semiconductors page (the old partner programmes are closed to new chips).
 struct SiliconView: View {
     @Environment(GameStore.self) private var store
 
     var body: some View {
         let s = store.game
         let unlocked = store.derived.bonuses.has(.customSilicon)
-        Page(title: "Custom Silicon", subtitle: "Google has TPUs, Amazon has Trainium, Microsoft has Maia, Meta has MTIA. Design your own accelerator — years of work, a nine-figure budget, and a chip nobody else can buy.", screen: .silicon) {
+        Page(title: "Custom Silicon", subtitle: "Google has TPUs, Amazon has Trainium, Microsoft has Maia, Meta has MTIA. Your own accelerators are designed, made and sold on the Semiconductors page; this is where you see what they are worth to you.", screen: .silicon) {
             HeroBanner(image: "wafer", height: 160) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Your own accelerator").font(.title.weight(.bold))
-                    Text("Architecture → RTL → tape-out → bring-up → volume. Roughly 15–20 months, sold to you at cost.")
+                    Text("Design team → node → tape-out → bring-up → wafers, packaging and HBM → your fleet and your customers.")
                         .font(.callout).opacity(0.9)
                 }
             }
             if !unlocked {
                 Card {
                     CardHeader("Locked", symbol: "lock.fill")
-                    Text("Research **Custom Accelerator Design** to start a silicon program, then hire chip designers in Team.")
+                    Text("Research **Custom Accelerator Design** to start a chip programme, then hire a design team on the Semiconductors page.")
                     HStack {
                         let queued = s.researchQueue.contains("custom_silicon")
                         Button(queued ? "Queued" : "Queue research") {
@@ -30,17 +33,17 @@ struct SiliconView: View {
                     }
                 }
             } else {
-                // 3.5: the full chip business (nodes, foundries, fabs, yields, sales) lives on its own page.
-                NextStep("Want to pick the process node, book foundry wafers, build a fab and sell chips to others? Run a full chip business on the Semiconductors page.",
-                         action: "Semiconductors", screen: .semiconductors)
-                let active = s.chipProjects.filter { !$0.done }
-                if active.isEmpty {
-                    NewChipProgram(state: s)
-                } else {
-                    ForEach(active) { p in ChipProjectCard(project: p, state: s) }
-                }
-                SiliconTeamCard(state: s)
+                SiliconProgrammeCard(state: s)
             }
+            if s.semi.designs.contains(where: { $0.inProduction || $0.phase == .retired }) { ComputeEconomicsCard(state: s) }
+            let legacy = s.chipProjects.filter { !$0.done }
+            if !legacy.isEmpty {
+                Text("Partner programmes").font(.title3.weight(.semibold))
+                Text("Started before partner programmes closed to new chips. They finish as planned and their chips stay yours at cost.")
+                    .font(.caption).foregroundStyle(.secondary)
+                ForEach(legacy) { p in ChipProjectCard(project: p, state: s) }
+            }
+            if unlocked { SiliconTeamCard(state: s) }
             if !s.customChips.isEmpty {
                 Text("Your chips").font(.title3.weight(.semibold))
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 380), spacing: 14, alignment: .top)], spacing: 14) {
@@ -52,76 +55,43 @@ struct SiliconView: View {
     }
 }
 
-private struct NewChipProgram: View {
+/// Where your chip business stands, with the way in to it.
+private struct SiliconProgrammeCard: View {
     @Environment(GameStore.self) private var store
     let state: GameState
-    @State private var partner: ChipPartner = .broadcom
-    @State private var focus: ChipFocus = .training
-    @State private var budgetLog = 8.7  // log10 dollars
 
     var body: some View {
         let s = state
-        let budget = pow(10, budgetLog)
-        let draft = ChipProject(name: "", partner: partner, focus: focus, budget: budget, started: s.date, phaseDaysLeft: 0, generation: s.customChips.count + 1)
-        let ref = Silicon.reference(s)
-        let perf = clamp(0.6 + 0.15 * log10(max(budget, 1e7) / 1e8) + 0.08 * Silicon.designerFactor(s) + partner.quality + 0.07 * Double(draft.generation - 1), 0.45, 1.3)
+        let inDesign = s.semi.designs.filter { $0.phase.rawValue < SemiPhase.production.rawValue }
+        let making = s.semi.designs.filter(\.inProduction)
         Card {
-            CardHeader("Start a chip program", symbol: "plus.circle.fill", subtitle: "Generation \(draft.generation) · \(Silicon.process(s.year))")
-            Text("Design partner").font(.callout.weight(.semibold))
-            HStack(spacing: 10) {
-                ForEach(ChipPartner.allCases) { p in
-                    Button { partner = p } label: {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(p.rawValue).font(.callout.weight(.semibold))
-                            Text(p.blurb).font(.caption).foregroundStyle(.secondary).lineLimit(3, reservesSpace: true)
-                            HStack(spacing: 6) {
-                                Pill(text: "Quality \(p.quality >= 0 ? "+" : "")\(Int(p.quality * 100))", color: p.quality > 0 ? .green : (p.quality < 0 ? .orange : .secondary))
-                                Pill(text: "Cost ×\(Fmt.trim(p.costFactor, 2))", color: .secondary)
-                            }
-                        }
-                        .padding(10)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(partner == p ? Color.accentColor.opacity(0.12) : Color.secondary.opacity(0.06), in: .rect(cornerRadius: 10))
-                        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(partner == p ? Color.accentColor : .clear, lineWidth: 1.5))
-                        .contentShape(.rect)
-                    }
-                    .buttonStyle(.plain)
-                }
+            CardHeader(title: "Your chip programme", symbol: "cpu.fill",
+                       subtitle: "Design teams, nodes and foundries, wafers, packaging and HBM, a compiler stack, production and sales: all on the Semiconductors page.") {
+                Button("Semiconductors") { store.open(.semiconductors) }.buttonStyle(.borderedProminent)
             }
-            HStack(alignment: .top, spacing: 20) {
-                VStack(alignment: .leading, spacing: 12) {
-                    Picker("Focus", selection: $focus) {
-                        ForEach(ChipFocus.allCases) { f in Text(f.rawValue).tag(f) }
-                    }
-                    .pickerStyle(.segmented)
-                    Text(focus == .training ? "Training chips: max BF16/FP8 throughput and a big scale-up domain." : "Inference chips: more memory per chip, better FP4, lower power, fast decode.")
-                        .font(.caption).foregroundStyle(.secondary)
+            if s.semi.isEmpty {
+                NextStep("Hire a design team to start your first accelerator. A chip takes one to two years from architecture to qualified silicon, and a compiler team to run well.",
+                         action: "Semiconductors", screen: .semiconductors)
+            } else {
+                EqualColumns(minWidth: 140, spacing: 10, maxColumns: 5) {
+                    MetricTile(label: "Engineers", value: "\(s.semi.teams.reduce(0) { $0 + $1.engineers }) + \(s.semi.compilerEngineers) compiler", symbol: "person.3.fill")
+                    MetricTile(label: "In design", value: "\(inDesign.count)", symbol: "pencil.and.ruler.fill")
+                    MetricTile(label: "In production", value: "\(making.count)", symbol: "cpu")
+                    MetricTile(label: "Software maturity", value: Fmt.pct(s.semi.software, decimals: 0), symbol: "chevron.left.forwardslash.chevron.right", tint: s.semi.software < 0.4 ? Theme.warning : .primary)
+                    MetricTile(label: "Chips made", value: Fmt.count(s.semi.designs.reduce(0) { $0 + $1.made.reduce(0, +) }), symbol: "shippingbox.fill")
+                }
+                ForEach(inDesign.prefix(3)) { d in
                     HStack {
-                        Text("Budget")
-                        Slider(value: $budgetLog, in: 7.7...10.3)
-                        Text(Fmt.money(budget)).font(.callout.monospacedDigit().weight(.semibold)).frame(width: 90, alignment: .trailing)
+                        Text(d.name).font(.callout.weight(.semibold))
+                        Pill(text: d.phase.title, color: SemiStyle.color(d.phase))
+                        Text("gen \(d.generation) · \(SemiCatalog.node(d.node).short) · respin odds \(Fmt.pct(d.respinOdds, decimals: 0))").font(.caption).foregroundStyle(.secondary)
+                        Spacer()
+                        Meter(value: 1 - d.phaseDaysLeft / max(1, d.phaseDays), tint: SemiStyle.color(d.phase)).frame(width: 140)
                     }
-                    Text("Paid gradually over the program. Respins add 25% each. You need 10% up front.").font(.caption).foregroundStyle(.secondary)
                 }
-                .frame(maxWidth: .infinity)
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Expected result").font(.headline)
-                    SpecRow(label: "Benchmark vs \(ref.name)", value: "~\(Int(perf * 100))%", estimated: true)
-                    SpecRow(label: "Unit cost", value: "~\(Fmt.money((ref.price ?? 30_000) * 0.38 * partner.costFactor))", estimated: true)
-                    SpecRow(label: "Time to volume", value: "~\(Int(Silicon.totalDays(draft, s) / 30)) months", estimated: true)
-                    SpecRow(label: "Chip designers", value: "\(s.employees.filter { $0.role == .chipDesigner }.count)")
-                    Button {
-                        store.act("Chip program started") { $0.startChipProject(partner: partner, focus: focus, budget: budget) }
-                    } label: {
-                        Label("Kick off program", systemImage: "memorychip").frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                }
-                .padding(12)
-                .frame(width: 320)
-                .background(Theme.insetFill, in: .rect(cornerRadius: Theme.Radius.inset))
             }
+            Text("The partner programmes (a design house builds a chip only you can buy, at cost, with nothing to manufacture) are closed to new chips: an accelerator is now something you make — and can sell.")
+                .font(.caption).foregroundStyle(.secondary)
         }
     }
 }
@@ -248,9 +218,17 @@ private struct CustomChipCard: View {
                     row("Memory", "\(Int(c.memoryGB)) GB", "\(Int(ref.memoryGB)) GB")
                     row("Bandwidth", "\(Fmt.trim(c.bandwidthTBs, 1)) TB/s", "\(Fmt.trim(ref.bandwidthTBs, 1)) TB/s")
                     row("Power", "\(Int(c.tdpW)) W", "\(Int(ref.tdpW)) W")
-                    row("Price", Fmt.money(c.unitCost), ref.price.map { Fmt.money($0) } ?? "—")
+                    if let a = HardwareCatalog.get(c.id) {
+                        row("Training MFU", Fmt.pct(a.baseMFU, decimals: 1), Fmt.pct(ref.baseMFU, decimals: 1))
+                        row("Scale-up", "\(a.scaleUp) chips", "\(ref.scaleUp) chips")
+                    }
+                    row(Semis.isSemiChip(c.id) ? "Server + silicon" : "Price", Fmt.money(c.unitCost + Semis.siliconCost(c.id, state)), ref.price.map { Fmt.money($0) } ?? "—")
                 }
-                Button("Order in Hardware Store") { store.open(.hardware) }.buttonStyle(.borderedProminent)
+                if Semis.isSemiChip(c.id) {
+                    Button("Take from stock on the Semiconductors page") { store.open(.semiconductors) }.buttonStyle(.borderedProminent)
+                } else {
+                    Button("Order in Hardware Store") { store.open(.hardware) }.buttonStyle(.borderedProminent)
+                }
             }
             .padding(14)
         }

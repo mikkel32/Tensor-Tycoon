@@ -111,6 +111,9 @@ struct Accelerator: Identifiable, Sendable, Hashable {
     let weightStreaming: Bool
     let baseMFU: Double
     let minOrder: Int
+    /// Serving throughput against a merchant part with the same peak (1 for every catalogue chip; your own chips'
+    /// compiler maturity sets theirs).
+    var serveFactor: Double = 1
 
     static func == (a: Accelerator, b: Accelerator) -> Bool { a.id == b.id }
     func hash(into h: inout Hasher) { h.combine(id) }
@@ -180,7 +183,8 @@ private func acc(
     price: Double?, rent: Double?, rentFloor: Double = 0,
     liquid: Bool = false, transistors: Double? = nil,
     image: String, rep: Bool = false, fact: String, est: String = "",
-    decodeEff: Double = 0.65, trainFP4: Double = 1, streaming: Bool = false, mfu: Double? = nil, minOrder: Int = 1
+    decodeEff: Double = 0.65, trainFP4: Double = 1, streaming: Bool = false, mfu: Double? = nil, minOrder: Int = 1,
+    serveFactor: Double = 1
 ) -> Accelerator {
     let defaultMFU: Double
     switch cls {
@@ -200,7 +204,7 @@ private func acc(
         price: price, rent: rent, rentFloor: rentFloor > 0 ? rentFloor : (rent ?? 0) * 0.3,
         liquid: liquid, transistorsB: transistors, image: image, representativeImage: rep,
         fact: fact, estimates: est, decodeEff: decodeEff, trainFP4Factor: trainFP4,
-        weightStreaming: streaming, baseMFU: (mfu ?? defaultMFU) * 0.85, minOrder: minOrder)
+        weightStreaming: streaming, baseMFU: (mfu ?? defaultMFU) * 0.85, minOrder: minOrder, serveFactor: serveFactor)
 }
 
 enum HardwareCatalog {
@@ -961,20 +965,26 @@ enum HardwareCatalog {
 
     static var everything: [Accelerator] { all + custom.values.sorted { $0.available < $1.available } }
 
+    /// Registers the player's chips. 3.9: a chip from the Semiconductors page carries its own training MFU (after
+    /// compiler maturity), training factor (inference parts train badly: it scales that MFU and FP4 training),
+    /// serving factor, interconnect and scale-up domain; older custom chips keep the old defaults.
     static func register(_ chips: [CustomChip]) {
         var map: [String: Accelerator] = [:]
         for c in chips {
             let ym = c.available.ym
+            let train = c.trainFactor > 0 ? c.trainFactor : 1
             map[c.id] = acc(c.id, c.name, .custom, .custom,
                             arch: c.alien ? "Alien architecture (agent-designed, gen \(c.generation))" : "Custom \(c.focus.rawValue.lowercased()) ASIC (gen \(c.generation))",
                             announced: ym, available: ym, process: c.process,
                             mem: c.memoryGB, memType: c.memoryType, bw: c.bandwidthTBs,
                             bf16: c.bf16, fp8: c.fp8, fp4: c.fp4, int8: c.fp8,
-                            tdp: c.tdpW, ic: "Custom scale-up fabric", icGBs: 1_800, scaleUp: c.scaleUp,
+                            tdp: c.tdpW, ic: c.link.isEmpty ? "Custom scale-up fabric" : c.link, icGBs: c.icGBs > 0 ? c.icGBs : 1_800, scaleUp: c.scaleUp,
                             price: c.unitCost, rent: nil, liquid: c.alien ? false : c.tdpW > 900,
                             image: c.alien ? "wafer_closeup" : (c.focus == .training ? "wafer" : "wafer_closeup"), rep: true,
                             fact: c.alien ? "Designed by your agent swarm. Nobody fully understands how it works — it just does, at a fraction of the cost, and air cooling is enough."
-                                          : "Your own silicon: built only for you, at cost.", decodeEff: c.decodeEff)
+                                          : (c.mfu > 0 ? "Your own silicon from the Semiconductors page: made in your own supply chain, at cost."
+                                                       : "Your own silicon: built only for you, at cost."), decodeEff: c.decodeEff,
+                            trainFP4: train, mfu: c.mfu > 0 ? c.mfu * train : nil, serveFactor: c.serveFactor > 0 ? c.serveFactor : 1)
         }
         custom = map
     }

@@ -83,7 +83,7 @@ enum Economy {
 
     static func resaleValue(_ a: Accelerator, _ s: GameState, unitCost: Double, purchased: Date) -> Double {
         let years = Double(GameCalendar.daysBetween(purchased, s.date)) / 365
-        let market = price(a, s) ?? (a.price ?? unitCost) * max(0.15, pow(0.78, ageYears(a, s)))
+        let market = (price(a, s) ?? (a.price ?? unitCost) * max(0.15, pow(0.78, ageYears(a, s)))) + Semis.siliconCost(a.id, s)   // 3.9: your own chips' silicon
         let wear = max(0.3, 1 - 0.1 * years)
         return min(unitCost, market) * 0.85 * wear
     }
@@ -278,7 +278,7 @@ enum Economy {
         if let r = s.rentals.first(where: { $0.accelID == a.id }) {
             return r.hourly * 24 * Double(count)
         }
-        let unit = price(a, s) ?? (a.price ?? 0)
+        let unit = (price(a, s) ?? (a.price ?? 0)) + Semis.siliconCost(a.id, s)   // 3.9: your own chips amortise their silicon too
         let amort = unit / (4 * 365)
         let site = s.sites.first { $0.kind != .garage } ?? s.sites.first
         let power = chipKW(a) * (site?.pue ?? 1.4) * 24 * (site?.powerPrice ?? 0.1)

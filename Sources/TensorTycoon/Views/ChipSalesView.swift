@@ -40,8 +40,8 @@ struct ChipSalesView: View {
             if s.customChips.isEmpty {
                 Card {
                     EmptyStateView(symbol: "memorychip", title: "Nothing to sell yet",
-                                   message: "Design a chip in Custom Silicon, or tape out an alien chip in Alien Tech. Only chips you designed can be sold.",
-                                   actionTitle: "Custom Silicon") { store.open(.silicon) }
+                                   message: "Design and make a chip on the Semiconductors page, or tape out an alien chip in Alien Tech. Only chips you designed can be sold.",
+                                   actionTitle: "Semiconductors") { store.open(.semiconductors) }
                 }
             } else {
                 ForEach(s.customChips.reversed()) { c in
@@ -59,6 +59,10 @@ struct ChipSalesView: View {
                                 Spacer()
                                 if Semis.isSemiChip(c.id) {   // 3.5: sold from the Semiconductors page
                                     Text("Made and sold by your semiconductor business.").font(.caption).foregroundStyle(.secondary)
+                                    Button("Semiconductors") { store.open(.semiconductors) }
+                                } else if !c.alien {   // 3.9: partner-programme chips are built for you only
+                                    Text("Built for you only by a partner programme. To sell chips, design and make one on the Semiconductors page.")
+                                        .font(.caption).foregroundStyle(.secondary)
                                     Button("Semiconductors") { store.open(.semiconductors) }
                                 } else {
                                     Text(c.alien ? "Selling it ends exclusivity for this architecture." : "Only you can buy it today.").font(.caption).foregroundStyle(.secondary)
@@ -162,6 +166,7 @@ private struct ChipLineCard: View {
                     Text("Price").font(.headline)
                     HStack {
                         Slider(value: $priceLog, in: log10(max(chip.unitCost * 1.05, 100))...log10(max(chip.unitCost * 2, ChipBusiness.listPrice(ref, s) * 12)))
+                            .accessibilityValue(Fmt.money(price))
                         Text(Fmt.money(price)).font(.callout.monospacedDigit().weight(.semibold)).frame(width: 90, alignment: .trailing)
                     }
                     Text("\(Fmt.trim(value, 2))× the performance per dollar of a \(ref.name) at \(Fmt.money(ChipBusiness.listPrice(ref, s))) · buyers would take \(Fmt.count(demandAtPrice * 30.4))/month · margin \(Fmt.pct(max(0, 1 - chip.unitCost / max(price, 1)), decimals: 0))")
@@ -171,17 +176,22 @@ private struct ChipLineCard: View {
                 .frame(maxWidth: .infinity)
                 VStack(alignment: .leading, spacing: 8) {
                     Text(chip.alien ? "Alien fab line" : "Foundry capacity").font(.headline)
-                    HStack {
-                        Slider(value: $capacityLog, in: 3...6.3)
-                        Text("+\(Fmt.count(capacity))/mo").font(.callout.monospacedDigit().weight(.semibold)).frame(width: 90, alignment: .trailing)
-                    }
-                    if let accel {
-                        Text(chip.alien ? "Costs \(Fmt.money(AlienFab.expansionCost(s, units: capacity))) up front and serves your own orders too. Online in about \(AlienFab.expansionDays(s) / 30 + 1) months."
-                                        : "Costs \(Fmt.money(ChipBusiness.capacityCost(accel, units: capacity, s))) up front (tooling, packaging slots, HBM prepayments). Ramps in 4 months.")
+                    if chip.alien {
+                        HStack {
+                            Slider(value: $capacityLog, in: 3...6.3)
+                                .accessibilityValue("\(Fmt.count(capacity)) chips a month")
+                            Text("+\(Fmt.count(capacity))/mo").font(.callout.monospacedDigit().weight(.semibold)).frame(width: 90, alignment: .trailing)
+                        }
+                        Text("Costs \(Fmt.money(AlienFab.expansionCost(s, units: capacity))) up front and serves your own orders too. Online in about \(AlienFab.expansionDays(s) / 30 + 1) months.")
                             .font(.caption).foregroundStyle(.secondary)
+                        Button("Expand the line") { store.act("Capacity reserved") { $0.addFabCapacity(l.chipID, units: capacity) } }
+                            .disabled(s.alienFab.pendingCapacity > 0)
+                    } else {
+                        // 3.9: no more one-payment capacity: real production is wafers, packaging and HBM.
+                        Text("This line keeps the \(Fmt.count(l.capacityMonth)) chips a month it has. New capacity for your own chips is booked as wafers, packaging and HBM on the Semiconductors page.")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Button("Semiconductors") { store.open(.semiconductors) }
                     }
-                    Button(chip.alien ? "Expand the line" : "Reserve capacity") { store.act("Capacity reserved") { $0.addFabCapacity(l.chipID, units: capacity) } }
-                        .disabled(chip.alien ? s.alienFab.pendingCapacity > 0 : l.pendingCapacity > 0)
                 }
                 .frame(maxWidth: .infinity)
             }
