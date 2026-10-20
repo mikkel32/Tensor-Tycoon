@@ -263,6 +263,7 @@ enum Conferences {
         let oral = p.quality + 0.12 * (Fun.roll(s, "oral|\(key)") - 0.5) > 0.8
         s.fun.papers[i].outcome = oral ? .oral : .poster
         Achievements.unlock(&s, "paper_accepted")
+        Hype.circuit(&s, prestige: oral ? 4 : 1.5, hype: oral ? 2 : 1, "\(v.short) accepted \"\(p.title)\"")   // 3.9: hype and prestige
         Sim.news(&s, "\(v.short) accepts \"\(p.title)\"\(oral ? " as an oral" : "")",
                  oral ? "One of the few papers presented to the whole conference. Your researcher gets twenty minutes on the main stage." : "A poster slot. Expect a crowd and a lot of photos of your figures.",
                  .research, good: true)
@@ -302,6 +303,7 @@ enum Conferences {
                 Sim.news(&s, "Best paper at \(v.short)! \"\(p.title)\"", "The award goes to \(s.companyName). Applications to your research team double overnight. Brand +3.",
                          .research, image: v.image, important: true, good: true)
                 Achievements.unlock(&s, "best_paper")
+                Hype.circuit(&s, prestige: 18, hype: 8, "Best paper at \(v.short) \(year)", applicants: 2)   // 3.9
                 Alerts.raise(&s, .milestone, key: "best|\(key)", title: "Best paper at \(v.short) \(year)", body: "\"\(p.title)\" wins the award.",
                              screen: .events, celebrate: true, cooldown: 0)
                 Fun.post(&s, "fun.best.you", labs: ["player"], vars: ["venue": v.short, "title": p.title], key: "best|\(key)", importance: 0.7, count: 3)
@@ -309,10 +311,12 @@ enum Conferences {
                 Fun.brand(&s, 1.5)
                 Fun.lift(&s, morale: 3, researchersOnly: true)
                 Stakeholders.move(&s, ["researchers": 1.5], "An oral at \(v.short) \(year)")
+                Hype.circuit(&s, prestige: 6, hype: 3, "An oral at \(v.short) \(year)")   // 3.9
                 Fun.post(&s, "fun.oral.you", labs: ["player"], vars: ["venue": v.short, "title": p.title], key: "oral|\(key)", importance: 0.4, count: 1)
             default:
                 Fun.brand(&s, 0.5)
                 Stakeholders.move(&s, ["researchers": 0.5], "A poster at \(v.short) \(year)")
+                Hype.circuit(&s, prestige: 2, hype: 1, "A poster at \(v.short) \(year)")   // 3.9
             }
         }
         // Best paper, if it isn't yours.
@@ -340,6 +344,7 @@ enum Conferences {
                 Fun.brand(&s, glitch ? 0.5 : 2)
                 Stakeholders.move(&s, ["public": glitch ? 0.5 : 1.5, "researchers": 1], "\(s.founderName) gave the Meridian keynote")
                 Achievements.unlock(&s, "keynote")
+                Hype.circuit(&s, prestige: glitch ? 3 : 8, hype: glitch ? 2 : 6, "\(s.founderName)'s Meridian keynote")   // 3.9
                 Sim.news(&s, glitch ? "\(s.founderName)'s Meridian keynote: the demo froze" : "\(s.founderName) closes Meridian with the keynote",
                          glitch ? "Ninety seconds of a spinning wheel in front of twenty thousand people. The talk was good; the clip of the frozen screen is better known."
                                 : "A packed hall, a demo that worked first time and a clip that does the rounds for a week. Brand +2.",
@@ -349,6 +354,7 @@ enum Conferences {
                 edition.keynote = "player"
                 Fun.brand(&s, 0.5)
                 Stakeholders.move(&s, ["researchers": 2], "Your lead researcher gave the Meridian keynote")
+                Hype.circuit(&s, prestige: 6, hype: 1.5, "Your lead researcher's Meridian keynote")   // 3.9
                 Sim.news(&s, "Your lead researcher gives the Meridian keynote", "Less glamour, more substance. The research crowd loved it.", .research, good: true)
             }
             if edition.keynote.isEmpty, let lab = labs.first { edition.keynote = lab.id }
@@ -426,6 +432,7 @@ enum Contests {
             Fun.brand(&s, result.grand ? 4 : 1.5)
             Stakeholders.move(&s, ["public": result.grand ? 2 : 0.5, "developers": 1], "\(top.model) won \(c.name) \(year)")
             Achievements.unlock(&s, "contest_win")
+            Hype.add(&s, result.grand ? 12 : 5, "\(top.model) won \(c.name)")   // 3.9
             let wonThisYear = Set(s.fun.contests.filter { $0.year == year && $0.standings.first?.lab == "player" }.map(\.contest))
             if wonThisYear.count >= 3 { Achievements.unlock(&s, "hat_trick") }
             if result.grand {
@@ -560,11 +567,13 @@ enum Hackathons {
             Fun.brand(&s, 1)
             Stakeholders.move(&s, ["public": 0.5, "developers": 0.5], "A hackathon demo went round the internet")
             head = "Hackathon demo gets noticed: \(demo)"
+            Hype.add(&s, 3, "A hackathon demo got noticed")   // 3.9
             detail = "A few hundred thousand views and a lot of \"how did they do that\". Brand +1."
         case (.demo, _):
             Fun.brand(&s, 4)
             Stakeholders.move(&s, ["public": 2, "developers": 1.5], "A hackathon demo went viral")
             head = "Viral: \(demo)"
+            Hype.add(&s, 10, "A hackathon demo went viral")   // 3.9
             detail = "Built in five days, watched by millions. Your sign-ups spike and journalists want the story. Brand +4."
             Fun.post(&s, "fun.hack", labs: ["player"], vars: ["demo": demo], key: key, importance: 0.5, count: 2)
         case (.prototype, 0):

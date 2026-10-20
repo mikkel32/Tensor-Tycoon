@@ -257,6 +257,10 @@ enum Launches {
 
     /// Launch-driven demand for a model today: 1 for a plain launch, outside the window, or with no launch at all.
     static func demandFactor(_ s: GameState, _ modelID: UUID?, consumer: Bool = false) -> Double {
+        planFactor(s, modelID, consumer: consumer) * Hype.demandFactor(s, modelID, consumer: consumer)   // 3.9: hype and viral moments
+    }
+
+    static func planFactor(_ s: GameState, _ modelID: UUID?, consumer: Bool) -> Double {
         guard let modelID, !s.launches.isEmpty else { return 1 }
         for r in s.launches.reversed() {
             if Double(GameCalendar.daysBetween(r.date, s.date)) >= window { break }
@@ -726,7 +730,7 @@ enum Launches {
         let m = s.models.first { $0.id == r.modelID }
         let rank = m.map { Leaderboard.rank(of: $0.id, in: s) } ?? r.rank
         let frontier = rank <= 3 || (m.map { $0.c >= Macro.frontier(s.year) - 0.3 } ?? false)
-        let tone = pressTone(r.plan, rank: r.rank, frontier: frontier)
+        let tone = clamp(pressTone(r.plan, rank: r.rank, frontier: frontier) + Hype.pressShift(s, r.modelID), -1, 1)   // 3.9: hype and the show
         let tokens = m?.demandTokensDay ?? 0
         let served = m.map { $0.demandTokensDay > 0 ? min(1, $0.servedTokensDay / $0.demandTokensDay) : 1 } ?? 1
         let apiTokens = m.map { $0.apiPrice > 0 ? $0.revenueDay / $0.apiPrice * 1e6 : 0 } ?? 0

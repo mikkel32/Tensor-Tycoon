@@ -184,6 +184,7 @@ struct ScreenRouter: View {
         case .families: FamiliesView()   // 3.5: model families
         case .nations: NationsView()   // 3.7: national AI strategies and economies
         case .progression: ProgressionView()   // 3.7: company stages and launches
+        case .spotlight: SpotlightView()   // 3.9: hype, launch events, viral moments
         }
     }
 }
