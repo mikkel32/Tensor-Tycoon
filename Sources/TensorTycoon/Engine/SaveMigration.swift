@@ -28,7 +28,10 @@ enum SaveMigration {
         // you queue from now on goes ahead of them.
         if !s.directorQueueTracked {
             s.directorQueueTracked = true
-            if s.autoResearch { s.directorQueued = Set(s.researchQueue) }
+            if s.autoResearch {
+                s.directorQueued = Set(s.researchQueue)
+                ResearchLab.sortDirectorEntries(&s)   // 3.9: cheapest first, as the director orders its own picks
+            }
         }
         // Saves from before alerts (3.4): pause on the important ones; waiting offers get a deadline.
         if !s.pauseConfigured {

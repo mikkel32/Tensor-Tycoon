@@ -434,8 +434,10 @@ enum Science {
             let o = odds(p, st, s).p
             let dead = deadShare(st, d)
             // Each failure is a dead end with `dead`, else a rerun; after maxReruns reruns the team gives up.
+            // 3.9: the current stage has only the attempts it hasn't used (it always counted all four).
+            let left = st.rawValue == p.stage ? max(0, maxReruns - p.attempts) : maxReruns
             var pass = 0.0, reach = 1.0
-            for _ in 0...maxReruns {
+            for _ in 0...left {
                 pass += reach * o
                 reach *= (1 - o) * (1 - dead)
             }
@@ -781,8 +783,12 @@ enum Science {
             }
             return "A venture-backed spin-out licenses it exclusively: \(Fmt.money(now)) up front, milestones up to \(Fmt.money(full)) in all if it's commercialised."
         case .moonshot:
-            let m = feedable(s, d).flatMap { MoonshotCatalog.byID[$0] }
+            let id = feedable(s, d)
+            let m = id.flatMap { MoonshotCatalog.byID[$0] }
+            // 3.9: say what happens if the moonshot is only on offer and you then pass on it.
+            let offered = id.map { i in s.moonshots.contains { $0.id == i && $0.status == .offered } } ?? false
             return "Hand it to the \(m?.name ?? "moonshot") team: its odds rise about \(Int((0.1 * d.size * 100).rounded()))%, more as the work matures. No licence income."
+                + (offered ? " The moonshot is only on offer so far: if you pass on it, you get this choice back." : "")
         }
     }
 
@@ -1522,8 +1528,38 @@ enum Science {
     /// 3.8: a project stopped after its discovery can be restarted at the stage it stopped at, after the same 180 days.
     static func resumeBlocker(_ p: SciProject, _ s: GameState) -> Date? {
         guard p.status == .stalled, let ended = p.ended else { return nil }
-        let ok = GameCalendar.addDays(ended, 180)
+        let ok = GameCalendar.addDays(ended, resumeWaitDays)
         return ok > s.date ? ok : nil
+    }
+
+    static let resumeWaitDays = 180
+
+    /// 3.9: whether a stalled project stopped at a dead end (false: you stopped it, or closed its lab).
+    static func endedAtDeadEnd(_ p: SciProject) -> Bool {
+        guard let last = p.log.last, let ended = p.ended else { return false }
+        return last.outcome == "dead end" && GameCalendar.daysBetween(last.date, ended) == 0
+    }
+
+    /// 3.9: a free, open lab that can run a stalled project: its old one if it has room, else the first that does.
+    static func resumeLab(_ p: SciProject, _ s: GameState) -> SciLab? {
+        guard let d = p.projectDef else { return nil }
+        func fits(_ l: SciLab) -> Bool { l.isReady(s.date) && l.def.runs(d.field) && active(l, s).count < capacity(l) }
+        if let old = s.science.labs.first(where: { $0.id == p.lab }), fits(old) { return old }
+        return s.science.labs.first(where: fits)
+    }
+
+    /// 3.9: a moonshot passed on (or lost): discoveries fed to it get their follow-up back, since they'd otherwise have
+    /// given up their licence income for nothing.
+    static func moonshotDropped(_ s: inout GameState, _ id: String) {
+        for k in s.science.discoveries.indices where s.science.discoveries[k].moonshot == id && s.science.discoveries[k].sciChoice == .moonshot {
+            s.science.discoveries[k].choice = ""
+            s.science.discoveries[k].choiceDate = nil
+            s.science.discoveries[k].moonshot = ""
+            let title = s.science.discoveries[k].title
+            Sim.news(&s, "Choose again: \(title)", "The \(MoonshotCatalog.byID[id]?.name ?? "moonshot") it was meant to feed won't go ahead with you, so the result is yours to patent, keep, publish or spin out. The report is back in your inbox.",
+                     .research)
+            offerChoices(&s, s.science.discoveries[k].id)
+        }
     }
 
     /// Stalled projects of this def that are waiting to be resumed.
@@ -1655,8 +1691,10 @@ extension GameState {
         let p = science.projects[i]
         guard let d = p.projectDef else { return "Unknown project." }
         if let when = Science.resumeBlocker(p, self) { return "The team needs new ideas before restarting \(d.name): \(when.gameShort)." }
-        guard let lab = science.labs.first(where: { $0.id == (labID ?? p.lab) }) ?? science.labs.first(where: { $0.id == p.lab }) else {
-            return "Pick a lab to run it in."
+        // 3.9: with no lab named, its old lab only if it has room, else any open lab with room that runs the field.
+        guard let lab = labID.flatMap({ l in science.labs.first { $0.id == l } }) ?? Science.resumeLab(p, self)
+                ?? science.labs.first(where: { $0.id == p.lab }) else {
+            return "No lab can take it: build or upgrade a lab that does \(ScienceCatalog.field(d.field).name.lowercased())."
         }
         guard lab.isReady(date) else { return "\(lab.name) opens \(lab.ready.gameMonth)." }
         guard lab.def.runs(d.field) else { return "The \(lab.def.name) can't do \(ScienceCatalog.field(d.field).name.lowercased())." }

@@ -1332,6 +1332,12 @@ struct GameState: Codable {
     /// never waits behind a year-long one of its.
     @D var directorQueued: Set<String> = []
     @D var directorQueueTracked: Bool = false
+    /// 3.9: entries you removed from the queue; the director doesn't pick them again until you change focus.
+    @D var directorDismissed: Set<String> = []
+    /// 3.9: chip ID → most chips you want on research; the director and idle-chip leasing don't add past it.
+    @D var researchChipLimit: [String: Int] = [:]
+    /// 3.9: research points with nowhere to go (empty queue, signature mastered); they go into the next project queued.
+    @D var researchBanked: Double = 0
     @D var researchFocus: String = ""
     @D var eurekas: Int = 0
     /// Unique breakthrough ID → mastery level (1–3).

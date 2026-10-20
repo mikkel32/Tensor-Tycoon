@@ -684,8 +684,7 @@ private struct TechDetailPanel: View {
         let done = path.count - steps.count
         let lockedReason: String? = {
             guard status == .locked else { return nil }
-            if item.isExotic && !s.exoticOwned.contains(item.id) { return "Only labs that discover it can research it." }
-            if !XenoScience.researchUnlocked(item.id, s) { return "Needs an alien discovery you haven't made." }
+            if let why = ResearchLab.blockReason(s, item.id) { return why }   // 3.9: names the alien find it needs, or the blocked prerequisite
             let names = item.prereqs.filter { !s.researched.contains($0) }.compactMap { ResearchCatalog.byID[$0]?.name }
             return names.isEmpty ? nil : "Locked by: " + names.joined(separator: ", ")
         }()
@@ -752,21 +751,18 @@ private struct TechDetailPanel: View {
             Label("Researched", systemImage: "checkmark.seal.fill").font(TypeRamp.body).foregroundStyle(Theme.good)
         case .researching, .queued:
             Button("Remove from queue") {
-                store.mutate { $0.researchQueue.removeAll { $0 == item.id } }
+                store.act("Removed \(item.name) from the queue") { $0.removeResearch(item.id) }
             }
         case .available, .locked:
             // The same action as the grid's card: queue it; missing prerequisites are researched first.
             Button(missing > 0 ? "Research (\(missing) prerequisite\(missing == 1 ? "" : "s") first)" : "Research") {
-                store.mutate { $0.queueResearch(item.id) }
-                store.show(missing == 0 ? "Queued \(item.name)" : "Queued \(item.name) (prerequisites will be researched first)")
+                store.act(missing == 0 ? "Queued \(item.name)" : "Queued \(item.name) (prerequisites will be researched first)") { $0.queueResearch(item.id) }
             }
             .buttonStyle(.borderedProminent)
             .disabled(lockedOut(item))
         }
     }
 
-    /// Exotic techniques you don't own and alien-gated ones can't be queued at all (the engine ignores them).
-    private func lockedOut(_ item: ResearchItem) -> Bool {
-        (item.isExotic && !state.exoticOwned.contains(item.id)) || !XenoScience.researchUnlocked(item.id, state)
-    }
+    /// Exotic techniques you don't own and alien-gated ones can't be queued at all, nor can anything that needs one.
+    private func lockedOut(_ item: ResearchItem) -> Bool { ResearchLab.blocked(state, item.id) }
 }

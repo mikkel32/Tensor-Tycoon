@@ -588,11 +588,15 @@ extension GameState {
 
     // MARK: Research & data
 
-    mutating func queueResearch(_ id: String) {
-        guard !researched.contains(id), !researchQueue.contains(id), let item = ResearchCatalog.byID[id] else { return }
-        if item.isExotic && !exoticOwned.contains(id) { return }
-        if !XenoScience.researchUnlocked(id, self) { return }
+    /// Queue a technique. 3.9: returns why it can't be (it failed silently, and the card said "Queued" anyway).
+    @discardableResult
+    mutating func queueResearch(_ id: String) -> String? {
+        guard let item = ResearchCatalog.byID[id] else { return "Unknown technique." }
+        if researched.contains(id) { return "\(item.name) is already researched." }
+        if researchQueue.contains(id) { return nil }
+        if let why = ResearchLab.blockReason(self, id) { return why }
         ResearchLab.enqueueByPlayer(&self, id)
+        return nil
     }
 
     /// Techniques a rival lab is known to be working on that you could still hire your way into.

@@ -24,8 +24,7 @@ struct SiliconView: View {
                     HStack {
                         let queued = s.researchQueue.contains("custom_silicon")
                         Button(queued ? "Queued" : "Queue research") {
-                            store.mutate { $0.queueResearch("custom_silicon") }
-                            store.show("Queued Custom Accelerator Design")
+                            store.act("Queued Custom Accelerator Design") { $0.queueResearch("custom_silicon") }
                         }
                         .buttonStyle(.borderedProminent)
                         .disabled(queued)

@@ -14,7 +14,7 @@ struct ResearchView: View {
         let core = ResearchCatalog.core + ResearchCatalog.lateGame + ResearchCatalog.capabilityTech
         let doneCount = core.filter { s.researched.contains($0.id) }.count
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
-        Page(title: "Research", subtitle: "Researchers generate research points (RP); compute multiplies their output. Every technique is an experiment: in your lab it can land better or worse than the paper. Leftover points roll into the next project, and idle research feeds your signature programme, so nothing is wasted.", screen: .research) {
+        Page(title: "Research", subtitle: "Researchers generate research points (RP); compute multiplies their output. Every technique is an experiment: in your lab it can land better or worse than the paper. Leftover points roll into the next project. With nothing queued they feed your signature programme, or once it's mastered they wait for the next project you queue, so nothing is wasted.", screen: .research) {
             ScreenHint(.research)
             SignatureCard(state: s)
             RLLabCard(state: s)   // 3.5
@@ -163,6 +163,7 @@ private struct SignatureCard: View {
                         Spacer()
                         Text("Idle research always flows here.").font(.caption2).foregroundStyle(.secondary)
                     }
+                    ShareOverflowNote(state: s)
                 }
             }
             .padding(16)
@@ -263,10 +264,22 @@ private struct QueueCard: View {
                         .font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
                 }
             }
+            // 3.9: the shares can leave the queue nothing; say so instead of showing ETAs that never come.
+            if rate > 0 && qRate <= 0.0001 {
+                Text("Your signature programme, alien study and moonshots take all \(Fmt.trim(rate, 1)) RP/day, so nothing reaches this queue. Lower a share to get it moving.")
+                    .font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+            }
             if s.researchQueue.isEmpty {
-                Text(s.autoResearch ? "Nothing worth starting yet — idle research goes to your signature programme." : "Idle! Pick something below, or turn on the research director.")
+                let sigOpen = s.signature != nil && s.signatureLevel < SignatureSecret.maxLevel
+                Text(s.autoResearch ? (sigOpen ? "Nothing worth starting yet — idle research goes to your signature programme."
+                                               : "Nothing worth starting yet — idle research is banked for the next project you queue.")
+                                    : "Idle! Pick something below, or turn on the research director.")
                     .font(.callout)
                     .foregroundStyle(s.autoResearch ? Color.secondary : Color.orange)
+            }
+            if s.researchBanked > 0.5 {
+                Label("\(Fmt.count(s.researchBanked)) RP banked while nothing was queued: it goes into the next project.", systemImage: "tray.and.arrow.down.fill")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             ForEach(Array(s.researchQueue.enumerated()), id: \.element) { i, entry in
                 QueueRow(state: s, entry: entry, index: i, count: s.researchQueue.count, rate: qRate)
@@ -320,9 +333,10 @@ private struct QueueRow: View {
                     .buttonStyle(.borderless)
                     .disabled(index == count - 1)
                     .accessibilityLabel("Move down")
-                Button { store.mutate { $0.researchQueue.removeAll { $0 == entry } } } label: { Image(systemName: "xmark") }
+                Button { store.act(s.autoResearch ? "Removed. The director won't pick it again until you change focus" : "Removed from the queue") { $0.removeResearch(entry) } } label: { Image(systemName: "xmark") }
                     .buttonStyle(.borderless)
                     .accessibilityLabel("Remove from queue")
+                    .help(s.autoResearch ? "Remove it. The research director won't queue it again until you change focus." : "Remove it from the queue.")
             }
             if index == 0 || done > 0 {
                 Meter(value: done / max(1, cost), tint: exotic ? .purple : .pink, height: index == 0 ? 8 : 4)
@@ -353,7 +367,8 @@ private struct CapacityCard: View {
             let kit = FoundingKit.researchMultiplier(s)
             let nowRP = Sim.researchRate(s, bonuses) * kit
             ForEach(pools) { p in
-                ResearchChipRow(pool: p, assigned: s.researchChips[p.accel.id] ?? 0, otherPF: Sim.researchPF(s.researchChips.filter { $0.key != p.accel.id }),
+                ResearchChipRow(pool: p, assigned: s.researchChips[p.accel.id] ?? 0, limit: s.researchChipLimit[p.accel.id],
+                                otherPF: Sim.researchPF(s.researchChips.filter { $0.key != p.accel.id }),
                                 rpWith: { n in
                                     var t = s
                                     t.researchChips[p.accel.id] = n
@@ -370,6 +385,7 @@ private struct CapacityCard: View {
                 }
                 .disabled(havePF >= capPF)
                 .font(.caption)
+                .help("Puts idle chips on experiments, best first, until the boost is full. It lifts any limits you set below.")
                 Text(havePF >= capPF ? "Full boost reached" : "\(Fmt.trim(havePF, 0)) of \(Fmt.trim(capPF, 0)) PF (bf16) for the full boost")
                     .font(.caption2).foregroundStyle(.secondary)
             }
@@ -395,6 +411,8 @@ private struct ResearchChipRow: View {
     @Environment(GameStore.self) private var store
     let pool: ComputePool
     let assigned: Int
+    /// 3.9: the most you said the director may put on research, if you lowered it.
+    let limit: Int?
     /// Petaflops other chip kinds already put on research.
     let otherPF: Double
     /// Research points per day with this many of these chips on research.
@@ -412,14 +430,36 @@ private struct ResearchChipRow: View {
                 Spacer()
                 Stepper("\(Fmt.int(value))", value: $value, in: 0...top, step: step)
                     .font(.caption.monospacedDigit())
-                Button("Set") { store.mutate { $0.researchChips[pool.accel.id] = value } }
+                Button("Set") { store.act(value < assigned ? "Research limited to \(Fmt.int(value)) \(pool.accel.name)" : "Research set to \(Fmt.int(value)) \(pool.accel.name)") { $0.setResearchChips(pool.accel.id, value) } }
                     .disabled(value == assigned)
                     .font(.caption)
             }
             Text("\(Fmt.trim(rpWith(value), 1)) RP/day with \(Fmt.int(value)) · full boost at \(Fmt.int(cap)) of these\(top < cap ? " (you have \(Fmt.int(top)) free or assigned)" : "")")
                 .font(.caption2).foregroundStyle(.secondary)
+            if let limit {
+                Text("Your limit: \(Fmt.int(limit)). The director and idle-chip leasing won't add more; set a higher number to lift it.")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
         }
         .onAppear { value = assigned }
+        // 3.9: the director, leasing and autoscale change this every day; follow them so "Set" never reverts their work.
+        .onChange(of: assigned) { value = assigned }
+    }
+}
+
+/// 3.9: the signature programme, alien study and moonshots can ask for more than 100% between them. Each is then scaled
+/// down to fit and the queue gets nothing; shown under both share sliders.
+struct ShareOverflowNote: View {
+    let state: GameState
+
+    var body: some View {
+        let r = ResearchLab.requestedShares(state)
+        let total = r.sig + r.study + r.moon
+        if total > 1 {
+            let got = ResearchLab.shares(state)
+            Text("Signature \(Int((r.sig * 100).rounded()))%, alien study \(Int((r.study * 100).rounded()))%\(r.moon > 0 ? " and moonshots \(Int((r.moon * 100).rounded()))%" : "") ask for \(Int((total * 100).rounded()))% of your research. Each is scaled down to fit (signature \(Int((got.sig * 100).rounded()))%, alien study \(Int((got.study * 100).rounded()))%), and nothing is left for the research queue.")
+                .font(.caption2).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+        }
     }
 }
 
@@ -545,15 +585,17 @@ private struct UniqueCard: View {
                         Label("Fully mastered", systemImage: "crown.fill").font(.caption).foregroundStyle(color)
                     }
                     Spacer()
+                    let buyers = ResearchLab.licenseBuyers(s, tech: item.id)
                     Menu("License") {
-                        ForEach(ResearchLab.licenseBuyers(s, tech: item.id)) { b in
+                        ForEach(buyers) { b in
                             Button("\(b.name): \(Fmt.money(b.upfront)) + \(Fmt.money(b.royalty))/mo\(b.rival ? " (rival lab)" : "")") {
                                 store.act("Licensed \(item.name)") { $0.licenseExotic(item.id, to: b.id) }
                             }
                         }
                     }
                     .fixedSize()
-                    .help("Sell the technique for cash. Rival labs that buy it put it in their models.")
+                    .disabled(buyers.isEmpty)   // 3.9: an empty menu did nothing
+                    .help(buyers.isEmpty ? "Everyone who'd buy it has a licence already." : "Sell the technique for cash. Rival labs that buy it put it in their models.")
                 }
                 .controlSize(.small)
             } else {
@@ -561,9 +603,9 @@ private struct UniqueCard: View {
                     Spacer()
                     Button(queued == nil ? "Research" : "Remove from queue") {
                         if queued == nil {
-                            store.mutate { $0.queueResearch(item.id) }
+                            store.act("Queued \(item.name)") { $0.queueResearch(item.id) }
                         } else {
-                            store.mutate { $0.researchQueue.removeAll { $0 == item.id } }
+                            store.act("Removed \(item.name) from the queue") { $0.removeResearch(item.id) }
                         }
                     }
                     .controlSize(.small)
@@ -684,7 +726,7 @@ private struct ProgramCard: View {
                     Meter(value: done / max(1, cost), tint: .pink, height: 5)
                 }
             } else {
-                Text(s.year < p.opens ? "Opens in \(Int(p.opens))." : "Needs \(ResearchCatalog.byID[p.prereq]?.name ?? p.prereq).")
+                Text(s.year < p.opens ? "Opens \(p.opensMonth)." : "Needs \(ResearchCatalog.byID[p.prereq]?.name ?? p.prereq).")
                     .font(.caption2).foregroundStyle(.orange)
             }
         }
@@ -875,18 +917,22 @@ struct ResearchCard: View, Equatable {
     let ahead: Bool
     /// How well it worked in your lab (1 = as the paper promised), once done.
     let result: Double?
+    /// 3.9: why it can't be queued (alien-gated, someone else's breakthrough, or a prerequisite that is), if it can't.
+    let locked: String?
 
     static func make(_ item: ResearchItem, state s: GameState) -> ResearchCard {
         let cost = Sim.researchCost(item, year: s.year)
-        return ResearchCard(item: item, done: s.researched.contains(item.id), queuedAt: s.researchQueue.firstIndex(of: item.id),
+        let done = s.researched.contains(item.id)
+        return ResearchCard(item: item, done: done, queuedAt: s.researchQueue.firstIndex(of: item.id),
                             missing: item.prereqs.filter { !s.researched.contains($0) }.compactMap { ResearchCatalog.byID[$0]?.name },
                             cost: (cost / 10).rounded() * 10, progress: ((s.researchProgress[item.id] ?? 0) / max(cost, 1) * 100).rounded() / 100,
-                            published: s.year >= item.year && !item.isExotic, ahead: item.year > s.year + 0.5, result: s.researchResults[item.id])
+                            published: s.year >= item.year && !item.isExotic, ahead: item.year > s.year + 0.5, result: s.researchResults[item.id],
+                            locked: done ? nil : ResearchLab.blockReason(s, item.id))
     }
 
     static func == (a: ResearchCard, b: ResearchCard) -> Bool {
         a.item.id == b.item.id && a.done == b.done && a.queuedAt == b.queuedAt && a.missing == b.missing && a.cost == b.cost
-            && a.progress == b.progress && a.published == b.published && a.ahead == b.ahead && a.result == b.result
+            && a.progress == b.progress && a.published == b.published && a.ahead == b.ahead && a.result == b.result && a.locked == b.locked
     }
 
     private var accent: Color { item.isExotic ? .purple : .pink }
@@ -895,10 +941,10 @@ struct ResearchCard: View, Equatable {
         Button {
             guard !done else { return }
             if queuedAt != nil {
-                store.mutate { $0.researchQueue.removeAll { $0 == item.id } }
+                store.act("Removed \(item.name) from the queue") { $0.removeResearch(item.id) }
             } else {
-                store.mutate { $0.queueResearch(item.id) }
-                store.show(missing.isEmpty ? "Queued \(item.name)" : "Queued \(item.name) (prerequisites will be researched first)")
+                // 3.9: only say "Queued" when it was (alien-gated work used to claim it and queue nothing).
+                store.act(missing.isEmpty ? "Queued \(item.name)" : "Queued \(item.name) (prerequisites will be researched first)") { $0.queueResearch(item.id) }
             }
         } label: {
             VStack(alignment: .leading, spacing: 7) {
@@ -936,7 +982,11 @@ struct ResearchCard: View, Equatable {
                     Text(item.isExotic ? "Outcome uncertain: 0.4–1.8× of the promise" : (published ? "Published code helps: 0.75–1.5× of the paper" : "Typical outcome: 0.6–1.5× of the paper"))
                         .font(.caption2).foregroundStyle(.tertiary)
                 }
-                if !missing.isEmpty && !done {
+                if let locked {
+                    Label(locked, systemImage: "lock.fill")
+                        .font(.caption2).foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else if !missing.isEmpty && !done {
                     Text("Requires: \(missing.joined(separator: ", "))")
                         .font(.caption2).foregroundStyle(.orange)
                 }

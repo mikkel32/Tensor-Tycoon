@@ -141,6 +141,12 @@ struct FrontierProgram: Identifiable, Sendable {
 
     func isOpen(_ s: GameState) -> Bool { s.year >= opens && s.researched.contains(prereq) }
 
+    /// 3.9: the month it opens, e.g. "Jul 2027" (2027.5 shown as "2027" looked wrong in June 2027).
+    var opensMonth: String {
+        let y = Int(opens.rounded(.down))
+        return GameCalendar.date(y, Int(((opens - Double(y)) * 12).rounded()) + 1, 1).gameMonth
+    }
+
     /// Bonus carriers: one virtual item per programme, scaled by its strength.
     static var virtualItems: [ResearchItem] {
         all.map { ResearchItem(id: $0.entry, name: $0.name, category: $0.category, year: 0, cost: 0, prereqs: [], effects: $0.effects, blurb: $0.blurb) }
