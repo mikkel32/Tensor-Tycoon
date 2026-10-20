@@ -31,6 +31,21 @@ enum Corporate {
     /// The rating letter a credit score reads as (CCC below the B band).
     static func notch(forCreditScore c: Double) -> Int { creditBands.firstIndex { c >= $0 } ?? 6 }
 
+    /// 3.9: the one letter every loan prices off. Once the agencies rate you (`corp.notch`), that is it; before then,
+    /// the letter your credit score reads as. (The score moves 30% a month, so it used to lag the rating by notches.)
+    static func creditNotch(_ s: GameState) -> Int {
+        s.corp.engaged && s.corp.notch >= 0 ? s.corp.notch : notch(forCreditScore: s.creditScore)
+    }
+
+    /// 3.9: keeps the credit score inside the band of the agencies' letter, so the Finance and Corporate pages agree.
+    static func alignCreditScore(_ s: inout GameState) {
+        guard s.corp.engaged, s.corp.notch >= 0 else { return }
+        let n = s.corp.notch
+        let lo = n < creditBands.count ? creditBands[n] : 300
+        let hi = n == 0 ? 850 : (n - 1 < creditBands.count ? creditBands[n - 1] - 1 : 544)
+        s.creditScore = clamp(s.creditScore, lo, max(lo, hi))
+    }
+
     // MARK: Hashed randomness
 
     static func unit(_ s: GameState, _ tag: String) -> Double { RivalIntel.unit("corp|\(s.lifecycleSalt)|\(tag)") }
@@ -449,7 +464,7 @@ enum Corporate {
         let notes = s.corp.debts.filter { $0.kind == .convertible }.reduce(0) { $0 + $1.balance }
         // 3.8: notes count as debt under a term loan's covenant, so with one outstanding they share its room.
         var convMax = raised ? max(0, min(s.valuation * 0.15, Finance.maxRaise(s.year) * 0.5) * (crunch ? 0.5 : 1) - notes) : 0
-        if s.corp.debts.contains(where: \.covenanted) { convMax = min(convMax, room) }
+        if s.corp.debts.contains(where: { $0.maxLeverage > 0 }) { convMax = min(convMax, room) }   // 3.9: the leverage covenant (a green bond's cash floor isn't one)
         let price = pricePerShare(s)
         out.append(Quote(kind: .convertible, max: convMax, rate: max(0.5, fed - 1), term: 48, available: convMax > 1e6,
                          reason: raised ? "A low coupon, repaid in 4 years — or turned into shares at \(Fmt.price(price * 1.25)) (25% above today's \(Fmt.price(price))) if they're worth more by then."
@@ -486,6 +501,7 @@ enum Corporate {
     static func closeBooks(_ s: inout GameState) {
         if s.corp.engaged {
             rate(&s)
+            alignCreditScore(&s)
             testCovenants(&s)
             auditCheck(&s)
         }
@@ -728,7 +744,7 @@ enum Corporate {
         Events.addDecision(&s, kind: "corp_funding", title: "\(sub.name) is out of cash",
                            body: "\(sub.name) (\(sub.kind.title.lowercased()), \(sub.headcount) people) has \(Fmt.money(sub.cash)) and burns \(Fmt.money(burn)) a month. CEO \(sub.ceo) asks for \(Fmt.money(need)).",
                            image: nil,
-                           options: [DecisionOption(label: "Fund it", detail: "Put in \(Fmt.money(need)) of your cash\(sub.holders.isEmpty ? "" : "; your stake rises")."),
+                           options: [DecisionOption(label: "Fund it", detail: "Put in \(Fmt.money(need)) of your cash\(sub.holders.isEmpty ? "" : "; your stake rises"). If you don't have it, the request stays open."),
                                      DecisionOption(label: "Let it raise outside", detail: outside ? "Investors put in \(Fmt.money(need)) at about \(Fmt.money(sub.valuation * 0.8)) pre-money; your stake falls." : "Its numbers won't attract investors: it would be wound down."),
                                      DecisionOption(label: "Wind it down", detail: "Close it and recover what's left.")],
                            amount: need, ref: sub.id)
@@ -1050,7 +1066,15 @@ enum Corporate {
     static func resolve(_ s: inout GameState, _ d: Decision, option: Int) {
         switch (d.kind, option) {
         case ("corp_funding", 0):
-            if s.injectSubsidiary(d.ref, amount: d.amount) != nil { outsideRaise(&s, d) }
+            // 3.9: "Fund it" never turns into a dilutive raise or a wind-down. Without the cash, the request stays open.
+            guard let sub = s.corp.subs.first(where: { $0.id == d.ref && $0.separate }) else { return }
+            if d.amount > s.cash {
+                s.decisions.append(d)
+                Sim.news(&s, "\(sub.name) still needs \(Fmt.money(d.amount))", "You have \(Fmt.money(max(0, s.cash))), so nothing was sent. The request stays in your inbox: raise cash, let it raise outside or wind it down.",
+                         .finance, good: false)
+                return
+            }
+            _ = s.injectSubsidiary(d.ref, amount: d.amount)
         case ("corp_funding", 1):
             outsideRaise(&s, d)
         case ("corp_funding", _):
@@ -1172,9 +1196,11 @@ extension GameState {
         // 3.8: slots grow with your stage (2 as a Scale-up, 4, 8, 12).
         let slots = Progression.subsidiarySlots(self)
         if slots == 0 { return "Reach Scale-up to start or buy a subsidiary." }
-        if corp.subs.filter(\.live).count >= slots {
+        // 3.9: only separate companies take a slot. A division you folded in is part of the parent, so folding one in
+        // frees its slot (the message below always said so, but folded divisions used to count).
+        if corp.subs.filter(\.separate).count >= slots {
             let next = CompanyStage.allCases.first { Progression.slots($0) > slots }
-            return "A \(progression.current.title) runs at most \(slots) subsidiaries\(next.map { " (\(Progression.slots($0)) as a \($0.title))" } ?? "") — sell, spin off or fold one in first."
+            return "A \(progression.current.title) runs at most \(slots) subsidiaries\(next.map { " (\(Progression.slots($0)) as a \($0.title))" } ?? "") — sell, spin off, wind down or fold one in first."
         }
         if kind == .regional, let why = Progression.blocker(self, .regional) { return why }
         if kind == .regional {
@@ -1407,12 +1433,17 @@ extension GameState {
         return nil
     }
 
+    /// 3.9: what closing it pays you (negative: what the severance costs you) and the severance, for the confirmation.
+    func windDownOutcome(_ sub: Subsidiary) -> (back: Double, severance: Double) {
+        let severance = Double(sub.headcount) * Corporate.payPerHeadMonth(sub, year) * 2
+        return (sub.status == .folded ? -severance : sub.stake * max(0, sub.cash - severance), severance)
+    }
+
     /// Close it: pay severance, hand back what's left (your share of it).
     mutating func windDownSubsidiary(_ id: String) -> String? {
         guard let i = subIndex(id) else { return "Not found." }
         let sub = corp.subs[i]
-        let severance = Double(sub.headcount) * Corporate.payPerHeadMonth(sub, year) * 2
-        let left = sub.status == .folded ? -severance : sub.stake * max(0, sub.cash - severance)
+        let left = windDownOutcome(sub).back
         cash += left
         if left >= 0 {
             corp.flow.subProceeds += left

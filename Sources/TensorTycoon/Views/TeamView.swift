@@ -4,6 +4,7 @@ struct TeamView: View {
     @Environment(GameStore.self) private var store
     @State private var roleFilter: Role? = nil
     @State private var firing: Employee?
+    @State private var driveRole: Role = .sales
 
     var body: some View {
         let s = store.game
@@ -29,7 +30,7 @@ struct TeamView: View {
                         Text("Rent \(Fmt.money(office.monthly + HQ.satelliteRent(s)))/mo · payroll \(Fmt.money(Economy.payrollYear(s) / 12))/mo").font(.caption).foregroundStyle(.secondary)
                         HQSummaryLine(state: s)   // 3.5: headquarters
                         if let next {
-                            Button("Move to \(next.name) (\(next.capacity) seats, \(Fmt.money(next.monthly))/mo)") {
+                            Button("Move to \(next.name) (\(next.capacity) seats, \(Fmt.money(next.monthly))/mo · fit-out \(Fmt.money(next.monthly * 3)))") {   // 3.9: the fit-out up front
                                 store.act("Moved offices") { $0.upgradeOffice() }
                             }
                             .font(.caption)
@@ -76,11 +77,38 @@ struct TeamView: View {
             }
             let cands = s.candidates.filter { roleFilter == nil || $0.role == roleFilter }
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 280), spacing: 12)], spacing: 12) {
-                ForEach(cands) { c in CandidateCard(candidate: c, year: s.year) }
+                ForEach(cands) { c in CandidateCard(candidate: c, state: s) }
             }
             if cands.isEmpty { Text("No candidates right now — new people enter the market every month.").foregroundStyle(.secondary) }
+            // 3.9: the monthly market brings about one candidate of a given role; a paid drive brings more of the one you need.
+            HStack(spacing: 10) {
+                Picker("Recruiting drive", selection: $driveRole) {
+                    ForEach(Role.allCases) { r in Text(r.title).tag(r) }
+                }
+                .frame(width: 280)
+                let why = s.recruitingDriveBlocker(driveRole)
+                Button("Find \(GameState.driveSize) for \(Fmt.money(s.recruitingDriveFee(driveRole)))") {
+                    store.act("Recruiting drive started") { $0.recruitingDrive(driveRole) }
+                }
+                .disabled(why != nil)
+                .help(why ?? "An agency brings \(GameState.driveSize) \(driveRole.plural.lowercased()) to headquarters, on top of the monthly market.")
+                if let why { Text(why).font(.caption).foregroundStyle(.secondary) }
+                Spacer()
+            }
 
-            Text("Employees").font(.title3.weight(.semibold))
+            HStack {
+                Text("Employees").font(.title3.weight(.semibold))
+                Spacer()
+                // 3.9: one click for everyone who fell behind, against the same market rate morale uses.
+                let under = People.underpaid(s)
+                if !under.isEmpty {
+                    let add = under.reduce(0) { $0 + max(0, People.marketSalary(s, $1) * 0.9 - $1.salary) }
+                    Button("Raise \(under.count) underpaid to 90% of market (+\(Fmt.money(add / 12))/mo)") {
+                        store.mutate { _ = $0.raiseUnderpaid() }
+                    }
+                    .help("Everyone paid under 85% of the market rate for their role, skill and office. Underpaid people lose morale every month and get poached.")
+                }
+            }
             if s.employees.isEmpty {
                 Text("It's just you. Hire from the candidates above: researchers speed up research, an ML engineer makes training more efficient.").foregroundStyle(.secondary)
             } else {
@@ -113,6 +141,12 @@ struct TeamView: View {
                         .width(140)
                         TableColumn("Skill") { e in Text("\(Int(e.skill))").monospacedDigit() }.width(45)
                         TableColumn("Salary") { e in Text(Fmt.money(e.salary)).monospacedDigit() }.width(80)
+                        TableColumn("vs market") { e in   // 3.9: the yardstick morale uses
+                            let r = e.salary / max(1, People.marketSalary(s, e))
+                            Text(Fmt.pct(r, decimals: 0)).monospacedDigit().foregroundStyle(r < 0.85 ? Theme.bad : (r < 0.95 ? Theme.warning : .secondary))
+                                .help("Market rate for this role, skill and office: \(Fmt.money(People.marketSalary(s, e)))/yr.")
+                        }
+                        .width(70)
                         TableColumn("Morale") { e in Meter(value: e.morale / 100, tint: e.morale < 40 ? .red : (e.morale < 65 ? .orange : .green), height: 6) }.width(90)
                         TableColumn("Since") { e in Text(e.hired.gameMonth).foregroundStyle(.secondary) }.width(80)
                         TableColumn("") { e in
@@ -144,11 +178,12 @@ struct TeamView: View {
 private struct CandidateCard: View {
     @Environment(GameStore.self) private var store
     let candidate: Candidate
-    let year: Double
+    let state: GameState
 
     var body: some View {
         let c = candidate
-        let market = Macro.salary(c.role, year) * pow(c.skill / 50, 1.6)
+        // 3.9: the market where they'd work (local pay), so the label means something outside the US.
+        let market = People.marketSalary(state, role: c.role, skill: c.skill, office: c.office, star: c.star, relocated: c.relocated)
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Image(systemName: c.role.symbol).foregroundStyle(.white).frame(width: 30, height: 30)
@@ -175,7 +210,8 @@ private struct CandidateCard: View {
             HStack {
                 VStack(alignment: .leading, spacing: 0) {
                     Text("\(Fmt.money(c.salary))/yr").font(.callout.weight(.semibold).monospacedDigit())
-                    Text(c.equity > 0.001 ? "+ \(Fmt.trim(c.equity, 2))% equity" : (c.salary > market * 1.1 ? "Above market" : "Market rate")).font(.caption2).foregroundStyle(.secondary)
+                    Text((c.equity > 0.001 ? "+ \(Fmt.trim(c.equity, 2))% equity · " : "") + (c.salary > market * 1.1 ? "above market" : (c.salary < market * 0.9 ? "below market" : "market rate"))
+                         + " · \(Fmt.money(c.salary * 0.15)) signing").font(.caption2).foregroundStyle(.secondary)
                 }
                 Spacer()
                 Button("Hire") { store.act("Welcome aboard, \(c.name.split(separator: " ").first ?? "")!") { $0.hire(c.id) } }

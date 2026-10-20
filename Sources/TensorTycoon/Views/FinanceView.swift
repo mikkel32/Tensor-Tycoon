@@ -9,14 +9,14 @@ struct FinanceView: View {
         let debt = Economy.debt(s)
         let payments = s.loans.reduce(0) { $0 + $1.payment }
         let rows = Array(s.history.suffix(18).reversed())
-        let creditNotch = Corporate.notch(forCreditScore: s.creditScore)
+        let creditNotch = Corporate.creditNotch(s)   // 3.9: the same letter as the Corporate page
         Page(title: "Finance", subtitle: "Profit & loss, cash and debt, taxes, what you can book and the state of the markets. Interest rates follow the real Fed funds rate until late 2026, then drift.", screen: .finance) {
             ScreenHint(.finance)
             KPIRow(minWidth: 190) {
                 StatTile(title: "Cash", value: Fmt.money(s.cash), detail: s.cloudCredits > 0 ? "+ \(Fmt.money(s.cloudCredits)) cloud credits" : nil, symbol: "banknote.fill",
                          tint: s.cash >= 0 ? Theme.good : Theme.bad)
                 StatTile(title: "Debt", value: Fmt.money(debt), detail: "\(Fmt.money(payments))/mo payments", symbol: "creditcard.fill", tint: Theme.warning)
-                StatTile(title: "Credit score", value: "\(Int(s.creditScore))", detail: "Reads as \(Corporate.ratingName(creditNotch)) · prices every loan",
+                StatTile(title: "Credit score", value: "\(Int(s.creditScore))", detail: "\(s.corp.engaged && s.corp.notch >= 0 ? "Rated" : "Reads as") \(Corporate.ratingName(creditNotch)) · prices every loan",
                          symbol: "checkmark.seal.fill", tint: CorpStyle.rating(creditNotch))
                 StatTile(title: "Policy rate", value: "\(Fmt.trim(Economy.fedRate(s), 2))%",
                          detail: Crises.rateAdd(s) > 0 ? "Rate shock: +\(Fmt.trim(Crises.rateAdd(s), 2)) pts" : "Base for loan pricing", symbol: "percent", tint: .purple)
@@ -180,10 +180,19 @@ private struct BookingCard: View {
                 .accessibilityLabel("Share of what you can book")
             SpecRow(label: "Ramp: best recent month +\(Fmt.pct(cap.growth, decimals: 0))", value: "\(Fmt.money(cap.ramp))/mo", tone: cap.limit == .ramp ? .warning : .neutral)
             SpecRow(label: "Team: \(Fmt.trim(Commercial.teamUnits(s), 0)) people-equivalents", value: "\(Fmt.money(cap.team))/mo", tone: cap.limit == .team ? .warning : .neutral)
+            // 3.9: the team limit is the larger of what your people cover and your best month; show both halves.
+            let floorHolds = Commercial.teamFloor(s) > Commercial.teamFromPeople(s)
+            SpecRow(label: "· your people cover", value: "\(Fmt.money(Commercial.teamFromPeople(s)))/mo", tone: .neutral)
+            SpecRow(label: "· floor: best month of the last year", value: "\(Fmt.money(Commercial.teamFloor(s)))/mo", tone: .neutral)
+            if floorHolds {
+                let need = Commercial.unitsToClearFloor(s)
+                Text("The floor sets the team limit now. Hiring raises it only after about \(Fmt.int(Int(need.rounded(.up)))) more people-equivalents (about \(Fmt.int(Int((need / Commercial.salesWeight).rounded(.up)))) Sales & BD hires).")
+                    .font(.caption).foregroundStyle(cap.limit == .team ? Theme.warning : .secondary).fixedSize(horizontal: false, vertical: true)
+            }
             if s.month.revUnbooked > 1 {
                 SpecRow(label: unbookedLabel(s), value: Fmt.money(s.month.revUnbooked), tone: .warning)
             }
-            if let last = s.history.last, let line = Commercial.explanation(last) {
+            if let last = s.history.last, let line = Commercial.explanation(last, s) {
                 Text(line).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             Text(rules(s, cap))
@@ -351,6 +360,12 @@ private struct LoansCard: View {
                         Spacer()
                         Text("Unavailable").font(.caption).foregroundStyle(.tertiary)
                     }
+                }
+                // 3.9: these loans count toward a term loan's debt-to-EBITDA covenant too; say what this one would do to it.
+                if q.available && q.max > 0 && s.corp.debts.contains(where: { $0.maxLeverage > 0 }) {
+                    let note = Corporate.covenantNote(s, adding: min(amounts[q.kind] ?? q.max / 2, q.max))
+                    Label("Term-loan covenant: " + note.text, systemImage: note.breach ? "exclamationmark.triangle.fill" : "checkmark.shield")
+                        .font(.caption).foregroundStyle(note.breach ? Theme.warning : .secondary)
                 }
             }
         }

@@ -437,7 +437,7 @@ enum Operations {
             out["autoHire"] = gaps > 0 ? "\(gaps) open role\(gaps == 1 ? "" : "s") to fill at the next weekly review." : "Staffing matches your size."
         }
         if s.ops.autoRaises {
-            let n = s.employees.filter { $0.salary < Macro.salary($0.role, s.year) * 0.85 }.count
+            let n = People.underpaid(s).count   // 3.9: the same market rate morale uses (skill and local pay)
             out["autoRaises"] = n > 0 ? "\(n) \(n == 1 ? "person is" : "people are") paid well under market; raises at the next weekly review." : "Everyone is paid near the market."
         }
         if s.ops.autoLeads {
@@ -487,15 +487,21 @@ enum Operations {
     }
 
     static func autoRaises(_ s: inout GameState) {
-        let y = s.year
         var given = 0
-        for e in s.employees where e.salary < Macro.salary(e.role, y) * 0.85 && given < max(1, s.employees.count / 4) {
-            // 3.9: one 15% step can leave a big gap open (and the same people were raised every week); close it to 90%.
+        var added = 0.0
+        // 3.9: measured against the market rate morale uses (skill and local pay), not San Francisco's median, which
+        // raised cheap local hires far past what keeps them happy; the note now carries what it adds to payroll.
+        for e in People.underpaid(s) where given < max(1, s.employees.count / 4) {
+            let market = People.marketSalary(s, e)
+            // One 15% step can leave a big gap open (and the same people were raised every week); close it to 90%.
             var steps = 0
-            while steps < 3, (s.employees.first { $0.id == e.id }?.salary ?? .infinity) < Macro.salary(e.role, y) * 0.9 { s.giveRaise(e.id); steps += 1 }
+            while steps < 3, (s.employees.first { $0.id == e.id }?.salary ?? .infinity) < market * 0.9 { s.giveRaise(e.id); steps += 1 }
+            added += (s.employees.first { $0.id == e.id }?.salary ?? e.salary) - e.salary
             given += 1
         }
-        if given > 0 { note(&s, "raises", "Raised pay for \(given) \(given == 1 ? "person" : "people") who had fallen behind the market.", money: 0) }
+        if given > 0 {
+            note(&s, "raises", "Raised pay for \(given) \(given == 1 ? "person" : "people") who had fallen behind the market (+\(Fmt.money(added / 12))/mo payroll).", money: added / 12)
+        }
     }
 
     // MARK: Enterprise

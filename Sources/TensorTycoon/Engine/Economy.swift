@@ -550,7 +550,7 @@ enum Economy {
     /// size, liquidity and runway) drives the credit score, so both read the same letter, and every loan prices off
     /// that letter's spread (small borrowers pay a little more), plus a credit crunch's premium.
     static func creditSpread(_ s: GameState) -> Double {
-        let notch = Corporate.notch(forCreditScore: s.creditScore)
+        let notch = Corporate.creditNotch(s)   // 3.9: the agencies' letter once you're rated
         let small = runRate(s) < 1e8 ? 1.5 : (runRate(s) < 1e9 ? 0.5 : 0)
         return Corporate.spreads[notch] + small + Crises.spreadAdd(s)
     }
@@ -577,7 +577,7 @@ enum Economy {
         let hw = hardwareValue(s)
         let lastRound = s.rounds.last
         let crunch = Crises.crunchSeverity(s)
-        let notch = Corporate.notch(forCreditScore: s.creditScore)
+        let notch = Corporate.creditNotch(s)   // 3.9
         var out: [LoanQuote] = []
         let ff = s.loans.contains { $0.kind == .friends } || s.rounds.count > 1
         out.append(LoanQuote(kind: .friends, max: ff ? 0 : 250_000, rate: 2, term: 36, available: !ff,
@@ -619,9 +619,24 @@ enum Economy {
             if crunch > 0 && !Corporate.investmentGrade(notch) {
                 bondMax = 0
                 bondWhy = "Credit crunch: bond buyers want investment grade (BBB or better); you're \(Corporate.ratingName(notch))."
+            } else if notch > 5 {
+                // 3.9: the same bar as the Corporate page's bonds and term loans.
+                bondMax = 0
+                bondWhy = "Your rating (\(Corporate.ratingName(notch))) is too low for bond investors."
             }
         }
         out.append(LoanQuote(kind: .bond, max: bondMax, rate: fed + spread * 0.6 + 0.8, term: 120, available: bondMax > 0, reason: bondWhy))
+        // 3.9: with a covenanted term loan outstanding, every loan counts toward its debt-to-EBITDA covenant, so lenders
+        // here size against the same room the Corporate page shows (friends-and-family money is too small to matter).
+        if s.corp.debts.contains(where: { $0.maxLeverage > 0 }) {
+            let room = Corporate.debtRoom(s)
+            for i in out.indices where out[i].kind != .friends && out[i].max > room {
+                out[i].max = room
+                out[i].available = room > 10_000
+                out[i].reason += room > 10_000 ? " Capped at \(Fmt.money(room)) by your term loan's covenant (all debt ≤ 3× EBITDA when you borrow)."
+                    : " Your term loan's covenant leaves no room for more debt: all debt is already 3× EBITDA or more (see Corporate)."
+            }
+        }
         return out
     }
 

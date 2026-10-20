@@ -136,7 +136,7 @@ private struct ObjectivesCard: View {
                         Meter(value: Board.progress(o, s), tint: .accentColor, height: 6)
                     }
                     VStack(alignment: .trailing, spacing: 2) {
-                        Text("+\(Fmt.money(o.rewardCash))").font(.callout.monospacedDigit().weight(.semibold)).foregroundStyle(.green)
+                        Text("+\(Fmt.money(o.done || o.failed ? o.rewardCash : Board.reward(o, s)))").font(.callout.monospacedDigit().weight(.semibold)).foregroundStyle(.green)
                         Text("+\(o.rewardPoints) CP · +\(Int(o.rewardConfidence)) confidence").font(.caption2).foregroundStyle(.secondary)
                         Button("Ask for another") { store.act("New goal set") { $0.rerollObjective(o.id) } }
                             .buttonStyle(.link).font(.caption)

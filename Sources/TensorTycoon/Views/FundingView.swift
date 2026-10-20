@@ -7,6 +7,7 @@ struct FundingView: View {
     @State private var secondary = 0.05
     @State private var founderSale = 0.05
     @State private var confirmSale = false
+    @State private var confirmIPO = false
 
     var body: some View {
         let s = store.game
@@ -102,9 +103,8 @@ struct FundingView: View {
                                 Slider(value: $fraction, in: 0.05...0.3, step: 0.01)
                                 Text(Fmt.pct(fraction, decimals: 0)).font(.headline.monospacedDigit()).frame(width: 50)
                             }
-                            let pre = Finance.privateValue(s)
-                            Text("At today's ~\(Fmt.money(pre)) valuation that's roughly \(Fmt.money(min(pre * fraction / (1 - fraction), Finance.maxRaise(s.year)))).")
-                                .font(.caption).foregroundStyle(.secondary)
+                            Text(raiseEstimate(s))
+                                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                             Button("Start fundraising") { store.act("Fundraise started") { $0.startRaise(fraction: fraction) } }
                                 .buttonStyle(.borderedProminent)
                         }
@@ -112,9 +112,16 @@ struct FundingView: View {
                     Card {
                         CardHeader("IPO", symbol: "bell.fill")
                         Text(ipoWhy).font(.callout).foregroundStyle(ipoOK ? .primary : .secondary)
-                        Button("Ring the bell") { store.act("You're public!") { $0.ipo() } }
+                        // 3.9: listing can't be undone, so it asks first and says what it does.
+                        Button("Ring the bell…") { confirmIPO = true }
                             .buttonStyle(.borderedProminent)
                             .disabled(!ipoOK)
+                            .confirmationDialog("Take \(s.companyName) public?", isPresented: $confirmIPO, titleVisibility: .visible) {
+                                Button("List and raise about \(Fmt.money(Finance.privateValue(s) * 0.9 * 0.12 / 0.88))") { store.act("You're public!") { $0.ipo() } }
+                                Button("Cancel", role: .cancel) {}
+                            } message: {
+                                Text("You sell 12% of the company in new shares at 10% under today's ~\(Fmt.money(Finance.privateValue(s))) value. Your stake falls from \(Fmt.pct(s.founderStake, decimals: 1)) to about \(Fmt.pct(s.founderStake * 0.88, decimals: 1)). From then on the share price moves every day, and new money comes from secondary offerings instead of rounds. You can't go private again.")
+                            }
                     }
                     .frame(width: 320)
                 }
@@ -161,5 +168,23 @@ struct FundingView: View {
                 }
             }
         }
+    }
+}
+
+extension FundingView {
+    /// 3.9: what term sheets will roughly offer. Every offer is capped at what the year's market can absorb (half to all
+    /// of it, at random), so past a certain size the fraction you ask for no longer changes the money or the dilution.
+    fileprivate func raiseEstimate(_ s: GameState) -> String {
+        let pre = Finance.privateValue(s)
+        let capHi = Finance.maxRaise(s.year) * Crises.roundFactor(s)
+        let capLo = capHi * 0.5
+        let asked = pre * fraction / (1 - fraction)
+        if asked <= capLo {
+            return "At today's ~\(Fmt.money(pre)) valuation that's roughly \(Fmt.money(asked)), give or take what each investor thinks you're worth."
+        }
+        let hi = min(asked, capHi)
+        var t = "At today's ~\(Fmt.money(pre)) valuation you'd ask for \(Fmt.money(asked)), but no investor puts in more than \(Fmt.money(capLo))–\(Fmt.money(capHi)) this year: expect offers of \(Fmt.money(capLo))–\(Fmt.money(hi)), about \(Fmt.pct(capLo / (pre + capLo), decimals: 1))–\(Fmt.pct(hi / (pre + hi), decimals: 1)) dilution."
+        if pre * 0.05 / 0.95 >= capHi { t += " At your size the fraction you pick doesn't change that." }
+        return t
     }
 }

@@ -96,6 +96,12 @@ enum Board {
         return clamp(max(last * 0.08, s.valuation * 0.0005), 1e5, 6e9)
     }
 
+    /// 3.9: what a goal pays if it's met today: at least the tranche it was issued with, re-priced to the company's size now
+    /// (a goal set when the company was small used to pay a few hundred thousand at a trillion-dollar lab).
+    static func reward(_ o: Objective, _ s: GameState) -> Double {
+        max(o.rewardCash, min(6e9, tranche(s) * difficulty(o.kind, start: o.start, target: o.target)))
+    }
+
     /// How hard a goal is (0.25–1.5): how far it asks you to move against a typical ask of its kind.
     /// Tranches scale with it, so goals you'd hit anyway pay less.
     static func difficulty(_ k: ObjectiveKind, start: Double, target: Double) -> Double {
@@ -262,11 +268,13 @@ enum Board {
                 s.objectives[i].done = true
                 s.objectivesCompleted += 1
                 if s.objectivesCompleted >= 5 { Achievements.unlock(&s, "board_favorite") }
-                s.cash += o.rewardCash
-                s.month.oneOffIncome += o.rewardCash
+                let paid = reward(o, s)   // 3.9
+                s.objectives[i].rewardCash = paid
+                s.cash += paid
+                s.month.oneOffIncome += paid
                 s.culturePoints += o.rewardPoints
                 s.boardConfidence = clamp(s.boardConfidence + o.rewardConfidence, 0, 100)
-                Sim.news(&s, "Board goal met: \(o.title)", "Investors release a \(Fmt.money(o.rewardCash)) milestone tranche. +\(o.rewardPoints) culture point\(o.rewardPoints == 1 ? "" : "s"), board confidence up.",
+                Sim.news(&s, "Board goal met: \(o.title)", "Investors release a \(Fmt.money(paid)) milestone tranche. +\(o.rewardPoints) culture point\(o.rewardPoints == 1 ? "" : "s"), board confidence up.",
                          .finance, image: "sf_skyline", important: true, good: true)
             } else if s.date > o.deadline {
                 s.objectives[i].failed = true

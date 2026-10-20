@@ -60,8 +60,8 @@ enum People {
         let t = HQ.candidateTargets(s, 8 + min(8, HQ.staffCount(s, office: "") / 20))
         let target = Int((Double(t.total) * visas).rounded())
         let local = Int((Double(t.local) * visas).rounded())
-        while s.candidates.filter({ $0.office.isEmpty }).count < target {
-            let locals = s.candidates.filter { $0.office.isEmpty && !$0.relocated }.count
+        while s.candidates.filter({ $0.office.isEmpty && !$0.sourced }).count < target {   // 3.9: drive candidates come on top
+            let locals = s.candidates.filter { $0.office.isEmpty && !$0.relocated && !$0.sourced }.count
             s.candidates.append(makeCandidate(&s, relocated: locals >= local))
         }
         let open = Set(s.hq.satellites.map(\.id.uuidString))
@@ -73,17 +73,33 @@ enum People {
         }
     }
 
+    /// 3.9: the market pay for someone of this role and skill where they work: the one yardstick for morale, the
+    /// candidate cards, the pay-raise delegate and the Team page.
+    static func marketSalary(_ s: GameState, role: Role, skill: Double, office: String, star: Bool, relocated: Bool) -> Double {
+        Macro.salary(role, s.year) * pow(skill / 50, 1.6) * HQ.payFactor(s, office: office, star: star, relocated: relocated)
+    }
+
+    static func marketSalary(_ s: GameState, _ e: Employee) -> Double {
+        marketSalary(s, role: e.role, skill: e.skill, office: e.office, star: e.star, relocated: e.relocated)
+    }
+
+    /// 3.9: people paid under 85% of their market rate (the ones who drift toward the door).
+    static func underpaid(_ s: GameState) -> [Employee] { s.employees.filter { $0.salary < marketSalary(s, $0) * 0.85 } }
+
     static func monthly(_ s: inout GameState) {
         refreshCandidates(&s)
         guard !s.employees.isEmpty else { return }
-        // Morale: pay vs market, momentum, overcrowding
-        let crowded = s.employees.count > Economy.officeCapacity(s)
+        // Morale: pay vs market, momentum, overcrowding. 3.9: crowding is per office (an overfull headquarters used to go
+        // unnoticed while a satellite had empty desks).
+        let hqFull = HQ.staffCount(s, office: "") > Economy.office(s, s.officeLevel).capacity
+        let fullSatellites = Set(s.hq.satellites.filter { HQ.staffCount(s, office: $0.id.uuidString) > $0.seats }.map(\.id.uuidString))
         let momentum = (s.history.last?.revenue ?? 0) > (s.history.dropLast().last?.revenue ?? 0) ? 1.0 : -0.5
         var poached: [Employee] = []
         for i in s.employees.indices {
             let e = s.employees[i]
-            let market = Macro.salary(e.role, s.year) * pow(e.skill / 50, 1.6) * HQ.payFactor(s, office: e.office, star: e.star, relocated: e.relocated)
+            let market = marketSalary(s, e)
             let payRatio = s.employees[i].salary / max(market, 1)
+            let crowded = HQ.satellite(s, e.office) == nil ? hqFull : fullSatellites.contains(e.office)
             var m = s.employees[i].morale
             m += (payRatio - 1) * 6 + momentum + (crowded ? -4 : 0) + (s.cash < 0 ? -10 : 0)
             m += (70 - m) * 0.05
@@ -111,9 +127,13 @@ enum People {
                      .company, important: p.skill > 75, good: false)
             if p.star || p.skill >= 75 { Cast.leftYou(&s, p, to: rival, why: "lured by a bigger offer") }   // 3.4
         }
-        // Salaries drift with the market each January
+        // Salaries drift with the market each January. 3.9: as fast as the market moved over the year (at least 4%), so
+        // pay doesn't fall further behind every year while market rates climb 10–30%.
         if GameCalendar.components(s.date).month == 1 {
-            for i in s.employees.indices { s.employees[i].salary *= 1.04 }
+            for i in s.employees.indices {
+                let r = s.employees[i].role
+                s.employees[i].salary *= clamp(Macro.salary(r, s.year) / max(1, Macro.salary(r, s.year - 1)), 1.04, 1.5)
+            }
         }
     }
 }
@@ -255,7 +275,7 @@ enum Events {
             addDecision(&s, kind: "poach", title: "A \(comp.name) researcher wants to join",
                         body: "A senior researcher behind \(comp.name)'s \(item.name) work is unhappy and open to an offer. Hiring them would let you research it yourself.",
                         image: "sf_skyline",
-                        options: [DecisionOption(label: "Hire them (\(Fmt.money(salary))/yr)", detail: "Unlocks \(item.name) in your research tree. About a 30% chance \(comp.name) sues within six months."),
+                        options: [DecisionOption(label: "Hire them (\(Fmt.money(salary))/yr)", detail: "Unlocks \(item.name) in your research tree. About a 30% chance \(comp.name) sues within six months. Needs a free desk."),
                                   DecisionOption(label: "Pass", detail: "Poaching invites lawsuits.")],
                         amount: salary, ref: tech)
         }
@@ -364,9 +384,19 @@ enum Events {
         case ("partner_offer", _):
             Partners.resolveOffer(&s, ref: d.ref, option: option)
         case ("poach", 0):
+            // 3.9: they need a desk: headquarters first, then any satellite with room (they used to overfill headquarters).
+            let hqRoom = HQ.staffCount(s, office: "") < Economy.office(s, s.officeLevel).capacity
+            let sat = s.hq.satellites.first { HQ.staffCount(s, office: $0.id.uuidString) < $0.seats }
+            guard hqRoom || sat != nil else {
+                Sim.news(&s, "No desk for the \(ResearchCatalog.byID[d.ref]?.name ?? "rival") researcher", "Every office is full, so they took another offer. Move to a bigger office or add desks on the Team page.",
+                         .company, good: false)
+                break
+            }
             if !s.exoticOwned.contains(d.ref) { s.exoticOwned.append(d.ref) }
-            s.employees.append(Employee(name: "\(s.rng.pick(NameBank.first)) \(s.rng.pick(NameBank.last))", role: .researcher, skill: 82,
-                                        salary: d.amount, morale: 80, hired: s.date, equity: 0.2))
+            var hire = Employee(name: "\(s.rng.pick(NameBank.first)) \(s.rng.pick(NameBank.last))", role: .researcher, skill: 82,
+                                salary: d.amount, morale: 80, hired: s.date, equity: 0.2)
+            if !hqRoom, let sat { hire.office = sat.id.uuidString }
+            s.employees.append(hire)
             Sim.news(&s, "New hire brings \(ResearchCatalog.byID[d.ref]?.name ?? "a secret technique")", "You can now research it on the Research page.", .research, good: true)
             // Their old lab may come after you for it.
             if s.rng.chance(0.3), let lab = s.rivalTech.sorted(by: { $0.key < $1.key }).first(where: { $0.value.contains(d.ref) })?.key {
@@ -493,5 +523,59 @@ enum Achievements {
         let board = Leaderboard.entries(s, includeUnreleased: false)
         if board.first?.isPlayer == true { unlock(&s, "frontier") }
         if let top = board.max(by: { $0.arena < $1.arena }), top.isPlayer { unlock(&s, "arena") }
+    }
+}
+
+// MARK: - 3.9: recruiting drives and pay reviews
+
+extension GameState {
+    /// Candidates one recruiting drive brings in, and the most of one role on the market at once.
+    static let driveSize = 4
+    static let driveRoleCap = 8
+
+    /// An agency fee per drive: a quarter of a year's market pay for the role, per candidate.
+    func recruitingDriveFee(_ role: Role) -> Double {
+        (Macro.salary(role, year) * HQ.payFactor(self, office: "", star: false, relocated: false) * 0.25 * Double(GameState.driveSize) / 1_000).rounded() * 1_000
+    }
+
+    /// Why a drive for `role` can't run now, or nil.
+    func recruitingDriveBlocker(_ role: Role) -> String? {
+        let open = candidates.filter { $0.role == role && $0.office.isEmpty }.count
+        if open >= GameState.driveRoleCap { return "You already have \(open) \(role.plural.lowercased()) to choose from." }
+        if role == .chipDesigner && (!bonuses.has(.customSilicon) || year <= 2018) { return "Chip designers are only on the market once you research custom silicon." }
+        let fee = recruitingDriveFee(role)
+        if fee > cash { return "A drive costs \(Fmt.money(fee)); you have \(Fmt.money(cash))." }
+        return nil
+    }
+
+    /// 3.9: pay an agency to bring in candidates for one role at headquarters. The monthly market alone brings about one
+    /// candidate of a given role, too few to staff a sales team or a lab.
+    mutating func recruitingDrive(_ role: Role) -> String? {
+        if let why = recruitingDriveBlocker(role) { return why }
+        let fee = recruitingDriveFee(role)
+        cash -= fee
+        month.costPayroll += fee
+        for _ in 0..<GameState.driveSize {
+            var c = People.makeCandidate(&self, role: role)
+            c.sourced = true
+            candidates.append(c)
+        }
+        Sim.news(&self, "Recruiting drive: \(GameState.driveSize) \(role.plural.lowercased())", "An agency found \(GameState.driveSize) candidates for \(Fmt.money(fee)). They're on the Team page for the next 45 days.", .company)
+        return nil
+    }
+
+    /// 3.9: raise everyone under 85% of their market rate to 90% of it. Returns how many and the added payroll a year.
+    @discardableResult
+    mutating func raiseUnderpaid() -> (count: Int, added: Double) {
+        var n = 0, added = 0.0
+        for e in People.underpaid(self) {
+            guard let i = employees.firstIndex(where: { $0.id == e.id }) else { continue }
+            let to = (People.marketSalary(self, e) * 0.9 / 1_000).rounded() * 1_000
+            added += to - employees[i].salary
+            employees[i].salary = to
+            employees[i].morale = min(100, employees[i].morale + 15)
+            n += 1
+        }
+        return (n, added)
     }
 }

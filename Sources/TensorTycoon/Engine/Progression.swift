@@ -194,7 +194,7 @@ enum Progression {
         if s.orgs.contains(where: { orgAgents(s, $0.id) > orgAgentCap }) { g.insert(Feature.bigOrgs.rawValue) }
         if s.moonshots.contains(where: { isLateMoonshot($0.id) }) { g.insert(Feature.lateMoonshots.rawValue) }
         s.progression.grandfathered = g
-        s.progression.grandfatheredSlots = s.corp.subs.filter(\.live).count
+        s.progression.grandfatheredSlots = s.corp.subs.filter(\.separate).count   // 3.9: a folded-in division holds no slot
     }
 
     // MARK: Hooks into existing systems (exactly 1 below the stage)

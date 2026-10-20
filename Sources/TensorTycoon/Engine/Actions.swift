@@ -635,7 +635,8 @@ extension GameState {
         guard let comp = CompetitorCatalog.byID[lab] else { return "Unknown lab." }
         guard let tech = headhuntTargets(lab).first, let item = ResearchCatalog.byID[tech] else { return "\(comp.name) has nothing you can hire your way into yet." }
         if let ready = headhuntReadyOn { return "Your recruiters are still burned from the last attempt — try again after \(ready.gameShort)." }
-        if employees.count >= Economy.officeCapacity(self) { return "Your office is full. Upgrade it on the Team page." }
+        // 3.9: they work at headquarters, so it's headquarters that needs the desk (not any office).
+        if HQ.staffCount(self, office: "") >= Economy.office(self, officeLevel).capacity { return "Your headquarters is full. Move to a bigger office on the Team page first." }
         let fee = headhuntFee
         if fee > cash { return "A credible offer needs \(Fmt.money(fee)) up front." }
         cash -= fee
@@ -704,12 +705,19 @@ extension GameState {
     }
 
     mutating func fire(_ id: UUID) {
-        guard let e = employees.first(where: { $0.id == id }) else { return }
+        guard letGo(id) else { return }
+        for i in employees.indices { employees[i].morale = max(0, employees[i].morale - 2) }   // 3.9: clamped
+    }
+
+    /// Severance and the departure itself, without the morale hit (the caller sizes that). False when not found.
+    @discardableResult
+    mutating func letGo(_ id: UUID) -> Bool {
+        guard let e = employees.first(where: { $0.id == id }) else { return false }
         cash -= e.salary * 0.25
         month.costPayroll += e.salary * 0.25
         employees.removeAll { $0.id == id }
-        for i in employees.indices { employees[i].morale -= 2 }
         Stakeholders.letGo(&self, e)   // 3.4: world and stakeholders
+        return true
     }
 
     /// Veterans (a year in, skill 65+) can be promoted into a trait of your choice.
@@ -782,6 +790,7 @@ extension GameState {
         raising = true
         raiseFraction = fraction
         raiseOffers = []
+        raiseOffersExpired = 0
         lastRaise = date
         Sim.news(&self, "Fundraising kicked off", "You're pitching investors to sell \(Fmt.pct(fraction, decimals: 0)) of the company. Term sheets usually arrive within weeks.", .finance)
         return nil

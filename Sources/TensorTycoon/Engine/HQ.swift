@@ -402,6 +402,12 @@ enum HQ {
         return setup + 3 * Double(satelliteStartSeats) * seatRent(country: country, city: city)
     }
 
+    /// 3.9: the morale everyone left loses when an office closes: 2 points, plus up to 18 more by the share let go.
+    static func closureMoraleHit(laidOff: Int, remaining: Int) -> Double {
+        guard laidOff > 0 else { return 0 }
+        return min(20, 2 + 30 * Double(laidOff) / Double(max(1, laidOff + remaining)))
+    }
+
     static func satelliteExpandCost(_ o: SatelliteOffice) -> Double {
         3 * Double(satelliteStep) * seatRent(country: o.country, city: o.city)
     }
@@ -748,7 +754,11 @@ extension GameState {
         let staff = employees.filter { $0.office == key }
         let severance = staff.reduce(0) { $0 + $1.salary * 0.25 }
         if severance > cash { return "Letting the \(staff.count) people there go costs \(Fmt.money(severance)) in severance." }
-        for e in staff { fire(e.id) }
+        // 3.9: one morale hit for the whole layoff, sized by the share of the company let go (2 points per person, unclamped,
+        // used to drive everyone to zero when a big office closed).
+        for e in staff { letGo(e.id) }
+        let hit = HQ.closureMoraleHit(laidOff: staff.count, remaining: employees.count)
+        for i in employees.indices { employees[i].morale = max(0, employees[i].morale - hit) }
         candidates.removeAll { $0.office == key }
         let name = HQ.officeName(self, key)
         hq.satellites.remove(at: i)
