@@ -1375,6 +1375,8 @@ struct GameState: Codable {
     @D var pauseKinds: Set<String> = []
     /// Whether the player has set pause-on preferences (old saves get the defaults once).
     @D var pauseConfigured: Bool = false
+    /// 3.9: alert kinds this save has been offered a pause default for, so kinds added later get theirs once.
+    @D var pauseKindsKnown: Set<String> = []
     /// Set by the engine when an alert that pauses fires; the clock stops and clears it.
     @D var pauseRequested: Bool = false
     /// Chief of Staff item ID → hidden until.

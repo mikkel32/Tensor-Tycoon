@@ -936,25 +936,46 @@ struct QuantityPicker: View {
     @Binding var value: Int
     var range: ClosedRange<Int>
     var presets: [Int] = [1, 8, 64, 512, 4096, 32_768, 262_144, 1_048_576]
+    /// 3.9: what the field shows. Parsed on every keystroke, so a button pressed right after typing uses the typed
+    /// number (a formatted TextField only committed on Return or losing focus).
+    @State private var text = ""
+
+    private var upper: Int { max(range.lowerBound, range.upperBound) }
+    private func fit(_ n: Int) -> Int { clamp(n, range.lowerBound, upper) }
 
     var body: some View {
         HStack(spacing: 6) {
             Button { value = max(range.lowerBound, value / 2) } label: { Image(systemName: "minus") }
                 .buttonStyle(.bordered)
                 .help("Halve").accessibilityLabel("Halve the quantity")
-            TextField("Qty", value: $value, format: .number)
+            TextField("Qty", text: $text)
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 110)
                 .multilineTextAlignment(.center)
-                .onChange(of: value) { _, new in value = clamp(new, range.lowerBound, max(range.lowerBound, range.upperBound)) }
-            Button { value = min(range.upperBound, max(1, value * 2)) } label: { Image(systemName: "plus") }
+                .onAppear { value = fit(value); text = Fmt.int(value) }
+                .onChange(of: text) { _, new in
+                    let digits = new.filter(\.isNumber)
+                    guard !digits.isEmpty, let n = Int(digits.prefix(12)) else { return }
+                    let v = fit(n)
+                    if v != value { value = v }
+                    if v != n { text = Fmt.int(v) }   // over the limit: show the limit
+                }
+                .onSubmit { text = Fmt.int(value) }
+                .onChange(of: value) { _, new in
+                    let v = fit(new)
+                    if v != new { value = v; return }
+                    if Int(text.filter(\.isNumber).prefix(12)) != v { text = Fmt.int(v) }
+                }
+                // 3.9: the range shrinks when delegates take free chips: don't keep a number the action will refuse.
+                .onChange(of: range) { _, _ in value = fit(value) }
+            Button { value = min(upper, max(1, value * 2)) } label: { Image(systemName: "plus") }
                 .buttonStyle(.bordered)
                 .help("Double").accessibilityLabel("Double the quantity")
             Menu("Presets") {
-                ForEach(presets.filter { $0 <= range.upperBound }, id: \.self) { p in
+                ForEach(presets.filter { range.contains($0) }, id: \.self) { p in
                     Button(Fmt.int(p)) { value = p }
                 }
-                Button("Max (\(Fmt.int(range.upperBound)))") { value = range.upperBound }
+                Button("Max (\(Fmt.int(upper)))") { value = upper }
             }
             .menuStyle(.button)
             .fixedSize()

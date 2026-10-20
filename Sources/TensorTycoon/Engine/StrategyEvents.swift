@@ -57,10 +57,10 @@ enum StrategyEvents {
             Events.addDecision(&s, kind: "spinoff", title: "\(star.name) wants to start their own lab",
                                body: "Your star researcher (skill \(Int(star.skill))) has a pitch deck and VCs calling. They'd stay for the right offer.",
                                image: "sf_skyline",
-                               options: [DecisionOption(label: "Make them Chief Scientist", detail: "Grant 0.5% of the company. They stay, motivated."),
-                                         DecisionOption(label: "Counter with +50% pay", detail: "Expensive. They stay for now."),
+                               options: [DecisionOption(label: "Make them Chief Scientist", detail: "Grant 0.5% of the company (about \(Fmt.money(s.valuation * 0.005)) at today's valuation). They stay, motivated."),
+                                         DecisionOption(label: "Counter with +50% pay", detail: "+\(Fmt.money(star.salary * 0.5))/yr in salary. They stay for now."),
                                          DecisionOption(label: "Wish them well", detail: "They leave. A new rival may appear in the news.")],
-                               ref: star.id.uuidString)
+                               amount: s.valuation * 0.005, ref: star.id.uuidString)   // 3.9: the grant's value, so the expiry warning fires
             return
         }
 

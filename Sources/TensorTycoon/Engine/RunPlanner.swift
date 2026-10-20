@@ -224,7 +224,7 @@ extension Operations {
             if let e = RunPlanner.start(f, &s) {
                 log(&s, "Training: couldn't start \(f.design.name) on the whole fleet: \(e)")
             } else {
-                log(&s, "Training: started \(f.design.name) on the whole fleet (\(f.blurb)), forecast c \(Fmt.trim(f.est.forecast.c, 2)).")
+                note(&s, "train", "Training: started \(f.design.name) on the whole fleet (\(f.blurb)), forecast c \(Fmt.trim(f.est.forecast.c, 2)).", money: f.est.totalCost)   // 3.9: counted on the Training row
                 return
             }
         }
@@ -250,7 +250,10 @@ extension Operations {
                     return
                 }
                 guard est.totalCost < max(0, s.cash) * 0.5 else {
-                    log(&s, "Training: \(d.name) would cost \(Fmt.money(est.totalCost)); waiting for more cash.")
+                    // 3.9: say what it waits for (half the cost in hand), once a while rather than every visit.
+                    if !s.opsLog.prefix(8).contains(where: { $0.contains("waiting for more cash") }) {
+                        log(&s, "Training: \(d.name) would cost \(Fmt.money(est.totalCost)); waiting for more cash (it starts a run only when that is under half your cash).")
+                    }
                     return
                 }
                 let leased = s.leases[pool.accel.id] ?? 0
@@ -262,7 +265,7 @@ extension Operations {
                 if let e = s.startTraining(d) {
                     log(&s, "Training: couldn't start \(d.name): \(e)")
                 } else {
-                    log(&s, "Training: started \(d.name) on \(Fmt.int(chips)) \(pool.accel.name) — about \(Int(est.days)) days, forecast c \(Fmt.trim(est.forecast.c, 2)) (your best \(Fmt.trim(best, 2))).")
+                    note(&s, "train", "Training: started \(d.name) on \(Fmt.int(chips)) \(pool.accel.name) — about \(Int(est.days)) days, forecast c \(Fmt.trim(est.forecast.c, 2)) (your best \(Fmt.trim(best, 2))).", money: est.totalCost)
                 }
                 return
             }

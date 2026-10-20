@@ -117,6 +117,8 @@ enum Alerts {
     }
 
     static let defaultPauseKinds: Set<String> = Set(AlertKind.allCases.filter(\.pausesByDefault).map(\.rawValue))
+    /// Kinds added in 3.8, after saves first chose their pauses (SaveMigration gives them their default once).
+    static let kinds38: Set<String> = [AlertKind.noServing.rawValue, AlertKind.swarmStopped.rawValue]
 
     /// Daily checks for situations nobody announces.
     static func daily(_ s: inout GameState) {
@@ -142,7 +144,8 @@ enum Alerts {
             let pool = Economy.pool(s, r.accelID)
             let short = (pool?.allocated ?? 0) > (pool?.total ?? 0) - r.count
             raise(&s, .rentalExpiring, key: r.id.uuidString, title: "\(Fmt.int(r.count))× \(name) reservation ends in \(GameCalendar.daysBetween(today, r.end ?? today)) days",
-                  body: short ? "When it ends those chips leave your fleet and \(users.isEmpty ? "what runs on them" : users) get cut back. Renew it on the Compute page, turn on auto-renew or buy hardware."
+                  body: short && s.ops.autoRenew ? "Those chips are in use (\(users.isEmpty ? "your work runs on them" : users)), so the renewals delegate renews it just before it ends at that day's rate."
+                      : short ? "When it ends those chips leave your fleet and \(users.isEmpty ? "what runs on them" : users) get cut back. Renew it on the Compute page, turn on the renewals delegate or buy hardware."
                               : "You have enough other \(name) to cover it, so nothing is cut back. Renew it only if you need the extra chips.",
                   screen: .compute, cooldown: 30)
         }
@@ -245,25 +248,22 @@ enum Alerts {
 
     /// 3.8: cash ÷ the last three months' net burn (recurring cash out less recurring cash in, capex included) with the
     /// lease tranches due within 90 days added. Under 90 days stops the clock once a month and names the biggest lines.
+    /// 3.9: the burn is `Treasury.netBurn`, the same number the Cash tile, board and briefing use.
     static func runway(_ s: inout GameState) {
         guard s.cash > 0, s.history.count >= 2 else { return }
-        let h = Array(s.history.suffix(3))
-        let n = Double(h.count)
-        func avg(_ f: (MonthRecord) -> Double) -> Double { h.reduce(0) { $0 + f($1) } / n }
-        let income = avg { $0.revenue + $0.interestIncome }
-        var lines: [(String, Double)] = [("rent", avg(\.costRent)), ("power", avg(\.costPower)), ("datacenter leases", avg(\.costSites)), ("payroll", avg(\.costPayroll)),
-                                         ("data", avg(\.costData)), ("marketing", avg(\.costMarketing)), ("interest", avg(\.costInterest)), ("taxes", avg(\.taxes)),
-                                         ("hardware and construction", avg(\.capex)), ("other costs", avg { $0.costOther + $0.costChips + $0.costGroup })]
-        // Rent that steps up on its own: tranches handed over in the next 90 days.
-        let tranche = s.sites.filter { $0.isTermLease && $0.rampKW > 0 }.reduce(0.0) { acc, site in
-            guard let next = site.nextRamp, GameCalendar.daysBetween(s.date, next) <= 90 else { return acc }
-            return acc + site.leaseRate * min(site.rampKW, site.rampStepKW)
-        }
-        if tranche > 0 { lines.append(("lease tranches due soon", tranche)) }
-        let burn = lines.reduce(0) { $0 + $1.1 } - income
+        let burn = Treasury.netBurn(s)
         guard burn > 0 else { return }
         let days = s.cash / burn * 30.4
         guard days < 90 else { return }
+        let h = Array(s.history.suffix(3))
+        let n = Double(h.count)
+        func avg(_ f: (MonthRecord) -> Double) -> Double { h.reduce(0) { $0 + f($1) } / n }
+        var lines: [(String, Double)] = [("rent", avg(\.costRent)), ("power", avg(\.costPower)), ("datacenter leases", avg(\.costSites)), ("payroll", avg(\.costPayroll)),
+                                         ("data", avg(\.costData)), ("marketing", avg(\.costMarketing)), ("interest", avg(\.costInterest)), ("taxes", avg(\.taxes)),
+                                         ("hardware and construction", avg(\.capex)), ("chip design", avg(\.costChipDesign)), ("agent organisations", avg(\.costAgentOrgs)),
+                                         ("other costs", avg { $0.costOther + $0.costChips + $0.costGroup })]
+        let tranche = Treasury.trancheRentDue(s)
+        if tranche > 0 { lines.append(("lease tranches due soon", tranche)) }
         let top = lines.sorted { $0.1 > $1.1 }.prefix(3).filter { $0.1 > 0 }.map { "\($0.0) \(Fmt.money($0.1))/mo" }.joined(separator: ", ")
         raise(&s, .bankruptcySoon, key: "runway", title: "About \(Int(days)) days of cash left",
               body: "You lose about \(Fmt.money(burn)) a month net and hold \(Fmt.money(s.cash)). Biggest costs: \(top). Raise money, cut costs or defer lease tranches.",
@@ -295,9 +295,14 @@ enum Alerts {
     /// 3.8: the answer an expired inbox decision takes. Never the one that spends cash or destroys an asset when a cheaper
     /// one exists: a covenant breach takes the no-cash penalty rate (not a $500M waiver), a data lawsuit the cheaper settlement,
     /// a spin-off request keeps the star, a subsidiary out of cash raises outside (or is funded when that's small change)
-    /// instead of being wound down.
+    /// instead of being wound down. 3.9: a spin-off request keeps the star with a raise when the 0.5% grant is worth more
+    /// than five years of it (at a $3T valuation the grant was $15B).
     static func inboxDefault(_ d: Decision, _ s: GameState) -> Int {
         var pick = inboxDefaults[d.kind] ?? d.options.count - 1
+        if d.kind == "spinoff", let star = s.employees.first(where: { $0.id.uuidString == d.ref }),
+           s.valuation * 0.005 > star.salary * 0.5 * 5 {
+            pick = 1
+        }
         if d.kind == "corp_funding" {
             let sub = s.corp.subs.first { $0.id == d.ref }
             if let sub, sub.valuation >= d.amount * 1.5 { pick = 1 }
@@ -332,7 +337,8 @@ enum Alerts {
         guard !s.standingAnswers.isEmpty else { return }
         let due = s.decisions.filter { s.standingAnswers[$0.kind] != nil }
         for d in due {
-            guard let option = s.standingAnswers[d.kind], d.options.indices.contains(option) else { continue }
+            guard let option = s.standingAnswers[d.kind], d.options.indices.contains(option),
+                  Events.optionBlocker(d, option, s) == nil else { continue }   // 3.9: can't afford it today: leave it for you
             let label = d.options[option].label
             s.resolveDecision(d.id, option: option)
             Sim.news(&s, "Standing answer: \(d.title)", "You'd said to always answer these \"\(label)\". Change it on the Operations page.", .company)
@@ -344,7 +350,9 @@ enum Alerts {
         let today = s.date
         let expired = s.decisions.filter { !isUrgent($0) && $0.deadline.map { $0 <= today } ?? false }
         for d in expired {
-            let option = inboxDefault(d, s)
+            var option = inboxDefault(d, s)
+            // 3.9: never expire into an answer that can only fail (an investment you can't pay for): take one that works.
+            if Events.optionBlocker(d, option, s) != nil, let ok = d.options.indices.last(where: { Events.optionBlocker(d, $0, s) == nil }) { option = ok }
             let label = d.options.indices.contains(option) ? d.options[option].label : "the default"
             s.resolveDecision(d.id, option: option)
             Sim.news(&s, "Inbox: \(d.title)", "You didn't answer in time, so it resolved as \"\(label)\".", .company)

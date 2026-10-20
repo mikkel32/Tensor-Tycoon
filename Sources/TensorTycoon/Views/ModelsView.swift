@@ -374,7 +374,7 @@ private struct DeploymentRow: View {
                 Spacer()
             }
             HStack {
-                QuantityPicker(value: $chips, range: 0...(dep.chips + store.derived.free(accel.id)), presets: [k, k * 4, k * 16, k * 64])
+                QuantityPicker(value: $chips, range: 0...(dep.chips + store.derived.available(accel.id)), presets: [k, k * 4, k * 16, k * 64])   // 3.9: deploy recalls leased chips
                 Button("Apply") { store.act("Deployment updated") { $0.deploy(model.id, accelID: accel.id, chips: chips) } }
                     .disabled(chips == dep.chips)
                 if dep.chips % k != 0 {

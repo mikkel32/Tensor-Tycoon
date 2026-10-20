@@ -69,13 +69,31 @@ enum Treasury {
         return (p / unit).rounded() * unit
     }
 
-    /// Months of runway at last month's cash burn (nil when operations make cash). 3.8: depreciation and gains on
-    /// disposals aren't cash, so they don't count toward the burn.
+    /// Months of runway at the net cash burn (nil when cash isn't falling). 3.9: one number everywhere (tile, health,
+    /// board, Chief of Staff, briefing, the runway alert): see `netBurn`.
     static func runwayMonths(_ s: GameState) -> Double? {
-        guard let last = s.history.last else { return nil }
-        let burn = -last.cashProfit
+        let burn = netBurn(s)
         guard burn > 0 else { return nil }
         return max(0, s.cash) / burn
+    }
+
+    /// 3.9: cash lost a month: the last three months' average of cash profit (depreciation and disposal gains taken out,
+    /// one-off income left out) less hardware and construction spending, plus lease tranches handed over in the next
+    /// 90 days. Negative when cash grows. Before, the tile used last month's profit alone and ignored capex, so it could
+    /// say "cash-flow positive" while hardware purchases drained billions.
+    static func netBurn(_ s: GameState) -> Double {
+        let h = s.history.suffix(3)
+        guard !h.isEmpty else { return 0 }
+        let monthly = h.reduce(0) { $0 + (-($1.cashProfit - $1.oneOffIncome) + $1.capex) } / Double(h.count)
+        return monthly + trancheRentDue(s)
+    }
+
+    /// 3.9: monthly rent of lease tranches handed over in the next 90 days (it steps up on its own).
+    static func trancheRentDue(_ s: GameState) -> Double {
+        s.sites.filter { $0.isTermLease && $0.rampKW > 0 }.reduce(0.0) { acc, site in
+            guard let next = site.nextRamp, GameCalendar.daysBetween(s.date, next) <= 90 else { return acc }
+            return acc + site.leaseRate * min(site.rampKW, site.rampStepKW)
+        }
     }
 
     static let founderSaleCooldownDays = 180

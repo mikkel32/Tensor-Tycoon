@@ -404,9 +404,18 @@ private struct InboxRow: View {
                 .controlSize(.small)
                 .tint(tint)
             Spacer(minLength: 0)
-            SnoozeMenu { days in
-                store.mutate { $0.snoozeAdvice("inbox-\(decision.id)", days: days) }
-                store.show("Hidden for \(days) days")
+            // 3.9: an offer can only be hidden until three days before it resolves (it used to vanish for a month or a
+            // year and answer itself unseen, a rival poach with "Match it", a spin-off with 0.5% of the company).
+            if left > 3 {
+                Button {
+                    store.mutate { $0.snoozeAdvice("inbox-\(decision.id)", days: left - 3) }
+                    store.show("Hidden until 3 days before it resolves")
+                } label: {
+                    Image(systemName: "bell.slash")
+                }
+                .buttonStyle(.borderless)
+                .help("Hide until 3 days before it resolves on its own")
+                .accessibilityLabel("Hide until 3 days before it resolves")
             }
         }
     }

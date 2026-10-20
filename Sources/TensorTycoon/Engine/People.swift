@@ -313,6 +313,24 @@ enum Events {
         s.decisions.append(d)
     }
 
+    /// 3.9: why an option can't be taken right now (it needs cash you don't have, or the deal is blocked), or nil. The
+    /// decision sheet greys it out with this reason, standing answers skip it and an expiring offer never defaults to it,
+    /// so the offer isn't thrown away on an answer that can only fail.
+    static func optionBlocker(_ d: Decision, _ option: Int, _ s: GameState) -> String? {
+        switch (d.kind, option) {
+        case ("rival_round", 0), ("rival_round", 1):
+            let invest = d.amount * (option == 0 ? 0.05 : 0.15)
+            return invest > s.cash ? "Needs \(Fmt.money(invest)) in cash; you have \(Fmt.money(max(0, s.cash)))." : nil
+        case ("merger_offer", 0), ("fire_sale", 0):
+            guard let c = s.competitors.first(where: { $0.id == d.ref }) else { return "That lab is gone." }
+            if let why = Acquisitions.blocker(c, s) { return why }
+            let cashPart = d.amount * (d.kind == "merger_offer" ? 0.5 : 0.7)
+            return cashPart > s.cash ? "The cash part is \(Fmt.money(cashPart)); you have \(Fmt.money(max(0, s.cash))). Raise money first." : nil
+        default:
+            return nil
+        }
+    }
+
     static func resolve(_ s: inout GameState, _ id: UUID, option: Int) {
         guard let idx = s.decisions.firstIndex(where: { $0.id == id }) else { return }
         let d = s.decisions.remove(at: idx)

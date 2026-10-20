@@ -28,6 +28,8 @@ struct Derived {
     /// Rival Watch rows and the Chief of Staff's list, computed once per tick for every view that shows them.
     var watch: [RivalIntel.Row] = []
     var advice: [AdvisorItem] = []
+    /// 3.9: chips leased out by type: starting work recalls them, so chip pickers count them.
+    var leases: [String: Int] = [:]
 
     init() {}
 
@@ -50,9 +52,17 @@ struct Derived {
         frontier = Macro.frontier(s.year)
         watch = RivalIntel.rows(s, set: indexSet)
         advice = Advisor.items(s, pools: pools, watch: watch, set: indexSet)
+        leases = s.leases.filter { $0.value > 0 }
     }
 
     func free(_ accelID: String) -> Int { poolByID[accelID]?.free ?? 0 }
+    /// 3.9: idle chips plus those leased out, which starting a run, swarm or deployment takes back.
+    func available(_ accelID: String) -> Int { free(accelID) + (leases[accelID] ?? 0) }
+    /// "1,200 free" or "1,200 idle + 800 leased (recalled on start)".
+    func availableText(_ accelID: String) -> String {
+        let n = leases[accelID] ?? 0
+        return n > 0 ? "\(Fmt.int(free(accelID))) idle + \(Fmt.int(n)) leased (recalled on start)" : "\(Fmt.int(free(accelID))) free"
+    }
     func rank(_ id: UUID) -> Int {
         guard let me = entryByID[id.uuidString] else { return board.count + 1 }
         return Leaderboard.labRank(index: me.index, board: board, gone: gone)
@@ -108,7 +118,8 @@ final class GameStore {
     @ObservationIgnored private var dayDebt = 0.0
     @ObservationIgnored private var lastSave = Date.distantPast
     @ObservationIgnored private var lastCustomChipCount = -1
-    @ObservationIgnored private var lastAutosave = Date.distantPast
+    /// 3.9: the game file and month of the last autosave (game time, not wall-clock time).
+    @ObservationIgnored private var lastAutosave = ""
 
     /// Simulated days per real second.
     static let speeds: [(label: String, daysPerSecond: Double)] = [
@@ -373,8 +384,10 @@ final class GameStore {
     /// A rolling autosave at the start of each quarter (the last eight are kept), so a bad call can be undone.
     private func autosaveIfDue(_ s: GameState) {
         let ym = s.date.ym
-        guard ym.month % 3 == 1, Date().timeIntervalSince(lastAutosave) > 20 else { return }
-        lastAutosave = Date()
+        // 3.9: once per quarter in game time. A 20-second wall-clock throttle left autosaves years apart at Turbo.
+        let key = "\(Self.fileName(for: s))|\(ym.year)-\(ym.month)"
+        guard ym.month % 3 == 1, key != lastAutosave else { return }
+        lastAutosave = key
         let dir = Self.autosaveFolder(company: Self.fileName(for: s))
         let url = dir.appendingPathComponent(String(format: "%04d-%02d.json", ym.year, ym.month))
         var s = s

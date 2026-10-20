@@ -34,7 +34,13 @@ enum SaveMigration {
         if !s.pauseConfigured {
             s.pauseConfigured = true
             s.pauseKinds = Alerts.defaultPauseKinds
+            s.pauseKindsKnown = Set(AlertKind.allCases.map(\.rawValue))
         }
+        // 3.9: kinds added after the save chose its pauses (noServing in 3.8) start with their default, once; a save from
+        // before this field knew every kind but the 3.8 ones.
+        if s.pauseKindsKnown.isEmpty { s.pauseKindsKnown = Set(AlertKind.allCases.map(\.rawValue)).subtracting(Alerts.kinds38) }
+        for k in AlertKind.allCases where k.pausesByDefault && !s.pauseKindsKnown.contains(k.rawValue) { s.pauseKinds.insert(k.rawValue) }
+        s.pauseKindsKnown = Set(AlertKind.allCases.map(\.rawValue))
         for i in s.decisions.indices where !Alerts.isUrgent(s.decisions[i]) && s.decisions[i].deadline == nil {
             s.decisions[i].deadline = GameCalendar.addDays(s.date, Alerts.inboxDays(s.decisions[i].kind))
         }

@@ -397,9 +397,9 @@ private struct TeamSizeControls: View {
             HStack {
                 Picker("Hardware", selection: $accelID) {
                     Text("Choose…").tag("")
-                    ForEach(d.pools) { p in Text("\(p.accel.name) — \(Fmt.int(p.free)) free").tag(p.accel.id) }
+                    ForEach(d.pools) { p in Text("\(p.accel.name) — \(d.availableText(p.accel.id))").tag(p.accel.id) }
                 }
-                QuantityPicker(value: $chips, range: 1...max(1, d.free(accelID)))
+                QuantityPicker(value: $chips, range: 1...max(1, d.available(accelID)))   // 3.9: starting recalls leased chips
             }
         }
     }

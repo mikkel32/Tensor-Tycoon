@@ -197,10 +197,10 @@ enum Briefing {
 
         // Risks.
         var risks: [BriefingLine] = []
-        let burn = -cur.cashProfit   // 3.8: cash burn (depreciation isn't cash)
-        let runway: Double? = burn > 0 ? max(0, s.cash) / burn : nil
+        let burn = Treasury.netBurn(s)   // 3.9: the same burn as the Cash tile and the runway alert (capex included)
+        let runway = Treasury.runwayMonths(s)
         if let r = runway, r < 9 {
-            risks.append(BriefingLine(text: "\(Fmt.trim(r, 1)) months of cash at last month's burn (\(Fmt.money(burn))/month).", good: false, screen: Screen.funding.rawValue))
+            risks.append(BriefingLine(text: "\(Fmt.trim(r, 1)) months of cash at the current burn (\(Fmt.money(burn))/month, hardware spending included).", good: false, screen: Screen.funding.rawValue))
         }
         if cur.bestC == 0 && s.models.contains(where: \.released) {
             risks.insert(BriefingLine(text: "No model is on sale, so revenue is heading to zero. Bring one back on the Models page.", good: false, screen: Screen.models.rawValue), at: 0)

@@ -285,16 +285,16 @@ private struct JobCompute: View {
     @Binding var chips: Int
 
     var body: some View {
-        let pools = store.derived.pools.filter { $0.free > 0 || $0.accel.id == accelID }
+        let pools = store.derived.pools.filter { store.derived.available($0.accel.id) > 0 || $0.accel.id == accelID }
         HStack {
             Picker("Hardware", selection: $accelID) {
                 if pools.isEmpty { Text("No free chips").tag(accelID) }
-                ForEach(pools) { p in Text("\(p.accel.name) (\(Fmt.int(p.free)) free)").tag(p.accel.id) }
+                ForEach(pools) { p in Text("\(p.accel.name) (\(store.derived.availableText(p.accel.id)))").tag(p.accel.id) }
             }
             .frame(maxWidth: 320)
-            QuantityPicker(value: $chips, range: 1...max(1, store.derived.free(accelID)), presets: [8, 64, 512, 4_096, 32_768, 262_144])
+            QuantityPicker(value: $chips, range: 1...max(1, store.derived.available(accelID)), presets: [8, 64, 512, 4_096, 32_768, 262_144])   // 3.9: starting recalls leased chips
         }
-        .onChange(of: accelID) { _, new in chips = max(1, min(chips, store.derived.free(new))) }
+        .onChange(of: accelID) { _, new in chips = max(1, min(chips, store.derived.available(new))) }
     }
 }
 

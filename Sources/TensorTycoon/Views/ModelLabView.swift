@@ -659,18 +659,22 @@ struct ModelLabView: View {
                 }
                 Picker("Accelerator", selection: $design.accelID) {
                     ForEach(d.pools) { p in
-                        Text("\(p.accel.name) — \(p.free) free of \(p.total)").tag(p.accel.id)
+                        Text("\(p.accel.name) — \(d.availableText(p.accel.id)) of \(p.total)").tag(p.accel.id)
                     }
                 }
                 .onChange(of: design.accelID) { _, new in
-                    design.chips = max(1, store.derived.free(new))
+                    design.chips = max(1, store.derived.available(new))
                     fixPrecision(s)
                 }
-                let free = d.free(design.accelID)
+                // 3.9: chips leased out count: starting the run recalls them.
+                let free = d.available(design.accelID)
                 HStack {
                     Text("Chips")
                     Spacer()
                     QuantityPicker(value: $design.chips, range: 1...max(1, free))
+                }
+                if (d.leases[design.accelID] ?? 0) > 0 {
+                    Text("\(d.availableText(design.accelID)).").font(.caption).foregroundStyle(.secondary)
                 }
                 if let a = HardwareCatalog.get(design.accelID) {
                     Text("\(Fmt.tflops(a.trainTFLOPS(design.precision))) \(design.precision.short) per chip · \(Fmt.memory(a.memoryGB)) \(a.memoryType) · scale-up domain \(a.scaleUp)")
