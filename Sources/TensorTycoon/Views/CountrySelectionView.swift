@@ -675,6 +675,7 @@ struct SatelliteOfficesCard: View {
     @Environment(GameStore.self) private var store
     let state: GameState
     @State private var pick = "fr|paris"
+    @State private var closing: SatelliteOffice?
 
     var body: some View {
         let s = state
@@ -707,7 +708,7 @@ struct SatelliteOfficesCard: View {
                     }
                     .font(.caption)
                     .disabled(o.seats >= HQ.satelliteMaxSeats)
-                    Button("Close…") { store.act("Office closed") { $0.closeSatellite(o.id) } }
+                    Button("Close…") { closing = o }   // 3.9: asks first
                         .buttonStyle(.borderless).font(.caption)
                         .help(staff > 0 ? "Lets the \(staff) people there go with severance." : "Hands the desks back.")
                 }
@@ -731,6 +732,21 @@ struct SatelliteOfficesCard: View {
                 }
                 Text(CountryText.satelliteOffer(c, city))
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .confirmationDialog("Close the \(closing.map { HQ.officeName(s, $0.id.uuidString) } ?? "") office?", isPresented: Binding(get: { closing != nil }, set: { if !$0 { closing = nil } }),
+                            titleVisibility: .visible) {
+            Button("Close it", role: .destructive) {
+                if let o = closing { store.act("Office closed") { $0.closeSatellite(o.id) } }
+                closing = nil
+            }
+            Button("Cancel", role: .cancel) { closing = nil }
+        } message: {
+            if let o = closing {
+                let staff = s.employees.filter { $0.office == o.id.uuidString }
+                let hit = HQ.closureMoraleHit(laidOff: staff.count, remaining: s.employees.count - staff.count)
+                Text(staff.isEmpty ? "The \(o.seats) desks are handed back and the rent stops. Nobody works there."
+                     : "\(staff.count) people there are let go with three months' pay (\(Fmt.money(staff.reduce(0) { $0 + $1.salary * 0.25 })) in severance), and everyone else's morale drops about \(Int(hit.rounded())) points. The rent stops.")
             }
         }
     }

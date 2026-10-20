@@ -3,7 +3,9 @@ import Foundation
 enum Finance {
     static func daily(_ s: inout GameState) {
         // Fundraising: investors trickle in with term sheets.
+        let before = s.raiseOffers.count
         s.raiseOffers.removeAll { $0.expires < s.date }
+        if s.raising { s.raiseOffersExpired += before - s.raiseOffers.count }
         if s.raising {
             let started = s.lastRaise ?? s.date
             if s.raiseOffers.count < 3 && s.rng.chance(0.07 * Crises.offerFactor(s)) {   // 3.8: fewer term sheets in a crisis
@@ -11,7 +13,10 @@ enum Finance {
             }
             if GameCalendar.daysBetween(started, s.date) > 60 && s.raiseOffers.isEmpty {
                 s.raising = false
-                Sim.news(&s, "Fundraise stalled", "After two months of pitches no investor bit. Improve your model or traction and try again.",
+                let lapsed = s.raiseOffersExpired
+                Sim.news(&s, "Fundraise stalled",
+                         lapsed > 0 ? "After two months no term sheet is open: \(lapsed) offer\(lapsed == 1 ? "" : "s") expired unanswered (each lasts 14 days). Start again and accept one in time."
+                                    : "After two months of pitches no investor bit. Improve your model or traction and try again.",
                          .finance, important: true, good: false)
             }
         }

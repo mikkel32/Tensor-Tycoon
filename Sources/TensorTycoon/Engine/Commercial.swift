@@ -82,13 +82,24 @@ enum Commercial {
         return Double(s.employees.count) + (salesWeight - 1) * sales
     }
 
+    /// 3.9: the two halves of the team limit, shown apart so the player can see which one holds it. What your people can
+    /// look after:
+    static func teamFromPeople(_ s: GameState) -> Double { teamUnits(s) * monthlyMarket(s) * perHeadShare }
+    /// ...and the floor at your best month of the last year.
+    static func teamFloor(_ s: GameState) -> Double { peakBookedDaily(s) * 30.44 }
+
+    /// People-equivalents still to hire before hiring raises the team limit at all (0 when people already set it).
+    static func unitsToClearFloor(_ s: GameState) -> Double {
+        max(0, teamFloor(s) / max(1, monthlyMarket(s) * perHeadShare) - teamUnits(s))
+    }
+
     static func capacity(_ s: GameState) -> Capacity {
         let market = monthlyMarket(s)
         let base = bookedDaily(s) * 30.44
         let g = (1 + growthAllowance(share: base / max(1, market))) * marketGrowth(s.year) - 1
         // 3.9: customers you already served are already looked after: the team limit never falls below your best month
         // of the last year, so growing past it is what takes more people.
-        let team = max(teamUnits(s) * market * perHeadShare, peakBookedDaily(s) * 30.44)
+        let team = max(teamFromPeople(s), teamFloor(s))
         return Capacity(ramp: ramp(base: base, market: market, year: s.year), team: team, base: base, growth: g)
     }
 
@@ -134,11 +145,17 @@ enum Commercial {
     }
 
     /// One line for the Finance page and the briefing: what held bookings back last month and what to do about it.
-    static func explanation(_ r: MonthRecord) -> String? {
+    static func explanation(_ r: MonthRecord, _ s: GameState) -> String? {
         guard r.revUnbooked > 1, let limit = Limit(rawValue: r.bookingLimit) else { return nil }
         switch limit {
         case .ramp: return "\(Fmt.money(r.revUnbooked)) of demand went unbooked: bookings grow at most 50% a month while you're small (20–35% once you're big), plus the market's own growth. It grows on its own."
-        case .team: return "\(Fmt.money(r.revUnbooked)) of demand went unbooked: your team can't look after more customers. Hire Sales & BD (each counts as six people) or grow the team."
+        case .team:
+            // 3.9: say when the limit is the floor from your best month, which a few hires can't move.
+            let need = unitsToClearFloor(s)
+            if need >= 1 {
+                return "\(Fmt.money(r.revUnbooked)) of demand went unbooked. The team limit is held at your best month (\(Fmt.money(teamFloor(s)))/mo); your people alone cover \(Fmt.money(teamFromPeople(s)))/mo. Hiring raises it only after about \(Fmt.int(Int(need.rounded(.up)))) more people-equivalents (a Sales & BD hire counts as six, so about \(Fmt.int(Int((need / salesWeight).rounded(.up)))) salespeople)."
+            }
+            return "\(Fmt.money(r.revUnbooked)) of demand went unbooked: your team can't look after more customers. Hire Sales & BD (each counts as six people) or grow the team."
         }
     }
 }

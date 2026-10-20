@@ -37,6 +37,10 @@ struct MoneyFlowCard: View {
             Line(name: "Compute leasing", amount: sum(\.revCloud), note: "Chips you rent out."),
             Line(name: "Chip sales", amount: sum(\.revChips), note: "Accelerators you sold."),
             Line(name: "Product lines & other", amount: sum { $0.revOther + $0.revLicensing + $0.revLabor + $0.revGroup }, note: "Other products, licences, agent labour, subsidiaries."),
+            // 3.9: the income the Finance P&L counts that this list used to leave out.
+            Line(name: "Government contracts", amount: sum(\.revContracts), note: "Programme milestones, reimbursements and settlements: lumpy, so not in the run rate."),
+            Line(name: "Interest on cash", amount: sum(\.interestIncome), note: "Idle cash in T-bills."),
+            Line(name: "Board tranches & one-offs", amount: sum(\.oneOffIncome), note: "Board-goal tranches, up-front licence fees, grants and gains on stakes you sold."),
         ].filter { $0.amount > 0 }
         let cost: [Line] = [
             Line(name: "Cloud rentals", amount: sum(\.costRent), note: "Rented chips, hour by hour."),

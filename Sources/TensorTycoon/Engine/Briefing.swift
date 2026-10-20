@@ -210,7 +210,7 @@ enum Briefing {
                                       good: false, screen: Screen.models.rawValue))
         }
         // 3.8: demand your go-to-market couldn't book, and why; a crisis that started this month.
-        if let line = Commercial.explanation(cur), cur.revUnbooked > max(1_000, cur.commercialRevenue * 0.1) {
+        if let line = Commercial.explanation(cur, s), cur.revUnbooked > max(1_000, cur.commercialRevenue * 0.1) {
             risks.append(BriefingLine(text: line, good: false, screen: Screen.finance.rawValue))
         }
         for c in s.corp.cycle.active where c.start >= start && c.start <= end {   // crises start at the month close

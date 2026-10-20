@@ -49,7 +49,7 @@ enum Role: String, Codable, CaseIterable, Identifiable, Sendable {
         case .mlEngineer: "Raises training MFU and keeps big runs stable."
         case .infra: "Keeps clusters up. Each one can babysit a few hundred accelerators."
         case .data: "Improves data quality (+capability) and synthetic-data throughput."
-        case .sales: "Brings in enterprise deals and grows your brand."
+        case .sales: "Wins enterprise deals, grows your brand, and counts as six people toward what you can book."
         case .safety: "Raises your safety score, slows alignment drift in self-improvement runs."
         case .chipDesigner: "Designs your own AI accelerators: faster tape-outs, better chips, fewer respins."
         }
@@ -88,6 +88,8 @@ struct Candidate: Codable, Identifiable, Hashable {
     /// 3.4 overhaul: the satellite office hiring them (empty = headquarters), and whether they'd relocate from abroad.
     @D var office: String = ""
     @D var relocated: Bool = false
+    /// 3.9: found by a recruiting drive you paid for (doesn't take a place in the monthly market).
+    @D var sourced: Bool = false
 }
 
 // MARK: - Hardware
@@ -1182,6 +1184,8 @@ struct GameState: Codable {
     var raiseOffers: [RaiseOffer] = []
     var raising = false
     var raiseFraction = 0.15
+    /// 3.9: term sheets in the current raise that expired unanswered (for an honest "fundraise stalled" message).
+    @D var raiseOffersExpired: Int = 0
     var lastRaise: Date? = nil
     var isPublic = false
     var sharePrice: Double = 0

@@ -133,7 +133,7 @@ enum Agenda {
         for o in s.objectives where !o.done && !o.failed {
             let behind = o.progress < 0.7 && GameCalendar.daysBetween(today, o.deadline) < 60
             add(Upcoming(id: "goal-\(o.id)", date: o.deadline, title: "Board goal: \(o.title)",
-                         detail: "\(Int((o.progress * 100).rounded()))% done" + (o.rewardCash > 0 ? " · pays \(Fmt.money(o.rewardCash))" : ""),
+                         detail: "\(Int((o.progress * 100).rounded()))% done" + (o.rewardCash > 0 ? " · pays \(Fmt.money(Board.reward(o, s)))" : ""),
                          symbol: o.kind.symbol, tone: behind ? .warning : .neutral, screen: .strategy))
         }
 

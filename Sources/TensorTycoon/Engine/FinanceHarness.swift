@@ -60,6 +60,7 @@ enum FinanceHarness {
         crises(base)
         stages(base)
         arms(base)
+        traps39(base)
         let bad = checks.filter { !$0.ok }
         for c in checks { print("\(c.ok ? "✓" : "✗") \(c.name)\(c.detail.isEmpty ? "" : ": \(c.detail)")") }
         print(bad.isEmpty ? "OK: \(checks.count) finance checks passed (\(Fmt.trim(Date().timeIntervalSince(start), 1)) s)" : "FAILED: \(bad.count) of \(checks.count) finance checks")
@@ -306,8 +307,10 @@ enum FinanceHarness {
                 big.employees.append(x)
             }
         }
-        expect("salespeople raise what the team can book", Commercial.capacity(big).team > Commercial.capacity(small).team * 2,
-               "\(Fmt.money(Commercial.capacity(small).team)) → \(Fmt.money(Commercial.capacity(big).team))")
+        // 3.9: what the people cover (the limit itself can sit on the floor of your best month, which hires don't move).
+        expect("salespeople raise what the team can book", Commercial.teamFromPeople(big) > Commercial.teamFromPeople(small) * 2,
+               "\(Fmt.money(Commercial.teamFromPeople(small))) → \(Fmt.money(Commercial.teamFromPeople(big)))")
+        expect("the team limit never falls below its floor", Commercial.capacity(small).team >= Commercial.teamFloor(small))
     }
 
     // MARK: Crises
@@ -361,6 +364,74 @@ enum FinanceHarness {
         }
         expect("a security arm makes attacks less likely to succeed", Corporate.attackFactor(s) < 1, Fmt.pct(1 - Corporate.attackFactor(s), decimals: 1))
         expect("a government research arm adds to bids at home", Corporate.bidBoost(s, region: HQ.region(s)) > 0, Fmt.trim(Corporate.bidBoost(s, region: HQ.region(s)), 2))
+    }
+
+    // MARK: 3.9: finance and people traps
+
+    static func traps39(_ base: GameState) {
+        var s = funded(base, 5e9)
+        let home = Corporate.homeID(s)
+        s.progression.stage = CompanyStage.scaleUp.rawValue
+        s.progression.grandfatheredSlots = 0
+        s.corp.subs = []
+        // Folding one in frees its slot.
+        let slots = Progression.subsidiarySlots(s)
+        for _ in 0..<slots { _ = s.startSubsidiary(.consulting, country: home, seed: Corporate.minSeed(.consulting, s, country: home) * 1.5) }
+        let full = s.subsidiaryBlocker(.consulting, country: home)
+        expect("slots fill up", full != nil, "\(slots) slots")
+        if let id = s.corp.subs.first?.id { _ = s.foldInSubsidiary(id) }
+        expect("folding one in frees its slot", s.subsidiaryBlocker(.consulting, country: home) == nil, s.subsidiaryBlocker(.consulting, country: home) ?? "")
+        // "Fund it" without the cash keeps the request open instead of diluting or closing it.
+        if let sub = s.corp.subs.first(where: \.separate) {
+            var t = s
+            Corporate.askForFunding(&t, t.corp.subs.firstIndex { $0.id == sub.id }!)
+            if let d = t.decisions.first(where: { $0.kind == "corp_funding" }) {
+                t.cash = d.amount / 2
+                let stake = t.corp.subs.first { $0.id == sub.id }!.stake
+                t.resolveDecision(d.id, option: 0)
+                let after = t.corp.subs.first { $0.id == sub.id }!
+                expect("\"Fund it\" without the cash keeps the request open", after.status == .active && after.stake == stake && t.decisions.contains { $0.kind == "corp_funding" },
+                       "\(after.status.title), stake \(Fmt.pct(after.stake))")
+            } else {
+                expect("a subsidiary can ask for funding", false)
+            }
+        }
+        // One letter for every loan once rated.
+        var r = base
+        r.corp.engaged = true
+        r.corp.notch = 6
+        r.creditScore = 760
+        expect("loans price off the agencies' letter once rated", Corporate.creditNotch(r) == 6 && abs(Economy.creditSpread(r) - Corporate.spreads[6] - (Economy.runRate(r) < 1e8 ? 1.5 : (Economy.runRate(r) < 1e9 ? 0.5 : 0)) - Crises.spreadAdd(r)) < 1e-9)
+        Corporate.alignCreditScore(&r)
+        expect("the credit score reads as the agencies' letter", Corporate.notch(forCreditScore: r.creditScore) == 6, "\(Int(r.creditScore))")
+        // With a covenanted term loan, Finance-page loans fit inside its room.
+        var c = base
+        c.corp.debts = [CorpDebt(kind: .termLoan, principal: 1e9, balance: 1e9, rate: 6, termMonths: 60, monthsLeft: 60, taken: c.date)]
+        c.corp.debts[0].maxLeverage = 4
+        let room = Corporate.debtRoom(c)
+        let over = Economy.loanQuotes(c).filter { $0.kind != .friends && $0.available && $0.max > room + 1 }
+        expect("Finance-page loans respect the term loan's covenant room", over.isEmpty, over.map { "\($0.kind.rawValue) \(Fmt.money($0.max)) > \(Fmt.money(room))" }.joined(separator: ", "))
+        // Board goals pay at today's size.
+        if var o = base.objectives.first(where: { !$0.done && !$0.failed }) {
+            o.rewardCash = 1e5
+            expect("an old board goal pays at today's size", Board.reward(o, base) >= min(6e9, Board.tranche(base) * 0.25), Fmt.money(Board.reward(o, base)))
+        }
+        // Closing a satellite is one morale hit, not two points per person let go.
+        expect("closing a big office costs everyone at most 20 morale", HQ.closureMoraleHit(laidOff: 50, remaining: 50) <= 20 && HQ.closureMoraleHit(laidOff: 0, remaining: 50) == 0)
+        // The pay-raise delegate and morale use the same market rate.
+        var p = base
+        if let e = p.employees.first {
+            p.employees[0].salary = People.marketSalary(p, e) * 0.95
+            expect("someone paid 95% of their local market isn't raised", !People.underpaid(p).contains { $0.id == e.id })
+        }
+        // A recruiting drive brings candidates of the role you asked for, on top of the monthly market.
+        var h = funded(base, 1e9)
+        h.candidates.removeAll { $0.role == .sales }
+        let before = h.candidates.count
+        let why = h.recruitingDrive(.sales)
+        expect("a recruiting drive brings sales candidates", why == nil && h.candidates.filter { $0.role == .sales && $0.sourced }.count == GameState.driveSize, why ?? "")
+        People.refreshCandidates(&h)
+        expect("drive candidates don't crowd out the monthly market", h.candidates.count >= before + GameState.driveSize)
     }
 
     // MARK: Stages

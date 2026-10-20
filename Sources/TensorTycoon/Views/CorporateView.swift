@@ -370,7 +370,7 @@ private struct CorpDebtCard: View {
                         Text(q.reason).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                         Text("Covenants: \(q.covenants)").font(.caption2).foregroundStyle(.tertiary)
                         // 3.8: what this loan does to the covenant, before you sign.
-                        if q.available && q.max > 0 && (q.kind == .termLoan || s.corp.debts.contains(where: \.covenanted)) {
+                        if q.available && q.max > 0 && (q.kind == .termLoan || s.corp.debts.contains(where: { $0.maxLeverage > 0 })) {   // 3.9: the leverage covenant only
                             let note = Corporate.covenantNote(s, adding: amount)
                             Text(note.text).font(.caption2).foregroundStyle(note.breach ? .red : .secondary).fixedSize(horizontal: false, vertical: true)
                         }
@@ -500,6 +500,8 @@ private struct SubsidiaryCard: View {
     @State private var sell = 0.1
     @State private var inject = 0.0
     @State private var confirmSpin = false
+    @State private var confirmWind = false
+    @State private var confirmFold = false
 
     var body: some View {
         let s = state
@@ -559,14 +561,28 @@ private struct SubsidiaryCard: View {
                      + (risk > 0 ? " Outside the \(Fmt.pct(Corporate.armsLength.lowerBound, decimals: 0))–\(Fmt.pct(Corporate.armsLength.upperBound, decimals: 0)) arm's-length range: about a \(Fmt.pct(risk, decimals: 0)) chance of an audit each month." : ""))
                     .font(.caption).foregroundStyle(risk > 0 ? .orange : .secondary)
                 Divider()
+                // 3.9: the amount is yours to pick (it used to be fixed at six months of revenue).
+                let most = max(1e5, s.cash)
+                let amount = min(most, inject > 0 ? inject : max(1e6, sub.revenue * 6))
                 HStack(spacing: 10) {
-                    let amount = inject > 0 ? inject : max(1e6, sub.revenue * 6)
+                    Text("Put in")
+                    Slider(value: Binding(get: { log10(max(1e5, amount)) }, set: { inject = (pow(10, $0) / 1e5).rounded() * 1e5 }),
+                           in: 5...max(5.01, log10(most)))
+                        .frame(width: 160)
+                        .accessibilityValue(Fmt.money(amount))
                     Button("Put in \(Fmt.money(amount))") { store.act("Funds sent") { $0.injectSubsidiary(sub.id, amount: amount) } }
+                        .disabled(amount > s.cash)
+                        .help(amount > s.cash ? "You have \(Fmt.money(s.cash))." : "Your cash into its cash\(sub.holders.isEmpty ? "" : ", priced at its current value: your stake rises").")
+                    Spacer()
+                }
+                HStack(spacing: 10) {
                     Button("Raise \(Fmt.money(sub.valuation * 0.2)) outside") { store.act("Round closed") { $0.raiseForSubsidiary(sub.id, amount: sub.valuation * 0.2) } }
                         .disabled(sub.revenue <= 0)
+                        .help(sub.revenue <= 0 ? "Investors want to see revenue first." : "New shares at 90% of its value: cash for it, your stake falls.")
                     Button("New CEO") { store.act("CEO replaced") { $0.replaceSubsidiaryCEO(sub.id) } }
+                        .help("Two years of a manager's pay from its cash as severance, and a month of lost momentum.")
                     Spacer()
-                    Button("Wind down") { store.act("Wound down") { $0.windDownSubsidiary(sub.id) } }
+                    windDownButton(s)
                 }
                 HStack(spacing: 10) {
                     Text("Sell")
@@ -583,14 +599,51 @@ private struct SubsidiaryCard: View {
                         .confirmationDialog("Spin off \(sub.name)?", isPresented: $confirmSpin, titleVisibility: .visible) {
                             Button("Give \(Fmt.money(sub.stake * sub.valuation)) of shares to your shareholders") { store.act("Spun off") { $0.spinOffSubsidiary(sub.id) } }
                         }
-                    Button("Fold in (\(Fmt.money(s.foldInCost(sub))))") { store.act("Folded in") { $0.foldInSubsidiary(sub.id) } }
+                    let foldWhy = s.foldInBlocker(sub)
+                    Button("Fold in (\(Fmt.money(s.foldInCost(sub))))…") { confirmFold = true }
+                        .disabled(foldWhy != nil)
+                        .help(foldWhy ?? "Buy out the other holders and merge it in as a division.")
+                        .confirmationDialog("Fold \(sub.name) in?", isPresented: $confirmFold, titleVisibility: .visible) {
+                            Button(s.foldInCost(sub) > 0 ? "Buy out the other holders for \(Fmt.money(s.foldInCost(sub)))" : "Fold it in") {
+                                store.act("Folded in") { $0.foldInSubsidiary(sub.id) }
+                            }
+                            Button("Cancel", role: .cancel) {}
+                        } message: {
+                            Text("It becomes a division: its \(Fmt.money(sub.cash)) of cash and its results join your own books, and it no longer has a valuation you can sell, list or spin off. It stops taking a subsidiary slot. You can't undo this.")
+                        }
                 }
                 if !sub.holders.isEmpty {
                     Text("Other holders: " + sub.holders.sorted { $0.stake > $1.stake }.map { "\($0.name) \(Fmt.pct($0.stake))" }.joined(separator: ", "))
                         .font(.caption).foregroundStyle(.secondary)
                 }
+            } else {
+                // 3.9: a folded-in division can still be closed (there was no button for it).
+                Divider()
+                HStack {
+                    Text("A division of the company: its results are in your own books.").font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    windDownButton(s)
+                }
             }
         }
+    }
+
+    /// 3.9: closing it asks first and says what comes back and what is written off.
+    private func windDownButton(_ s: GameState) -> some View {
+        let out = s.windDownOutcome(sub)
+        return Button("Wind down…") { confirmWind = true }
+            .confirmationDialog("Wind down \(sub.name)?", isPresented: $confirmWind, titleVisibility: .visible) {
+                Button(out.back >= 0 ? "Close it and recover \(Fmt.money(out.back))" : "Close it and pay \(Fmt.money(-out.back)) in severance", role: .destructive) {
+                    store.act("Wound down") { $0.windDownSubsidiary(sub.id) }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                if sub.separate {
+                    Text("\(sub.headcount) people go with two months' pay (\(Fmt.money(out.severance))). You get your \(Fmt.pct(sub.stake, decimals: 0)) of the cash left after that. Your stake, worth \(Fmt.money(sub.stake * sub.valuation)) today, is written off: selling it or spinning it off keeps that value.")
+                } else {
+                    Text("\(sub.headcount) people go with two months' pay: \(Fmt.money(out.severance)) from your cash. Its revenue stops.")
+                }
+            }
     }
 }
 
@@ -625,6 +678,7 @@ private struct StartSubsidiaryCard: View {
             Text("At least \(Fmt.money(minSeed)): 18 months of a \(kind.baseTeam)-person team plus set-up. Margin before people \(Fmt.pct(kind.grossMargin, decimals: 0)), valued at about \(Fmt.trim(kind.multiple, 1))× revenue when it grows 80% a year at break-even — faster growth and fatter margins raise that, losses lower it.")
                 .font(.caption).foregroundStyle(.secondary)
             if let why { Label(why, systemImage: "info.circle").font(.caption).foregroundStyle(.orange) }
+            else if seed > s.cash { Label("The seed is \(Fmt.money(seed)); you have \(Fmt.money(s.cash)).", systemImage: "info.circle").font(.caption).foregroundStyle(.orange) }   // 3.9
             Button("Start it") { store.act("Subsidiary started") { $0.startSubsidiary(kind, country: place, seed: seed) } }
                 .buttonStyle(.borderedProminent)
                 .disabled(why != nil || seed > s.cash)
@@ -652,8 +706,11 @@ private struct TargetsCard: View {
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
+                    // 3.9: say why it's greyed out.
+                    let why = s.subsidiaryBlocker(t.kind, country: t.country) ?? (t.price > s.cash ? "It costs \(Fmt.money(t.price)); you have \(Fmt.money(s.cash))." : nil)
                     Button("Buy for \(Fmt.money(t.price))") { store.act("Acquired") { $0.acquireSubsidiary(t.id) } }
-                        .disabled(t.price > s.cash || s.subsidiaryBlocker(t.kind, country: t.country) != nil)
+                        .disabled(why != nil)
+                        .help(why ?? "It becomes your subsidiary, CEO and team included.")
                 }
             }
         }
