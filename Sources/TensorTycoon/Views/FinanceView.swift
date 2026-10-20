@@ -46,6 +46,8 @@ struct FinanceView: View {
                 }
             }
 
+            MoneyFlowCard(state: s)
+
             Card {
                 CardHeader("This month so far", symbol: "calendar")
                 let m = s.month
@@ -57,8 +59,9 @@ struct FinanceView: View {
                     GridRow { Text("  Agents").foregroundStyle(.secondary); Text(Fmt.money(m.revAgents)).monospacedDigit(); Text("  Sites & offices").foregroundStyle(.secondary); Text(Fmt.money(m.costSites)).monospacedDigit() }
                     GridRow { Text("  Compute leasing").foregroundStyle(.secondary); Text(Fmt.money(m.revCloud)).monospacedDigit(); Text("  Data & marketing").foregroundStyle(.secondary); Text(Fmt.money(m.costData + m.costMarketing)).monospacedDigit() }
                     GridRow { Text("  Chip sales").foregroundStyle(.secondary); Text(Fmt.money(m.revChips)).monospacedDigit(); Text("  Chips made for sale").foregroundStyle(.secondary); Text(Fmt.money(m.costChips)).monospacedDigit() }
-                    GridRow { Text("  Agent labor").foregroundStyle(.secondary); Text(Fmt.money(m.revLabor)).monospacedDigit(); Text("  Other / fines").foregroundStyle(.secondary); Text(Fmt.money(m.costOther)).monospacedDigit() }
-                    GridRow { Text("  License royalties").foregroundStyle(.secondary); Text(Fmt.money(m.revLicensing)).monospacedDigit(); Text("  Interest on debt").foregroundStyle(.secondary); Text(Fmt.money(m.costInterest)).monospacedDigit() }
+                    GridRow { Text("  Agent labor").foregroundStyle(.secondary); Text(Fmt.money(m.revLabor)).monospacedDigit(); Text("  Other (projects, fines)").foregroundStyle(.secondary); Text(Fmt.money(m.costOther + m.costGroup)).monospacedDigit() }
+                    GridRow { Text("  License royalties").foregroundStyle(.secondary); Text(Fmt.money(m.revLicensing)).monospacedDigit(); Text("  Chip design & agent orgs").foregroundStyle(.secondary); Text(Fmt.money(m.costChipDesign + m.costAgentOrgs)).monospacedDigit() }
+                    GridRow { Text(""); Text(""); Text("  Interest on debt").foregroundStyle(.secondary); Text(Fmt.money(m.costInterest)).monospacedDigit() }
                     GridRow { Text("Interest on cash").foregroundStyle(.secondary); Text(Fmt.money(m.interestIncome)).monospacedDigit().foregroundStyle(.green); Text("One-off income (license fees)").foregroundStyle(.secondary); Text(Fmt.money(m.oneOffIncome)).monospacedDigit().foregroundStyle(.green) }
                     GridRow { Text("Capex (hardware, construction)").foregroundStyle(.secondary); Text(Fmt.money(m.capex)).monospacedDigit(); Text(""); Text("") }
                 }
@@ -71,7 +74,7 @@ struct FinanceView: View {
                     TableColumn("Revenue") { m in Text(Fmt.money(m.revenue)).monospacedDigit().foregroundStyle(.green) }
                     TableColumn("Compute") { m in Text(Fmt.money(m.costRent + m.costPower)).monospacedDigit() }
                     TableColumn("People") { m in Text(Fmt.money(m.costPayroll)).monospacedDigit() }
-                    TableColumn("Other opex") { m in Text(Fmt.money(m.costSites + m.costData + m.costMarketing + m.costOther + m.costChips)).monospacedDigit() }
+                    TableColumn("Other opex") { m in Text(Fmt.money(m.costSites + m.costData + m.costMarketing + m.costOther + m.costChipDesign + m.costAgentOrgs + m.costChips)).monospacedDigit() }
                     TableColumn("Interest + tax") { m in Text(Fmt.money(m.costInterest + m.taxes)).monospacedDigit() }
                     TableColumn("Capex") { m in Text(Fmt.money(m.capex)).monospacedDigit().foregroundStyle(.secondary) }
                     TableColumn("Profit") { m in Text(signedMoney(m.profit)).monospacedDigit().foregroundStyle(m.profit >= 0 ? .green : .red) }

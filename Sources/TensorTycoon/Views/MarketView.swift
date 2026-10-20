@@ -48,6 +48,8 @@ struct MarketView: View {
                 ShareChart(title: "Chat app share", products: snap.consumer, state: s)
             }
 
+            PriceLabCard(state: s)
+
             DealsCard(state: s)
 
             Card {
@@ -242,6 +244,10 @@ private struct DealsCard: View {
         let models = s.releasedModels
         Card {
             CardHeader(title: "Enterprise", symbol: "briefcase.fill", subtitle: "Sales staff and brand bring in leads. Contracts reserve capacity on a model — breach the SLA and they walk.") { HelpButton(term: .sla) }
+            // 3.9: the pool contracts draw on, so the size of a lead makes sense against it.
+            let pool = store.derived.snapshot.enterprisePool / 12
+            Text("Enterprise buyers worldwide spend about \(Fmt.money(pool))/month; contracts pay up to your share of it. Big leads come as your API share grows.")
+                .font(.caption).foregroundStyle(.secondary)
             if offers.isEmpty && active.isEmpty {
                 NextStep(s.releasedModels.isEmpty ? "No enterprise leads yet. Leads come once you have a model released." : "No enterprise leads yet. Sales & Partnerships staff and a stronger brand bring them in.",
                          action: s.releasedModels.isEmpty ? "Models & Serving" : "Hire sales staff", screen: s.releasedModels.isEmpty ? .models : .team)

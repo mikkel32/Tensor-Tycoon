@@ -278,7 +278,7 @@ enum AgentOrgs {
             let w = e.workforce
             if e.spendDaily > 0 {
                 s.cash -= e.spendDaily
-                s.month.costOther += e.spendDaily
+                s.month.costAgentOrgs += e.spendDaily
             }
             s.orgs[oi].workforce = w
             s.orgs[oi].quality = e.effective > 0 ? e.accuracy : 0
