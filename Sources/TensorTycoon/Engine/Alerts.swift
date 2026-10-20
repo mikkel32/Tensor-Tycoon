@@ -10,6 +10,7 @@ enum AlertKind: String, Codable, CaseIterable, Identifiable, Sendable {
     case world   // 3.4: world and stakeholders
     case advanced   // 3.5: advanced projects
     case corporate   // 3.5: corporate
+    case noServing, swarmStopped   // 3.8: nothing serves your products; a swarm has no model
 
     var id: String { rawValue }
 
@@ -35,6 +36,8 @@ enum AlertKind: String, Codable, CaseIterable, Identifiable, Sendable {
         case .world: "The world reacts: protests, regulators, grid emergencies"
         case .advanced: "Government contracts: awards, deliveries and trouble"
         case .corporate: "Corporate: covenant breaches, rating changes, subsidiaries"
+        case .noServing: "No model is serving your chat app, agents or API"
+        case .swarmStopped: "A swarm has no model to run on"
         }
     }
 
@@ -57,13 +60,15 @@ enum AlertKind: String, Codable, CaseIterable, Identifiable, Sendable {
         case .world: "globe.americas.fill"
         case .advanced: "building.columns.fill"
         case .corporate: "building.2.crop.circle.fill"
+        case .noServing: "bolt.slash.fill"
+        case .swarmStopped: "ant.fill"
         }
     }
 
     /// Whether the game pauses for it unless the player changes it.
     var pausesByDefault: Bool {
         switch self {
-        case .cashNegative, .bankruptcySoon, .termSheet, .offerExpiring, .runPaused, .rivalPassed, .slaBreach, .swarmAlignment:
+        case .cashNegative, .bankruptcySoon, .termSheet, .offerExpiring, .runPaused, .rivalPassed, .slaBreach, .swarmAlignment, .noServing:
             true
         default:
             false
@@ -163,6 +168,7 @@ enum Alerts {
                       screen: .market, cooldown: 21, pauseCooldown: 60)
             }
         }
+        noServingCheck(&s)
         // Weekly: capacity, swarms
         guard GameCalendar.components(today).day % 7 == 1 else { return }
         if let m = s.models.filter({ $0.released && !$0.retired && $0.capacityTokensDay > 0 && $0.demandTokensDay > $0.capacityTokensDay * 1.3 })
@@ -179,6 +185,29 @@ enum Alerts {
             raise(&s, .swarmAlignment, key: sw.id.uuidString, title: "\(sw.name) alignment at \(Int(sw.alignmentMeasured))",
                   body: "Collusion and escapes get likely below 30. Raise oversight, audit or purge.", screen: .swarms, critical: sw.alignmentMeasured < 25, cooldown: 30)
         }
+    }
+
+    /// 3.8: nothing serves your products. Chat has no model while people still use it, or every live released model
+    /// has no servers: chat, agents and the API are dark and revenue falls toward zero.
+    static func noServingCheck(_ s: inout GameState) {
+        let live = s.models.filter { $0.released && !$0.retired }
+        let noChat = s.chatModelID == nil && s.consumerUsers >= 1
+        let dark = !live.isEmpty && (s.consumerUsers >= 1 || s.lastLiveDemand > 0) && !live.contains { $0.capacityTokensDay > 0 || $0.deployments.contains { $0.chips > 0 } }
+        let noneLive = live.isEmpty && s.models.contains { $0.released } && (s.consumerUsers >= 1 || s.lastLiveDemand > 0)
+        guard noChat || dark || noneLive else { return }
+        let why: String, fix: String
+        if noneLive {
+            why = "Every released model is retired, so chat, agents and the API are dark."
+            fix = "Open Models, tick \"Show retired\" and press \"Bring back\" on your best model (or release a new one)."
+        } else if dark {
+            why = "None of your live models has servers, so no request is answered."
+            fix = "Give a model serving chips on Models, or turn on the capacity delegate."
+        } else {
+            why = "No model powers the chat app, so its users get nothing."
+            fix = "Pick a model for chat on Models, or bring a retired one back."
+        }
+        raise(&s, .noServing, title: "Nothing is serving your customers",
+              body: "\(why) Users leave and revenue falls toward $0 until this is fixed. \(fix)", screen: .models, critical: true, cooldown: 14, pauseCooldown: 30)
     }
 
     // MARK: Decision inbox

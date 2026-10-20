@@ -228,7 +228,6 @@ enum AlienFab {
             s.alienFab.produced += s.chipLines.filter { isAlienChip($0.chipID) }.reduce(0) { $0 + $1.unitsToday }
             milestones(&s)
         }
-        if GameCalendar.components(s.date).day % 7 == 1 { resumeRuns(&s) }
         for i in s.alienArchs.indices where s.alienArchs[i].revising {
             s.alienArchs[i].reviseDaysLeft -= 1
             guard s.alienArchs[i].reviseDaysLeft <= 0 else { continue }
@@ -262,10 +261,12 @@ enum AlienFab {
         }
     }
 
-    /// Runs on your own chips that stalled for lack of chips resume by themselves once chips are free again
-    /// (shrunk to what's free if most of the cluster is back).
+    /// Runs that stalled for lack of chips resume by themselves once chips are free again (shrunk to what's free if
+    /// most of the cluster is back). 3.8: any vendor, not just your own silicon; a run you paused by hand stays paused.
     static func resumeRuns(_ s: inout GameState) {
-        let stalled = s.runs.indices.filter { s.runs[$0].status == .paused && (HardwareCatalog.get(s.runs[$0].design.accelID)?.vendor == .custom) }
+        let stalled = s.runs.indices.filter {
+            s.runs[$0].status == .paused && (s.runs[$0].note.hasPrefix("Paused: not enough") || (HardwareCatalog.get(s.runs[$0].design.accelID)?.vendor == .custom && !s.runs[$0].note.hasPrefix("Paused by you")))
+        }
         guard !stalled.isEmpty else { return }
         let b = s.bonuses
         for ri in stalled {
@@ -278,6 +279,7 @@ enum AlienFab {
             guard Physics.trainingMemory(d, accel: a, bonuses: b).ok else { continue }
             s.runs[ri].design.chips = d.chips
             s.runs[ri].status = s.runs[ri].flopsDone >= s.runs[ri].flopsTotal ? .postTraining : .running
+            s.runs[ri].pausedSince = nil
             s.runs[ri].note = "Resumed \(s.date.gameShort) on \(Fmt.int(d.chips)) \(a.name)."
             Sim.news(&s, "Training resumed: \(s.runs[ri].design.name)", "Back on \(Fmt.int(d.chips))× \(a.name).", .company, good: true)
         }

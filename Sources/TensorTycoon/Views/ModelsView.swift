@@ -86,6 +86,16 @@ private struct ModelCard: View {
                 if !m.retired {
                     releasePanel(m, s)
                         .frame(width: 330)
+                } else {
+                    // 3.8: retiring is reversible.
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Retired").font(.headline)
+                        Text("It isn't serving anyone. Bring it back to give it servers again and move the chat app, agents and any contract with no model onto it.")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Button("Bring back") { store.act("\(m.name) is back") { $0.unretire(m.id); return nil } }
+                            .buttonStyle(.borderedProminent)
+                    }
+                    .frame(width: 330, alignment: .leading)
                 }
             }
             ModelDomainsSection(model: m, state: s)   // 3.4: capability domains
@@ -149,9 +159,26 @@ private struct ModelCard: View {
                     Button("Retire", role: .destructive) { store.mutate { $0.retire(m.id) } }
                     Button("Cancel", role: .cancel) {}
                 } message: {
-                    Text("It stops serving, its chips are freed and it can't be brought back. Products and contracts on it move to your next best model.")
+                    Text(retireWarning(m, s))
                 }
         }
+    }
+
+    /// What retiring does, said plainly. 3.8: it can be undone, and when nothing else can take over, everything goes dark.
+    private func retireWarning(_ m: AIModel, _ s: GameState) -> String {
+        let others = s.models.filter { $0.released && !$0.retired && $0.id != m.id }
+        var text = "It stops serving and its chips are freed. You can bring it back later from \"Show retired\"; its servers are set up again then."
+        let chatDark = s.chatModelID == m.id && !others.contains { $0.design.instruct }
+        let agentDark = s.agentModelID == m.id && !others.contains { $0.design.toolUse }
+        if others.isEmpty && m.released {
+            text += " It is your last live model: the chat app, agents and API go dark and revenue falls toward $0 until you bring a model back."
+        } else if chatDark || agentDark {
+            let what = chatDark && agentDark ? "chat app and agents" : (chatDark ? "chat app" : "agents")
+            text += " No other live model can run your \(what), so they go dark and that revenue falls toward $0."
+        } else {
+            text += " Products and contracts on it move to your next best model."
+        }
+        return text
     }
 
     @ViewBuilder

@@ -28,6 +28,12 @@ enum ReplayHarness {
                 print(why.map { "could not order: \($0)" } ?? "ordered \(parts[2])× \(parts[1])")
                 continue
             }
+            if t == "ops:autoscale" { s.ops.autoscale = true; continue }
+            if t.hasPrefix("unretire:") {
+                let name = String(t.dropFirst("unretire:".count))
+                if let m = s.models.first(where: { $0.name == name }) { s.unretire(m.id); print("unretired \(name)") } else { print("no model named \(name)") }
+                continue
+            }
             if t.hasPrefix(Breakthroughs.refinePrefix) {
                 _ = s.queueRefine(String(t.dropFirst(Breakthroughs.refinePrefix.count)))
             } else {
@@ -56,6 +62,23 @@ enum ReplayHarness {
         }.joined(separator: ", ")
         print("\(s.date.gameShort): owned usable \(Fmt.int(usable)), idle \(Fmt.int(pools.reduce(0) { $0 + $1.free })), waiting \(Fmt.int(waiting)), research chips \(s.researchChips.values.reduce(0, +))"
               + " · \(Fmt.trim(s.rpToday, 1)) RP/day · queue: \(queue.isEmpty ? "empty" : queue)")
+        let live = s.models.filter { $0.released && !$0.retired }
+        var liveText = ""
+        for m in live { liveText += " \(m.name) \(Fmt.count(m.capacityTokensDay))/\(Fmt.count(m.demandTokensDay))" }
+        var swarmText = ""
+        for sw in s.swarms {
+            let mname: String = s.models.first(where: { $0.id == sw.modelID })?.name ?? "?"
+            swarmText += " [\(sw.name) \(sw.paused ? "paused" : "running") on \(mname)]"
+        }
+        let chat: String = s.models.first(where: { $0.id == s.chatModelID })?.name ?? "none"
+        let agent: String = s.models.first(where: { $0.id == s.agentModelID })?.name ?? "none"
+        print("    live models \(live.count) (capacity/demand:\(liveText)) · chat \(chat) · agent \(agent)")
+        print("    users \(Fmt.count(s.consumerUsers)) (\(Fmt.count(s.paidUsers)) paid) · seats \(Fmt.count(s.agentSeats)) · cash \(Fmt.money(s.cash)) · lifetime revenue \(Fmt.money(s.lifetimeRevenue)) · swarms:\(swarmText.isEmpty ? " none" : swarmText)")
+        for n in s.news.prefix(6) where n.date == s.date && ProcessInfo.processInfo.environment["REPLAY_NEWS"] != nil { print("    news: \(n.title) — \(n.body)") }
+        for a in s.alerts.prefix(4) where a.date == s.date && ProcessInfo.processInfo.environment["REPLAY_NEWS"] != nil { print("    ALERT\(a.critical ? " (critical)" : ""): \(a.title) — \(a.body)") }
+        if ProcessInfo.processInfo.environment["REPLAY_POOLS"] != nil {
+            for p in pools where p.total > 0 { print("    pool \(p.accel.name): owned \(p.owned) rented \(p.rented) free \(p.free) leased \(p.leased) training \(p.training) research \(p.research) swarm \(p.swarm) inference \(p.inference)") }
+        }
         let fab = s.orders.filter { AlienFab.isAlienChip($0.accelID) }
         if s.alienFab.exists {
             let own = s.owned.filter { AlienFab.isAlienChip($0.accelID) }.reduce(0) { $0 + $1.count }

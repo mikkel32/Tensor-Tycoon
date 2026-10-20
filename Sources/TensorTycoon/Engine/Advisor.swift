@@ -126,7 +126,8 @@ enum Advisor {
         if let m = released.max(by: { $0.c < $1.c }), m.api, m.deployments.isEmpty {
             let fix = deployFix(s, m, pools: pools, target: 4)
             add("deploy-\(m.id)", .warning, "cube.box.fill", "\(m.name) has no servers", "Your best released model can't take API traffic.", .models,
-                fix: fix.map { .deploy(model: m.id, accel: $0.0, chips: $0.1) }, fix.map { "Deploy \(Fmt.int($0.1)) chips" } ?? "")
+                fix: fix.map { .deploy(model: m.id, accel: $0.0, chips: $0.1) },
+                fix.map { "Deploy \(Fmt.int($0.1)) chips (\(Fmt.count($0.2)) tokens/day)" } ?? "")
         }
         if let m = s.models.filter({ $0.capacityTokensDay > 0 && $0.demandTokensDay > $0.capacityTokensDay * 1.15 }).max(by: { $0.demandTokensDay < $1.demandTokensDay }) {
             let fix = growFix(s, m)
@@ -282,15 +283,22 @@ enum Advisor {
         return out.filter { item in s.snoozed[item.id].map { $0 <= today } ?? true }.sorted { $0.level > $1.level }
     }
 
-    /// Chips to give model `m` on the pool with the most room: (accelID, total chips after).
-    static func deployFix(_ s: GameState, _ m: AIModel, pools: [ComputePool], target replicas: Int) -> (String, Int)? {
+    /// Chips to give model `m` on the fastest pool with room, sized to its demand (`replicas` replicas when it has
+    /// none yet): (accelID, total chips after, tokens a day they serve).
+    static func deployFix(_ s: GameState, _ m: AIModel, pools: [ComputePool], target replicas: Int) -> (String, Int, Double)? {
         let b = s.bonuses
-        for p in pools.sorted(by: { $0.free > $1.free }) where p.free > 0 {
-            let k = Physics.chipsPerReplica(m, accel: p.accel, precision: m.servingPrecision, bonuses: b)
-            let n = min(p.free, k * replicas) / k * k
-            if n > 0 { return (p.accel.id, n) }
+        var best: (String, Int, Double)?
+        for p in pools where p.free > 0 {
+            guard let (per, k) = Operations.perChip(m, p.accel.id, b) else { continue }
+            let want = m.demandTokensDay > 0 ? Int((m.demandTokensDay / 0.8 / per / Double(k)).rounded(.up)) * k : k * replicas
+            let n = min(p.free, max(k, want)) / k * k
+            guard n > 0 else { continue }
+            let cap = Double(n) * per
+            // Fastest chips first; among equals, the pool that covers most.
+            if best == nil || per > (Operations.perChip(m, best!.0, b)?.0 ?? 0) + 1e-9
+                || (abs(per - (Operations.perChip(m, best!.0, b)?.0 ?? 0)) <= 1e-9 && cap > best!.2) { best = (p.accel.id, n, cap) }
         }
-        return nil
+        return best
     }
 
     /// Chips that bring an over-capacity model to ~80% load on its own hardware: (accelID, total after, added).

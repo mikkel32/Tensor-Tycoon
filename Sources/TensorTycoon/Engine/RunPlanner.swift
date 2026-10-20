@@ -50,14 +50,19 @@ extension Operations {
     /// on them and start it — if its forecast beats your best model. Scripts plan long and cautious; a frontier agent
     /// uses every spare chip.
     static func autoTrain(_ s: inout GameState, precision: Double) {
-        guard !s.runs.contains(where: { $0.kind == .full && ($0.status == .running || $0.status == .postTraining || $0.status == .paused) }) else { return }
+        // 3.8: a run that has sat paused for over a month no longer blocks the next one (it used to block it forever).
+        guard !s.runs.contains(where: {
+            $0.kind == .full && ($0.status == .running || $0.status == .postTraining
+                                 || ($0.status == .paused && GameCalendar.daysBetween($0.pausedSince ?? $0.started, s.date) <= 30))
+        }) else { return }
         let reserve = s.ops.reserveShare
         let pools = Economy.pools(s).filter { $0.accel.cls != .consumer || $0.total <= 64 }
         // Chips leased to the market count as spare: they come back for your own training.
         func spare(_ p: ComputePool) -> Int { max(0, p.free + (s.leases[p.accel.id] ?? 0) - Int(Double(p.total) * reserve)) }
         guard let pool = pools.filter({ $0.accel.supportsTraining(.bf16) }).max(by: { Double(spare($0)) * $0.accel.bf16 < Double(spare($1)) * $1.accel.bf16 }),
               spare(pool) >= 4 else { return }
-        let best = s.models.map(\.c).max() ?? -10
+        // 3.8: the bar is your best live model: a retired one can't be beaten by (or serve) anything.
+        let best = s.models.filter { !$0.retired && !$0.preview }.map(\.c).max() ?? -10
         let days = 90 - 15 * precision
         var chips = Int(Double(spare(pool)) * (0.7 + 0.3 * precision))
         // Fewer chips beat a run that spends its life restarting (auto-size already shrinks to a healthy cluster).
@@ -65,7 +70,12 @@ extension Operations {
             let d = RunPlanner.bestRecipe(s, accel: pool.accel, chips: chips, days: days, name: RunPlanner.nextName(s))
             chips = d.chips
             if let est = Physics.estimate(d, state: s), est.memory.ok, est.goodput >= 0.6, est.days <= 150 {
-                guard est.forecast.c > best + 0.1 else { return }
+                guard est.forecast.c > best + 0.1 else {
+                    if !s.opsLog.prefix(8).contains(where: { $0.contains("not past your best") }) {   // once a while, not every pass
+                        log(&s, "Training: \(d.name) would reach c \(Fmt.trim(est.forecast.c, 2)) on \(Fmt.int(chips)) \(pool.accel.name), not past your best live model (\(Fmt.trim(best, 2))); not started.")
+                    }
+                    return
+                }
                 guard est.totalCost < max(0, s.cash) * 0.5 else {
                     log(&s, "Training: \(d.name) would cost \(Fmt.money(est.totalCost)); waiting for more cash.")
                     return

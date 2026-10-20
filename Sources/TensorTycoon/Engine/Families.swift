@@ -443,6 +443,16 @@ enum Families {
         }
     }
 
+    /// Jobs paused for lack of chips start again when enough are free.
+    static func resumeJobs(_ s: inout GameState) {
+        for i in s.families.jobs.indices where s.families.jobs[i].paused {
+            let j = s.families.jobs[i]
+            guard Economy.freeChips(s, j.accelID) >= j.chips else { continue }
+            s.families.jobs[i].paused = false
+            Sim.news(&s, "\(j.name.isEmpty ? "Model job" : j.name) resumed", "Its \(Fmt.int(j.chips)) \(HardwareCatalog.get(j.accelID)?.name ?? "chips") are free again.", .company, good: true)
+        }
+    }
+
     // MARK: Finishing jobs
 
     static func finishDistill(_ s: inout GameState, _ j: ModelJob) {

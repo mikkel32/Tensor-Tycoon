@@ -434,6 +434,8 @@ struct TrainingRun: Codable, Identifiable, Hashable {
     var dataSnapshot: [String] = []
     var cFinal: Double? = nil
     @D var saved: [TrainCheckpoint] = []
+    /// 3.8: when it was paused (the planner ignores runs paused for over a month).
+    @D var pausedSince: Date? = nil
     @D var lr: Int = 0
     @D var checkpointEvery: Double = 0
     @D var qualityPenalty: Double = 0
@@ -988,6 +990,8 @@ struct GameState: Codable {
     var paidUsers: Double = 0
     var consumerShare: Double = 0
     var consumerServedFraction: Double = 1
+    /// 3.8: tokens a day your live models were asked for the last day any served; sizes servers when a model comes back or launches onto an empty fleet.
+    @D var lastLiveDemand: Double = 0
     var reliability: Double = 1
     var chatMoment: Double? = nil
 
