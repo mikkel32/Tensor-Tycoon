@@ -452,11 +452,15 @@ extension GameState {
     mutating func deploy(_ id: UUID, accelID: String, chips: Int) -> String? {
         guard let i = models.firstIndex(where: { $0.id == id }) else { return "Not found." }
         let current = models[i].deployments.first { $0.accelID == accelID }?.chips ?? 0
+        let k = HardwareCatalog.get(accelID).map { Physics.chipsPerReplica(models[i], accel: $0, precision: models[i].servingPrecision, bonuses: bonuses) } ?? 1
+        let name = HardwareCatalog.get(accelID)?.name ?? "chips"
+        // 3.9: fewer chips than one replica serve nothing but would still be held; say so instead of taking them.
+        if chips > 0 && chips < k {
+            return "One replica of \(models[i].name) needs \(k) \(name) at \(models[i].servingPrecision.short); \(chips) would serve nothing. Use 0 to stop serving on them."
+        }
         let free = recallLeased(accelID, needing: chips - current) + current
         if chips > free {
             // 3.9: say what the number is for: usually one replica needs more chips than you have.
-            let k = HardwareCatalog.get(accelID).map { Physics.chipsPerReplica(models[i], accel: $0, precision: models[i].servingPrecision, bonuses: bonuses) } ?? 1
-            let name = HardwareCatalog.get(accelID)?.name ?? "chips"
             return free < k ? "\(models[i].name) needs \(k) \(name) for one replica; you have \(free).\(leasedNote(accelID))"
                             : "You asked for \(chips) \(name) but have \(free) (\(free / k) replica\(free / k == 1 ? "" : "s") of \(k)).\(leasedNote(accelID))"
         }
@@ -465,9 +469,35 @@ extension GameState {
         return nil
     }
 
-    mutating func setServingPrecision(_ id: UUID, _ p: Precision) {
-        guard let i = models.firstIndex(where: { $0.id == id }) else { return }
+    /// Serve a model at another precision. 3.9: checks the research, and re-cuts each deployment into whole replicas
+    /// of the new size (rounding up from free chips when that is nearer, otherwise freeing the rest), so a switch
+    /// never leaves chips held that serve nothing. Refuses when the model would be left with no full replica.
+    mutating func setServingPrecision(_ id: UUID, _ p: Precision) -> String? {
+        guard let i = models.firstIndex(where: { $0.id == id }) else { return "Not found." }
+        let m = models[i]
+        guard p != m.servingPrecision else { return nil }
+        guard Physics.allowedServingPrecisions(HardwareCatalog.h100, bonuses: bonuses).contains(p) else {
+            return "Serving at \(p.short) needs the \(p == .fp4 ? "4-bit" : "8-bit") serving research."
+        }
+        var trial = m
+        trial.servingPrecision = p
+        var cut: [Deployment] = []
+        for d in m.deployments {
+            guard let a = HardwareCatalog.get(d.accelID) else { cut.append(d); continue }
+            let k = Physics.chipsPerReplica(trial, accel: a, precision: p, bonuses: bonuses)
+            var n = d.chips / k * k
+            let rem = d.chips - n
+            if rem > 0 && k - rem <= rem && Economy.freeChips(self, d.accelID) >= k - rem { n += k }
+            if n > 0 { cut.append(Deployment(id: d.id, accelID: d.accelID, chips: n)) }
+        }
+        let had = m.deployments.reduce(0.0) { $0 + Physics.capacity(m, deployment: $1, bonuses: bonuses) }
+        if had > 0 && cut.isEmpty, let d = m.deployments.first, let a = HardwareCatalog.get(d.accelID) {
+            let k = Physics.chipsPerReplica(trial, accel: a, precision: p, bonuses: bonuses)
+            return "At \(p.short) one replica of \(m.name) needs \(Fmt.int(k)) \(a.name); it has \(Fmt.int(d.chips)) and \(Fmt.int(Economy.freeChips(self, d.accelID))) are free. Add chips first, or it would stop serving."
+        }
         models[i].servingPrecision = p
+        models[i].deployments = cut
+        return nil
     }
 
     /// Set an API price by hand (turns auto-pricing off). You can't sell below what serving the tokens costs you:
@@ -522,8 +552,12 @@ extension GameState {
     mutating func acceptDeal(_ id: UUID, modelID: UUID) -> String? {
         guard let i = deals.firstIndex(where: { $0.id == id }), let m = models.first(where: { $0.id == modelID }) else { return "Not found." }
         if !m.released || m.retired { return "Release \(m.name) before you sell it to enterprises." }
-        if m.index + 0.01 < deals[i].minIndex { return "\(deals[i].client) needs an Intelligence Index of \(Fmt.score(deals[i].minIndex))." }
+        if m.index + 0.01 < deals[i].minIndex { return "\(deals[i].client) needs an Intelligence Index of \(Fmt.score(deals[i].minIndex)) (\(m.name) is \(Fmt.score(m.index)))." }
         if safetyScore < deals[i].minSafety { return "\(deals[i].client) requires a safety score of \(Int(deals[i].minSafety))." }
+        // 3.9: a contract on a model with no servers breaches every day and is cancelled at month end.
+        if deals[i].tokensPerDay > 0 && !m.deployments.contains(where: { Physics.capacity(m, deployment: $0, bonuses: bonuses) > 0 }) {
+            return "\(m.name) has no servers, so this contract would breach every day. Deploy chips to it on Models first."
+        }
         deals[i].active = true
         deals[i].modelID = modelID
         Sim.news(&self, "Signed: \(deals[i].client)", "\(Fmt.money(deals[i].monthly))/month for \(deals[i].months) months. Make sure \(m.name) has capacity.", .company, good: true)
@@ -537,8 +571,11 @@ extension GameState {
         guard let i = deals.firstIndex(where: { $0.id == dealID }), let m = models.first(where: { $0.id == modelID }) else { return "Not found." }
         if !deals[i].active { return "Sign the contract first." }
         if !m.released || m.retired { return "\(m.name) isn't serving customers." }
-        if m.index + 0.01 < deals[i].minIndex { return "\(deals[i].client) needs an Intelligence Index of \(Fmt.score(deals[i].minIndex))." }
+        if m.index + 0.01 < deals[i].minIndex { return "\(deals[i].client) needs an Intelligence Index of \(Fmt.score(deals[i].minIndex)) (\(m.name) is \(Fmt.score(m.index)))." }
         if deals[i].modelID == modelID { return nil }
+        if deals[i].tokensPerDay > 0 && !m.deployments.contains(where: { Physics.capacity(m, deployment: $0, bonuses: bonuses) > 0 }) {
+            return "\(m.name) has no servers, so the contract would breach every day. Deploy chips to it on Models first."   // 3.9
+        }
         deals[i].modelID = modelID
         Sim.news(&self, "\(deals[i].client) moved to \(m.name)", "Their \(Fmt.count(deals[i].tokensPerDay)) tokens a day now run on \(m.name). Make sure it has the capacity.", .company)
         return nil

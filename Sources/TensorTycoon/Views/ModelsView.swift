@@ -106,6 +106,8 @@ private struct ModelCard: View {
             }
         }
         .onAppear { priceText = String(format: "%.3f", m.apiPrice) }
+        // 3.9: auto-price and launch pricing move the price daily; the field follows instead of going stale.
+        .onChange(of: m.apiPrice) { _, new in priceText = String(format: "%.3f", new) }
         .familySheet($familySheet)
     }
 
@@ -127,17 +129,24 @@ private struct ModelCard: View {
             } else {
                 Toggle("Sell via API", isOn: Binding(get: { m.api }, set: { on in store.act { $0.release(m.id, api: on, openWeights: m.openWeights) } }))
                     .toggleStyle(.switch)
+                // 3.9: during limited-access testing the launch keeps products on the old model every day, so a
+                // switch here would be undone overnight.
+                let testingEnd = Launches.testingUntil(s, m.id)
                 Button(s.chatModelID == m.id ? "Powering your chat app" : "Use for chat app") {
                     store.mutate { $0.chatModelID = m.id }
                     store.show("\(m.name) now powers \(s.companyName) Chat")
                 }
-                .disabled(s.chatModelID == m.id || !m.design.instruct)
+                .disabled(s.chatModelID == m.id || !m.design.instruct || testingEnd != nil)
                 Button(s.agentModelID == m.id ? "Powering your agent product" : "Use for agent product") {
                     store.mutate { $0.agentModelID = m.id }
                     store.show("\(m.name) now powers \(s.companyName) Agent")
                 }
-                .disabled(s.agentModelID == m.id || !m.design.toolUse || !store.derived.bonuses.has(.toolUse))
+                .disabled(s.agentModelID == m.id || !m.design.toolUse || !store.derived.bonuses.has(.toolUse) || testingEnd != nil)
                 .help("Coding & computer-use agent seats. Needs a tool-use model.")
+                if let end = testingEnd {
+                    Text("With trusted testers until \(end.gameShort). Chat, agents and contracts move onto it then, if it's the better model.")
+                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
                 if !m.design.instruct { Text("Base models (no instruction tuning) can't power a chat app.").font(.caption).foregroundStyle(.secondary) }
                 if !m.openWeights {
                     Button("Open-source the weights") { store.act("Weights released") { $0.release(m.id, api: m.api, openWeights: true) } }
@@ -216,20 +225,25 @@ private struct ModelCard: View {
         let dailyCost = m.deployments.reduce(0.0) { acc, d in acc + (HardwareCatalog.get(d.accelID).map { Economy.chipDailyCost($0, count: d.chips, state: s) } ?? 0) }
         // 3.8: per 1M tokens sold: a reasoning model's servers also generate its thinking tokens.
         let costPerM = m.capacityTokensDay > 0 ? dailyCost / m.capacityTokensDay * 1e6 * Families.thinkingTokens(m, b) : 0
-        let ref = Macro.referencePrice(c: m.c, y: s.year) * s.market.apiPricePressure
+        // 3.9: the going rate shown beside the buttons (after the serving penalty and rivals' price cuts).
+        let ref = Treasury.marketPrice(m, s)
+        let leases = s.leases
 
         HStack(alignment: .top, spacing: 18) {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Inference deployment").font(.headline)
-                Picker("Serving precision", selection: Binding(get: { m.servingPrecision }, set: { p in store.mutate { $0.setServingPrecision(m.id, p) } })) {
+                let serveAccel = m.deployments.first.flatMap { HardwareCatalog.get($0.accelID) } ?? pools.max { $0.total < $1.total }?.accel ?? HardwareCatalog.h100
+                let allowed = Physics.allowedServingPrecisions(serveAccel, bonuses: b)
+                Picker("Serving precision", selection: Binding(get: { m.servingPrecision }, set: { p in setPrecision(m, p) })) {
                     ForEach(Precision.allCases) { p in
                         Text(p == .bf16 ? "BF16" : (p == .fp8 ? "FP8/INT8" : "4-bit")).tag(p)
-                            .disabled(!Physics.allowedServingPrecisions(HardwareCatalog.h100, bonuses: b).contains(p))
+                            .disabled(!allowed.contains(p))
                     }
                 }
                 .pickerStyle(.segmented)
-                Text("Lower precision halves memory and boosts speed; costs a little quality (−\(Fmt.trim(Physics.servingPenalty(m), 2)) c\(m.qat ? ", cut by its quantisation-aware training" : "")).")
-                    .font(.caption).foregroundStyle(.secondary)
+                // 3.9: what each precision does on the chips it actually runs on (it was "boosts speed" everywhere).
+                Text(Self.precisionText(m, accel: serveAccel, allowed: allowed, b))
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 if m.reasoning {
                     // 3.8: test-time compute — how long it thinks before answering.
                     Picker("Reasoning effort", selection: Binding(get: { m.effort }, set: { e in store.act("Reasoning effort: \(e.label.lowercased())") { $0.setReasoningEffort(m.id, e) } })) {
@@ -243,7 +257,8 @@ private struct ModelCard: View {
                         DeploymentRow(model: m, dep: d, accel: a, state: s)
                     }
                 }
-                let options = pools.filter { p in !m.deployments.contains { $0.accelID == p.accel.id } && p.free > 0 }
+                // 3.9: chips leased out count too: deploying recalls them.
+                let options = pools.filter { p in !m.deployments.contains { $0.accelID == p.accel.id } && p.free + (leases[p.accel.id] ?? 0) > 0 }
                 if !options.isEmpty {
                     // 3.9: one copy of the model needs `k` chips of a type; a pool with fewer can't serve it at all, so say
                     // so up front instead of asking for a full replica and failing with "only N chips available".
@@ -253,22 +268,28 @@ private struct ModelCard: View {
                         Picker("Add accelerators", selection: $addAccel) {
                             Text("Choose hardware…").tag("")
                             ForEach(options) { p in
-                                let k = perReplica(p)
-                                Text(p.free >= k ? "\(p.accel.name) (\(p.free) free, \(p.free / k) replica\(p.free / k == 1 ? "" : "s"))"
-                                                 : "\(p.accel.name) (\(p.free) free — one replica needs \(k))").tag(p.accel.id)
+                                let k = perReplica(p), avail = p.free + (leases[p.accel.id] ?? 0)
+                                let lease = (leases[p.accel.id] ?? 0) > 0 ? " incl. \(Fmt.int(leases[p.accel.id] ?? 0)) leased out" : ""
+                                Text(avail >= k ? "\(p.accel.name) (\(Fmt.int(p.free)) free\(lease), \(avail / k) replica\(avail / k == 1 ? "" : "s"))"
+                                                : "\(p.accel.name) (\(Fmt.int(avail)) available — one replica needs \(k))").tag(p.accel.id)
                             }
                         }
                         Button("Deploy") {
                             guard let p = chosen else { return }
-                            let n = (p.free / perReplica(p)) * perReplica(p)
-                            store.act("Deployed \(n) chips") { $0.deploy(m.id, accelID: p.accel.id, chips: n) }
+                            // Whole replicas from free chips; recall leased chips only when that is the only way to one replica.
+                            let k = perReplica(p)
+                            let n = max(p.free / k * k, k)
+                            store.act("Deployed \(Fmt.int(n)) chips") { $0.deploy(m.id, accelID: p.accel.id, chips: n) }
                             addAccel = ""
                         }
-                        .disabled(chosen.map { $0.free < perReplica($0) } ?? true)
+                        .disabled(chosen.map { $0.free + (leases[$0.accel.id] ?? 0) < perReplica($0) } ?? true)
                     }
-                    if let p = chosen, p.free < perReplica(p) {
-                        Text("\(m.name) needs \(perReplica(p)) \(p.accel.name) chips for one copy of itself at \(m.servingPrecision.short); you have \(p.free) free. Free more, serve at a lower precision, or pick other chips.")
+                    if let p = chosen, p.free + (leases[p.accel.id] ?? 0) < perReplica(p) {
+                        Text("\(m.name) needs \(perReplica(p)) \(p.accel.name) chips for one copy of itself at \(m.servingPrecision.short); you have \(p.free + (leases[p.accel.id] ?? 0)) free or leased out. Free more, serve at a lower precision, or pick other chips.")
                             .font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+                    } else if let p = chosen, p.free < perReplica(p) {
+                        Text("Only \(Fmt.int(p.free)) are free: deploying takes \(Fmt.int(perReplica(p) - p.free)) back off lease.")
+                            .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     }
                 } else if m.deployments.isEmpty {
                     Text("No free accelerators. Rent or buy more, or free some from training/research.").font(.caption).foregroundStyle(.orange)
@@ -313,7 +334,12 @@ private struct ModelCard: View {
                             .textFieldStyle(.roundedBorder)
                             .frame(width: 90)
                             .onSubmit { applyPrice(m) }
+                            .disabled(m.autoPrice)
                         Button("Set") { applyPrice(m) }
+                            .disabled(m.autoPrice)
+                    }
+                    if m.autoPrice {
+                        Text("Auto-price sets this every day. Turn it off to type a price.").font(.caption).foregroundStyle(.secondary)
                     }
                     HStack(spacing: 12) {
                         Text("Going rate \(Fmt.price(Treasury.marketPrice(m, s))) · serving cost \(Fmt.price(Economy.servingCostPerM(m, s)))").font(.caption).foregroundStyle(.secondary)
@@ -341,12 +367,45 @@ private struct ModelCard: View {
     }
 
     private func applyPrice(_ m: AIModel) {
-        if let v = Double(priceText.replacingOccurrences(of: "$", with: "")), v > 0 {
-            // Below serving cost the price is held at the floor and the reason is shown.
-            if store.act("Price set to \(Fmt.price(v))/M tokens", { $0.setAPIPrice(m.id, v) }) == false {
-                priceText = String(format: "%.3f", store.game.models.first { $0.id == m.id }?.apiPrice ?? v)
-            }
+        guard let v = Double(priceText.replacingOccurrences(of: "$", with: "")), v > 0 else {
+            store.show("Type a price above $0, in dollars per 1M tokens.", error: true)
+            priceText = String(format: "%.3f", m.apiPrice)
+            return
         }
+        // Below serving cost the price is held at the floor: the price still changed, so that's a notice, not a failure (3.9).
+        var floorNote: String?
+        store.mutate { floorNote = $0.setAPIPrice(m.id, v) }
+        store.show((floorNote ?? "Price set to \(Fmt.price(v))/M tokens.") + (m.autoPrice ? " Auto-price is now off." : ""))
+        priceText = String(format: "%.3f", store.game.models.first { $0.id == m.id }?.apiPrice ?? v)
+    }
+
+    /// 3.9: switch serving precision and say what happened to the chips (the engine re-cuts whole replicas).
+    private func setPrecision(_ m: AIModel, _ p: Precision) {
+        let before = m.deployments.reduce(0) { $0 + $1.chips }
+        guard store.act(nil, { $0.setServingPrecision(m.id, p) }) else { return }
+        let after = store.game.models.first { $0.id == m.id }?.deployments.reduce(0) { $0 + $1.chips } ?? before
+        let chips = after < before ? ": \(Fmt.int(before - after)) chips freed to keep whole replicas"
+                  : (after > before ? ": \(Fmt.int(after - before)) free chips added to complete a replica" : "")
+        store.show("\(m.name) now serves at \(p.short)\(chips)")
+    }
+
+    /// 3.9: replica size, per-user speed and capacity for each precision on the chips the model runs on, and whether
+    /// lower precision gains anything there (4-bit on chips without FP4 units only shrinks replicas).
+    static func precisionText(_ m: AIModel, accel a: Accelerator, allowed: [Precision], _ b: ResearchBonuses) -> String {
+        let deps = m.deployments.isEmpty ? [Deployment(accelID: a.id, chips: Physics.chipsPerReplica(m, accel: a, precision: m.servingPrecision, bonuses: b))] : m.deployments
+        let parts = allowed.map { p -> String in
+            var t = m
+            t.servingPrecision = p
+            let k = Physics.chipsPerReplica(t, accel: a, precision: p, bonuses: b)
+            let cap = deps.reduce(0.0) { $0 + Physics.capacity(t, deployment: $1, bonuses: b) }
+            return "\(p.short) \(Fmt.int(k)) per replica, \(Int(Physics.tps(t, accel: a, precision: p, bonuses: b))) tok/s, \(Fmt.count(cap)) tokens/day"
+        }
+        var text = (m.deployments.isEmpty ? "One replica on \(a.name): " : "On its servers (\(a.name)): ") + parts.joined(separator: " · ") + ". "
+        text += "Lower precision halves the chips per replica, but serves more tokens only on chips with 8-bit or 4-bit units."
+        if allowed.contains(.fp4) && a.fp4 <= 0 { text += " \(a.name) has no FP4 units, so 4-bit serves no more than 8-bit and costs more quality." }
+        let qat = m.qat ? ", a third of that with its quantisation-aware training" : ""
+        text += " Quality cost: 8-bit −0.01 c, 4-bit −0.05 c\(qat); now −\(Fmt.trim(Physics.servingPenalty(m), 2)) c."
+        return text
     }
 }
 
@@ -356,13 +415,17 @@ private struct DeploymentRow: View {
     let dep: Deployment
     let accel: Accelerator
     let state: GameState
-    @State private var chips = 0
+    /// 3.9: chosen in whole replicas (a chip count that isn't a multiple of the replica size serves nothing extra).
+    @State private var replicas = 0
+    @State private var confirmStop = false
 
     var body: some View {
         let b = state.bonuses
         let k = Physics.chipsPerReplica(model, accel: accel, precision: model.servingPrecision, bonuses: b)
         let tps = Physics.tps(model, accel: accel, precision: model.servingPrecision, bonuses: b)
         let cap = Physics.capacity(model, deployment: dep, bonuses: b)
+        let free = store.derived.free(accel.id), leased = state.leases[accel.id] ?? 0
+        let maxReplicas = (dep.chips + free + leased) / k
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Photo(key: accel.image).frame(width: 46, height: 32).clipShape(.rect(cornerRadius: 6)).acceleratorPhotoLabel(accel)
@@ -374,18 +437,52 @@ private struct DeploymentRow: View {
                 Spacer()
             }
             HStack {
-                QuantityPicker(value: $chips, range: 0...(dep.chips + store.derived.free(accel.id)), presets: [k, k * 4, k * 16, k * 64])
-                Button("Apply") { store.act("Deployment updated") { $0.deploy(model.id, accelID: accel.id, chips: chips) } }
-                    .disabled(chips == dep.chips)
-                if dep.chips % k != 0 {
-                    Text("\(dep.chips % k) idle (need multiples of \(k))").font(.caption).foregroundStyle(.orange)
+                QuantityPicker(value: $replicas, range: 0...maxReplicas, presets: [1, 4, 16, 64])
+                Text("replicas = \(Fmt.int(replicas * k)) chips").font(.caption).foregroundStyle(.secondary)
+                Button("Apply") {
+                    if replicas == 0 && goesDark { confirmStop = true } else { apply(replicas * k) }
                 }
+                .disabled(replicas * k == dep.chips)
+            }
+            if dep.chips % k != 0 {
+                Text("\(dep.chips % k) idle (need multiples of \(k)): Apply hands them back").font(.caption).foregroundStyle(.orange)
+            }
+            if replicas * k > dep.chips + free {
+                Text("Takes \(Fmt.int(replicas * k - dep.chips - free)) chips back off lease.").font(.caption).foregroundStyle(.secondary)
             }
         }
         .padding(10)
         .background(Theme.insetFill, in: .rect(cornerRadius: Theme.Radius.inset))
-        .onAppear { chips = dep.chips }
-        .onChange(of: dep.chips) { _, new in chips = new }
+        .onAppear { replicas = dep.chips / k }
+        .onChange(of: dep.chips) { _, new in replicas = new / k }
+        .onChange(of: k) { _, new in replicas = dep.chips / new }
+        .confirmationDialog("Stop serving \(model.name)?", isPresented: $confirmStop, titleVisibility: .visible) {
+            Button("Remove its servers", role: .destructive) { apply(0) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(stopWarning)
+        }
+    }
+
+    private func apply(_ chips: Int) {
+        store.act(chips == 0 ? "\(accel.name) servers removed from \(model.name)" : "\(model.name) now on \(Fmt.int(chips)) \(accel.name)") {
+            $0.deploy(model.id, accelID: accel.id, chips: chips)
+        }
+    }
+
+    /// Removing these chips leaves the model with no working replica somewhere it matters.
+    private var goesDark: Bool {
+        let others = model.deployments.filter { $0.accelID != accel.id }.contains { Physics.capacity(model, deployment: $0, bonuses: state.bonuses) > 0 }
+        return !others && (model.api || state.chatModelID == model.id || state.agentModelID == model.id || state.deals.contains { $0.active && $0.modelID == model.id })
+    }
+
+    private var stopWarning: String {
+        var what: [String] = []
+        if state.chatModelID == model.id { what.append("the chat app") }
+        if state.agentModelID == model.id { what.append("agents") }
+        if state.deals.contains(where: { $0.active && $0.modelID == model.id && $0.tokensPerDay > 0 }) { what.append("its enterprise contracts") }
+        if model.api { what.append("API sales") }
+        return "\(model.name) has no other servers. \(what.joined(separator: ", ").capitalizedFirst) stop, and that revenue falls to $0 until you deploy chips again."
     }
 }
 

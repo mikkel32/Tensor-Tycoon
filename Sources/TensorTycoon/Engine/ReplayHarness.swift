@@ -87,6 +87,30 @@ enum ReplayHarness {
                 }
                 continue
             }
+            // 3.9 serving: precision:<model>:<bf16|fp8|fp4>, deploy:<model>:<chip>:<chips>, rent:<chip>:<count>,
+            // price:<model>:<$/1M> — each prints the engine's answer and the model's serving numbers after it.
+            if t.hasPrefix("precision:") || t.hasPrefix("deploy:") || t.hasPrefix("rent:") || t.hasPrefix("price:") {
+                let p = t.split(separator: ":").map(String.init)
+                func serving(_ name: String) {
+                    guard let m = s.models.first(where: { $0.name == name }) else { return }
+                    let cap = m.deployments.reduce(0.0) { $0 + Physics.capacity(m, deployment: $1, bonuses: s.bonuses) }
+                    print("    \(m.name) at \(m.servingPrecision.short): \(m.deployments.map { "\($0.chips) \($0.accelID)" }.joined(separator: " + ")) · capacity \(Fmt.count(cap))/day · serving cost \(Fmt.price(Economy.servingCostPerM(m, s)))/1M · floor \(Fmt.price(Treasury.minPrice(m, s))) · price \(Fmt.price(m.apiPrice))\(m.autoPrice ? " auto" : "")")
+                }
+                let id = p.count > 1 ? s.models.first(where: { $0.name == p[1] })?.id : nil
+                switch p[0] {
+                case "precision" where p.count == 3 && id != nil:
+                    print("precision \(p[2]): \(Precision(rawValue: p[2]).map { s.setServingPrecision(id!, $0) ?? "ok" } ?? "unknown precision")"); serving(p[1])
+                case "deploy" where p.count == 4 && id != nil:
+                    print("deploy \(p[3]) \(p[2]): \(s.deploy(id!, accelID: p[2], chips: Int(p[3]) ?? 0) ?? "ok")"); serving(p[1])
+                case "rent" where p.count == 3:
+                    print("rent \(p[2]) \(p[1]): \(s.rentHardware(p[1], count: Int(p[2]) ?? 0, term: .onDemand) ?? "ok")")
+                    for m in s.models where m.released && !m.retired { serving(m.name) }
+                case "price" where p.count == 3 && id != nil:
+                    print("price \(p[2]): \(s.setAPIPrice(id!, Double(p[2]) ?? 0) ?? "ok")"); serving(p[1])
+                default: print("could not parse \(t)")
+                }
+                continue
+            }
             if t.hasPrefix("unretire:") {
                 let name = String(t.dropFirst("unretire:".count))
                 if let m = s.models.first(where: { $0.name == name }) { s.unretire(m.id); print("unretired \(name)") } else { print("no model named \(name)") }

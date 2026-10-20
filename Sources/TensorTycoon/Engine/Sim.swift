@@ -534,16 +534,8 @@ enum Sim {
         // Subscribers are served at the paying-customers rate; with evenShortage off everyone shares the shortage.
         let paidServed = !s.evenShortage ? chatServedPaid : chatServed
         let revConsumer = s.paidUsers * s.chatPrice / 30.4 * (0.5 + 0.5 * paidServed) * (snap.consumer.contains { $0.isPlayer } ? 1 : 0)   // 3.8: no chat model, no subscriptions billed
-        // Enterprise budgets are fixed too: rivals win the enterprise pool in proportion to their API business
-        // (RivalEconomy); if your contracts plus theirs would outspend it, yours are squeezed to your share.
-        let contracts = s.deals.filter(\.active).reduce(0.0) { $0 + $1.monthly } / 30.4
-        var billedAPI = 0.0, rivalsBilled = 0.0
-        for p in snap.api {
-            billedAPI += p.share * p.price
-            if !p.isPlayer { rivalsBilled += p.share * p.price * (p.open ? 0.5 : 1) }
-        }
-        let rivalsEnterprise = billedAPI > 0 ? snap.enterprisePool / 365 * rivalsBilled / billedAPI : 0
-        let revEnterprise = contracts * Market.budgetFactor(contracts, pool: snap.enterprisePool / 365, others: rivalsEnterprise)
+        // Enterprise budgets are fixed too: if your contracts plus rivals' would outspend the pool, yours are squeezed.
+        let revEnterprise = Commercial.enterpriseDaily(s, snap)
         let revAgents = billedSeats * max(1, s.agentPrice) / 30.4 * (0.4 + 0.6 * agentServed) * (agentModelID != nil ? 1 : 0)
         let total = revAPI + revConsumer + revEnterprise + revAgents
         s.month.revAgents += revAgents

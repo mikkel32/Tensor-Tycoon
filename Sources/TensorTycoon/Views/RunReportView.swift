@@ -460,7 +460,9 @@ struct RunReportSheet: View {
         let open = openWeights
         let ok = store.act("\(m.name) is live") { st in
             if let e = st.release(m.id, api: true, openWeights: open, plan: plan) { return e }
-            let free = Economy.freeChips(st, run.design.accelID)
+            // 3.9: whole replicas only; a part-replica remainder would be held but serve nothing.
+            let k = HardwareCatalog.get(run.design.accelID).map { Physics.chipsPerReplica(m, accel: $0, precision: m.servingPrecision, bonuses: st.bonuses) } ?? 1
+            let free = Economy.freeChips(st, run.design.accelID) / k * k
             if free > 0 { _ = st.deploy(m.id, accelID: run.design.accelID, chips: free) }
             if st.chatModelID == nil && m.design.instruct { st.chatModelID = m.id }
             return nil

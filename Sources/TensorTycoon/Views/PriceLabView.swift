@@ -8,6 +8,8 @@ struct PriceLabCard: View {
     @State private var chat: [MarketForecast.Point] = []
     @State private var agent: [MarketForecast.Point] = []
     @State private var api: [(name: String, id: UUID, current: Double, points: [MarketForecast.Point])] = []
+    /// 3.9: share of today's demand your bookings can take on (Commercial.reachValue).
+    @State private var reach = 1.0
 
     /// Recompute weekly, or when a price or product changes.
     private var key: String {
@@ -29,23 +31,43 @@ struct PriceLabCard: View {
                 Text("Free-tier users are being turned away for \(Fmt.pct(s.freeTierStarved, decimals: 0)) of their requests to keep paying customers served.")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            if reach < 0.999 {
+                let cap = Commercial.capacity(s)
+                Label("Bookings are capped at \(Fmt.money(cap.cap))/mo by \(cap.limit.title): you can take on \(Fmt.pct(reach, decimals: 0)) of the demand at today's prices. While capped, a cheaper price mostly moves revenue between products and burns more chips; it doesn't add revenue.",
+                      systemImage: "gauge.with.dots.needle.100percent")
+                    .font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+            }
             if s.chatModelID != nil { table("Chat subscription (per month)", chat, current: s.chatPrice, worth: Market.chatWTP(s), unit: "paying", money: { "$\(Int($0))" }) { p in
-                store.mutate { $0.chatPrice = clamp(p, 5, 200) } } }
+                setSubscription { $0.chatPrice = clamp(p, 5, 200) } } }
             if s.agentModelID != nil, !agent.isEmpty { table("Agent seat (per month)", agent, current: s.agentPrice, worth: Market.agentWTP(s) ?? 0, unit: "seats", money: { "$\(Int($0))" }) { p in
-                store.mutate { $0.agentPrice = clamp(p, 20, 2000) } } }
+                setSubscription { $0.agentPrice = clamp(p, 20, 2000) } } }
             ForEach(api, id: \.id) { a in
                 table("API: \(a.name) (per 1M tokens)", a.points, current: a.current, worth: Treasury.marketPrice(s.models.first { $0.id == a.id } ?? s.models[0], s), unit: "tokens/day", money: { Fmt.price($0) }) { p in
-                    store.act { $0.setAPIPrice(a.id, p) } }
+                    // 3.9: a price held at the serving-cost floor still changed: a notice, not a failure.
+                    let wasAuto = s.models.first { $0.id == a.id }?.autoPrice ?? false
+                    var note: String?
+                    store.mutate { note = $0.setAPIPrice(a.id, p) }
+                    store.show((note ?? "\(a.name) priced at \(Fmt.price(p))/M tokens.") + (wasAuto ? " Auto-price is now off." : ""))
+                }
             }
-            Text("Forecasts assume rivals hold still. API demand is elastic: a lower price wins share, but only chips you have can serve it.")
+            Text("Forecasts assume rivals hold still. API demand is elastic: a lower price wins share, but only chips you have can serve it, and only as much as your bookings can take on.")
                 .font(.caption).foregroundStyle(.secondary)
         }
         .task(id: key) { refresh() }
     }
 
+    /// 3.9: a price you set by hand stays: the weekly nudge toward what users would pay is turned off (it used to
+    /// quietly undo the change), and the player is told.
+    private func setSubscription(_ change: (inout GameState) -> Void) {
+        let wasAuto = state.autoSubPrice
+        store.mutate { change(&$0); $0.autoSubPrice = false }
+        if wasAuto { store.show("Price set. Automatic chat and agent pricing is now off.") }
+    }
+
     private func refresh() {
         let s = state
         let snap = Market.snapshot(s)
+        reach = Commercial.reachValue(s, snap)
         if s.chatModelID != nil {
             let wtp = Market.chatWTP(s)
             let prices = MarketForecast.ladder(current: s.chatPrice, around: [wtp * 0.9, wtp], step: { clamp($0.rounded(), 5, 200) })

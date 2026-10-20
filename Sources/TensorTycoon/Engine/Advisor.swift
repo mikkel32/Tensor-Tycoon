@@ -303,9 +303,15 @@ enum Advisor {
                 fix: s.ops.autoLeads ? nil : .enableDelegate("autoLeads"), "Let the COO sign the ones you can serve")
         }
         if let d = s.deals.filter({ $0.active && $0.breaches >= 2 }).max(by: { $0.breaches < $1.breaches }) {
-            add("sla-\(d.id)", d.breaches >= 4 ? .urgent : .warning, "exclamationmark.bubble.fill", "\(d.client) is unhappy",
-                "\(d.breaches) SLA breaches this month; six and they cancel. Its model needs more capacity.", .market,
-                fix: s.ops.autoscale ? nil : .enableDelegate("autoscale"), "Let the COO scale capacity")
+            if d.modelID == nil {
+                // 3.9: no model meets the client's bar; more capacity can't help.
+                add("sla-\(d.id)", d.breaches >= 4 ? .urgent : .warning, "exclamationmark.bubble.fill", "\(d.client) is unhappy",
+                    "\(d.breaches) SLA breaches this month; more than six and they cancel. No released model meets their Intelligence Index of \(Fmt.score(d.minIndex)): release a better model.", .market)
+            } else {
+                add("sla-\(d.id)", d.breaches >= 4 ? .urgent : .warning, "exclamationmark.bubble.fill", "\(d.client) is unhappy",
+                    "\(d.breaches) SLA breaches this month; more than six and they cancel. Its model needs more capacity.", .market,
+                    fix: s.ops.autoscale ? nil : .enableDelegate("autoscale"), "Let the COO scale capacity")
+            }
         }
 
         // Swarms, self-improvement, alien tech, chips

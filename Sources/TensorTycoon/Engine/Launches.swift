@@ -629,6 +629,14 @@ enum Launches {
 
     /// 3.8: limited-access testing. Until general release your chat app, agents and contracts stay on the models they
     /// were on; then the tested model takes over wherever it's better, as on any launch.
+    /// 3.9: when a model in limited-access testing goes on general release (nil when it isn't in testing). Chat,
+    /// agents and contracts can't move onto it until then.
+    static func testingUntil(_ s: GameState, _ modelID: UUID) -> Date? {
+        guard let r = s.launches.last(where: { $0.modelID == modelID }), r.plan.strategy == .limitedAccess, r.generalRelease == nil else { return nil }
+        let end = GameCalendar.addDays(r.date, Int(testingDays))
+        return end > s.date ? end : nil
+    }
+
     static func testing(_ s: inout GameState, _ k: Int, age: Int) {
         let id = s.launches[k].modelID
         guard let m = s.models.first(where: { $0.id == id && !$0.retired }) else {
@@ -645,6 +653,8 @@ enum Launches {
             return
         }
         s.launches[k].generalRelease = s.date
+        // 3.9: with no API sales during testing it may have lost its servers; give it some before products move onto it.
+        if !m.deployments.contains(where: { Physics.capacity(m, deployment: $0, bonuses: s.bonuses) > 0 }) { s.provisionServers(id) }
         func better(than other: UUID?) -> Bool {
             guard let other, let o = s.models.first(where: { $0.id == other && !$0.retired }) else { return true }
             return m.index > o.index

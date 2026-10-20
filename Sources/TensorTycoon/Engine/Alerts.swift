@@ -179,8 +179,11 @@ enum Alerts {
         let breaching = s.deals.filter { $0.active && $0.breaches >= 2 }.sorted { $0.breaches > $1.breaches }
         if let worst = breaching.first {
             let more = breaching.count > 1 ? " \(breaching.count - 1) more contract\(breaching.count > 2 ? "s are" : " is") breaching too." : ""
-            let fix = s.ops.autoscale ? "The capacity delegate has run out of free chips: buy or rent hardware, or take chips from training."
-                                      : "Give its model more serving chips, or turn on the capacity delegate."
+            // 3.9: a contract with no model that meets its bar can't be fixed with chips.
+            let fix = worst.modelID == nil
+                ? "No released model meets \(worst.client)'s Intelligence Index of \(Fmt.score(worst.minIndex)): release a better model, or they cancel at month end."
+                : (s.ops.autoscale ? "The capacity delegate has run out of free chips: buy or rent hardware, or take chips from training."
+                                   : "Give its model more serving chips, or turn on the capacity delegate.")
             if worst.breaches >= 5 {
                 raise(&s, .slaBreach, key: "cancel", title: "\(worst.client) is about to cancel",
                       body: "\(worst.breaches) SLA breaches this month; one more bad day or two and they walk.\(more) \(fix)",
