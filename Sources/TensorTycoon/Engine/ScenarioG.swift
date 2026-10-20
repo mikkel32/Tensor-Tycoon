@@ -102,6 +102,9 @@ extension ScenarioHarness {
             return r
         }
         let qualifiedA = s.date
+        // 3.9: a qualified product goes on sale by default; this scenario holds sales back until it has stock to test them.
+        r.expect("qualification puts every bin on sale", design(s, idA)?.onSale == [true, true, true], "\(design(s, idA)?.onSale ?? [])")
+        for bin in 0..<3 { _ = s.setChipPrice(idA, bin: bin, onSale: false) }
         r.expect("A qualified with three bins registered in the hardware catalogue", true, "\(qualifiedA.gameShort), \(qA.respins) respins, \(qA.metalFixes) metal fixes, roll \(Fmt.trim(qA.lastRoll, 2)) vs odds \(Fmt.pct(qA.respinOdds, decimals: 0))")
         if respinsSeen > 0 { r.note("bring-up found: \(bugs.joined(separator: "; ")) — a full respin each time") }
         r.expect("Ultra compute is the silicon's, not the date's", abs(ultraA.bf16 - peakA * (qA.erratum ? 0.88 : 1)) < 1, "\(Fmt.count(ultraA.bf16)) TF vs \(Fmt.count(peakA)) at tape-out")

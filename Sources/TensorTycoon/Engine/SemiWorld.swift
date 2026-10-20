@@ -502,8 +502,8 @@ extension GameState {
         return (b, b.reduce(0) { $0 + bookingCancelFee($1) })
     }
 
-    /// `cancelContracts` nil: refuse while the design still has wafer bookings (they keep billing after retirement);
-    /// true: cancel them (fee); false: retire and leave them unassigned.
+    /// `cancelContracts` true: cancel the design's wafer bookings (fee); otherwise they stay booked, unassigned, and keep
+    /// billing (the news says so) until you give them to another product or cancel them.
     mutating func retireChipDesign(_ id: UUID, cancelContracts: Bool? = nil) -> String? {
         guard let i = semi.designs.firstIndex(where: { $0.id == id }), semi.designs[i].inProduction else { return "Only products in production can be retired." }
         // 3.9: a retired product makes nothing more, so its open orders must already be in customer stock.
@@ -514,10 +514,12 @@ extension GameState {
             }
         }
         let tied = designContracts(id)
-        if !tied.bookings.isEmpty && cancelContracts == nil {
-            return "\(semi.designs[i].name) still has \(tied.bookings.count) wafer booking\(tied.bookings.count == 1 ? "" : "s") that keep billing after it retires. Retire and cancel them (\(Fmt.money(tied.fee)) fee), or retire and keep them for another product."
-        }
         if cancelContracts == true { for b in tied.bookings { _ = cancelBooking(b.id) } }
+        // 3.9: kept bookings (the default) stay booked for another product and keep billing: say so.
+        if cancelContracts != true && !tied.bookings.isEmpty {
+            Sim.news(&self, "\(semi.designs[i].name)'s wafer bookings stay booked",
+                     "\(tied.bookings.count) booking\(tied.bookings.count == 1 ? "" : "s") keep billing after it retires. Assign them to another product, or cancel them (\(Fmt.money(tied.fee)) in fees) on the Semiconductors page.", .hardware)
+        }
         semi.designs[i].phaseRaw = SemiPhase.retired.rawValue
         semi.designs[i].onSale = [false, false, false]
         for bi in semi.bookings.indices where semi.bookings[bi].designID == id { semi.bookings[bi].designID = nil }
