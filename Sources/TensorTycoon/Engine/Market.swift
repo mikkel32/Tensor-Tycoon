@@ -187,6 +187,14 @@ enum Market {
         return max(0, pool) / (natural + others)
     }
 
+    /// Seats your agent product settles at for `price`: your share of the seat pool, squeezed to your slice of the seat budget.
+    static func agentSeatTarget(_ snap: MarketSnapshot, ag: MarketProduct, price: Double) -> Double {
+        let othersSpend = (snap.agents.filter { !$0.isPlayer }.reduce(0) { $0 + $1.share * $1.price }
+                           + max(0, 1 - snap.agents.reduce(0) { $0 + $1.share }) * snap.agentSeatBudget) * snap.agentSeatsPool / 30.4
+        let natural = ag.share * snap.agentSeatsPool * max(1, price) / 30.4
+        return ag.share * snap.agentSeatsPool * budgetFactor(natural, pool: snap.agentRevenuePool, others: othersSpend)
+    }
+
     // MARK: Willingness to pay
 
     /// How fast demand falls once a price passes what buyers think the product is worth.

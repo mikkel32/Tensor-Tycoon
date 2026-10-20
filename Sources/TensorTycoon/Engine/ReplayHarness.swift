@@ -57,6 +57,8 @@ enum ReplayHarness {
                 } else { print("no fixable advisor item \(id)") }
                 continue
             }
+            if t == "auto:price" { s.autoSubPrice = true; continue }
+            if t == "evenshortage" { s.evenShortage = true; continue }
             if t == "ops:autoscale" { s.ops.autoscale = true; continue }
             if t.hasPrefix("ops:") {
                 // ops:all, ops:recommended, ops:<delegate> (autoscale, autoLaunch, autoRenew, leaseIdle, autoHire, autoRaises, autoLeads, autoTrain)
@@ -105,7 +107,9 @@ enum ReplayHarness {
             }
         }
         for spec in pending where !spec.contains("@") { planAndStart(spec) }
+        var dayNo = 0
         for day in 0..<days where s.gameOver == nil {
+            dayNo += 1
             for spec in pending where spec.hasSuffix("@\(day)") { planAndStart(spec) }
             for _ in 0..<10 where answer {
                 guard let d = s.decisions.first else { break }
@@ -113,6 +117,7 @@ enum ReplayHarness {
             }
             Sim.advanceDay(&s)
             report(s)
+            if dayNo % 30 == 0 { moneyLine(s); forecastLines(s) }
         }
         if let g = s.gameOver { print("GAME OVER: \(g)") }
         if !s.opsLog.isEmpty { print("delegate log (newest first):"); for l in s.opsLog.prefix(25) { print("  \(l)") } }
@@ -122,6 +127,31 @@ enum ReplayHarness {
 
     nonisolated(unsafe) private static var announced = Set<String>()
     nonisolated(unsafe) private static var startDate = Date.distantPast
+    /// Month-to-date revenue by segment and costs, plus prices: where the money comes from and goes.
+    private static func moneyLine(_ s: GameState) {
+        let m = s.month
+        func b(_ x: Double) -> String { Fmt.money(x) }
+        print("    MONEY mtd: rev \(b(m.revenue)) [api \(b(m.revAPI)) chat \(b(m.revConsumer)) ent \(b(m.revEnterprise)) agents \(b(m.revAgents)) other \(b(m.revOther + m.revCloud + m.revChips + m.revLicensing + m.revLabor + m.revGroup))]"
+              + " · costs \(b(m.opex)) [rent \(b(m.costRent)) power \(b(m.costPower)) sites \(b(m.costSites)) payroll \(b(m.costPayroll)) data \(b(m.costData)) mkt \(b(m.costMarketing)) chipdesign \(b(m.costChipDesign)) orgs \(b(m.costAgentOrgs)) other \(b(m.costOther)) chips \(b(m.costChips))]"
+              + " · wtp chat $\(Fmt.trim(Market.chatWTP(s), 1)) agent $\(Fmt.trim(Market.agentWTP(s) ?? 0, 1)) free-starved \(Fmt.pct(s.freeTierStarved)) · market api $\(Fmt.trim(s.models.last.map { Treasury.marketPrice($0, s) } ?? 0, 3))"
+              + " · chat $\(Fmt.trim(s.chatPrice, 1)) agent $\(Fmt.trim(s.agentPrice, 1)) · api: " + s.models.filter { $0.released && !$0.retired && $0.api }.map { "\($0.name) $\(Fmt.trim($0.apiPrice, 3)) \($0.autoPrice ? "auto" : "manual")" }.joined(separator: ", "))
+    }
+
+    /// What the price tools say: chat, agent and API revenue a month at a few prices.
+    private static func forecastLines(_ s: GameState) {
+        let snap = Market.snapshot(s)
+        let chat = [10.0, 20, 30, 45, 60, 90].map { p in "$\(Int(p)): \(Fmt.money(MarketForecast.chat(s, price: p, snap: snap).revenueMonth))" }.joined(separator: " ")
+        let agent = [50.0, 100, 200, 300, 450, 700].compactMap { p in MarketForecast.agents(s, price: p).map { "$\(Int(p)): \(Fmt.money($0.revenueMonth))" } }.joined(separator: " ")
+        if ProcessInfo.processInfo.environment["REPLAY_API"] != nil {
+            for p in snap.api.sorted(by: { $0.share > $1.share }).prefix(14) { print("      api \(p.isPlayer ? "*" : " ")\(p.name) c=\(Fmt.trim(p.c, 2)) $\(Fmt.trim(p.price, 3)) brand \(Int(p.brand)) tps \(Int(p.tps)) share \(Fmt.pct(p.share)) attr \(Fmt.trim(p.attraction, 3))") }
+            print("      frontier c \(Fmt.trim(Macro.frontier(s.year), 2)) tokens pool \(Fmt.count(snap.apiTokenPool)) budgetScale \(Fmt.trim(snap.apiBudgetScale, 2)) reliability \(Fmt.trim(s.reliability, 2))")
+        }
+        print("    FORECAST chat/mo \(chat) | agent/mo \(agent)")
+        if let m = s.models.first(where: { $0.released && !$0.retired && $0.api }) {
+            let api = [0.5, 0.75, 1, 1.5, 2].compactMap { k in MarketForecast.api(s, model: m.id, price: m.apiPrice * k).map { "$\(Fmt.trim(m.apiPrice * k, 2)): \(Fmt.money($0.revenueMonth)) (\(Fmt.pct($0.share)))" } }.joined(separator: " ")
+            print("    FORECAST api/mo \(m.name) \(api) · lost API \(Fmt.money(s.lostAPIMonth))/mo chat \(Fmt.pct(s.lostChatFrac)) agents \(Fmt.pct(s.lostAgentFrac))")
+        }
+    }
 
     private static func report(_ s: GameState) {
         let pools = Economy.pools(s)

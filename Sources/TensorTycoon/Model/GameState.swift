@@ -890,6 +890,10 @@ struct MonthRecord: Codable, Identifiable, Hashable {
     var costMarketing = 0.0
     var costInterest = 0.0
     var costOther = 0.0
+    /// 3.9: chip design programmes (an investment in your own silicon), split out of "other" so a big tape-out doesn't read as mystery overhead.
+    @D var costChipDesign: Double = 0
+    /// 3.9: what the books call "other" is mostly fines, lobbying and one-off projects; agent-org compute is split out too.
+    @D var costAgentOrgs: Double = 0
     var taxes = 0.0
     var capex = 0.0
     var cashEnd = 0.0
@@ -921,7 +925,7 @@ struct MonthRecord: Codable, Identifiable, Hashable {
     var revenue: Double { revAPI + revConsumer + revEnterprise + revOther + revAgents + revCloud + revChips + revLicensing + revLabor + revGroup }
     /// Selling hardware and leasing compute: valued like a hardware business, not a software one.
     var hardwareRevenue: Double { revCloud + revChips }
-    var opex: Double { costRent + costPower + costSites + costPayroll + costData + costMarketing + costOther + costChips + costGroup }
+    var opex: Double { costRent + costPower + costSites + costPayroll + costData + costMarketing + costOther + costChipDesign + costAgentOrgs + costChips + costGroup }
     var profit: Double { revenue + interestIncome + oneOffIncome - opex - costInterest - taxes }
 }
 
@@ -1050,6 +1054,18 @@ struct GameState: Codable {
     @D var supplyDeals: [SupplyDeal] = []
     @D var agentModelID: UUID? = nil
     @D var agentPrice: Double = 100
+    /// 3.9: off (the default): when a model's chips run short, API, agents, contracts and paying subscribers are served first and free-tier users wait.
+    /// On: everyone shares the shortage equally, as before. (Off so that saves from before 3.9 get the better behaviour.)
+    @D var evenShortage: Bool = false
+    /// 3.9: keep the chat and agent prices near what buyers think they're worth (Market page toggle).
+    @D var autoSubPrice: Bool = false
+    /// 3.9: share of subscribers' / seat buyers' requests dropped for lack of chips, smoothed (what a shortage costs).
+    @D var lostChatFrac: Double = 0
+    @D var lostAgentFrac: Double = 0
+    /// 3.9: API revenue a month that unserved requests would have paid (smoothed).
+    @D var lostAPIMonth: Double = 0
+    /// 3.9: share of free-tier tokens that went unserved today (display).
+    @D var freeTierStarved: Double = 0
     @D var agentSeats: Double = 0
     @D var agentShare: Double = 0
     @D var benchSaturated: [String: Date] = [:]

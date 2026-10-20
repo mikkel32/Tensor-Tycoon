@@ -30,6 +30,7 @@ enum Sim {
         XenoScience.daily(&s)
         Science.daily(&s)   // 3.6: science labs
         Treasury.autoPrice(&s, b)
+        MarketForecast.autoSubscriptionPrices(&s)
         dailyMarket(&s, b)
         ChipBusiness.daily(&s)
         dailyCosts(&s, Economy.pools(s))
@@ -360,6 +361,8 @@ enum Sim {
 
         // Consumer
         var chatTokens = 0.0
+        /// Tokens per model that come from users who don't pay (3.9: they wait first when chips run short).
+        var freeDemand: [UUID: Double] = [:]
         var freeRoute: (id: UUID, share: Double)? = nil
         var freeServed = 1.0
         // What rival apps earn per weekly user a month (RivalEconomy's assumption).
@@ -390,7 +393,12 @@ enum Sim {
                 chatTokens = paid + freeTokens
                 demand[id, default: 0] += paid
                 demand[free.id, default: 0] += freeTokens
-            } else if let id = chat.modelID { demand[id, default: 0] += chatTokens }
+                freeDemand[free.id, default: 0] += freeTokens
+            } else if let id = chat.modelID {
+                demand[id, default: 0] += chatTokens
+                let paidFrac = s.consumerUsers > 0 ? min(1, s.paidUsers / s.consumerUsers) : 0
+                freeDemand[id, default: 0] += chatTokens * (1 - paidFrac)
+            }
             // Player can trigger the consumer boom early
             if s.chatMoment == nil, let m = s.models.first(where: { $0.id == chat.modelID }), m.c >= 4.1, m.design.instruct, m.design.rlhf {
                 s.chatMoment = y
@@ -415,10 +423,7 @@ enum Sim {
         var billedSeats = 0.0
         if let ag = snap.agents.first(where: { $0.isPlayer }) {
             // Seat budgets are fixed too (the agent pool): at a price that would outspend it you sell fewer seats.
-            let othersSpend = (snap.agents.filter { !$0.isPlayer }.reduce(0) { $0 + $1.share * $1.price }
-                               + max(0, 1 - snap.agents.reduce(0) { $0 + $1.share }) * snap.agentSeatBudget) * snap.agentSeatsPool / 30.4
-            let natural = ag.share * snap.agentSeatsPool * max(1, s.agentPrice) / 30.4
-            let target = ag.share * snap.agentSeatsPool * Market.budgetFactor(natural, pool: snap.agentRevenuePool, others: othersSpend)
+            let target = Market.agentSeatTarget(snap, ag: ag, price: s.agentPrice)
             s.agentSeats = max(0, s.agentSeats + (target - s.agentSeats) * 0.05)
             // Seats take weeks to sign up or wind down, but only as many as your share supports at today's price pay it.
             billedSeats = min(s.agentSeats, target)
@@ -449,9 +454,11 @@ enum Sim {
 
         // Serve
         var servedTotal = 0.0, demandTotal = 0.0
-        var revAPI = 0.0
+        var revAPI = 0.0, lostAPI = 0.0
         // 3.8: no model behind chat or agents serves nobody (this used to default to fully served).
         var chatServed = 0.0
+        var chatModelLive = false
+        var chatServedPaid = 0.0, freeStarvedTokens = 0.0, freeAsked = 0.0
         var agentServed = 0.0
         for i in s.models.indices {
             let id = s.models[i].id
@@ -462,7 +469,13 @@ enum Sim {
             // before it breaks an SLA.
             let ent = entTokens[id] ?? 0
             let entFrac = ent > 0 ? min(1, cap / ent) : 1
-            let frac = dem > ent ? min(1, max(0, cap - ent) / (dem - ent)) : 1
+            // 3.9: free-tier tokens queue behind everyone who pays, when the player allows it (evenShortage).
+            let freeD = !s.evenShortage ? min(dem - ent, freeDemand[id] ?? 0) : 0
+            let prioD = dem - freeD
+            let frac = prioD > ent ? min(1, max(0, cap - ent) / (prioD - ent)) : 1
+            let fracFree = freeD > 0 ? min(1, max(0, cap - prioD) / freeD) : frac
+            freeAsked += freeD
+            freeStarvedTokens += freeD * (1 - fracFree)
             let load = cap > 0 ? dem / cap : 0
             s.models[i].capacityTokensDay = cap
             s.models[i].demandTokensDay = dem
@@ -472,8 +485,15 @@ enum Sim {
             let r = api / 1e6 * s.models[i].apiPrice
             s.models[i].revenueDay = r
             revAPI += r
-            if id == s.chatModelID { chatServed = frac }
-            if id == freeRoute?.id { freeServed = frac }
+            lostAPI += (apiDemand[id] ?? 0) * (1 - frac) / 1e6 * s.models[i].apiPrice
+            if id == s.chatModelID {
+                chatServedPaid = frac
+                chatModelLive = true
+                // Without a cheaper free tier, free users share the chat model: blend by their share of the traffic.
+                let fs = freeRoute == nil ? min(1, freeD / max(1, chatTokens)) : 0
+                chatServed = frac * (1 - fs) + fracFree * fs
+            }
+            if id == freeRoute?.id { freeServed = !s.evenShortage ? fracFree : frac }
             if id == agentModelID { agentServed = frac }
             if ent > 0 && entFrac < 0.95 {
                 for di in s.deals.indices where s.deals[di].active && s.deals[di].modelID == id {
@@ -484,13 +504,21 @@ enum Sim {
             demandTotal += dem
         }
         if let r = freeRoute { chatServed = chatServed * (1 - r.share) + freeServed * r.share }
+        // What a shortage costs, smoothed: the share of subscriber and seat requests dropped, and API revenue left unserved.
+        let paidServedNow = !s.evenShortage ? chatServedPaid : chatServed
+        s.lostChatFrac += ((chatModelLive ? 1 - paidServedNow : 0) - s.lostChatFrac) * 0.1
+        s.lostAgentFrac += ((agentModelID != nil ? 1 - agentServed : 0) - s.lostAgentFrac) * 0.1
+        s.lostAPIMonth += (lostAPI * 30.4 - s.lostAPIMonth) * 0.1
+        s.freeTierStarved = freeAsked > 0 ? freeStarvedTokens / freeAsked : 0
         let liveDemand = s.models.filter { $0.released && !$0.retired }.reduce(0) { $0 + $1.demandTokensDay }
         if liveDemand > 0 { s.lastLiveDemand = liveDemand }
         s.consumerServedFraction = chatServed
         let overall = demandTotal > 0 ? servedTotal / demandTotal : 1
         s.reliability = clamp(s.reliability * 0.93 + overall * 0.07, 0.05, 1)
 
-        let revConsumer = s.paidUsers * s.chatPrice / 30.4 * (0.5 + 0.5 * chatServed) * (snap.consumer.contains { $0.isPlayer } ? 1 : 0)   // 3.8: no chat model, no subscriptions billed
+        // Subscribers are served at the paying-customers rate; with evenShortage off everyone shares the shortage.
+        let paidServed = !s.evenShortage ? chatServedPaid : chatServed
+        let revConsumer = s.paidUsers * s.chatPrice / 30.4 * (0.5 + 0.5 * paidServed) * (snap.consumer.contains { $0.isPlayer } ? 1 : 0)   // 3.8: no chat model, no subscriptions billed
         // Enterprise budgets are fixed too: rivals win the enterprise pool in proportion to their API business
         // (RivalEconomy); if your contracts plus theirs would outspend it, yours are squeezed to your share.
         let contracts = s.deals.filter(\.active).reduce(0.0) { $0 + $1.monthly } / 30.4
