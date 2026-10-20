@@ -230,6 +230,7 @@ enum Economy {
         for r in s.rentals { rented[r.accelID, default: 0] += r.count }
         for i in s.runs.indices where s.runs[i].status == .running || s.runs[i].status == .postTraining {
             training[s.runs[i].design.accelID, default: 0] += s.runs[i].design.chips
+            for h in s.runs[i].design.helpers { training[h.accelID, default: 0] += h.chips }   // 3.9: mixed-chip runs
         }
         for i in s.models.indices where !s.models[i].retired {
             for d in s.models[i].deployments { inference[d.accelID, default: 0] += d.chips }

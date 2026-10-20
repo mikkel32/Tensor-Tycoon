@@ -216,6 +216,13 @@ extension GameState {
         if d.precision == .fp8 && !b.has(.fp8Training) { return "Research FP8 Training first." }
         if d.precision == .fp4 && !b.has(.fp4Training) { return "Research FP4 Training first." }
         if !a.supportsTraining(d.precision) { return "\(a.name) has no \(d.precision.short) tensor cores." }
+        // 3.9: helper groups of other chip types.
+        for h in d.helpers {
+            guard let ha = HardwareCatalog.get(h.accelID), h.accelID != d.accelID, h.chips > 0 else { return "Each helper group needs a different chip type and at least one chip." }
+            if !ha.supportsTraining(d.precision) { return "\(ha.name) has no \(d.precision.short) tensor cores: drop it from the run or train in BF16." }
+            let hFree = recallLeased(h.accelID, needing: h.chips)
+            if h.chips > hFree { return "Only \(hFree) free \(ha.name) chips for the helper group.\(leasedNote(h.accelID))" }
+        }
         if d.isMoE && !b.has(.moe) { return "Research Mixture-of-Experts first." }
         if d.reasoning && !b.has(.reasoning) { return "Research RL for Reasoning first." }
         if d.rlhf && !b.has(.rlhf) { return "Research RLHF first." }
@@ -229,7 +236,7 @@ extension GameState {
         if d.contextK >= 32 && !b.has(.context32k) { return "Research RoPE & Context Extension first." }
         if d.mode == .distill && !b.has(.distillation) { return "Research Knowledge Distillation first." }
         if d.mode != .scratch && d.baseModelRef == nil { return "Pick a base model." }
-        let mem = Physics.trainingMemory(d, accel: a, bonuses: b)
+        let mem = Physics.trainingMemoryAll(d, bonuses: b) ?? Physics.trainingMemory(d, accel: a, bonuses: b)
         if !mem.ok { return "Out of memory: needs \(Fmt.memory(mem.needGB)), you have \(Fmt.memory(mem.haveGB)). \(mem.note)" }
         if d.optimizer == .muon && !b.has(.muon) { return "Research the Muon optimizer first." }
         if d.optimizer == .shampoo && !b.has(.shampoo) { return "Research second-order preconditioning first." }
@@ -281,6 +288,7 @@ extension GameState {
         if status == .running && runs[i].status == .paused {
             let free = recallLeased(runs[i].design.accelID, needing: runs[i].design.chips)
             if free < runs[i].design.chips { return "Need \(runs[i].design.chips) free chips, have \(free).\(leasedNote(runs[i].design.accelID))" }
+            Training.fitHelpers(&self, i)
             runs[i].status = runs[i].flopsDone >= runs[i].flopsTotal ? .postTraining : .running
             runs[i].note = "Resumed \(date.gameShort)."
             return nil
@@ -301,7 +309,7 @@ extension GameState {
         if let a = HardwareCatalog.get(runs[i].design.accelID) {
             var d = runs[i].design
             d.chips = chips
-            if !Physics.trainingMemory(d, accel: a, bonuses: bonuses).ok { return "The model no longer fits in memory on \(chips) chips." }
+            if !(Physics.trainingMemoryAll(d, bonuses: bonuses) ?? Physics.trainingMemory(d, accel: a, bonuses: bonuses)).ok { return "The model no longer fits in memory on \(chips) chips." }
         }
         runs[i].design.chips = chips
         return nil

@@ -109,6 +109,7 @@ enum Operations {
         if s.ops.autoLaunch { autoLaunch(&s) }
         if s.ops.autoscale {
             autoscale(&s, b, precision: comp.precision)
+            freeTrainingChips(&s, b)
             releaseRentals(&s)
         }
         // Training before leasing: your next model gets first call on idle chips.
@@ -151,7 +152,13 @@ enum Operations {
             for p in Economy.pools(s) {
                 if let (per, k) = perChip(m, p.accel.id, b), p.free > 0 || used.contains(p.accel.id) { cands.append((p.accel.id, per, k)) }
             }
-            cands.sort { x, y in used.contains(x.id) != used.contains(y.id) ? used.contains(x.id) : x.per > y.per }
+            // 3.9: among new pools, prefer chips that serve well for what they'd train (keep the best training chips
+            // free for the next run); ties go to the fastest.
+            cands.sort { x, y in
+                if used.contains(x.id) != used.contains(y.id) { return used.contains(x.id) }
+                let rx = x.per / trainValue(x.id), ry = y.per / trainValue(y.id)
+                return abs(rx - ry) > 1e-9 * max(rx, ry) ? rx > ry : x.per > y.per
+            }
             guard !cands.isEmpty else { continue }
             let cap = m.deployments.reduce(0) { $0 + Physics.capacity(m, deployment: $1, bonuses: b) }
             let need = demand > 0 ? demand / aim : 0
@@ -200,9 +207,10 @@ enum Operations {
                     }
                 }
             } else if need < cap * 0.6 {
-                // Give back what it no longer needs, slowest chips first (keep one replica while it still has demand).
+                // Give back what it no longer needs, the best training chips first (3.9; was slowest first) so the
+                // next run gets them (keep one replica while it still has demand).
                 var surplus = cap - need
-                for d in s.models[i].deployments.sorted(by: { (perChip(m, $0.accelID, b)?.0 ?? 0) < (perChip(m, $1.accelID, b)?.0 ?? 0) }) {
+                for d in s.models[i].deployments.sorted(by: { trainValue($0.accelID) > trainValue($1.accelID) }) {
                     guard let (per, k) = perChip(m, d.accelID, b), surplus > 0 else { continue }
                     var drop = min(d.chips, Int(surplus / per / Double(k))  * k)
                     if demand > 0 && drop >= s.models[i].deployments.reduce(0, { $0 + $1.chips }) { drop = max(0, drop - k) }
@@ -212,6 +220,48 @@ enum Operations {
                         log(&s, "Capacity: freed \(Fmt.int(drop)) \(HardwareCatalog.get(d.accelID)?.name ?? d.accelID) from \(m.name) (demand fell).")
                     }
                 }
+            }
+        }
+    }
+
+    /// 3.9: a chip's training worth: BF16 TFLOPS at its base MFU.
+    static func trainValue(_ accelID: String) -> Double {
+        guard let a = HardwareCatalog.get(accelID) else { return 1e-9 }
+        return max(1e-9, a.trainTFLOPS(.bf16) * a.baseMFU)
+    }
+
+    /// 3.9: the fleet's best training chips (the type with the highest per-chip training worth among types you own
+    /// at least 1,000 of) shouldn't sit on serving when other chips can carry the same load. Moves serving capacity
+    /// off them onto free chips of other types, replica for replica, without lowering capacity.
+    static func freeTrainingChips(_ s: inout GameState, _ b: ResearchBonuses) {
+        let pools = Economy.pools(s)
+        guard let best = pools.filter({ $0.owned >= 1_000 && $0.accel.supportsTraining(.bf16) }).max(by: { trainValue($0.accel.id) < trainValue($1.accel.id) }) else { return }
+        // Idle chips above the reserve, plus chips leased out (deploy recalls them).
+        var free: [String: Int] = Dictionary(uniqueKeysWithValues: pools.map {
+            ($0.accel.id, max(0, $0.free - Int(Double($0.total) * s.ops.reserveShare)) + (s.leases[$0.accel.id] ?? 0))
+        })
+        for i in s.models.indices where s.models[i].released && !s.models[i].retired {
+            let m = s.models[i]
+            guard let onBest = m.deployments.first(where: { $0.accelID == best.accel.id }), let (perBest, kBest) = perChip(m, best.accel.id, b) else { continue }
+            var toMove = Double(onBest.chips) * perBest   // capacity to rehome, tokens/day
+            var moved = 0
+            let others = pools.filter { $0.accel.id != best.accel.id && trainValue($0.accel.id) < trainValue(best.accel.id) }
+                .compactMap { p in perChip(m, p.accel.id, b).map { (p.accel.id, $0.0, $0.1) } }
+                .sorted { $0.1 / trainValue($0.0) > $1.1 / trainValue($1.0) }
+            for (id, per, k) in others where toMove > 0 {
+                let n = min(free[id] ?? 0, Int((toMove / per).rounded(.up))) / k * k
+                guard n > 0 else { continue }
+                // Whole replicas off the best chips, never more capacity than the new chips bring.
+                let back = min(onBest.chips - moved, Int(Double(n) * per / perBest) / kBest * kBest)
+                guard back > 0 else { continue }
+                let cur = s.models[i].deployments.first { $0.accelID == id }?.chips ?? 0
+                guard s.deploy(m.id, accelID: id, chips: cur + n) == nil else { continue }
+                free[id, default: 0] -= n
+                moved += back
+                toMove -= Double(back) * perBest
+            }
+            if moved > 0, s.deploy(m.id, accelID: best.accel.id, chips: onBest.chips - moved) == nil {
+                log(&s, "Capacity: moved \(m.name) off \(Fmt.int(moved)) \(best.accel.name) onto other chips, keeping them free for training.")
             }
         }
     }
@@ -501,13 +551,13 @@ extension GameState {
         let previous = models.filter { $0.id != id && $0.released && !$0.retired }.max { $0.index < $1.index }
         let demand = lastKnownDemand()
         let sized = previous == nil && demand > 0
-        // Where: training hardware, the previous model's, then whatever serves it fastest.
+        // Where: the previous model's hardware, then chips that serve well for what they'd train (3.9: the training
+        // hardware no longer goes first, so the next run keeps the best training chips).
         var order: [String] = []
-        if let t = runs.first(where: { $0.modelID == id })?.design.accelID { order.append(t) }
         if let p = previous?.deployments.first?.accelID { order.append(p) }
         let pools = Economy.pools(self)
         let fastest = pools.filter { $0.free > 0 }.compactMap { p in Operations.perChip(m, p.accel.id, b).map { (p.accel.id, $0.0) } }
-            .sorted { $0.1 > $1.1 }.map(\.0)
+            .sorted { $0.1 / Operations.trainValue($0.0) > $1.1 / Operations.trainValue($1.0) }.map(\.0)
         for a in fastest where !order.contains(a) { order.append(a) }
         guard !order.isEmpty else { return 0 }
         // How much: tokens a day of capacity.

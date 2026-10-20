@@ -319,6 +319,12 @@ enum RLLevel: Int, Codable, CaseIterable, Identifiable {
     }
 }
 
+/// 3.9: one group of identical chips in a training run.
+struct ChipPart: Codable, Hashable, Sendable {
+    var accelID: String
+    var chips: Int
+}
+
 struct ModelDesign: Codable, Hashable {
     var name: String = "Model-1"
     var mode: TrainMode = .scratch
@@ -359,8 +365,15 @@ struct ModelDesign: Codable, Hashable {
     @D var family: String = ""
     @D var generation: Int = 0
     @D var blurb: String = ""
+    /// 3.9: other chip types training alongside the lead type (`accelID`/`chips`). Each group runs at its own speed;
+    /// see `Physics.throughputChips`. Empty for a single-type run, as every run before 3.9 was.
+    @D var helpers: [ChipPart] = []
 
     var activeParamsB: Double { paramsB * activeFraction }
+    /// Every chip in the run, lead and helpers: what fails, needs ops staff, power and pay.
+    var allChips: Int { chips + helpers.reduce(0) { $0 + $1.chips } }
+    /// The lead group and the helpers, lead first.
+    var parts: [ChipPart] { [ChipPart(accelID: accelID, chips: chips)] + helpers }
     var isMoE: Bool { activeFraction < 0.999 }
     var effectiveRL: RLLevel { reasoning ? (rlLevel == .off ? .standard : rlLevel) : .off }
 

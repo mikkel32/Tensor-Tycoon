@@ -44,7 +44,7 @@ struct TrainingView: View {
                                 Image(systemName: run.kind == .proxy ? "chart.line.uptrend.xyaxis" : (run.status == .done ? "checkmark.circle.fill" : "xmark.circle.fill"))
                                     .foregroundStyle(run.status == .done ? (run.kind == .proxy ? .indigo : .green) : .secondary)
                                 Text(run.design.name).font(.callout.weight(.semibold))
-                                Text(run.kind == .proxy ? "scaling ladder · \(Fmt.flops(run.flopsTotal))" : "\(Fmt.params(run.design.paramsB)) · \(Fmt.tokens(run.design.tokensT)) tokens · \(Fmt.int(run.design.chips))× \(HardwareCatalog.get(run.design.accelID)?.name ?? "")")
+                                Text(run.kind == .proxy ? "scaling ladder · \(Fmt.flops(run.flopsTotal))" : "\(Fmt.params(run.design.paramsB)) · \(Fmt.tokens(run.design.tokensT)) tokens · \(run.design.parts.map { "\(Fmt.int($0.chips))× \(HardwareCatalog.get($0.accelID)?.name ?? "")" }.joined(separator: " + "))")
                                     .font(.caption).foregroundStyle(.secondary)
                                 if run.spikes > 0 { Pill(text: "\(run.spikes) spikes", color: .orange) }
                                 if let model {
@@ -332,9 +332,9 @@ private struct CommandCentre: View {
         let s = state
         let b = store.derived.bonuses
         let a = HardwareCatalog.get(run.design.accelID)
-        let mfu = a.map { Physics.mfu(accel: $0, chips: run.design.chips, state: s, bonuses: b) } ?? 0
-        let good = Physics.goodput(chips: run.design.chips, state: s, bonuses: b, coverage: run.opsCoverage) * Sim.checkpointOverhead(run.interval)
-        let flopsPerSec = Double(run.design.chips) * (a?.trainTFLOPS(run.design.precision) ?? 0) * 1e12 * mfu * good * run.schedule.speed
+        let mfu = a.map { Physics.mfu(accel: $0, chips: run.design.allChips, state: s, bonuses: b) } ?? 0
+        let good = Physics.goodput(chips: run.design.allChips, state: s, bonuses: b, coverage: run.opsCoverage) * Sim.checkpointOverhead(run.interval)
+        let flopsPerSec = Physics.throughputChips(run.design) * (a?.trainTFLOPS(run.design.precision) ?? 0) * 1e12 * mfu * good * run.schedule.speed
         let perDay = flopsPerSec * 86_400
         let postTotal = run.postTrainFlops
         let total = run.flopsTotal + postTotal
@@ -343,8 +343,8 @@ private struct CommandCentre: View {
         let eta = perDay > 0 ? remaining / perDay : .infinity
         let inPost = run.status == .postTraining
         let tokensPerSec = flopsPerSec / (6 * max(run.design.activeParamsB, 0.001) * 1e9)
-        let daily = a.map { Economy.chipDailyCost($0, count: run.design.chips, state: s) } ?? 0
-        let power = a.map { TrainingExperience.powerMW(chips: run.design.chips, accel: $0, state: s) } ?? 0
+        let daily = Physics.dailyChipCost(run.design, state: s)
+        let power = run.design.parts.reduce(0.0) { acc, p in acc + (HardwareCatalog.get(p.accelID).map { TrainingExperience.powerMW(chips: p.chips, accel: $0, state: s) } ?? 0) }
         let decisions = s.decisions.filter { $0.ref == run.id.uuidString }
         let actual = TrainingExperience.actualSlices(run.ledger)
         let incidentShare = run.plan.map { $0.days > 0 ? $0.incidentDays / $0.days : 0 } ?? 0
@@ -352,7 +352,7 @@ private struct CommandCentre: View {
         let basis = (run.ledger.days >= 3 ? actual : nil) ?? expected
         let bottleneck = TrainingExperience.bottleneck(basis, design: run.design, coverage: run.opsCoverage, interval: run.interval, running: true, state: s)
         let scale = TrainingExperience.RunScale(rawValue: run.plan?.scale ?? 1) ?? .standard
-        let lambda = Double(run.design.chips) * Training.failuresPerChipDay * (1 - Training.opsEffect(run.opsCoverage, s).prevented)
+        let lambda = Double(run.design.allChips) * Training.failuresPerChipDay * (1 - Training.opsEffect(run.opsCoverage, s).prevented)
         let progress = total > 0 ? doneFlops / total : 0
         let projected = run.cost + daily * (eta.isFinite ? eta : 0)
         let plannedCost = run.plan?.cost ?? 0
@@ -406,9 +406,9 @@ private struct CommandCentre: View {
                 }
                 .frame(maxWidth: .infinity)
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Cluster (\(Fmt.int(run.design.chips)) chips)").font(.caption.weight(.semibold))
-                    ClusterHeatmap(chips: run.design.chips, active: run.status != .paused && store.speed > 0, mfu: mfu,
-                                   goodput: Training.goodput(chips: run.design.chips, coverage: run.opsCoverage, state: s, bonuses: b),
+                    Text("Cluster (\(Fmt.int(run.design.allChips)) chips)").font(.caption.weight(.semibold))
+                    ClusterHeatmap(chips: run.design.allChips, active: run.status != .paused && store.speed > 0, mfu: mfu,
+                                   goodput: Training.goodput(chips: run.design.allChips, coverage: run.opsCoverage, state: s, bonuses: b),
                                    failuresPerDay: lambda, daysPerSecond: GameStore.speeds[min(store.speed, GameStore.speeds.count - 1)].daysPerSecond,
                                    coverage: run.opsCoverage, phase: inPost ? .post : .pre)
                         .frame(height: 118)
@@ -661,7 +661,7 @@ private struct OpsPanel: View {
     var body: some View {
         let s = state
         let b = store.derived.bonuses
-        let chips = run.design.chips
+        let chips = run.design.allChips
         let cov = run.opsCoverage
         let now = Training.goodput(chips: chips, coverage: cov, state: s, bonuses: b)
         let full = Training.goodput(chips: chips, coverage: 1, state: s, bonuses: b)

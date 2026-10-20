@@ -164,7 +164,7 @@ enum ReplayHarness {
         print("\(s.date.gameShort): owned usable \(Fmt.int(usable)), idle \(Fmt.int(pools.reduce(0) { $0 + $1.free })), waiting \(Fmt.int(waiting)), research chips \(s.researchChips.values.reduce(0, +))"
               + " · \(Fmt.trim(s.rpToday, 1)) RP/day · queue: \(queue.isEmpty ? "empty" : queue)")
         for r in s.runs where r.started >= startDate {
-            print("    RUN \(r.design.name): \(r.status.rawValue) \(Fmt.pct(r.progress, decimals: 1)) · \(Fmt.int(r.design.chips)) chips · cost \(Fmt.money(r.cost)) · \(r.interruptions) interruptions" + (r.note.isEmpty ? "" : " · \(r.note)"))
+            print("    RUN \(r.design.name): \(r.status.rawValue) \(Fmt.pct(r.progress, decimals: 1)) · \(r.design.parts.map { "\(Fmt.int($0.chips)) \($0.accelID)" }.joined(separator: " + ")) · cost \(Fmt.money(r.cost)) · \(r.interruptions) interruptions" + (r.note.isEmpty ? "" : " · \(r.note)"))
         }
         if let m = s.models.last, !announced.contains(m.name), s.runs.contains(where: { $0.design.name == m.name && $0.status == .done && $0.started >= startDate }) {
             announced.insert(m.name)

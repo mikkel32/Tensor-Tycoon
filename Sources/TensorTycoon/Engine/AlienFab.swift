@@ -283,6 +283,15 @@ enum AlienFab {
     /// since there are no spares to rent. Runs that would no longer fit in memory are left for the normal pause.
     static func shrinkRuns(_ s: inout GameState, accel a: Accelerator, excess: inout Int) {
         let b = s.bonuses
+        // 3.9: helper groups of this chip type give way first; the run carries on with its other groups.
+        for ri in s.runs.indices where (s.runs[ri].status == .running || s.runs[ri].status == .postTraining) && excess > 0 {
+            guard let hi = s.runs[ri].design.helpers.firstIndex(where: { $0.accelID == a.id }) else { continue }
+            let cut = min(excess, s.runs[ri].design.helpers[hi].chips)
+            s.runs[ri].design.helpers[hi].chips -= cut
+            if s.runs[ri].design.helpers[hi].chips <= 0 { s.runs[ri].design.helpers.remove(at: hi) }
+            s.runs[ri].note = "Lost \(Fmt.int(cut)) \(a.name) helper chips; carrying on with the rest of the cluster."
+            excess -= cut
+        }
         for ri in s.runs.indices where s.runs[ri].design.accelID == a.id && (s.runs[ri].status == .running || s.runs[ri].status == .postTraining) && excess > 0 {
             let cut = min(excess, s.runs[ri].design.chips - 1)
             guard cut > 0 else { continue }
@@ -310,8 +319,9 @@ enum AlienFab {
             guard free >= max(1, want / 2) else { continue }
             var d = s.runs[ri].design
             d.chips = min(want, free)
-            guard Physics.trainingMemory(d, accel: a, bonuses: b).ok else { continue }
+            guard (Physics.trainingMemoryAll(d, bonuses: b) ?? Physics.trainingMemory(d, accel: a, bonuses: b)).ok else { continue }
             s.runs[ri].design.chips = d.chips
+            Training.fitHelpers(&s, ri)
             s.runs[ri].status = s.runs[ri].flopsDone >= s.runs[ri].flopsTotal ? .postTraining : .running
             s.runs[ri].pausedSince = nil
             s.runs[ri].note = "Resumed \(s.date.gameShort) on \(Fmt.int(d.chips)) \(a.name)."

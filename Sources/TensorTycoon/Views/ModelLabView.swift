@@ -71,6 +71,7 @@ struct ModelLabView: View {
     @State private var familySheet: FamilySheet?
     /// 3.9: "Plan my next model" proposals, replanned when the day or the fleet changes.
     @State private var proposals: [RunPlanner.Proposal] = []
+    @State private var servingPlan: RunPlanner.Proposal? = nil   // 3.9: a plan waiting for "take chips off serving"
 
     var body: some View {
         let s = store.game
@@ -122,7 +123,7 @@ struct ModelLabView: View {
         } else {
             Card {
                 CardHeader(title: "Plan my next model", symbol: "wand.and.stars",
-                           subtitle: "Sized to your idle chips with every technique you have researched. A run uses one chip type, so each plan names its type.") {
+                           subtitle: "Sized to your idle chips with every technique you have researched. A whole-fleet plan mixes chip types: each group trains at its own speed, 85% efficient together.") {
                     Button("Replan") { proposals = RunPlanner.proposals(store.game) }.buttonStyle(.link)
                 }
                 HStack(alignment: .top, spacing: 12) {
@@ -142,8 +143,12 @@ struct ModelLabView: View {
                             }
                             Spacer(minLength: 0)
                             HStack {
-                                Button("Review & start") { design = p.design; lr = .standard; interval = 0.1; reviewing = true }.buttonStyle(.borderedProminent)
-                                Button("Edit") { design = p.design; lr = .standard; interval = 0.1 }
+                                if p.fromServing > 0 {
+                                    Button("Take off serving & start…") { servingPlan = p }.buttonStyle(.borderedProminent)
+                                } else {
+                                    Button("Review & start") { design = p.design; lr = .standard; interval = 0.1; reviewing = true }.buttonStyle(.borderedProminent)
+                                    Button("Edit") { design = p.design; lr = .standard; interval = 0.1 }
+                                }
                             }
                             .controlSize(.small)
                         }
@@ -152,6 +157,16 @@ struct ModelLabView: View {
                         .background(.quaternary.opacity(0.4), in: .rect(cornerRadius: 10))
                     }
                 }
+            }
+            .confirmationDialog("Move \(Fmt.int(servingPlan?.fromServing ?? 0)) chips from serving to training?",
+                                isPresented: Binding(get: { servingPlan != nil }, set: { if !$0 { servingPlan = nil } }), titleVisibility: .visible) {
+                Button("Take them off serving and start") {
+                    if let p = servingPlan, store.act("Training started", { RunPlanner.start(p, &$0) }) { proposals = RunPlanner.proposals(store.game) }
+                    servingPlan = nil
+                }
+                Button("Cancel", role: .cancel) { servingPlan = nil }
+            } message: {
+                Text("Your weakest models lose those servers first. Users who can't be served go elsewhere until the run ends and the new model launches.")
             }
         }
     }

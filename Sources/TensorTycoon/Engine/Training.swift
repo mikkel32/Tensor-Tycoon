@@ -91,8 +91,8 @@ enum Training {
                 shared += sw.workforce
             }
         }
-        let total = s.runs.filter { isLive($0) && $0.kind == .full }.reduce(0) { $0 + $1.design.chips }
-        return pinned + (total > 0 ? shared * Double(run.design.chips) / Double(total) : 0)
+        let total = s.runs.filter { isLive($0) && $0.kind == .full }.reduce(0) { $0 + $1.design.allChips }
+        return pinned + (total > 0 ? shared * Double(run.design.allChips) / Double(total) : 0)
     }
 
     /// Coverage a new run of `chips` would get from the training-ops swarms that watch every run.
@@ -102,7 +102,7 @@ enum Training {
             if let t = sw.targetRunID, s.runs.contains(where: { $0.id == t && isLive($0) }) { continue }
             shared += sw.workforce
         }
-        let busy = s.runs.filter { isLive($0) && $0.kind == .full }.reduce(0) { $0 + $1.design.chips }
+        let busy = s.runs.filter { isLive($0) && $0.kind == .full }.reduce(0) { $0 + $1.design.allChips }
         let share = shared * Double(chips) / Double(max(1, busy + chips))
         return clamp(share / opsNeeded(chips: chips), 0, 1)
     }
@@ -112,7 +112,7 @@ enum Training {
 
     /// Share of a run's chips that agents watch (0–1).
     static func coverage(_ s: GameState, _ run: TrainingRun) -> Double {
-        clamp(opsAgents(s, run) / opsNeeded(chips: run.design.chips), 0, 1)
+        clamp(opsAgents(s, run) / opsNeeded(chips: run.design.allChips), 0, 1)
     }
 
     /// What full coverage buys: failures predicted and drained before they crash the job, restarts from
@@ -312,7 +312,7 @@ enum Training {
             }
             days += spikes * (1 + interval / 2 * preDays) + slow
         }
-        if d.chips >= 4_000 {
+        if d.allChips >= 4_000 {
             // Two raw days of throughput, but never more than the progress made by then (storms strike uniformly).
             let swap = 2 / max(g, stallGoodput)
             let lost = swap < totalDays ? swap - swap * swap / (2 * totalDays) : totalDays / 2
@@ -390,9 +390,9 @@ enum Training {
             let quiet = s.runs[i].toy ? 0.0 : 1.0
             let cov = full ? coverage(s, s.runs[i]) : 0
             let ops = opsEffect(cov, s)
-            var perDay = Double(d.chips) * accel.trainTFLOPS(d.precision) * 1e12 * Physics.runMFU(d, accel: accel, coverage: cov, state: s, bonuses: b)
+            var perDay = Physics.throughputChips(d) * accel.trainTFLOPS(d.precision) * 1e12 * Physics.runMFU(d, accel: accel, coverage: cov, state: s, bonuses: b)
                 * 86_400 * schedule.speed
-            let straggle = 1 - (1 - Physics.stragglerFactor(chips: d.chips, bonuses: b)) * (1 - ops.stragglers)
+            let straggle = 1 - (1 - Physics.stragglerFactor(chips: d.allChips, bonuses: b)) * (1 - ops.stragglers)
             let raw = perDay
             perDay *= Sim.checkpointOverhead(s.runs[i].interval) * straggle
             if full {
@@ -400,19 +400,19 @@ enum Training {
             }
             if s.runs[i].kind == .proxy { perDay *= 0.33 }
             if s.runs[i].toy || s.runs[i].kind == .proxy { perDay *= AgentOrgs.experimentSpeed(s) }   // 3.6: experiment coordination
-            s.runs[i].cost += Economy.chipDailyCost(accel, count: d.chips, state: s)
+            s.runs[i].cost += Physics.dailyChipCost(d, state: s)
             s.runs[i].opsCoverage = cov
 
             // Hardware failures (Llama 3 rates): each one costs the restart time plus work since the last save.
             // Ops agents drain failing nodes before they crash and restart the job from in-memory snapshots.
             // Estimates use the expectation of exactly this step (`goodput`), so plans and runs agree.
             var uptime = 1.0
-            let lambda = Double(d.chips) * failuresPerChipDay * (1 - ops.prevented)
-            if ops.prevented > 0 { s.runs[i].prevented += Double(d.chips) * failuresPerChipDay * ops.prevented }
+            let lambda = Double(d.allChips) * failuresPerChipDay * (1 - ops.prevented)
+            if ops.prevented > 0 { s.runs[i].prevented += Double(d.allChips) * failuresPerChipDay * ops.prevented }
             let k = poisson(lambda, &s.rng)
             let beforeFailures = perDay
             if k > 0 {
-                let hours = Double(k) * Physics.hoursLostPerFailure(state: s, bonuses: b, chips: d.chips) * (1 - ops.recovery)
+                let hours = Double(k) * Physics.hoursLostPerFailure(state: s, bonuses: b, chips: d.allChips) * (1 - ops.recovery)
                 s.runs[i].interruptions += k
                 s.runs[i].failures += k
                 s.runs[i].lostHours += hours
@@ -426,8 +426,8 @@ enum Training {
             }
             if full { s.runs[i].ledger.failures += beforeFailures - perDay }
             // Silent data corruption: invisible, and at 100K+ chips it adds up. Agents and checksums catch most of it.
-            let sdc = Double(d.chips) * failuresPerChipDay * sdcShare * uptime
-            if d.chips >= 20_000 && s.runs[i].kind == .full && sdc > 0 {
+            let sdc = Double(d.allChips) * failuresPerChipDay * sdcShare * uptime
+            if d.allChips >= 20_000 && s.runs[i].kind == .full && sdc > 0 {
                 let before = Int(s.runs[i].sdcCaught)
                 s.runs[i].sdcCaught += sdc * ops.sdcCaught
                 s.runs[i].sdcMissed += sdc * (1 - ops.sdcCaught)
@@ -437,7 +437,7 @@ enum Training {
                 }
             }
             if full { trackStall(&s, i, pace: uptime * straggle) }
-            if full && d.chips >= 4_000 && !s.runs[i].decided.contains("fault_storm") && s.rng.chance(0.0025 * (1 - 0.6 * cov) * quiet) {
+            if full && d.allChips >= 4_000 && !s.runs[i].decided.contains("fault_storm") && s.rng.chance(0.0025 * (1 - 0.6 * cov) * quiet) {
                 faultStorm(&s, i)
                 s.runs[i].ledger.incidents += perDay
                 continue
@@ -529,7 +529,7 @@ enum Training {
         let days = s.runs[i].stalledDays
         guard days >= 7, (days - 7) % 30 == 0 else { return }
         let run = s.runs[i]
-        let advice = goodputAdvice(chips: run.design.chips, coverage: run.opsCoverage, running: true, state: s, bonuses: s.bonuses)
+        let advice = goodputAdvice(chips: run.design.allChips, coverage: run.opsCoverage, running: true, state: s, bonuses: s.bonuses)
         let why = advice?.headline ?? "Hardware failures are eating whole days."
         let fixes = (advice?.fixes ?? []).prefix(3).joined(separator: " ")
         if days == 7 { runLog(&s, i, "No progress for a week. \(why)") }
@@ -540,7 +540,7 @@ enum Training {
     static func dailyFlops(_ run: TrainingRun, state s: GameState) -> Double {
         guard let a = HardwareCatalog.get(run.design.accelID) else { return 0 }
         let b = s.bonuses
-        return Double(run.design.chips) * a.trainTFLOPS(run.design.precision) * 1e12 * Physics.mfu(accel: a, chips: run.design.chips, state: s, bonuses: b) * 86_400
+        return Physics.throughputChips(run.design) * a.trainTFLOPS(run.design.precision) * 1e12 * Physics.mfu(accel: a, chips: run.design.allChips, state: s, bonuses: b) * 86_400
     }
 
     static func poisson(_ lambda: Double, _ rng: inout GameRNG) -> Int {
@@ -571,7 +571,7 @@ enum Training {
         arch *= (1 - 0.35 * s.swarmOps) * max(0.3, 1 - s.traits.spikes)
         let engineers = s.employees.filter { $0.role == .mlEngineer }.reduce(0.0) { $0 + $1.weight }
         let skill = min(0.5, engineers * 0.05)
-        let scale = pow(Double(d.chips) / 256 + 1, 0.3) * pow(max(d.activeParamsB, 0.1) / 10, 0.12)
+        let scale = pow(Double(d.allChips) / 256 + 1, 0.3) * pow(max(d.activeParamsB, 0.1) / 10, 0.12)
         return 0.0035 * scale * precision * arch * lr.spikeMult * (1 - skill) * max(0.1, 1 - b.stability)
     }
 
@@ -768,7 +768,7 @@ enum Training {
         Events.addDecision(&s, kind: "fault_storm", title: "Hardware fault storm",
                            body: "A bad batch of \(a?.name ?? "accelerators") is failing at 5× the normal rate — probably HBM from one supplier lot. \(s.runs[i].design.name) keeps restarting.",
                            image: "rack_rear",
-                           options: [DecisionOption(label: "Swap the bad nodes (\(Fmt.money(Double(s.runs[i].design.chips) * 400)))", detail: "Two days of downtime, then back to normal."),
+                           options: [DecisionOption(label: "Swap the bad nodes (\(Fmt.money(Double(s.runs[i].design.allChips) * 400)))", detail: "Two days of downtime, then back to normal."),
                                      DecisionOption(label: "Run degraded", detail: "Keep training at reduced goodput for weeks.")],
                            ref: s.runs[i].id.uuidString)
     }
@@ -908,7 +908,7 @@ enum Training {
                 s.runs[i].flopsDone = max(0, s.runs[i].flopsDone - lost)
             }
             if option == 0 {
-                s.cash -= Double(s.runs[i].design.chips) * 400
+                s.cash -= Double(s.runs[i].design.allChips) * 400
                 s.runs[i].lostHours += 48
                 runLog(&s, i, "Swapped the bad nodes after two days of downtime. Back to normal.")
             } else {
@@ -939,11 +939,27 @@ enum Training {
         if s.runs[i].status == .paused {
             let free = Economy.freeChips(s, s.runs[i].design.accelID)
             if free >= s.runs[i].design.chips {
+                fitHelpers(&s, i)
                 s.runs[i].status = s.runs[i].flopsDone >= s.runs[i].flopsTotal ? .postTraining : .running
             } else {
                 runLog(&s, i, "Not enough free chips to resume — resume it from Training Runs.")
             }
         }
+    }
+
+    /// 3.9: before a paused run restarts, shrink each helper group to the chips of its type that are free now (a group
+    /// with none left drops out). The lead group's chips are checked by the caller.
+    static func fitHelpers(_ s: inout GameState, _ i: Int) {
+        guard !s.runs[i].design.helpers.isEmpty else { return }
+        var kept: [ChipPart] = []
+        var dropped: [String] = []
+        for h in s.runs[i].design.helpers {
+            let n = min(h.chips, s.recallLeased(h.accelID, needing: h.chips))
+            if n > 0 { kept.append(ChipPart(accelID: h.accelID, chips: n)) }
+            if n < h.chips { dropped.append("\(Fmt.int(h.chips - n)) \(HardwareCatalog.get(h.accelID)?.name ?? h.accelID)") }
+        }
+        s.runs[i].design.helpers = kept
+        if !dropped.isEmpty { runLog(&s, i, "Resumed without \(dropped.joined(separator: ", ")): those chips are busy elsewhere.") }
     }
 
     static func rollback(_ s: inout GameState, _ i: Int, to cp: TrainCheckpoint) {
@@ -1027,7 +1043,7 @@ enum Training {
         news(&s, "\(d.name) finished training", "Intelligence Index \(Fmt.score(model.index)) — #\(rank) worldwide, \(verdict). \(model.tier).",
              important: true, good: delta > -3)
         if delta >= 5 { Achievements.unlock(&s, "genius") }
-        if d.chips >= 500_000 { Achievements.unlock(&s, "gigawatt_run") }
+        if d.allChips >= 500_000 { Achievements.unlock(&s, "gigawatt_run") }
         if run.sdcMissed >= 1 || run.prevented >= 10 {
             runLog(&s, i, "Ops report: \(Int(run.prevented)) failures prevented, \(Int(run.sdcCaught)) corrupt nodes caught, \(Int(run.sdcMissed)) slipped through.")
         }
