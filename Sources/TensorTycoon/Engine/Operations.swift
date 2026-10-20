@@ -501,7 +501,9 @@ enum Operations {
         // leads that still add most of their value.
         let snap = s.deals.contains { !$0.active } ? Market.snapshot(s) : nil
         for d in s.deals where !d.active {
-            guard let m = s.models.filter({ $0.released && !$0.retired && $0.index + 0.01 >= d.minIndex }).max(by: { $0.index < $1.index }),
+            // 3.9: the best qualifying model that has servers (a contract on one without breaches daily, so it's refused).
+            let fits = s.models.filter { $0.released && !$0.retired && $0.index + 0.01 >= d.minIndex }
+            guard let m = fits.filter({ $0.capacityTokensDay > 0 }).max(by: { $0.index < $1.index }) ?? fits.max(by: { $0.index < $1.index }),
                   s.safetyScore >= d.minSafety else { continue }
             if let snap, Commercial.reachValue(s, snap) < 0.999, Commercial.contractNet(s, snap, monthly: d.monthly).net < d.monthly * 0.5 { continue }
             if s.acceptDeal(d.id, modelID: m.id) == nil {

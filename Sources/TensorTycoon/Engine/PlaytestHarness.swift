@@ -838,8 +838,11 @@ enum PTPlay {
     }
 
     static func deals(_ s: inout GameState) {
-        guard let best = s.releasedModels.max(by: { $0.index < $1.index }) else { return }
-        for dl in s.deals where !dl.active && best.index + 0.01 >= dl.minIndex && s.safetyScore >= dl.minSafety {
+        // 3.9: a contract can't go on a model with no servers; sign on the best one that has some.
+        let served = s.releasedModels.filter { $0.capacityTokensDay > 0 }
+        guard let top = s.releasedModels.max(by: { $0.index < $1.index }) else { return }
+        for dl in s.deals where !dl.active && top.index + 0.01 >= dl.minIndex && s.safetyScore >= dl.minSafety {
+            let best = dl.tokensPerDay > 0 ? served.filter { $0.index + 0.01 >= dl.minIndex }.max(by: { $0.index < $1.index }) ?? top : top
             _ = s.acceptDeal(dl.id, modelID: best.id)
         }
     }
