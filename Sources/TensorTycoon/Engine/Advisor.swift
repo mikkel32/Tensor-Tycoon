@@ -190,7 +190,20 @@ enum Advisor {
         if total >= 16 && idle >= max(16, total / 20) {
             let biggest = pools.filter { $0.owned > 0 }.max { spare($0) < spare($1) }
             let leasable = biggest.map { min(spare($0), $0.owned - (s.leases[$0.accel.id] ?? 0)) } ?? 0
-            if let p = biggest, leasable >= 64 {
+            // 3.9: while a live model turns demand away, idle chips should serve it, not go out on lease.
+            let short = s.models.filter { $0.released && !$0.retired && $0.demandTokensDay > $0.capacityTokensDay * 1.05 }
+                .max { $0.demandTokensDay - $0.capacityTokensDay < $1.demandTokensDay - $1.capacityTokensDay }
+            let serveFix: (UUID, String, Int, Int)? = short.flatMap { m in
+                if let (accel, total, more) = growFix(s, m) { return (m.id, accel, total, more) }
+                let unused = pools.filter { p in !m.deployments.contains { $0.accelID == p.accel.id } }
+                return deployFix(s, m, pools: unused, target: 4).map { (m.id, $0.0, $0.1, $0.1) }
+            }
+            if let m = short, let (id, accel, total, more) = serveFix {
+                let served = m.demandTokensDay > 0 ? m.capacityTokensDay / m.demandTokensDay : 1
+                add("idle", .warning, "cpu", "\(Fmt.int(idle)) accelerators idle while \(m.name) turns customers away",
+                    "\(m.name) serves only \(Fmt.pct(min(1, served), decimals: 0)) of its demand. Put idle chips on serving before leasing them out.", .models,
+                    fix: .deploy(model: id, accel: accel, chips: total), "Serve with \(Fmt.int(more)) more \(HardwareCatalog.get(accel)?.name ?? accel)")
+            } else if let p = biggest, leasable >= 64 {
                 let perMonth = ChipBusiness.leaseIncomePerDay(p.accel, count: leasable, s) * 30.4
                 add("idle", .warning, "cpu", "\(Fmt.int(idle)) accelerators idle",
                     "They earn nothing. Train, serve, run agents — or lease them out (\(Fmt.int(leasable)) \(p.accel.name) would bring about \(Fmt.money(perMonth)) a month).", .compute,

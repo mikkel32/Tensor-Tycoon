@@ -234,7 +234,9 @@ extension Campus {
             let orders = s.orders.filter { $0.siteID == site.id }
             let orderedKW = orders.reduce(0.0) { $0 + (HardwareCatalog.get($1.accelID).map(Economy.chipKW) ?? 0) * Double($1.count) }
             var arr: [(date: Date, kw: Double, label: String)] = orders.map {
-                ($0.arrives, (HardwareCatalog.get($0.accelID).map(Economy.chipKW) ?? 0) * Double($0.count), "\(Fmt.int($0.count))× \(HardwareCatalog.get($0.accelID)?.name ?? $0.accelID)")
+                // Own fab-line orders ship weekly: show when the next chips land, not when the whole order is done.
+                ($0.made != nil ? AlienFab.nextShipment($0, s) : $0.arrives, (HardwareCatalog.get($0.accelID).map(Economy.chipKW) ?? 0) * Double($0.count),
+                 "\(Fmt.int($0.count))× \(HardwareCatalog.get($0.accelID)?.name ?? $0.accelID)\($0.made != nil ? " (weekly, all by \($0.arrives.gameShort))" : "")")
             }
             if site.rampKW > 0, let r = site.nextRamp { arr.append((r, min(site.rampKW, site.rampStepKW), "next lease tranche")) }
             if site.expanding > 0, let r = site.expansionReady { arr.append((r, site.expanding, "new phase")) }

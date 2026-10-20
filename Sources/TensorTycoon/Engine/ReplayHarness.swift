@@ -99,6 +99,7 @@ enum ReplayHarness {
         report(s)
         func planAndStart(_ spec: String) {
             let props = RunPlanner.proposals(s)
+            if props.isEmpty { print("no proposal: \(RunPlanner.shortfall(s) ?? "nothing to plan")") }
             for (i, p) in props.enumerated() {
                 print("proposal \(i) \(p.label): \(p.design.name) · \(p.blurb) · forecast c \(Fmt.trim(p.est.forecast.c, 2)) (vs best live \(p.vsBest.map { Fmt.trim($0, 2) } ?? "none"), vs rivals \(Fmt.trim(p.vsRival, 2))) · \(Fmt.params(p.design.paramsB)) on \(Fmt.tokens(p.design.tokensT)) · goodput \(Fmt.pct(p.est.goodput, decimals: 0)) · left out \(p.leftOut) · free for serving: \(p.othersIdle)")
             }

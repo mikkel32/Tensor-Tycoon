@@ -117,7 +117,7 @@ struct ModelLabView: View {
     private func planStrip(_ s: GameState) -> some View {
         if proposals.isEmpty {
             let idle = Economy.pools(s).reduce(0) { $0 + $1.free }
-            Label(idle < 4 ? "No idle chips to plan a run on: free some from serving, research or leases, or buy more." : "No design on your idle chips would finish a useful run yet; use the recipes below.",
+            Label(RunPlanner.shortfall(s) ?? (idle < 4 ? "No idle chips to plan a run on: free some from serving, research or leases, or buy more." : "No design on your idle chips would finish a useful run yet; use the recipes below."),
                   systemImage: "wand.and.stars").font(.callout).foregroundStyle(.secondary)
         } else {
             Card {

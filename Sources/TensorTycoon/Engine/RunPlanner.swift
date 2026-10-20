@@ -103,7 +103,28 @@ enum RunPlanner {
         let strongest = out.first?.est.forecast.c ?? 0
         let bar = live ?? (strongest - 0.5)
         take(all.filter { $0.p.est.forecast.c > bar + 0.1 }.min { $0.p.est.totalCost < $1.p.est.totalCost }?.p.with(label: "Lean"))
-        return out
+        // A run that can't beat the model you already serve isn't worth the chips: show none and say why (`shortfall`).
+        return live == nil ? out : out.filter { ($0.vsBest ?? 1) > 0 }
+    }
+
+    /// Why no plan beats your best live model, and what it would take: where the chips are, and what a run on all of
+    /// your strongest chip type would reach. Nil when nothing is live to beat.
+    static func shortfall(_ s: GameState) -> String? {
+        guard let live = bestLiveC(s), let best = s.models.filter({ !$0.retired && !$0.preview }).max(by: { $0.c < $1.c }) else { return nil }
+        let pools = Economy.pools(s).filter { $0.accel.supportsTraining(.bf16) && $0.accel.cls != .consumer }
+        guard let pool = pools.max(by: { Double($0.owned) * $0.accel.bf16 < Double($1.owned) * $1.accel.bf16 }), pool.owned >= 4 else {
+            return "You own no training chips to beat \(best.name) with. Buy or rent some in the Hardware Store."
+        }
+        let busy = "\(Fmt.int(pool.inference)) of your \(Fmt.int(pool.owned)) \(pool.accel.name) serve customers, \(Fmt.int(pool.research + pool.leased + pool.swarm + pool.rsi)) are on research, leases or agents"
+        let chips = max(4, pool.owned - Int(Double(pool.total) * s.ops.reserveShare))
+        let d = bestRecipe(s, accel: pool.accel, chips: chips, days: 90, name: nextName(s))
+        guard let est = Physics.estimate(d, state: s), est.memory.ok, est.finishes else {
+            return "\(busy). Even a run on all of them wouldn't finish: research better techniques or buy newer chips."
+        }
+        let gain = est.forecast.c - live
+        return gain > 0
+            ? "\(busy). Training on \(Fmt.int(d.chips)) of them for about \(Fmt.days(est.days)) would beat \(best.name) by \(Fmt.trim(gain, 2)): take chips off serving, or buy more."
+            : "\(busy). Even all of them would fall \(Fmt.trim(-gain, 2)) short of \(best.name): research better techniques or buy newer chips."
     }
 
     /// Starts a proposal as planned. Returns an error text, or nil.
