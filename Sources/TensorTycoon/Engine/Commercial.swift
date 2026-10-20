@@ -102,7 +102,7 @@ enum Commercial {
         let g = (1 + growthAllowance(share: base / max(1, market))) * marketGrowth(s.year) - 1
         // 3.9: customers you already served are already looked after: the cap never falls below your best month of the
         // last year (`held`), so growing past it is what takes more people (`team`).
-        return Capacity(ramp: ramp(base: base, market: market, year: s.year), team: teamFromPeople(s), base: base, growth: g, held: teamFloor(s))
+        return Capacity(ramp: ramp(base: base, market: market, year: s.year), team: max(teamFromPeople(s), teamFloor(s)), base: base, growth: g, held: teamFloor(s))
     }
 
     /// Enterprise contracts running today, per day (they're booked first).

@@ -291,7 +291,8 @@ enum FinanceHarness {
             // 3.9: as Commercial.bookedDaily: the best of the last three months, or 80% of the best of the last twelve.
             let best = max(h[max(0, i - 3)..<i].map(daily).max() ?? 0, 0.8 * (h[max(0, i - 12)..<i].map(daily).max() ?? 0))
             let y = h[i].month.decimalYear + 1.0 / 12
-            let allowed = Commercial.ramp(base: best * 30.44, market: Macro.marketSize(y) / 12, year: y) * 1.05
+            // 8% slack: the game applies the ramp day by day against that day's market, this check once per month.
+            let allowed = Commercial.ramp(base: best * 30.44, market: Macro.marketSize(y) / 12, year: y) * 1.08
             let r = h[i].commercialRevenue / Double(GameCalendar.daysInMonth(h[i].month)) * 30.44 / max(1, allowed)
             if r > worst { worst = r; label = h[i].month.gameMonth }
         }
