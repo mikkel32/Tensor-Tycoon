@@ -180,6 +180,10 @@ enum RunPlanner {
 
     /// Starts a proposal as planned. Returns an error text, or nil.
     static func start(_ p: Proposal, _ s: inout GameState) -> String? {
+        s.undoingOnError { s in take(p, &s) }   // 3.9: a failed start gives the servers back
+    }
+
+    private static func take(_ p: Proposal, _ s: inout GameState) -> String? {
         if p.fromServing > 0 {
             // Free the chips: whole replicas off the lead type, weakest live models first, until enough are idle.
             let accel = p.design.accelID
@@ -254,12 +258,14 @@ extension Operations {
                     return
                 }
                 let leased = s.leases[pool.accel.id] ?? 0
+                let before = s   // 3.9: a start that fails keeps the leases
                 if chips > pool.free && leased > 0 {
                     let back = min(leased, chips - pool.free)
                     _ = s.setLease(pool.accel.id, chips: leased - back)
                     log(&s, "Recalled \(Fmt.int(back)) leased \(pool.accel.name) to train \(d.name).")
                 }
                 if let e = s.startTraining(d) {
+                    s = before
                     log(&s, "Training: couldn't start \(d.name): \(e)")
                 } else {
                     log(&s, "Training: started \(d.name) on \(Fmt.int(chips)) \(pool.accel.name) — about \(Int(est.days)) days, forecast c \(Fmt.trim(est.forecast.c, 2)) (your best \(Fmt.trim(best, 2))).")

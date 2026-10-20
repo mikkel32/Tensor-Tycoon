@@ -1,6 +1,14 @@
 import Foundation
 
 extension GameState {
+    /// 3.9: runs `body` and, when it returns an error, puts the whole state back: a start that recalls leases or cuts
+    /// servers before a later check fails used to keep those losses with nothing to show for them.
+    mutating func undoingOnError(_ body: (inout GameState) -> String?) -> String? {
+        let saved = self
+        if let e = body(&self) { self = saved; return e }
+        return nil
+    }
+
     /// 3.8: free chips for a job that needs `needing`, recalling leased-out chips of the same type when idle ones
     /// aren't enough (leases used to block work with nothing saying why). Returns the free count afterwards.
     @discardableResult

@@ -621,12 +621,16 @@ private struct CommandCentre: View {
                 Spacer()
                 if resize != run.design.chips, let note = resizeNote(run) { Text(note).font(.caption).foregroundStyle(.secondary) }
                 Text("Resize cluster").font(.caption).foregroundStyle(.secondary)
-                QuantityPicker(value: $resize, range: 1...max(1, free + (run.status == .paused ? 0 : run.design.chips)))
+                // 3.9: a paused run holds no chips: it can shrink, or grow to what's free (its own size may exceed that).
+                QuantityPicker(value: $resize, range: 1...max(1, run.status == .paused ? max(run.design.chips, free) : free + run.design.chips))
                 Button("Apply") { store.act("Cluster resized") { $0.resizeRun(run.id, chips: resize) } }
                     .disabled(resize == run.design.chips)
             }
         }
         .onAppear { resize = run.design.chips }
+        // 3.9: follow the run when a fix, the engine or another run changes its size, so Apply never undoes it.
+        .onChange(of: run.design.chips) { _, n in resize = n }
+        .onChange(of: run.id) { _, _ in resize = run.design.chips }
         .sheet(isPresented: $assigning) { OpsAssignSheet(run: run) }
     }
 
@@ -1065,14 +1069,14 @@ private struct OpsAssignSheet: View {
                     Text(Fmt.pct(target, decimals: 0)).monospacedDigit().frame(width: 50)
                 }
                 if let m = models.first(where: { $0.id == modelID }), !accelID.isEmpty {
-                    let base = Training.agentsForCoverage(m, chips: max(1, Int(Double(run.design.chips) * target)), s, b)
+                    let base = Training.agentsForCoverage(m, chips: max(1, Int(Double(run.design.allChips) * target)), s, b)   // 3.9: helpers fail too
                     let need = Int((Double(base) / 0.95).rounded(.up))
                     let chips = Swarms.chipsNeeded(m, accelID: accelID, agents: need, s, b)
                     let free = d.free(accelID)
                     let after = min(1, run.opsCoverage + target)
                     SpecRow(label: "Agents needed", value: Fmt.int(need))
                     SpecRow(label: "Inference chips", value: "\(Fmt.int(chips)) of \(Fmt.int(free)) free")
-                    SpecRow(label: "Goodput", value: "\(Fmt.pct(Training.goodput(chips: run.design.chips, coverage: run.opsCoverage, state: s, bonuses: b), decimals: 0)) → \(Fmt.pct(Training.goodput(chips: run.design.chips, coverage: after, state: s, bonuses: b), decimals: 0))")
+                    SpecRow(label: "Goodput", value: "\(Fmt.pct(Training.goodput(chips: run.design.allChips, coverage: run.opsCoverage, state: s, bonuses: b, spares: run.design.spares), decimals: 0)) → \(Fmt.pct(Training.goodput(chips: run.design.allChips, coverage: after, state: s, bonuses: b, spares: run.design.spares), decimals: 0))")
                     Button {
                         let ok = store.act("Ops agents deployed") {
                             $0.startSwarm(name: "\(run.design.name) Ops", modelID: m.id, agents: need, mission: .trainingOps, accelID: accelID,

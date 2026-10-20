@@ -76,6 +76,8 @@ struct FamiliesView: View {
 private struct JobsCard: View {
     @Environment(GameStore.self) private var store
     let state: GameState
+    /// 3.9: the job waiting for "Cancel" to be confirmed.
+    @State private var cancelling: ModelJob?
 
     var body: some View {
         let s = state
@@ -91,15 +93,27 @@ private struct JobsCard: View {
                         Text(j.name).font(.callout.weight(.semibold))
                         if j.paused { Pill("Paused", tone: .warning) }
                         Spacer()
-                        Text("\(Fmt.int(j.chips))× \(HardwareCatalog.get(j.accelID)?.name ?? j.accelID) · \(left.isFinite ? "\(Int(left.rounded(.up))) days left" : "stalled") · \(Fmt.money(j.cost)) so far")
+                        Text("\(Fmt.int(j.chips))× \(HardwareCatalog.get(j.accelID)?.name ?? j.accelID) · \(j.paused ? "paused" : left.isFinite ? "\(Int(left.rounded(.up))) days left" : "stalled") · \(Fmt.money(j.cost)) so far")
                             .font(.caption).foregroundStyle(.secondary)
                         if j.paused {
                             Button("Resume") { store.act("Resumed") { $0.resumeModelJob(j.id) } }.controlSize(.small)
                         }
-                        Button("Cancel", role: .destructive) { store.mutate { $0.cancelModelJob(j.id) } }.buttonStyle(.link).font(.caption)
+                        Button("Cancel…", role: .destructive) { cancelling = j }.buttonStyle(.link).font(.caption)
                     }
                     Meter(value: j.progress, tint: j.paused ? .orange : .indigo)
                 }
+            }
+        }
+        .confirmationDialog("Cancel \(cancelling?.name ?? "this job")?", isPresented: Binding(get: { cancelling != nil }, set: { if !$0 { cancelling = nil } }),
+                            titleVisibility: .visible) {
+            Button("Cancel the job", role: .destructive) {
+                if let j = cancelling { store.mutate { $0.cancelModelJob(j.id) } }
+                cancelling = nil
+            }
+            Button("Keep it running", role: .cancel) { cancelling = nil }
+        } message: {
+            if let j = cancelling {
+                Text("\(Fmt.money(j.cost)) spent and \(Fmt.pct(j.progress, decimals: 0)) done. The chips go back to your pool; the work so far is lost.")
             }
         }
     }
@@ -285,16 +299,28 @@ private struct JobCompute: View {
     @Binding var chips: Int
 
     var body: some View {
-        let pools = store.derived.pools.filter { $0.free > 0 || $0.accel.id == accelID }
-        HStack {
-            Picker("Hardware", selection: $accelID) {
-                if pools.isEmpty { Text("No free chips").tag(accelID) }
-                ForEach(pools) { p in Text("\(p.accel.name) (\(Fmt.int(p.free)) free)").tag(p.accel.id) }
+        // 3.9: leased-out chips count: starting a job recalls them.
+        let leases = store.game.leases
+        let pools = store.derived.pools.filter { $0.free > 0 || (leases[$0.accel.id] ?? 0) > 0 || $0.accel.id == accelID }
+        let usable = { (id: String) in store.derived.free(id) + (leases[id] ?? 0) }
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Picker("Hardware", selection: $accelID) {
+                    if pools.isEmpty { Text("No free chips").tag(accelID) }
+                    ForEach(pools) { p in
+                        let leased = leases[p.accel.id] ?? 0
+                        Text("\(p.accel.name) (\(Fmt.int(p.free)) free\(leased > 0 ? ", \(Fmt.int(leased)) leased out" : ""))").tag(p.accel.id)
+                    }
+                }
+                .frame(maxWidth: 320)
+                QuantityPicker(value: $chips, range: 1...max(1, usable(accelID)), presets: [8, 64, 512, 4_096, 32_768, 262_144])
             }
-            .frame(maxWidth: 320)
-            QuantityPicker(value: $chips, range: 1...max(1, store.derived.free(accelID)), presets: [8, 64, 512, 4_096, 32_768, 262_144])
+            if chips > store.derived.free(accelID) {
+                Text("Starting recalls \(Fmt.int(chips - store.derived.free(accelID))) leased-out chips: their lease income stops.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
         }
-        .onChange(of: accelID) { _, new in chips = max(1, min(chips, store.derived.free(new))) }
+        .onChange(of: accelID) { _, new in chips = max(1, min(chips, usable(new))) }
     }
 }
 

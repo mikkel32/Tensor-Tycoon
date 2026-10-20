@@ -107,7 +107,8 @@ struct RunReviewSheet: View {
         return Card {
             CardHeader("Compute", symbol: "cpu")
             SpecRow(label: "Pre-training + post-training", value: "\(Fmt.flops(e.flops)) + \(Fmt.flops(e.postFlops)) FLOPs")
-            SpecRow(label: "Accelerators", value: "\(Fmt.int(design.chips))× \(r.accel.name)")
+            // 3.9: a whole-fleet run lists every chip group.
+            SpecRow(label: "Accelerators", value: design.parts.map { "\(Fmt.int($0.chips))× \(HardwareCatalog.get($0.accelID)?.name ?? $0.accelID)" }.joined(separator: " + "))
             SpecRow(label: "Precision", value: design.precision.short)
             VStack(alignment: .leading, spacing: 3) {
                 HStack {
