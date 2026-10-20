@@ -69,6 +69,8 @@ struct ModelLabView: View {
     @AppStorage("labAdvanced") private var advanced = false
     /// 3.5: model families — distil or post-train an existing model instead of training a new one.
     @State private var familySheet: FamilySheet?
+    /// 3.9: "Plan my next model" proposals, replanned when the day or the fleet changes.
+    @State private var proposals: [RunPlanner.Proposal] = []
 
     var body: some View {
         let s = store.game
@@ -82,6 +84,7 @@ struct ModelLabView: View {
                                    actionTitle: "Hardware Store") { store.open(.hardware) }
                 }
             } else {
+                planStrip(s)
                 recipeStrip(s, b)
                 upgradeStrip(s)
                 HStack(alignment: .top, spacing: 18) {
@@ -101,11 +104,62 @@ struct ModelLabView: View {
                 }
             }
         }
-        .onAppear { if !prepared { prepare(s, d); prepared = true } }
+        .onAppear { if !prepared { prepare(s, d); prepared = true }; proposals = RunPlanner.proposals(store.game) }
+        .onChange(of: store.game.date) { _, _ in if !reviewing { proposals = RunPlanner.proposals(store.game) } }
         .sheet(isPresented: $reviewing) {
             RunReviewSheet(design: $design, lr: $lr, interval: $interval, launch: launch, ladder: startLadder)
         }
         .familySheet($familySheet)
+    }
+
+    /// 3.9: concrete designs sized to the chips you own and have idle, with forecast against your best model and the rivals.
+    @ViewBuilder
+    private func planStrip(_ s: GameState) -> some View {
+        if proposals.isEmpty {
+            let idle = Economy.pools(s).reduce(0) { $0 + $1.free }
+            Label(idle < 4 ? "No idle chips to plan a run on: free some from serving, research or leases, or buy more." : "No design on your idle chips would finish a useful run yet; use the recipes below.",
+                  systemImage: "wand.and.stars").font(.callout).foregroundStyle(.secondary)
+        } else {
+            Card {
+                CardHeader(title: "Plan my next model", symbol: "wand.and.stars",
+                           subtitle: "Sized to your idle chips with every technique you have researched. A run uses one chip type, so each plan names its type.") {
+                    Button("Replan") { proposals = RunPlanner.proposals(store.game) }.buttonStyle(.link)
+                }
+                HStack(alignment: .top, spacing: 12) {
+                    ForEach(proposals) { p in
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack { Text(p.label).font(.callout.weight(.semibold)); Spacer(); Text("c \(Fmt.trim(p.est.forecast.c, 2))").font(.callout.monospacedDigit()) }
+                            Text(p.blurb).font(.caption)
+                            Text("\(Fmt.params(p.design.paramsB)) parameters on \(Fmt.tokens(p.design.tokensT)) tokens")
+                                .font(.caption).foregroundStyle(.secondary)
+                            Text(verdict(p)).font(.caption.weight(.semibold)).foregroundStyle(p.vsRival >= 0 ? .green : (p.vsBest ?? 1) > 0 ? .orange : .red)
+                            if p.leftOut > 0 {
+                                Text("\(Fmt.int(p.leftOut)) idle \(p.design.accelID.isEmpty ? "" : (HardwareCatalog.get(p.design.accelID)?.name ?? "")) left out: \(p.leftOutWhy).")
+                                    .font(.caption2).foregroundStyle(.secondary)
+                            }
+                            if !p.othersIdle.isEmpty {
+                                Text("Stays free for serving: \(p.othersIdle).").font(.caption2).foregroundStyle(.secondary)
+                            }
+                            Spacer(minLength: 0)
+                            HStack {
+                                Button("Review & start") { design = p.design; lr = .standard; interval = 0.1; reviewing = true }.buttonStyle(.borderedProminent)
+                                Button("Edit") { design = p.design; lr = .standard; interval = 0.1 }
+                            }
+                            .controlSize(.small)
+                        }
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(.quaternary.opacity(0.4), in: .rect(cornerRadius: 10))
+                    }
+                }
+            }
+        }
+    }
+
+    private func verdict(_ p: RunPlanner.Proposal) -> String {
+        let rival = p.vsRival >= 0 ? "ahead of every rival by \(Fmt.trim(p.vsRival, 2))" : "\(Fmt.trim(-p.vsRival, 2)) behind the best rival"
+        guard let b = p.vsBest else { return "No live model of yours; \(rival)" }
+        return (b > 0 ? "+\(Fmt.trim(b, 2)) over your best model; " : "\(Fmt.trim(b, 2)) vs your best model; ") + rival
     }
 
     /// 3.5: model families — a lineup without a new pre-training run: distil a cheaper tier or post-train a model you have.

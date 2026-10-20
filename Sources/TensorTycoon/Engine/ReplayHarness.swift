@@ -22,6 +22,7 @@ enum ReplayHarness {
         BenchmarkCatalog.resetCache()
         HardwareCatalog.register(s.customChips)
         var answer = true
+        var pending: [String] = []   // train:<n>[@<day>]
         for t in techs {
             // cash:<amount> sets cash; noanswer leaves decisions to the inbox defaults; defer:<n> defers every leased tranche n times.
             if t.hasPrefix("cash:") { s.cash = Double(t.dropFirst(5)) ?? s.cash; print("cash set to \(Fmt.money(s.cash))"); continue }
@@ -37,6 +38,8 @@ enum ReplayHarness {
                 print(why.map { "could not order: \($0)" } ?? "ordered \(parts[2])× \(parts[1])")
                 continue
             }
+            // train:<n> lists "Plan my next model" proposals and starts the n-th (0 = strongest).
+            if t.hasPrefix("train:") { pending.append(String(t.dropFirst(6))); continue }
             if t == "ops:autoscale" { s.ops.autoscale = true; continue }
             if t.hasPrefix("unretire:") {
                 let name = String(t.dropFirst("unretire:".count))
@@ -50,8 +53,20 @@ enum ReplayHarness {
             }
             print(s.researchQueue.firstIndex(of: t).map { "queued \(t) at #\($0 + 1)" } ?? "could not queue \(t)")
         }
+        startDate = s.date
         report(s)
-        for _ in 0..<days where s.gameOver == nil {
+        func planAndStart(_ spec: String) {
+            let props = RunPlanner.proposals(s)
+            for (i, p) in props.enumerated() {
+                print("proposal \(i) \(p.label): \(p.design.name) · \(p.blurb) · forecast c \(Fmt.trim(p.est.forecast.c, 2)) (vs best live \(p.vsBest.map { Fmt.trim($0, 2) } ?? "none"), vs rivals \(Fmt.trim(p.vsRival, 2))) · \(Fmt.params(p.design.paramsB)) on \(Fmt.tokens(p.design.tokensT)) · goodput \(Fmt.pct(p.est.goodput, decimals: 0)) · left out \(p.leftOut) · free for serving: \(p.othersIdle)")
+            }
+            if let n = Int(spec.split(separator: "@").first ?? ""), props.indices.contains(n) {
+                print(RunPlanner.start(props[n], &s).map { "could not start: \($0)" } ?? "started \(props[n].design.name)")
+            }
+        }
+        for spec in pending where !spec.contains("@") { planAndStart(spec) }
+        for day in 0..<days where s.gameOver == nil {
+            for spec in pending where spec.hasSuffix("@\(day)") { planAndStart(spec) }
             for _ in 0..<10 where answer {
                 guard let d = s.decisions.first else { break }
                 s.resolveDecision(d.id, option: 0)
@@ -59,8 +74,12 @@ enum ReplayHarness {
             Sim.advanceDay(&s)
             report(s)
         }
+        if let g = s.gameOver { print("GAME OVER: \(g)") }
         return 0
     }
+
+    nonisolated(unsafe) private static var announced = Set<String>()
+    nonisolated(unsafe) private static var startDate = Date.distantPast
 
     private static func report(_ s: GameState) {
         let pools = Economy.pools(s)
@@ -71,6 +90,13 @@ enum ReplayHarness {
         }.joined(separator: ", ")
         print("\(s.date.gameShort): owned usable \(Fmt.int(usable)), idle \(Fmt.int(pools.reduce(0) { $0 + $1.free })), waiting \(Fmt.int(waiting)), research chips \(s.researchChips.values.reduce(0, +))"
               + " · \(Fmt.trim(s.rpToday, 1)) RP/day · queue: \(queue.isEmpty ? "empty" : queue)")
+        for r in s.runs where r.started >= startDate {
+            print("    RUN \(r.design.name): \(r.status.rawValue) \(Fmt.pct(r.progress, decimals: 1)) · \(Fmt.int(r.design.chips)) chips · cost \(Fmt.money(r.cost)) · \(r.interruptions) interruptions" + (r.note.isEmpty ? "" : " · \(r.note)"))
+        }
+        if let m = s.models.last, !announced.contains(m.name), s.runs.contains(where: { $0.design.name == m.name && $0.status == .done && $0.started >= startDate }) {
+            announced.insert(m.name)
+            print("    FINISHED \(m.name): actual c \(Fmt.trim(m.c, 2)) index \(Fmt.score(m.index))")
+        }
         let live = s.models.filter { $0.released && !$0.retired }
         var liveText = ""
         for m in live { liveText += " \(m.name) \(Fmt.count(m.capacityTokensDay))/\(Fmt.count(m.demandTokensDay))" }

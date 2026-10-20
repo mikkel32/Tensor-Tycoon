@@ -476,6 +476,7 @@ private struct CommandCentre: View {
                 }
                 Button("Cancel run", systemImage: "xmark", role: .destructive) { store.act("Run cancelled") { $0.setRunStatus(run.id, .cancelled) } }
                 Spacer()
+                if resize != run.design.chips, let note = resizeNote(run) { Text(note).font(.caption).foregroundStyle(.secondary) }
                 Text("Resize cluster").font(.caption).foregroundStyle(.secondary)
                 QuantityPicker(value: $resize, range: 1...max(1, free + (run.status == .paused ? 0 : run.design.chips)))
                 Button("Apply") { store.act("Cluster resized") { $0.resizeRun(run.id, chips: resize) } }
@@ -612,6 +613,21 @@ private struct CommandCentre: View {
         case .open(let screen): store.open(screen)
         default: break
         }
+    }
+
+    /// 3.9: what the chosen cluster size would do to the finish date, from the same flops-per-day model the estimate uses.
+    private func resizeNote(_ run: TrainingRun) -> String? {
+        var now = run.design, then = run.design
+        then.chips = max(1, resize)
+        let s = store.game
+        let a = Physics.flopsPerDay(now, state: s, lr: run.schedule, interval: run.interval)
+        let b = Physics.flopsPerDay(then, state: s, lr: run.schedule, interval: run.interval)
+        guard a > 0, b > 0 else { return nil }
+        now.chips = run.design.chips
+        let postTotal = run.stages.filter { !$0.isPre }.reduce(0.0) { $0 + $1.flops }
+        let left = max(0, run.flopsTotal - run.flopsDone) + max(0, postTotal - run.postTrainDone)
+        let was = left / a, will = left / b
+        return "\(resize > run.design.chips ? "Adding" : "Removing") \(Fmt.int(abs(resize - run.design.chips))) chips: about \(Fmt.days(was)) left becomes \(Fmt.days(will))"
     }
 
     private func confidence(_ run: TrainingRun) -> String {
