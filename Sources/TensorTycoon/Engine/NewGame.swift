@@ -63,6 +63,7 @@ enum NewGame {
         s.researchFocus = ResearchFocus.balanced.rawValue
         s.pauseConfigured = true
         s.pauseKinds = Alerts.defaultPauseKinds
+        s.pauseKindsKnown = Set(AlertKind.allCases.map(\.rawValue))
 
         // Public research is already known.
         for r in ResearchCatalog.core where r.year <= y - 0.05 && r.category != .frontier {

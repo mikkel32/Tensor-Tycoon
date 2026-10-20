@@ -883,7 +883,8 @@ enum RivalEconomy {
     static func fireSaleOffer(_ s: inout GameState, _ i: Int) {
         let c = s.competitors[i]
         let price = c.valuation * 0.5 * (1 - (s.rivalStakes[c.id] ?? 0))
-        guard s.valuation > c.valuation * 0.5, s.decisions.count < 3 else { return }
+        // 3.9: only when you could actually buy it (the old bar, half its value, offered deals Acquisitions always blocked).
+        guard s.valuation > c.valuation * 0.5, s.decisions.count < 3, Acquisitions.blocker(c, s) == nil else { return }
         Events.addDecision(&s, kind: "fire_sale", title: "\(c.def.name) is for sale — cheap",
                            body: "\(c.def.name) is weeks from running out of money. Its board will sell to you for \(Fmt.money(price)), half its last valuation, before a giant swoops in. You'd inherit its techniques, researchers, compute and users (regulators still get a say).",
                            image: "nvidia_hq",

@@ -38,6 +38,11 @@ struct OpsPolicy: Codable, Hashable {
     /// 3.9: what each delegate has done: actions taken and dollars it committed (rent, payroll a year, deals signed a month).
     @D var tally: [String: Int] = [:]
     @D var moved: [String: Double] = [:]
+    /// 3.9: when hiring and pay were last reviewed (weekly, whatever the COO's rhythm).
+    @D var lastPeopleReview: Date? = nil
+    /// 3.9: new payroll a month the hiring delegate added this calendar month (`hireMonth` = year × 12 + month).
+    @D var hireSpent: Double = 0
+    @D var hireMonth: Int = 0
 
     /// 3.9: the safe set. Nothing here spends cash on its own (hiring and cloud rent stay your call).
     static var recommended: OpsPolicy {
@@ -119,11 +124,18 @@ enum Operations {
         if s.ops.autoRenew { autoRenew(&s) }
         if s.ops.leaseIdle { leaseIdle(&s) }
         if s.ops.autoLeads { autoLeads(&s) }
-        // People: weekly is plenty.
-        if day % 7 == 0 {
+        // People: weekly is plenty. 3.9: at least a week since the last review (it needed day % 7 == 0 on a visit day
+        // too, so a 3-day COO only reviewed every 21 days).
+        if s.ops.autoHire || s.ops.autoRaises, peopleReviewDue(s) {
+            s.ops.lastPeopleReview = s.date
             if s.ops.autoHire { autoHire(&s, precision: comp.precision) }
             if s.ops.autoRaises { autoRaises(&s) }
         }
+    }
+
+    /// 3.9: whether a week has passed since hiring and pay were last reviewed.
+    static func peopleReviewDue(_ s: GameState) -> Bool {
+        s.ops.lastPeopleReview.map { GameCalendar.daysBetween($0, s.date) >= 7 } ?? true
     }
 
     // MARK: Capacity
@@ -178,10 +190,14 @@ enum Operations {
                     let keepFree = starving ? 0 : Int(Double(pool.total) * reserve)
                     var room = max(0, pool.free - keepFree)
                     if starving, room < wantedAdd, let onResearch = s.researchChips[c.id], onResearch > 0 {
-                        let back = min(onResearch, wantedAdd - room)
-                        s.researchChips[c.id] = onResearch - back > 0 ? onResearch - back : nil
-                        room += back
-                        note(&s, "autoscale", "Took \(Fmt.int(back)) \(pool.accel.name) off research: \(m.name) was serving under 80% of its demand.")
+                        // 3.9: only what buys whole replicas (a few chips short of one went back to research every day).
+                        let usable = min(wantedAdd, room + onResearch) / c.k * c.k
+                        let back = max(0, usable - room)
+                        if back > 0 {
+                            s.researchChips[c.id] = onResearch - back > 0 ? onResearch - back : nil
+                            room += back
+                            note(&s, "autoscale", "Took \(Fmt.int(back)) \(pool.accel.name) off research: \(m.name) was serving under 80% of its demand.")
+                        }
                     }
                     // Serving your own users beats renting chips to strangers: take leased chips back first, but only
                     // what buys whole replicas (a recall it can't use would sit idle and get leased out again).
@@ -208,7 +224,9 @@ enum Operations {
                         log(&s, "Capacity: +\(Fmt.int(n)) rented to \(m.name).")
                     }
                 }
-            } else if need < cap * 0.6 {
+            } else if demand > 0 && need < cap * 0.6 {
+                // 3.9: only with measured demand. A model just launched or brought back has none until it has served a
+                // day, and this used to strip every server from it the same day.
                 // Give back what it no longer needs, the best training chips first (3.9; was slowest first) so the
                 // next run gets them (keep one replica while it still has demand).
                 var surplus = cap - need
@@ -348,8 +366,10 @@ enum Operations {
                   let rate = Economy.rentQuote(HardwareCatalog.get(r.accelID) ?? HardwareCatalog.h100, s, renewing: r.count) else { continue }
             let name = HardwareCatalog.get(r.accelID)?.name ?? r.accelID
             // 3.9: only keep what earns its rent: a rental whose chips mostly sit idle past the free share is left to lapse.
-            if let pool = Economy.pool(s, r.accelID), pool.free - Int(Double(pool.total) * s.ops.reserveShare) >= r.count, !s.ops.delegateRentals.contains(r.id) {
-                let msg = "Let \(Fmt.int(r.count))× \(name) rental lapse: \(Fmt.int(pool.free)) of your \(Fmt.int(pool.total)) \(name) sit idle, so it isn't needed."
+            // Chips of a paused run count as in use (it needs them back to resume).
+            let paused = s.runs.filter { $0.status == .paused }.reduce(0) { acc, run in acc + run.design.parts.filter { $0.accelID == r.accelID }.reduce(0) { $0 + $1.chips } }
+            if let pool = Economy.pool(s, r.accelID), pool.free - paused - Int(Double(pool.total) * s.ops.reserveShare) >= r.count, !s.ops.delegateRentals.contains(r.id) {
+                let msg = "Let \(Fmt.int(r.count))× \(name) rental lapse: \(Fmt.int(pool.free - paused)) of your \(Fmt.int(pool.total)) \(name) sit idle, so it isn't needed."
                 if !s.opsLog.prefix(40).contains(where: { $0.hasSuffix(msg) }) { note(&s, "renew", msg) }   // visits repeat until it ends
                 continue
             }
@@ -427,18 +447,29 @@ enum Operations {
             out["autoRenew"] = soon.isEmpty ? "No rental ends in the next two weeks."
                 : "\(soon.count) rental\(soon.count == 1 ? "" : "s") end within two weeks; in-use ones renew, idle ones lapse."
         }
+        if s.ops.autoTrain {
+            if let r = s.runs.first(where: { $0.kind == .full && ($0.status == .running || $0.status == .postTraining) }) {
+                out["autoTrain"] = "\(r.design.name) is training; plans the next run after it finishes."
+            } else {
+                out["autoTrain"] = "No frontier run going; looks for one on idle chips \(when) and starts it only if it beats your best model."
+            }
+        }
         if s.ops.autoLaunch {
             let ready = s.models.filter { !$0.released && !$0.retired && !$0.preview }.count
             out["autoLaunch"] = ready > 0 ? "\(ready) finished model\(ready == 1 ? "" : "s") waiting; ships one only if it beats your best." : "Nothing finished and waiting."
         }
+        let review: String = {
+            guard let last = s.ops.lastPeopleReview, !peopleReviewDue(s) else { return "at the COO's next visit" }
+            return "from \(GameCalendar.addDays(last, 7).gameShort)"
+        }()
         if s.ops.autoHire {
             let want = staffing(s)
             let gaps = Role.allCases.reduce(0) { acc, r in acc + max(0, (want[r] ?? 0) - s.employees.filter { $0.role == r }.count) }
-            out["autoHire"] = gaps > 0 ? "\(gaps) open role\(gaps == 1 ? "" : "s") to fill at the next weekly review." : "Staffing matches your size."
+            out["autoHire"] = gaps > 0 ? "\(gaps) open role\(gaps == 1 ? "" : "s") to fill at the next weekly review (\(review)); \(Fmt.money(max(0, hireBudget(s) - hireSpentThisMonth(s)))) of this month's budget left." : "Staffing matches your size."
         }
         if s.ops.autoRaises {
             let n = People.underpaid(s).count   // 3.9: the same market rate morale uses (skill and local pay)
-            out["autoRaises"] = n > 0 ? "\(n) \(n == 1 ? "person is" : "people are") paid well under market; raises at the next weekly review." : "Everyone is paid near the market."
+            out["autoRaises"] = n > 0 ? "\(n) \(n == 1 ? "person is" : "people are") paid well under market; raises at the next weekly review (\(review))." : "Everyone is paid near the market."
         }
         if s.ops.autoLeads {
             let n = s.deals.filter { !$0.active }.count
@@ -464,8 +495,26 @@ enum Operations {
         return want
     }
 
+    /// New payroll a month the hiring delegate may add: the player's pick, or automatically about 1% of the run rate
+    /// a month (what four weekly reviews allowed when the automatic budget was per review).
+    static func hireBudget(_ s: GameState) -> Double {
+        s.ops.hireBudget > 0 ? s.ops.hireBudget : autoHireBudget(s)
+    }
+
+    static func autoHireBudget(_ s: GameState) -> Double { max(150_000, Economy.runRate(s) * 0.03) / 12 * 4 }
+
+    static func hireSpentThisMonth(_ s: GameState) -> Double {
+        let ym = s.date.ym
+        return s.ops.hireMonth == ym.year * 12 + ym.month ? s.ops.hireSpent : 0
+    }
+
     static func autoHire(_ s: inout GameState, precision: Double) {
-        var budget = s.ops.hireBudget > 0 ? s.ops.hireBudget : max(150_000, Economy.runRate(s) * 0.03) / 12
+        // 3.9: the budget is per calendar month, not per visit (a daily COO used to spend it four times a month).
+        let ym = s.date.ym
+        let spent = hireSpentThisMonth(s)
+        s.ops.hireMonth = ym.year * 12 + ym.month
+        s.ops.hireSpent = spent
+        var budget = hireBudget(s) - spent
         let want = staffing(s)
         for role in Role.allCases {
             let have = s.employees.filter { $0.role == role }.count
@@ -475,6 +524,7 @@ enum Operations {
             let pick = precision >= 0.9 ? pool.max(by: { $0.skill / $0.salary < $1.skill / $1.salary }) : pool.first
             guard let c = pick, s.hire(c.id) == nil else { continue }
             budget -= c.salary / 12
+            s.ops.hireSpent += c.salary / 12
             note(&s, "hire", "Hired \(c.name), \(role.title.lowercased()) (\(Fmt.money(c.salary))/yr): the team was below the size your runs, fleet and revenue call for.", money: c.salary / 12)
         }
         // Headquarters fills up first (satellites have their own desks); local rent, not San Francisco's (3.4 overhaul).

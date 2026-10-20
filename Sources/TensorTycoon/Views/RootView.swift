@@ -375,6 +375,8 @@ struct DecisionSheet: View {
                 Text(decision.body).font(.body).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 VStack(spacing: 10) {
                     ForEach(Array(decision.options.enumerated()), id: \.offset) { i, opt in
+                        // 3.9: an option you can't carry out is greyed out with the reason (it used to throw the offer away).
+                        let blocked = Events.optionBlocker(decision, i, store.game)
                         Button {
                             resolve(i)
                         } label: {
@@ -386,12 +388,17 @@ struct DecisionSheet: View {
                                     }
                                 }
                                 Text(opt.detail).font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.leading)
+                                if let blocked {
+                                    Label(blocked, systemImage: "exclamationmark.triangle.fill").font(.caption).foregroundStyle(.orange)
+                                        .multilineTextAlignment(.leading)
+                                }
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(10)
                         }
                         .buttonStyle(.bordered)
                         .tint(i == 0 ? .accentColor : .secondary)
+                        .disabled(blocked != nil)
                     }
                 }
                 HStack {

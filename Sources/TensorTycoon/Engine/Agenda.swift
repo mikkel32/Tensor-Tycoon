@@ -36,9 +36,9 @@ enum Agenda {
             out.append((Need(id: "advice-\(a.id)", kind: .advice(a), priority: p), 0))
         }
         for d in s.decisions where !Alerts.isUrgent(d) {
-            // Hidden from the Chief of Staff with the bell: respect it here too.
-            if let until = s.snoozed["inbox-\(d.id)"], until > today { continue }
+            // Hidden from the Chief of Staff with the bell: respect it here too, until the last three days (3.9).
             let left = daysLeft(d, today: today)
+            if left > 3, let until = s.snoozed["inbox-\(d.id)"], until > today { continue }
             let p = left <= 3 ? 90 : (left <= 7 ? 72 : 45)
             out.append((Need(id: "decision-\(d.id)", kind: .decision(d), priority: p), Double(left)))
         }
@@ -61,6 +61,9 @@ enum Agenda {
         case .inbox, .briefing, .milestone: return nil
         default: break
         }
+        // 3.9: "offer expiring" also warns about inbox offers and lease step-ups; only a term sheet's is covered by the
+        // term-sheet advice (a waiting term sheet used to hide the others).
+        if a.alertKind == .offerExpiring && !a.title.hasPrefix("A term sheet") { return a.critical ? 95 : 60 }
         if let prefix = coveredBy[a.alertKind], adviceIDs.contains(where: { $0.hasPrefix(prefix) }) { return nil }
         return a.critical ? 95 : 60
     }
@@ -149,7 +152,7 @@ enum Agenda {
             guard let e = r.end else { continue }
             let name = HardwareCatalog.get(r.accelID)?.name ?? r.accelID
             add(Upcoming(id: "rental-\(r.id)", date: e, title: "\(Fmt.int(r.count))× \(name) reservation ends",
-                         detail: s.ops.autoRenew ? "The renewals delegate renews it two days before" : "Renew it, or those chips leave your fleet",
+                         detail: s.ops.autoRenew ? "The renewals delegate renews it just before it ends if its chips are in use; if they sit idle it lets it lapse" : "Renew it, or those chips leave your fleet",
                          symbol: "clock.badge.exclamationmark", tone: s.ops.autoRenew ? .neutral : .warning, screen: .compute))
         }
 

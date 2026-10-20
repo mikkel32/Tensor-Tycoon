@@ -672,6 +672,7 @@ struct ModelLabView: View {
                         Text("\(p.accel.name) — \(p.free) free of \(p.total)\(leased > 0 ? ", \(Fmt.int(leased)) leased out" : "")").tag(p.accel.id)
                     }
                 }
+                // 3.9: chips leased out count (`usable`): starting the run recalls them, which this note says.
                 let free = d.free(design.accelID)
                 HStack {
                     Text("Chips")

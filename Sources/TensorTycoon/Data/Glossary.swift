@@ -210,11 +210,11 @@ extension GlossaryTerm {
         case .burn:
             GlossaryEntry(title: "Burn", category: .money,
                           definition: "How much cash you lose in a month: costs minus revenue.",
-                          detail: "Last month's burn sets your runway. Compute rent, payroll and power are usually the big lines.",
+                          detail: "The last three months' burn, hardware purchases included, sets your runway. Compute rent, payroll, power and new hardware are usually the big lines.",
                           screen: .finance, aliases: ["burn rate", "loss", "spending"])
         case .runway:
             GlossaryEntry(title: "Runway", category: .money,
-                          definition: "How many months your cash lasts at last month's burn: cash divided by last month's loss.",
+                          definition: "How many months your cash lasts at the current burn: cash divided by the average monthly cash lost over the last three months, hardware and construction spending included.",
                           detail: "Under four months the Chief of Staff tells you to raise, because rounds take weeks. If cash stays below zero for 60 days you go bankrupt.",
                           screen: .finance, aliases: ["months of cash", "bankruptcy"])
         case .valuation:

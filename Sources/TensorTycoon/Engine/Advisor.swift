@@ -69,7 +69,10 @@ enum Advisor {
                 fix: s.raising || s.isPublic ? nil : .raise(0.15), "Start raising")
         }
         if !s.raiseOffers.isEmpty {
-            add("offers", .warning, "banknote.fill", "\(s.raiseOffers.count) term sheet\(s.raiseOffers.count == 1 ? "" : "s") waiting", "Offers expire in 14 days.", .funding)
+            // 3.9: the real time left on the soonest offer (it said "14 days" even with 2 left).
+            let left = s.raiseOffers.map { max(0, GameCalendar.daysBetween(s.date, $0.expires)) }.min() ?? 0
+            add("offers", left <= 3 ? .urgent : .warning, "banknote.fill", "\(s.raiseOffers.count) term sheet\(s.raiseOffers.count == 1 ? "" : "s") waiting",
+                left == 0 ? "The first one expires today." : "The first one expires in \(left) day\(left == 1 ? "" : "s").", .funding)
         }
         if s.boardConfidence < 25 && !s.founderControls {
             add("board", .urgent, "person.crop.circle.badge.exclamationmark", "The board is losing faith (\(Int(s.boardConfidence))/100)", "Hit a board goal or you may be replaced.", .strategy)
@@ -97,16 +100,28 @@ enum Advisor {
 
         // Training
         for r in s.runs where r.status == .paused && s.decisions.allSatisfy({ $0.ref != r.id.uuidString }) {
+            // 3.9: chips leased out count (resuming recalls them), and a smaller cluster is only offered when the model
+            // still fits in memory on it.
             let free = Economy.freeChips(s, r.design.accelID)
-            if free >= r.design.chips {
+            let leased = s.leases[r.design.accelID] ?? 0
+            let avail = free + leased
+            let recall = { (n: Int) in n > free ? " (recalls \(Fmt.int(n - free)) leased)" : "" }
+            if avail >= r.design.chips {
                 add("run-\(r.id)", .warning, "pause.circle.fill", "\(r.design.name) is paused", r.note.isEmpty ? "Its chips are free again — resume it." : r.note, .training,
-                    fix: .resumeRun(r.id), "Resume")
-            } else if free >= max(1, r.design.chips / 4) {
-                add("run-\(r.id)", .warning, "pause.circle.fill", "\(r.design.name) is stalled",
-                    "\(r.note.isEmpty ? "Not enough chips to resume." : r.note) It can resume on the \(Fmt.int(free)) that are free, slower.", .training,
-                    fix: .shrinkAndResume(r.id, chips: free), "Resume on \(Fmt.int(free))")
+                    fix: .resumeRun(r.id), "Resume" + recall(r.design.chips))
+            } else if avail >= max(1, r.design.chips / 4) {
+                if fitsInMemory(s, r.design, chips: avail) {
+                    add("run-\(r.id)", .warning, "pause.circle.fill", "\(r.design.name) is stalled",
+                        "\(r.note.isEmpty ? "Not enough chips to resume." : r.note) It can resume on the \(Fmt.int(avail)) you have, slower.", .training,
+                        fix: .shrinkAndResume(r.id, chips: avail), "Resume on \(Fmt.int(avail))" + recall(avail))
+                } else {
+                    let need = minChipsToFit(s, r.design).map { "at least \(Fmt.int($0))" } ?? "more"
+                    add("run-\(r.id)", .warning, "pause.circle.fill", "\(r.design.name) is stalled",
+                        "\(r.note.isEmpty ? "Not enough chips to resume." : r.note) On the \(Fmt.int(avail)) you have the model doesn't fit in memory: it needs \(need) chips. Free some up or buy more.", .training)
+                }
             } else {
-                add("run-\(r.id)", .warning, "pause.circle.fill", "\(r.design.name) is stalled", r.note.isEmpty ? "Not enough free chips to resume it." : r.note, .training)
+                add("run-\(r.id)", .warning, "pause.circle.fill", "\(r.design.name) is stalled",
+                    (r.note.isEmpty ? "Not enough free chips to resume it." : r.note) + " It needs \(Fmt.int(r.design.chips)); you have \(Fmt.int(avail)) free or leased out.", .training)
             }
         }
         if let r = s.runs.first(where: { $0.kind == .full && Training.isLive($0) && $0.design.chips >= 50_000 && $0.opsCoverage < 0.5 }) {
@@ -215,10 +230,13 @@ enum Advisor {
         // 3.5: out of datacenter power with little on the way.
         if let pb = Power.powerBound(s) {
             if let q = DCMarket.quickLease(s, mw: pb.suggestMW), let loc = LocationCatalog.byID[q.locationID] {
+                // 3.9: the fix leases the whole block at once (no quarterly tranches that step the rent up on their own),
+                // and says what it costs up front: a month's rent held as a refundable deposit.
+                let rent = q.rate * pb.suggestMW * 1000
                 add("power-bound", .warning, "bolt.trianglebadge.exclamationmark.fill", "Your datacenters are \(Fmt.pct(pb.used, decimals: 0)) full",
-                    "Little new power is on the way, so new chips will have nowhere to go. Lease space now, or buy or build a campus on the Datacenters page.", .datacenters,
+                    "Little new power is on the way, so new chips will have nowhere to go. Lease space now, or buy or build a campus on the Datacenters page. The quick lease is a 3-year term, all of it handed over on \(GameCalendar.addDays(s.date, q.days).gameShort); rent starts then, and a month's rent (\(Fmt.money(rent))) is held as a refundable deposit today.", .datacenters,
                     fix: .leaseCapacity(q.locationID, pb.suggestMW, 3),
-                    "Lease \(Fmt.watts(pb.suggestMW * 1e6)) in \(loc.name.split(separator: ",").first.map(String.init) ?? loc.name) (\(Fmt.money(q.rate * pb.suggestMW * 1000))/mo, \(q.days) days)")
+                    "Lease \(Fmt.watts(pb.suggestMW * 1e6)) in \(loc.name.split(separator: ",").first.map(String.init) ?? loc.name) (\(Fmt.money(rent))/mo from \(GameCalendar.addDays(s.date, q.days).gameShort), \(Fmt.money(rent)) deposit)")
             }
         }
         if let site = s.sites.first(where: { $0.phaseBlocked && $0.plannedKW > 0 }) {
@@ -365,12 +383,39 @@ enum Advisor {
         }
         let underpaid = s.employees.filter { $0.salary < Macro.salary($0.role, s.year) * 0.75 }
         if underpaid.count >= 3 && !s.ops.autoRaises {
+            // 3.9: the fix lifts everyone under 85% of market to at least 90% (one 15% step left most of them still flagged).
+            let cost = s.employees.reduce(0.0) { acc, e in
+                let mkt = Macro.salary(e.role, s.year)
+                return e.salary < mkt * 0.85 ? acc + max(e.salary * 1.15, mkt * 0.9) - e.salary : acc
+            }
             add("pay", .warning, "dollarsign.arrow.circlepath", "\(underpaid.count) people are paid well below market", "Morale falls and rivals poach. Give raises, or let the COO keep pay current.", .team,
-                fix: .raises, "Give raises")
+                fix: .raises, "Give raises (+\(Fmt.money(cost))/yr payroll)")
         }
         out += Semis.advisorItems(s)   // 3.5: semiconductors (nothing until you're in the business)
         let today = s.date
-        return out.filter { item in s.snoozed[item.id].map { $0 <= today } ?? true }.sorted { $0.level > $1.level }
+        // 3.9: an inbox offer with three days or less to go comes back even if it was hidden, so it never answers itself unseen.
+        let dueSoon = Set(s.decisions.filter { !Alerts.isUrgent($0) && Agenda.daysLeft($0, today: today) <= 3 }.map { "inbox-\($0.id)" })
+        return out.filter { item in dueSoon.contains(item.id) || (s.snoozed[item.id].map { $0 <= today } ?? true) }.sorted { $0.level > $1.level }
+    }
+
+    /// 3.9: whether a run's model still fits in memory on `chips` lead chips (the check `resizeRun` makes).
+    static func fitsInMemory(_ s: GameState, _ design: ModelDesign, chips: Int) -> Bool {
+        guard let a = HardwareCatalog.get(design.accelID) else { return true }
+        var d = design
+        d.chips = chips
+        let b = s.bonuses
+        return (Physics.trainingMemoryAll(d, bonuses: b) ?? Physics.trainingMemory(d, accel: a, bonuses: b)).ok
+    }
+
+    /// 3.9: the fewest lead chips the run fits on (nil when even its full size doesn't fit).
+    static func minChipsToFit(_ s: GameState, _ design: ModelDesign) -> Int? {
+        guard fitsInMemory(s, design, chips: design.chips) else { return nil }
+        var lo = 1, hi = design.chips
+        while lo < hi {
+            let mid = (lo + hi) / 2
+            if fitsInMemory(s, design, chips: mid) { hi = mid } else { lo = mid + 1 }
+        }
+        return lo
     }
 
     /// Chips to give model `m` on the fastest pool with room, sized to its demand (`replicas` replicas when it has
@@ -409,8 +454,8 @@ enum Advisor {
         case .launch(let id):
             return s.launch(id)
         case .chipsOnSale(let id):
-            for b in 0..<3 { _ = s.setChipPrice(id, bin: b, onSale: true) }
-            return nil
+            let errors = (0..<3).compactMap { s.setChipPrice(id, bin: $0, onSale: true) }
+            return errors.count == 3 ? errors[0] : nil   // 3.9: say why when nothing went on sale
         case .autoPrice(let ids):
             for id in ids { s.setAutoPrice(id, true) }
             return nil
@@ -422,6 +467,8 @@ enum Advisor {
         case .resumeRun(let id):
             return s.setRunStatus(id, .running)
         case .shrinkAndResume(let id, let chips):
+            // 3.9: the offer counted leased chips; bring them back before resizing (resizeRun only counts free ones).
+            if let r = s.runs.first(where: { $0.id == id }) { _ = s.recallLeased(r.design.accelID, needing: chips) }
             if let e = s.resizeRun(id, chips: chips) { return e }
             return s.setRunStatus(id, .running)
         case .lease(let accel, let chips):
@@ -450,8 +497,14 @@ enum Advisor {
             s.setAgentModel(id)
             return nil
         case .raises:
-            for e in s.employees where e.salary < Macro.salary(e.role, s.year) * 0.85 { s.giveRaise(e.id) }
-            return nil
+            // 3.9: at least 90% of market, so the warning (under 75%) actually clears.
+            var n = 0
+            for e in s.employees where e.salary < Macro.salary(e.role, s.year) * 0.85 {
+                s.giveRaise(e.id)
+                if let i = s.employees.firstIndex(where: { $0.id == e.id }) { s.employees[i].salary = max(s.employees[i].salary, Macro.salary(e.role, s.year) * 0.9) }
+                n += 1
+            }
+            return n > 0 ? nil : "Nobody is paid below 85% of the market any more."
         case .enableDelegate(let name):
             // Turn it on and let it do its first round now, not at its next scheduled check.
             let precision = Operations.competence(s).precision
@@ -468,7 +521,7 @@ enum Advisor {
             }
             return nil
         case .leaseCapacity(let loc, let mw, let years):
-            return s.leaseCapacity(locationID: loc, mw: mw, years: years, cooling: s.year >= 2023 ? .liquid : .air)
+            return s.leaseCapacity(locationID: loc, mw: mw, years: years, cooling: s.year >= 2023 ? .liquid : .air, ramp: false)   // 3.9: no rent step-ups
         case .openDecision:
             return nil
         case .unretire(let id):

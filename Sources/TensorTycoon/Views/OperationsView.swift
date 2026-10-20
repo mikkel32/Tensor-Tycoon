@@ -114,24 +114,24 @@ struct OperationsView: View {
             }
             DelegateRow(title: "Training", symbol: "flask.fill",
                         detail: "When no frontier run is going and chips sit idle, plans the best run your research allows on them and starts it — only if its forecast beats your best model.",
-                        isOn: flag(\.autoTrain))
+                        isOn: flag(\.autoTrain), status: next["autoTrain"], record: record(s, ["train"]))
             DelegateRow(title: "Launches", symbol: "shippingbox.fill",
                         detail: "Ships finished models that beat your best, gives them servers, moves chat, agents and contracts onto them, and retires models nobody uses.",
                         isOn: flag(\.autoLaunch), status: next["autoLaunch"], record: record(s, ["launch"]))
             DelegateRow(title: "Cloud renewals", symbol: "clock.badge.checkmark",
-                        detail: "Renews reserved capacity two days before it ends, at today's rate.",
+                        detail: "Renews reserved capacity just before it ends, at today's rate, when its chips are in use (a paused run's chips count). A reservation whose chips sit idle beyond the free share is left to lapse.",
                         isOn: flag(\.autoRenew), status: next["autoRenew"], record: record(s, ["renew"]))
             DelegateRow(title: "Lease idle chips", symbol: "arrow.left.arrow.right.circle",
                         detail: "Rents out owned chips that sit idle beyond the free share, and recalls them when you need them.",
                         isOn: flag(\.leaseIdle), status: next["leaseIdle"], record: record(s, ["idle"]))
             DelegateRow(title: "Hiring", symbol: "person.badge.plus",
-                        detail: "Fills gaps for the size of your runs, fleet and revenue: engineers, infra, researchers, safety, data and sales.",
+                        detail: "Once a week, fills gaps for the size of your runs, fleet and revenue: engineers, infra, researchers, safety, data and sales. New hires stay within the monthly payroll budget below.",
                         isOn: flag(\.autoHire), status: next["autoHire"], record: record(s, ["hire"]))
             if s.ops.autoHire {
                 HStack {
                     Text("New payroll per month").font(.caption)
                     Picker("New payroll per month", selection: Binding(get: { store.game.ops.hireBudget }, set: { v in store.mutate { $0.ops.hireBudget = v } })) {
-                        Text("Automatic").tag(0.0)
+                        Text("Automatic (\(Fmt.money(Operations.autoHireBudget(s))))").tag(0.0)   // 3.9: say what it is
                         Text("$50K").tag(50_000.0)
                         Text("$200K").tag(200_000.0)
                         Text("$1M").tag(1_000_000.0)
@@ -139,12 +139,12 @@ struct OperationsView: View {
                         Text("$20M").tag(20_000_000.0)
                     }
                     .labelsHidden()
-                    .frame(width: 140)
+                    .frame(width: 170)
                 }
                 .padding(.leading, 34)
             }
             DelegateRow(title: "Pay", symbol: "dollarsign.arrow.circlepath",
-                        detail: "Raises anyone paid well below the market before rivals poach them.",
+                        detail: "Once a week, raises anyone paid under 85% of the market to 90% before rivals poach them.",
                         isOn: flag(\.autoRaises), status: next["autoRaises"], record: record(s, ["raises"]))
             DelegateRow(title: "Enterprise leads", symbol: "briefcase.fill",
                         detail: "Signs leads your best model and safety record can serve.",
@@ -155,6 +155,7 @@ struct OperationsView: View {
                         let r = OpsPolicy.recommended
                         o.autoscale = r.autoscale; o.autoLaunch = r.autoLaunch; o.autoRenew = r.autoRenew; o.leaseIdle = r.leaseIdle
                         o.autoRaises = r.autoRaises; o.autoLeads = r.autoLeads; o.autoTrain = r.autoTrain
+                        o.autoHire = r.autoHire   // 3.9: off, as the help says: hiring stays yours
                     } }
                 }
                 .help("Capacity, launches, renewals, idle chips, pay, leads and training. Nothing here spends cash on its own: hiring and cloud rent stay yours.")
