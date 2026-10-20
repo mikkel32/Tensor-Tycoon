@@ -346,6 +346,7 @@ enum Events {
             if let why = Acquisitions.blocker(c, s) { return why }
             let cashPart = d.amount * (d.kind == "merger_offer" ? 0.5 : 0.7)
             return cashPart > s.cash ? "The cash part is \(Fmt.money(cashPart)); you have \(Fmt.money(max(0, s.cash))). Raise money first." : nil
+        case (let k, _) where Drama.owns(k): return Drama.blocker(d, option, s)   // 3.9: dramatic events
         default:
             return nil
         }
@@ -389,6 +390,7 @@ enum Events {
             for i in s.employees.indices where s.employees[i].role == .safety { s.employees[i].morale -= 20 }
         case ("defense", _):
             s.brand = min(100, s.brand + 3)
+        case (let k, _) where Drama.owns(k): Drama.resolve(&s, d, option: option)   // 3.9: dramatic events
         case (Launches.decisionKind, _):   // 3.7: a second wave for a weak launch
             Launches.resolve(&s, d, option: option)
         case (Families.decisionKind, _):   // 3.5: model families

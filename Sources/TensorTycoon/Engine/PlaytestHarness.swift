@@ -448,6 +448,7 @@ enum PTPlay {
     static func choice(_ dd: Decision, _ s: GameState) -> Int {
         switch dd.kind {
         case AdvancedProjects.secrecyKind: return AdvancedProjects.botSecrecyChoice(dd)   // 3.8: retain it internally
+        case let k where Drama.owns(k): return Drama.botChoice(dd, s)   // 3.9: dramatic events
         case "loss_spike": return 0                           // roll back, safest
         case "train_bug": return 1                            // hot-fix and keep going
         case "contamination": return 0
