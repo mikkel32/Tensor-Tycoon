@@ -292,6 +292,7 @@ private struct SolicitationCard: View {
     let sol: Solicitation
     let state: GameState
     let onPropose: () -> Void
+    @State private var confirmWithdraw = false
 
     var body: some View {
         let s = state
@@ -333,7 +334,14 @@ private struct SolicitationCard: View {
                     Label("Bid in: \(sol.type == .costPlus ? "fee \(Fmt.pct(bid.price, decimals: 0))" : (sol.type == .prize ? "entry" : "\(Fmt.pct(bid.price, decimals: 0)) of ceiling")) · odds now \(Fmt.pct(o.p, decimals: 0))",
                           systemImage: "paperplane.fill").font(.callout).foregroundStyle(.blue)
                     Spacer()
-                    Button("Withdraw") { store.mutate { $0.withdrawProposal(sol.id) } }.buttonStyle(.link)
+                    // 3.9: the proposal cost is sunk, and bidding again pays it again; say so before the bid goes.
+                    Button("Withdraw…") { confirmWithdraw = true }.buttonStyle(.link)
+                        .confirmationDialog("Withdraw your bid on \(sol.title)?", isPresented: $confirmWithdraw, titleVisibility: .visible) {
+                            Button("Withdraw bid", role: .destructive) { store.act("Bid withdrawn") { $0.withdrawProposal(sol.id) } }
+                            Button("Keep the bid", role: .cancel) {}
+                        } message: {
+                            Text("The \(Fmt.money(bid.proposalCost)) you spent writing the proposal is not refunded. Bidding again before it closes on \(sol.closes.gameShort) costs another \(Fmt.money(AdvancedProjects.proposalCost(sol))).")
+                        }
                 } else {
                     if o.acceptable {
                         OddsBar(probability: o.p, label: "Win odds", good: 0.4, warning: 0.2)
@@ -680,8 +688,10 @@ private struct ProgrammeCard: View {
                     if sol.level > .unclassified {
                         let free = AdvancedProjects.freeCompute(s, sol.level, excluding: p.id)
                         Text("Cleared compute: \(Fmt.int(Int(p.compute))) of \(Fmt.int(Int(sol.computeH100e))) H100e").font(.caption.weight(.semibold))
-                        Slider(value: Binding(get: { p.compute }, set: { v in store.act { $0.setProgrammeCompute(p.id, (v / 8).rounded() * 8) } }),
-                               in: 0...max(8, min(free, sol.computeH100e * 1.5)))
+                        // 3.9: snap to 8s without overshooting what's free, so dragging to the end doesn't raise an error.
+                        let top = min(free, sol.computeH100e * 1.5)
+                        Slider(value: Binding(get: { p.compute }, set: { v in store.act { $0.setProgrammeCompute(p.id, min(top, (v / 8).rounded() * 8)) } }),
+                               in: 0...max(8, top))
                             .accessibilityLabel("Cleared compute")
                             .accessibilityValue("\(Fmt.int(Int(p.compute))) H100e")
                         Text("\(Fmt.int(Int(free))) H100e free in accredited facilities.").font(.caption2).foregroundStyle(.secondary)
@@ -838,6 +848,7 @@ private struct FacilitiesSection: View {
     let state: GameState
     @State private var kind: FacilityKind = .secureLab
     @State private var level = 1
+    @State private var closing: UUID? = nil
     @State private var sizeIndex = 0
     @State private var siteID: UUID? = nil
     @State private var roleFilter: Role? = nil
@@ -887,7 +898,19 @@ private struct FacilitiesSection: View {
                                 }
                             }
                             Spacer()
-                            Button("Close") { store.mutate { $0.closeFacility(f.id) } }.buttonStyle(.link).font(.caption)
+                            // 3.9: closing loses the build cost and can strip running programmes; confirm with both spelled out.
+                            Button(f.isReady(s.date) ? "Close…" : "Cancel build…") { closing = f.id }.buttonStyle(.link).font(.caption)
+                                .confirmationDialog("Close \(f.name)?", isPresented: Binding(get: { closing == f.id }, set: { if !$0 { closing = nil } }),
+                                                    titleVisibility: .visible) {
+                                    Button(f.isReady(s.date) ? "Close it" : "Cancel the build", role: .destructive) {
+                                        let refund = AdvancedProjects.closeRefund(s, f)
+                                        store.mutate { $0.closeFacility(f.id) }
+                                        store.show(refund > 0 ? "\(f.name) cancelled; \(Fmt.money(refund)) back" : "\(f.name) closed")
+                                    }
+                                    Button("Keep it", role: .cancel) {}
+                                } message: {
+                                    Text(AdvancedProjects.closeWarning(s, f.id))
+                                }
                         }
                     }
                     Divider()

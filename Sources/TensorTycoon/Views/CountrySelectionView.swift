@@ -593,7 +593,15 @@ private enum CountryText {
         var t = Fmt.money(p.cost) + " · "
         t += p.active(s.date) ? "until " + p.until.gameMonth : "ended " + p.until.gameMonth
         t += p.counted ? " · counted at a January review" : " · pushes " + c.name + "'s dials next January"
+        if p.kind == .universityChair && p.active(s.date) && !hiresIn(s, country: p.country, city: p.city) {
+            t += " · no office in \(c.city(p.city).name), so no hiring boost"   // 3.9: the pool bonus only reaches offices
+        }
         return t
+    }
+
+    /// Whether you recruit in a city: your headquarters or a satellite office there (where a university chair's pool and skill bonus land).
+    static func hiresIn(_ s: GameState, country: String, city: String) -> Bool {
+        (s.hqCountry == country && s.hqCity == city) || s.hq.satellites.contains { $0.country == country && $0.city == city }
     }
 }
 
@@ -746,7 +754,9 @@ struct NationalPartnershipsCard: View {
 
     var body: some View {
         let s = state
-        let cities: [(HQCountry, HQCity)] = CountryCatalog.all.flatMap { c in c.cities.map { (c, $0) } }
+        let all: [(HQCountry, HQCity)] = CountryCatalog.all.flatMap { c in c.cities.map { (c, $0) } }
+        // 3.9: cities you hire in first; a chair anywhere else does nothing for hiring.
+        let cities = all.filter { CountryText.hiresIn(s, country: $0.0.id, city: $0.1.id) } + all.filter { !CountryText.hiresIn(s, country: $0.0.id, city: $0.1.id) }
         let key = place.isEmpty ? "\(s.hqCountry)|\(s.hqCity)" : place
         let parts = key.split(separator: "|").map(String.init)
         let chosen = cities.first { $0.0.id == parts.first && $0.1.id == parts.last } ?? cities[0]
@@ -775,10 +785,18 @@ struct NationalPartnershipsCard: View {
             }
             .pickerStyle(.segmented)
             Picker("Where", selection: Binding(get: { key }, set: { place = $0 })) {
-                ForEach(cities.indices, id: \.self) { i in Text("\(cities[i].1.name), \(cities[i].0.name)").tag("\(cities[i].0.id)|\(cities[i].1.id)") }
+                ForEach(cities.indices, id: \.self) { i in
+                    let yours = CountryText.hiresIn(s, country: cities[i].0.id, city: cities[i].1.id)
+                    Text("\(cities[i].1.name), \(cities[i].0.name)\(yours ? " (you hire here)" : "")").tag("\(cities[i].0.id)|\(cities[i].1.id)")
+                }
             }
             .frame(maxWidth: 340)
             Text(kind.effect).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            if kind == .universityChair && !CountryText.hiresIn(s, country: chosen.0.id, city: chosen.1.id) {
+                ToneLabel(text: "You have no office in \(chosen.1.name), so the bigger candidate pool and skill bonus won't reach you until you open one there. The standing and the January review push still count.",
+                          tone: .warning, font: .caption)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             HStack {
                 Text("Costs \(Fmt.money(cost)) now.").font(.caption.weight(.semibold))
                 Spacer()

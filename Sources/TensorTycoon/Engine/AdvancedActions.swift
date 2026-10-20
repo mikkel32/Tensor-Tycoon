@@ -22,7 +22,7 @@ extension GameState {
         let o = AdvancedProjects.odds(sol, self, price: clamped)
         if let b = o.blockers.first { return b + "." }
         let cost = AdvancedProjects.proposalCost(sol)
-        guard cash >= cost else { return "Writing the proposal costs \(Fmt.money(cost))." }
+        guard cash >= cost else { return "Writing the proposal costs \(Fmt.money(cost)); you have \(Fmt.money(cash))." }
         cash -= cost
         month.costOther += cost
         advanced.engaged = true
@@ -30,9 +30,12 @@ extension GameState {
         return nil
     }
 
-    mutating func withdrawProposal(_ id: String) {
-        guard let i = advanced.solicitations.firstIndex(where: { $0.id == id }) else { return }
+    /// Take a bid back before the award. The proposal cost is spent either way (3.9: the view confirms first).
+    mutating func withdrawProposal(_ id: String) -> String? {
+        guard let i = advanced.solicitations.firstIndex(where: { $0.id == id }) else { return "That solicitation has closed." }
+        guard advanced.solicitations[i].bid != nil else { return "You have no bid in on it." }
         advanced.solicitations[i].bid = nil
+        return nil
     }
 
     /// Put an employee on (or take them off) a programme.
@@ -62,21 +65,30 @@ extension GameState {
         guard let i = advanced.programmes.firstIndex(where: { $0.id == pid }), advanced.programmes[i].status == .active else { return "That programme isn't active." }
         let sol = advanced.programmes[i].sol
         var added = 0
+        var short: [String] = []
+        var blocked: String? = nil   // 3.9: the first refusal (no free desk, usually), so a gap says why
         for (k, n) in sol.staff.sorted(by: { $0.key < $1.key }) {
             guard let role = Role(rawValue: k) else { continue }
-            let have = employees.filter { advanced.programmes[i].staff.contains($0.id) && $0.role == role }.count
+            var have = employees.filter { advanced.programmes[i].staff.contains($0.id) && $0.role == role }.count
             guard have < n else { continue }
             // Best people first, but those paid within the allowable-compensation cap before the stars the contract won't fully pay for.
             let cap = Macro.salary(role, year) * 1.5
             let pool = employees.filter { $0.role == role && !advanced.seconded.contains($0.id) && AdvancedProjects.clearanceLevel(self, $0.id) >= sol.classification }
                 .sorted { ($0.salary > cap ? 1 : 0, -$0.skill, $0.id.uuidString) < ($1.salary > cap ? 1 : 0, -$1.skill, $1.id.uuidString) }
-            for e in pool.prefix(n - have) where assignToProgramme(pid, employee: e.id, on: true) == nil { added += 1 }
+            for e in pool.prefix(n - have) {
+                if let why = assignToProgramme(pid, employee: e.id, on: true) { blocked = blocked ?? why } else { added += 1; have += 1 }
+            }
+            if have < n { short.append("\(n - have) \(n - have == 1 ? role.title.lowercased() : role.plural.lowercased())") }
         }
         if sol.level > .unclassified && advanced.programmes[i].compute < sol.computeH100e {
             let free = AdvancedProjects.freeCompute(self, sol.level, excluding: pid)
             advanced.programmes[i].compute = min(sol.computeH100e, free)
         }
-        return added == 0 && advanced.programmes[i].staff.isEmpty ? "Nobody suitable is free. Hire or clear more staff." : nil
+        guard !short.isEmpty else { return nil }
+        // 3.9: say what's still missing and why, instead of "Team assigned" over a half-empty team or blaming staff for a desk shortage.
+        let why = blocked.map { $0.prefix(1).lowercased() + $0.dropFirst() }
+            ?? (sol.level > .unclassified ? "nobody else in those roles is free and cleared \(sol.level.clearance). Hire, or start clearances." : "nobody else in those roles is free. Hire more staff.")
+        return "\(added > 0 ? "Assigned \(added); still" : "Still") short of \(short.joined(separator: ", ")): \(why)"
     }
 
     /// Cleared compute for a programme (from accredited facilities at or above its classification).
@@ -131,26 +143,49 @@ extension GameState {
         guard let p = advanced.programmes.first(where: { $0.id == pid }) else { return "That programme is gone." }
         guard p.sol.level > .unclassified else { return "Unclassified work needs no clearances." }
         var started = 0
+        var short: [String] = []
         for (k, n) in p.sol.staff.sorted(by: { $0.key < $1.key }) {   // fixed order: who gets put forward depends on it
             guard let role = Role(rawValue: k) else { continue }
-            started += clearPeople(role, n, level: p.sol.classification)
+            started += clearPeople(role, n, level: p.sol.classification, for: p)
+            let gap = clearanceGap(role, n, level: p.sol.classification, for: p)
+            if gap > 0 { short.append("\(gap) \(gap == 1 ? role.title.lowercased() : role.plural.lowercased())") }
         }
-        return started == 0 ? "No one else to put forward: hire more staff in the roles it needs." : nil
+        guard started == 0 else { return nil }
+        // 3.9: say whether the team is covered or who's missing, instead of one message for both.
+        if short.isEmpty { return "Everyone this programme needs is already cleared or under investigation." }
+        if let why = Progression.blocker(self, .classified) { return why }
+        let cost = AdvancedProjects.clearanceCost(p.sol.classification, year)
+        if cash < cost { return "An investigation costs \(Fmt.money(cost)); you have \(Fmt.money(cash))." }
+        return "No one else free to put forward. Hire \(short.joined(separator: ", ")) (people on other programmes don't count)."
+    }
+
+    /// People in a role who could join `programme`: everyone not seconded elsewhere (all staff when it's nil).
+    private func clearanceCandidates(_ role: Role, for programme: Programme?) -> [Employee] {
+        employees.filter { e in
+            e.role == role && (programme == nil || !advanced.seconded.contains(e.id) || programme!.staff.contains(e.id))
+        }
+    }
+
+    /// How many more people in a role need a clearance at `level` (held or under investigation) to reach `n`.
+    private func clearanceGap(_ role: Role, _ n: Int, level: Int, for programme: Programme?) -> Int {
+        let pending = Set(advanced.clearances.filter { $0.ready != nil && $0.target >= level }.map(\.employee))
+        let ok = clearanceCandidates(role, for: programme).filter { e in AdvancedProjects.clearanceLevel(self, e.id) >= level || pending.contains(e.id) }.count
+        return max(0, n - ok)
     }
 
     /// Put forward the best people in a role until `n` hold (or are being investigated for) a clearance at `level`.
+    /// With `programme`, people seconded to another programme don't count and aren't put forward (3.9: matches the plan).
     /// Returns the number of investigations started.
     @discardableResult
-    mutating func clearPeople(_ role: Role, _ n: Int, level: Int) -> Int {
-        let pending = Set(advanced.clearances.filter { $0.ready != nil && $0.target >= level }.map(\.employee))
-        let ok = employees.filter { e in e.role == role && (AdvancedProjects.clearanceLevel(self, e.id) >= level || pending.contains(e.id)) }.count
-        guard ok < n else { return 0 }
-        let pool = employees.filter { e in
-            e.role == role && AdvancedProjects.clearanceLevel(self, e.id) < level
+    mutating func clearPeople(_ role: Role, _ n: Int, level: Int, for programme: Programme? = nil) -> Int {
+        let need = clearanceGap(role, n, level: level, for: programme)
+        guard need > 0 else { return 0 }
+        let pool = clearanceCandidates(role, for: programme).filter { e in
+            AdvancedProjects.clearanceLevel(self, e.id) < level
                 && !(advanced.clearances.first { $0.employee == e.id }.map { $0.ready != nil || ($0.deniedAt > 0 && $0.deniedAt <= level) } ?? false)
         }.sorted { ($0.skill, $1.id.uuidString) > ($1.skill, $0.id.uuidString) }
         var started = 0
-        for e in pool.prefix(n - ok) where requestClearance(e.id, level: level) == nil { started += 1 }
+        for e in pool.prefix(need) where requestClearance(e.id, level: level) == nil { started += 1 }
         return started
     }
 
@@ -195,10 +230,18 @@ extension GameState {
         return nil
     }
 
-    /// Close a facility (no refund; programmes using it lose their compute or desks).
-    mutating func closeFacility(_ id: UUID) {
+    /// Close a facility; programmes using it lose their compute, desks or bay. A finished one refunds nothing; one still
+    /// being built returns half of the unbuilt share of its cost (3.9). Returns the refund.
+    @discardableResult
+    mutating func closeFacility(_ id: UUID) -> Double {
+        let refund = advanced.facilities.first { $0.id == id }.map { AdvancedProjects.closeRefund(self, $0) } ?? 0
         advanced.facilities.removeAll { $0.id == id }
         AdvancedProjects.clampCompute(&self)
+        if refund > 0 {
+            cash += refund
+            month.capex -= refund
+        }
+        return refund
     }
 
     /// Hand a programme back. On a contract it counts as default (with the repayments its terms set out); a grant or prize
@@ -208,6 +251,45 @@ extension GameState {
         let lapse = advanced.programmes[i].sol.type == .grant || advanced.programmes[i].sol.type == .prize
         AdvancedProjects.terminate(&self, i, lapse ? .lapsed : .terminated, "you walked away from it")
         AdvancedProjects.syncSeconded(&self)
+    }
+}
+
+// MARK: - 3.9: what closing a facility costs
+
+extension AdvancedProjects {
+    /// Cash back for closing a facility: half the share of its build cost not yet spent, while it's still being built.
+    static func closeRefund(_ s: GameState, _ f: SecureFacility) -> Double {
+        guard !f.isReady(s.date) else { return 0 }
+        let total = f.ready.timeIntervalSince(f.started), left = f.ready.timeIntervalSince(s.date)
+        return total > 0 ? f.capex * 0.5 * clamp(left / total, 0, 1) : 0
+    }
+
+    /// The confirmation text for closing a facility: the money lost and the active programmes that lose compute, desks or their bay.
+    static func closeWarning(_ s: GameState, _ id: UUID) -> String {
+        guard let f = s.advanced.facilities.first(where: { $0.id == id }) else { return "" }
+        let refund = closeRefund(s, f)
+        var out = refund > 0
+            ? "It's still being built: \(Fmt.money(refund)) of the \(Fmt.money(f.capex)) build cost comes back, the rest is lost."
+            : "The \(Fmt.money(f.capex)) build cost is not refunded."
+        var after = s
+        after.advanced.facilities.removeAll { $0.id == id }
+        clampCompute(&after)
+        var hit: [String] = []
+        for p in s.advanced.programmes where p.status == .active {
+            guard let q = after.advanced.programmes.first(where: { $0.id == p.id }) else { continue }
+            var lose: [String] = []
+            if q.compute < p.compute - 0.5 { lose.append("\(Fmt.int(Int(p.compute - q.compute))) H100e of compute") }
+            if p.sol.level > .unclassified && !p.staff.isEmpty {
+                let L = p.sol.classification
+                let before = seatsAssigned(s, atLeast: L) - seatCapacity(s, atLeast: L)
+                let now = seatsAssigned(after, atLeast: L) - seatCapacity(after, atLeast: L)
+                if now > max(0, before) { lose.append("desks for \(Fmt.int(Int(now - max(0, before)))) staff") }
+            }
+            if p.template?.facility == f.kind && hasSpace(s, p) && !hasSpace(after, p) { lose.append("its \(f.kind.short.lowercased())") }
+            if !lose.isEmpty { hit.append("\(p.sol.title) loses \(lose.joined(separator: " and "))") }
+        }
+        if !hit.isEmpty { out += " " + hit.joined(separator: "; ") + ". Work slows, and a programme far behind schedule can get a cure notice." }
+        return out
     }
 }
 

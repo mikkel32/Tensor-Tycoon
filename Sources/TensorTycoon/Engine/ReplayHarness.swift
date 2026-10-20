@@ -63,6 +63,9 @@ enum ReplayHarness {
             }
             if t == "auto:price" { s.autoSubPrice = true; continue }
             if t == "evenshortage" { s.evenShortage = true; continue }
+            // 3.9: relax prints the security confirmation text and drops a level; safety:<n> bumps the score as a decision would.
+            if t == "relax" { print("relax warning: \(SecurityOps.relaxWarning(s))"); print("relax: \(s.downgradeSecurity() ?? "ok") -> \(s.security.title)"); continue }
+            if t.hasPrefix("safety:") { s.safetyScore = clamp(s.safetyScore + (Double(t.dropFirst(7)) ?? 0), 0, 100); print("safety bumped to \(Fmt.trim(s.safetyScore, 1))"); continue }
             if t == "ops:autoscale" { s.ops.autoscale = true; continue }
             if t.hasPrefix("ops:") {
                 // ops:all, ops:recommended, ops:<delegate> (autoscale, autoLaunch, autoRenew, leaseIdle, autoHire, autoRaises, autoLeads, autoTrain)
@@ -205,6 +208,7 @@ enum ReplayHarness {
         if ProcessInfo.processInfo.environment["REPLAY_ADVISOR"] != nil {
             for i in Advisor.items(s, pools: pools) { print("    ADVISOR[\(i.level)] \(i.title) — \(i.detail)\(i.fix == nil ? "" : "  [\(i.fixLabel)]")") }
         }
+        if ProcessInfo.processInfo.environment["REPLAY_SAFETY"] != nil { print("    SAFETY \(Fmt.trim(s.safetyScore, 1)) (carried adjustment \(Fmt.trim(s.safetyAdjust, 2))) · \(s.security.title)") }
         for a in s.alerts where a.date == s.date { print("    ALERT\(a.critical ? "!" : ""): \(a.title) — \(a.body)") }
         for n in s.news.prefix(12) where n.date == s.date && (n.title.hasPrefix("Inbox:") || n.title.contains("ovenant") || n.title.contains("enalty")) {
             print("    NEWS: \(n.title) — \(n.body)")

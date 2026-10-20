@@ -161,6 +161,7 @@ extension ScenarioHarness {
         r.expect("the award draws down OADR's budget", AdvancedProjects.obligations(oadr, s) >= (s.advanced.programmes.first { $0.id == id }?.value ?? 0) / Double(sol.months) * 12 - 1,
                  "\(Fmt.money(AdvancedProjects.obligations(oadr, s))) committed of \(Fmt.money(AdvancedProjects.agencyBudget(oadr, s)))")
         mechanics(s, oadr, &r)
+        warnings(s, id, sol, &r)
 
         // 8. Month by month to delivery.
         var maxStage = ProgrammeStage.award, months = 0, contractRevenue = 0.0, paidSeen = 0
@@ -363,5 +364,41 @@ extension ScenarioHarness {
         r.expect("without cleared officers every facility is suspended and cleared compute drops to nothing",
                  g.advanced.facilities.allSatisfy { !$0.suspension.isEmpty } && AdvancedProjects.computeCapacity(g, atLeast: 1) == 0
                     && g.advanced.programmes.filter { $0.status == .active && $0.sol.level > .unclassified }.allSatisfy { $0.compute == 0 })
+    }
+}
+
+extension ScenarioHarness {
+    /// 3.9 side branches (copies): the staffing, closing and relaxing messages say what's really at stake.
+    static func warnings(_ s: GameState, _ id: UUID, _ sol: Solicitation, _ r: inout Report) {
+        guard let pi = s.advanced.programmes.firstIndex(where: { $0.id == id }) else { return }
+        // A second programme at the same level: people seconded to the first don't count as its team.
+        var dup = s
+        var second = dup.advanced.programmes[pi]
+        second.id = UUID()
+        second.staff = []
+        dup.advanced.programmes.append(second)
+        let before = dup.advanced.clearances.filter { $0.ready != nil }.count
+        let msg = dup.clearTeamFor(second.id)
+        let started = dup.advanced.clearances.filter { $0.ready != nil }.count - before
+        r.expect("clearances for a second programme put forward free staff, not those already seconded", msg == nil ? started > 0 : msg!.contains("Hire"),
+                 msg ?? "\(started) investigations started")
+        // No desks: auto-staff says so instead of blaming staffing.
+        var nodesk = s
+        nodesk.advanced.facilities.removeAll { $0.kind == .secureLab }
+        for e in s.advanced.programmes[pi].staff { _ = nodesk.assignToProgramme(id, employee: e, on: false) }
+        let desk = nodesk.autoStaffProgramme(id)
+        r.expect("auto-staff without a secure lab names the missing desks", desk?.contains("desk") == true, desk ?? "no message")
+        // Closing the compute centre: the warning names the cost and the programme, and a finished facility refunds nothing.
+        if let cf = s.advanced.facilities.first(where: { $0.kind.isCompute && $0.isReady(s.date) }) {
+            let w = AdvancedProjects.closeWarning(s, cf.id)
+            var closed = s
+            let refund = closed.closeFacility(cf.id)
+            r.expect("closing a compute centre warns about the lost build cost and the programme's compute",
+                     w.contains("not refunded") && w.contains(sol.title) && w.contains("H100e") && refund == 0, w)
+        }
+        if s.security.rawValue == sol.level.requiredSL {
+            let w = SecurityOps.relaxWarning(s)
+            r.expect("relaxing security warns of the stop-work order on this programme", w.contains(sol.title) && w.contains("Stop-work"), w)
+        }
     }
 }

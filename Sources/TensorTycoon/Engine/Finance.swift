@@ -234,8 +234,13 @@ enum Monthly {
         let safetyTeam = s.workforce(.safety)
         let released = s.releasedModels
         let modelSafety = released.isEmpty ? 40 : released.map(\.safety).reduce(0, +) / Double(released.count)
+        // 3.9: bumps from decisions, bills and security events since the last close carry over and fade 10% a month,
+        // instead of snapping back when the score is rebuilt.
+        if s.safetyLastClose > 0 { s.safetyAdjust += s.safetyScore - s.safetyLastClose }
+        s.safetyAdjust = clamp(s.safetyAdjust * 0.9, -30, 30)
         s.safetyScore = clamp(modelSafety * 0.6 + b.safety * 0.4 + min(25, safetyTeam * 4) + 10 * s.swarmSafety + s.traits.safety * 0.5
-                              + (s.lawsPassed.contains("transparency") ? 5 : 0), 0, 100)
+                              + (s.lawsPassed.contains("transparency") ? 5 : 0) + s.safetyAdjust, 0, 100)
+        s.safetyLastClose = max(0.01, s.safetyScore)   // never 0, which means "not tracked yet"
 
         People.monthly(&s)
         Competitors.monthly(&s)
