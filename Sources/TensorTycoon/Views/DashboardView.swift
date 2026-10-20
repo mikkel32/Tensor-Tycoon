@@ -26,6 +26,7 @@ struct DashboardView: View {
         Page(title: "Today", subtitle: "Your dashboard: what needs you, how the race stands, the business and the work in progress.", screen: .dashboard) {
             ScreenHint(.dashboard)
             TodayHeader(state: s, derived: d, race: race)
+            HealthStrip(tiles: Health.tiles(s, pools: d.pools))   // 3.9
 
             DashboardSection(title: "Needs you", symbol: "exclamationmark.bubble.fill",
                              subtitle: needs.isEmpty ? "Nothing waiting on you" : "\(needs.count) item\(needs.count == 1 ? "" : "s") to look at") {
@@ -170,6 +171,38 @@ private struct TodayHeader: View {
         if let dc = s.sites.filter({ $0.kind == .datacenter && $0.isReady(s.date) }).max(by: { $0.capacityKW < $1.capacityKW }) { return dc.location.image }
         if s.sites.contains(where: { $0.kind == .colo }) { return "dc_corridor" }
         return Economy.office(s, s.officeLevel).image
+    }
+}
+
+/// 3.9: the lab's vital signs, each coloured by whether it needs you, each a link to the screen behind it.
+private struct HealthStrip: View {
+    @Environment(GameStore.self) private var store
+    let tiles: [Health.Tile]
+
+    var body: some View {
+        KPIRow(minWidth: 200) {
+            ForEach(tiles) { t in
+                let tint: Color = switch t.tone { case .good: Theme.good; case .watch: .orange; case .bad: Theme.bad }
+                Button { store.open(t.screen) } label: {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 6) {
+                            Image(systemName: t.symbol).font(.caption.weight(.bold)).foregroundStyle(tint)
+                            Text(t.title).font(TypeRamp.label).foregroundStyle(.secondary)
+                            Spacer(minLength: 0)
+                            Circle().fill(tint).frame(width: 8, height: 8).accessibilityLabel(t.tone == .good ? "Fine" : (t.tone == .watch ? "Watch" : "Needs attention"))
+                        }
+                        Text(t.value).font(.headline.monospacedDigit()).lineLimit(1).minimumScaleFactor(0.7)
+                        Text(t.detail).font(.caption).foregroundStyle(.secondary).lineLimit(3, reservesSpace: true).multilineTextAlignment(.leading)
+                    }
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(.background.secondary, in: .rect(cornerRadius: Theme.Radius.tile))
+                    .overlay(RoundedRectangle(cornerRadius: Theme.Radius.tile).strokeBorder(t.tone == .good ? Color.secondary.opacity(0.25) : tint.opacity(0.6), lineWidth: t.tone == .good ? 0.5 : 1))
+                }
+                .buttonStyle(.plain)
+                .help("Open \(t.screen.title)")
+            }
+        }
     }
 }
 
