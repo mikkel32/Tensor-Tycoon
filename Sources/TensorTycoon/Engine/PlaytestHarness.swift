@@ -7,7 +7,13 @@ import Foundation
 ///
 /// flags (comma-separated, optional): cautious (20% of cash per run, current-gen chips only, slow hiring, no research
 /// compute, no growth rounds), norent (never rents: garage GPUs only), hard / easy (difficulty), noresearchcompute,
-/// autorollback, noquick.
+/// autorollback, noquick, hq=<country>[:<city>] (headquarters, e.g. hq=fr:grenoble; unknown places print a warning),
+/// lean (half the usual training budget: smaller models), coding (specialist coding models), advproj (government
+/// contracts, one unclassified programme at a time), classified (also prepares for and runs Secret work: security,
+/// clearances, facilities; it retains classified discoveries internally), noreport (no programme report at the end),
+/// science (science labs), data (the data economy: datasets, annotation, synthetic data, processing), semis (3.9: run
+/// a chip business), orgs (3.9: found an AI organisation), fillroles (when nobody fits the role furthest below its
+/// share, hire for the next short role instead of nobody).
 ///
 /// Output: a monthly table (every 3rd month unless mode is `full`), an event log, every training run (plan vs actual
 /// days, forecast vs actual capability), a summary of pacing metrics, and `CSV,` rows for offline aggregation.
@@ -148,6 +154,10 @@ struct PTSummary {
     var idleAvg = 0.0
     /// 3.7: company stages reached, with the month of the game.
     var stages: [String] = []
+    /// 3.8: the largest month-close cash residual (Books.residual) and its month; the crises the game went through.
+    var worstResidual = 0.0
+    var worstResidualLabel = "-"
+    var crises: [String] = []
 }
 
 struct PTBot {
@@ -202,6 +212,12 @@ enum PTPlay {
         if let hq = flags.first(where: { $0.hasPrefix("hq=") })?.dropFirst(3).split(separator: ":") {   // 3.5: e.g. hq=fr:grenoble
             settings.hqCountry = hq.first.map(String.init) ?? "us"
             settings.hqCity = hq.count > 1 ? String(hq[1]) : ""
+            // 3.4 overhaul: say so when the flag names a place the game doesn't know (it falls back to a default).
+            if CountryCatalog.byID[settings.hqCountry] == nil {
+                print("WARNING: unknown hq=\(settings.hqCountry) (known: \(CountryCatalog.all.map(\.id).joined(separator: ", "))); playing from San Francisco")
+            } else if !settings.hqCity.isEmpty, !CountryCatalog.get(settings.hqCountry).cities.contains(where: { $0.id == settings.hqCity }) {
+                print("WARNING: unknown city \(settings.hqCity) for hq=\(settings.hqCountry) (known: \(CountryCatalog.get(settings.hqCountry).cities.map(\.id).joined(separator: ", "))); using \(CountryCatalog.get(settings.hqCountry).cities[0].id)")
+            }
         }
         var s = NewGame.create(settings, seed: seed)
         var bot = PTBot()
@@ -220,19 +236,23 @@ enum PTPlay {
         var idleChipDays = 0.0, rentedChipDays = 0.0
         let researched0 = s.researched.count
 
-        if mode != "quiet" {
+        if mode != "quiet" && mode != "silent" {
             print("\n================ \(era) era · seed \(seed) · \(Int(years)) years ================")
             let top = Leaderboard.entries(s, includeUnreleased: false).max { $0.index < $1.index }
-            print("Start \(s.date.gameShort): cash \(m(s.cash)), \(s.owned.first.map { "\($0.count)× \($0.accelID)" } ?? "no chips"), \(s.employees.count) staff, "
+            print("Start \(s.date.gameShort) in \(HQ.place(s)): cash \(m(s.cash)), \(s.owned.first.map { "\($0.count)× \($0.accelID)" } ?? "no chips"), \(s.employees.count) staff, "
                   + "world #1 \(top.map { "\($0.model) idx \(Fmt.score($0.index))" } ?? "NONE (empty leaderboard)"), frontier c \(Fmt.trim(Macro.frontier(s.year), 2))")
         }
 
+        let traceBooks = flags.contains("books")   // 3.8: print every step that moves cash the books can't explain
+        var ledger = traceBooks ? ledgerTotal(s) : 0
         act(&s, &bot)
+        if traceBooks { ledgerTrace(s, &ledger, "start actions") }
         for _ in 0..<totalDays {
             let month = s.date.ym
             let newsBefore = s.unreadNews
             let actionsBefore = bot.actions
             Sim.advanceDay(&s)
+            if traceBooks { ledgerTrace(s, &ledger, "day") }
             var stopped: String? = nil
             if s.pauseRequested {
                 s.pauseRequested = false
@@ -258,8 +278,10 @@ enum PTPlay {
                 decided += 1
             }
             resolve(&s, &bot)
+            if traceBooks { ledgerTrace(s, &ledger, "decisions") }
             if s.gameOver != nil { break }
             act(&s, &bot)
+            if traceBooks { ledgerTrace(s, &ledger, "actions") }
             if bot.actions == actionsBefore && decided == 0 { idle += 1 }
             for p in Economy.pools(s) where p.rented > 0 {
                 rentedChipDays += Double(p.rented)
@@ -329,14 +351,43 @@ enum PTPlay {
         sum.newsAvg = rows.isEmpty ? 0 : Double(rows.reduce(0) { $0 + $1.worldNews }) / Double(rows.count)
         sum.importantAvg = rows.isEmpty ? 0 : Double(rows.reduce(0) { $0 + $1.important }) / Double(rows.count)
 
+        if let w = Books.worstResidual(s) { sum.worstResidual = w.amount; sum.worstResidualLabel = w.month.gameMonth }   // 3.8
+        sum.crises = (s.corp.cycle.past.reversed() + s.corp.cycle.active).map { "\($0.kind.rawValue) \($0.start.gameMonth)–\($0.end.gameMonth) (\(Fmt.trim($0.severity, 2)))" }
         sum.stages = s.progression.reached.sorted { $0.key < $1.key }.map { k, v in
             "\(CompanyStage(rawValue: k)?.title ?? "?") \(Fmt.trim(Double(d(start, v)) / 30.44, 0))mo"
         }   // 3.7
-        if mode != "quiet" { printGame(rows, sum, bot, s, mode: mode) }
-        if flags.contains("advproj") { for line in AdvancedProjects.report(s) { print(line) } }
-        if flags.contains("science") { scienceSummary(s, seed: seed) }
+        if mode != "quiet" && mode != "silent" { printGame(rows, sum, bot, s, mode: mode) }
+        if mode != "silent" {   // `silent`: harnesses that only want the final state
+            if mode != "quiet" || flags.contains(where: { $0.hasPrefix("hq=") }) { print(hqSummary(s)) }   // 3.4 overhaul
+            if flags.contains("booking") {   // 3.8: what the go-to-market booked and turned away, month by month
+                for h in s.history where h.commercialRevenue > 0 || h.revUnbooked > 0 {
+                    print("BOOK \(h.month.gameMonth): booked \(m(h.commercialRevenue)) · unbooked \(m(h.revUnbooked)) (\(h.bookingLimit.isEmpty ? "-" : h.bookingLimit)) · staff \(h.headcount) · API share \(Fmt.pct(h.apiShare, decimals: 1))")
+                }
+            }
+            if (flags.contains("advproj") || flags.contains("classified")) && !flags.contains("noreport") { for line in AdvancedProjects.report(s) { print(line) } }
+            if flags.contains("science") { scienceSummary(s, seed: seed) }
+            if flags.contains("data") { dataSummary(s, seed: seed) }
+            if flags.contains("semis") { print("Seed \(seed) chip business:"); for line in Semis.report(s) { print(line) } }   // 3.9
+            if flags.contains("orgs") { print("Seed \(seed) organisations:"); for line in AgentOrgs.summary(s) { print(line) } }   // 3.9
+        }
         lastState = s
         return sum
+    }
+
+    // MARK: Books (3.8)
+
+    /// Everything the books haven't explained since the game began: closed months' residuals plus the open month's.
+    static func ledgerTotal(_ s: GameState) -> Double {
+        s.history.reduce(0) { $0 + (Books.residual($1, cashEnd: $1.cashEnd) ?? 0) } + (Books.openResidual(s) ?? 0)
+    }
+
+    /// Prints a step that moved cash without a matching entry, with the day's headlines to say what it was.
+    static func ledgerTrace(_ s: GameState, _ last: inout Double, _ step: String) {
+        let now = ledgerTotal(s)
+        defer { last = now }
+        guard abs(now - last) > Books.tolerance(s.cash) else { return }
+        let today = s.news.prefix { $0.date >= GameCalendar.addDays(s.date, -1) }.prefix(4).map(\.title).joined(separator: " | ")
+        print("LEDGER \(s.date.gameShort) [\(step)] unexplained \(Fmt.money(now - last)) (cash \(Fmt.money(s.cash))) · \(today)")
     }
 
     // MARK: Monthly row
@@ -396,6 +447,7 @@ enum PTPlay {
 
     static func choice(_ dd: Decision, _ s: GameState) -> Int {
         switch dd.kind {
+        case AdvancedProjects.secrecyKind: return AdvancedProjects.botSecrecyChoice(dd)   // 3.8: retain it internally
         case "loss_spike": return 0                           // roll back, safest
         case "train_bug": return 1                            // hot-fix and keep going
         case "contamination": return 0
@@ -426,6 +478,7 @@ enum PTPlay {
         case "swarm_audit": return s.cash > dd.amount * 4 ? 0 : 1
         case Science.decisionKind: return scienceChoice(dd, s)   // 3.6
         case Launches.decisionKind: return 1   // 3.7: let it ride
+        case Semis.rivalKind: return 1   // 3.9: don't arm rival labs with your chips
         default: return 0
         }
     }
@@ -467,9 +520,14 @@ enum PTPlay {
             // 3.4: launch product lines once they open, when the launch is small next to the cash pile.
             for p in ProductLines.catalog where ProductLines.status(p, s).ok && !s.productLines.contains(where: { $0.id == p.id })
                 && s.cash > 10 * ProductLines.launchCost(p, s.year) { _ = s.launchProduct(p.id) }
-            if bot.flags.contains("advproj") { AdvancedProjects.botAct(&s) }   // 3.5: bid on one government contract at a time
+            if bot.flags.contains("advproj") || bot.flags.contains("classified") {   // 3.5: bid on one government contract at a time
+                AdvancedProjects.botAct(&s, classified: bot.flags.contains("classified"))   // 3.8: and get ready for Secret work
+            }
             if bot.flags.contains("science") { science(&s) }   // 3.6: science labs (only with the flag)
+            if bot.flags.contains("semis") { Semis.botAct(&s) }   // 3.9: a chip business (design, foundry, packaging, fleet, sales)
+            if bot.flags.contains("orgs") { AgentOrgs.botAct(&s) }   // 3.9: one AI organisation of sensible size
         }
+        if bot.flags.contains("data") { dataBot(&s) }   // data economy: datasets, annotation, synthetic data, processing (only with the flag)
     }
 
     /// Make sure `n` chips of `id` are free, renting on demand if needed. Returns the free count afterwards.
@@ -535,6 +593,8 @@ enum PTPlay {
         d.mtp = b.has(.mtp)
         d.anneal = b.has(.curriculum)
         d.schedule = b.has(.wsd) ? .wsd : .cosine
+        d.safetyEvals = s.researched.contains("evals_rsp")
+        d.spares = d.chips >= 50_000 ? 0.02 : 0   // a sensible player keeps hot spares on a giant cluster
         d.syntheticShare = b.has(.syntheticData) ? 0.2 : 0
         d.safetyTraining = s.year >= 2023
         if b.has(.moe) { d.activeFraction = b.has(.fineMoE) ? 1.0 / 32 : 1.0 / 16 }
@@ -598,7 +658,7 @@ enum PTPlay {
             }
             return
         }
-        let budget = trainingBudget(s)
+        let budget = trainingBudget(s) * (bot.flags.contains("lean") ? 0.5 : 1)   // 3.4 overhaul: `lean` trains smaller, cheaper models
         guard budget > 20_000, s.date >= bot.nextPlan else { return }
         var best: (d: ModelDesign, a: Accelerator, c: Double, cost: Double, days: Double)? = nil
         let owned = Set(s.owned.map(\.accelID))
@@ -615,7 +675,8 @@ enum PTPlay {
             // so shrink the cluster until it looks healthy.
             var found: (ModelDesign, Physics.Estimate)? = nil
             for _ in 0..<14 where n >= 1 {
-                let dz = design(s, a, chips: n, days: trainDays, name: "x", b: b)
+                var dz = design(s, a, chips: n, days: trainDays, name: "x", b: b)
+                if bot.flags.contains("coding") { dz.objective = .coding }   // 3.4 overhaul: specialist coding models
                 guard Physics.trainingMemory(dz, accel: a, bonuses: b).ok, let est = Physics.estimate(dz, state: s) else { break }
                 if est.goodput >= 0.6 && est.days < 150 { found = (dz, est); break }
                 bot.lowGoodputSkips += 1
@@ -640,7 +701,8 @@ enum PTPlay {
         guard have >= 1 else { return }
         bot.runN += 1
         let name = "PT-\(bot.runN)"
-        let dz = design(s, pick.a, chips: min(have, pick.d.chips), days: trainDays, name: name, b: b)
+        var dz = design(s, pick.a, chips: min(have, pick.d.chips), days: trainDays, name: name, b: b)
+        if bot.flags.contains("coding") { dz.objective = .coding }
         if let err = s.startTraining(dz, lr: .standard, checkpointEvery: 0.1, autoRollback: bot.flags.contains("autorollback")) {
             bot.log.append("\(s.date.gameShort) start error: \(err)")
             return
@@ -785,13 +847,14 @@ enum PTPlay {
     static let roleMix: [(Role, Double)] = [(.researcher, 0.40), (.mlEngineer, 0.25), (.infra, 0.10), (.data, 0.10), (.sales, 0.10), (.safety, 0.05)]
 
     static func hiring(_ s: inout GameState, _ bot: inout PTBot) {
-        // Office first.
-        if s.employees.count >= Economy.officeCapacity(s) - 1, s.officeLevel + 1 < Economy.officeLevels.count {
-            let next = Economy.officeLevels[s.officeLevel + 1]
+        // Office first (headquarters at local rent; satellites have their own desks).
+        if HQ.staffCount(s, office: "") >= Economy.office(s, s.officeLevel).capacity - 1, s.officeLevel + 1 < Economy.officeLevels.count {
+            let next = Economy.office(s, s.officeLevel + 1)
             if next.monthly * 3 < s.cash * 0.05 && next.monthly < max(s.cash / 40, Economy.runRate(s) / 12 * 0.1) {
                 if s.upgradeOffice() == nil { bot.actions += 1; bot.events.append("office → \(next.name)") }
             }
         }
+        satellites(&s, &bot)   // 3.4 overhaul
         var hired: [String] = []
         let maxHires = bot.flags.contains("cautious") ? 1 : max(2, s.employees.count / 4)
         for _ in 0..<maxHires {
@@ -799,19 +862,80 @@ enum PTPlay {
             let payroll = Economy.payrollYear(s)
             let allowance = max(0.25 * s.cash, 0.35 * Economy.runRate(s))
             let n = Double(s.employees.count + 1)
-            var role = Role.researcher, deficit = -Double.infinity
+            // The role furthest below its share. With `fillroles` (3.4 overhaul), when nobody suitable is on the market
+            // for it, the next role still below its share, as a player would, instead of hiring nobody that month.
+            var gaps: [(role: Role, gap: Double)] = []
             for (r, f) in roleMix {
                 let have = Double(s.employees.filter { $0.role == r }.count)
-                if f * n - have > deficit { deficit = f * n - have; role = r }
+                gaps.append((r, f * n - have))
             }
-            let pool = s.candidates.filter { $0.role == role && payroll + $0.salary <= allowance && $0.salary * 0.15 < s.cash * 0.02 }
-            guard let c = pool.max(by: { $0.skill / pow($0.salary, 0.5) < $1.skill / pow($1.salary, 0.5) }) else { break }
+            var order: [Role] = []
+            var left = gaps
+            while !left.isEmpty {
+                // The first largest gap, in roleMix order (as before when the top role is on the market).
+                var k = 0
+                for i in left.indices where left[i].gap > left[k].gap { k = i }
+                if order.isEmpty || (left[k].gap > 0 && bot.flags.contains("fillroles")) { order.append(left[k].role) }
+                left.remove(at: k)
+            }
+            // 3.8: when the team is what holds bookings back, the first hire is a salesperson.
+            if hired.isEmpty, s.history.last?.bookingLimit == Commercial.Limit.team.rawValue, s.candidates.contains(where: { $0.role == .sales }) {
+                order.removeAll { $0 == .sales }
+                order.insert(.sales, at: 0)
+                if !bot.flags.contains("fillroles") { order = [.sales] }
+            }
+            var pick: Candidate? = nil
+            for role in order {
+                let pool = s.candidates.filter { c in
+                    c.role == role && payroll + c.salary <= allowance && c.salary * 0.15 < s.cash * 0.02 && HQ.hasSeat(s, c)
+                }
+                if let c = pool.max(by: { a, b in a.skill / pow(a.salary, 0.5) < b.skill / pow(b.salary, 0.5) }) {
+                    pick = c
+                    break
+                }
+            }
+            guard let c = pick else { break }
             if s.hire(c.id) == nil { hired.append("\(c.role.rawValue) \(Int(c.skill))") }
         }
         if !hired.isEmpty {
             bot.actions += 1
             bot.events.append("hired \(hired.count)")
         }
+    }
+
+    /// 3.4 overhaul: with a thin local talent pool (never in San Francisco), a growing lab opens satellite offices in
+    /// deeper pools once it can easily afford them, and adds desks as they fill.
+    static func satellites(_ s: inout GameState, _ bot: inout PTBot) {
+        guard !HQ.isDefault(s) else { return }
+        for o in s.hq.satellites where HQ.staffCount(s, office: o.id.uuidString) >= o.seats - 5 && o.seats < HQ.satelliteMaxSeats
+            && HQ.satelliteExpandCost(o) < s.cash * 0.01 {
+            if s.expandSatellite(o.id) == nil { bot.actions += 1; bot.events.append("\(HQ.officeName(s, o.id.uuidString)) office +\(HQ.satelliteStep) desks") }
+        }
+        // Only while the home market is still thin: once relocating hires fill a San Francisco-sized pool, a satellite
+        // is a choice of city, not a necessity.
+        let base = 8 + min(8, HQ.staffCount(s, office: "") / 20)
+        let local = HQ.country(s).talentPool * HQ.city(s).talent
+        guard local < 0.8, HQ.candidateTargets(s, base).total < base, s.employees.count >= 25, s.hq.satellites.count < 2 else { return }
+        if let last = s.hq.satellites.map(\.opened).max(), GameCalendar.daysBetween(last, s.date) < 540 { return }
+        let options = [("fr", "paris"), ("us", "sf"), ("it", "milan")].filter { pair in
+            !(pair.0 == s.hqCountry && pair.1 == s.hqCity) && !s.hq.satellites.contains { $0.country == pair.0 && $0.city == pair.1 }
+        }
+        guard let first = options.first, HQ.satelliteOpenCost(s, country: first.0, city: first.1) < s.cash * 0.02 else { return }
+        let (c, city) = first
+        if s.openSatellite(country: c, city: city) == nil { bot.actions += 1; bot.events.append("opened an office in \(CountryCatalog.get(c).city(city).name)") }
+    }
+
+    /// 3.4 overhaul: what home gave and took over the game, for per-headquarters comparisons.
+    static func hqSummary(_ s: GameState) -> String {
+        let tax = s.history.reduce(0) { $0 + $1.taxes }
+        let years = max(0.1, Double(GameCalendar.daysBetween(s.startDate, s.date)) / 365)
+        let h = s.hq
+        let sats = s.hq.satellites.map { "\(HQ.officeName(s, $0.id.uuidString)) \(HQ.staffCount(s, office: $0.id.uuidString))/\($0.seats)" }
+        return "  HQ \(HQ.place(s)): tax paid \(m(tax)) · R&D relief \(m(h.rdCredits))\(h.rdCarry > 1 ? " (+\(m(h.rdCarry)) carried)" : "")"
+            + " · grants \(m(h.grants)) + compute \(m(h.computeGrants)) (\(h.grantOffers) offers, \(Fmt.trim(Double(h.grantOffers) / years, 2))/yr)"
+            + " · build incentives \(m(h.rebates)) · national contracts \(h.contracts) (\(m(h.contractRevenue)))"
+            + (h.minimumTax > 0 ? " · minimum tax \(m(h.minimumTax))" : "") + " · industrial partnerships \(h.partnerships) · national partnerships \(h.partners.count)"
+            + " · staff \(HQ.staffCount(s, office: "")) at HQ\(sats.isEmpty ? "" : ", offices: " + sats.joined(separator: ", ")) · safety \(Int(s.safetyScore))"
     }
 
     static let perkOrder = ["r1", "c1", "p1", "r2", "p2", "c2", "f1", "r3", "p3", "c3", "r4", "p4", "c4", "f2", "f3", "f4", "s1", "s2", "s3", "s4"]
@@ -988,6 +1112,7 @@ enum PTPlay {
         print("  min cash \(m(sum.minCash)) (\(sum.minCashLabel)) · days cash<0: \(sum.daysNegative) · raises \(sum.raises) for \(m(sum.raised)) · lowball term sheets declined \(sum.lowballs) · acquisition offers \(sum.acqOffers) (best \(m(sum.acqBest)))")
         print("  bot actions/mo \(Fmt.trim(sum.actionsAvg, 1)) · days/mo with nothing to do \(Fmt.trim(sum.idleAvg, 1)) · candidate designs skipped for goodput<60%: \(sum.lowGoodputSkips) · stalled runs cancelled: \(sum.cancelledStalls) · days waiting because nothing beats current model: \(sum.ceilingDays)")
         print("  valuation month-on-month: max jump ×\(Fmt.trim(sum.maxValJump, 1)), max drop \(Fmt.pct(sum.maxValDrop, decimals: 0)) · peak fleet \(sum.maxChips) chips (\(sum.maxChipsWhat))")
+        print("  books: worst month-close cash residual \(Fmt.money(sum.worstResidual)) (\(sum.worstResidualLabel)) · crises: \(sum.crises.isEmpty ? "none" : sum.crises.joined(separator: ", "))")   // 3.8
         for n in sum.notes.prefix(12) { print("  note: \(n)") }
         let top = sum.kinds.sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }.prefix(10).map { "\($0.key) \($0.value)" }.joined(separator: ", ")
         print("  decisions: \(sum.decisionsTotal) (\(Fmt.trim(Double(sum.decisionsTotal) / Double(max(1, sum.months)), 2))/mo, max \(sum.decisionMax) in \(sum.decisionMaxLabel)) · \(top)")
@@ -1018,6 +1143,8 @@ enum PTPlay {
         for s in all { for (k, v) in s.kinds { kinds[k, default: 0] += v } }
         print("  decision kinds: " + kinds.sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }.map { "\($0.key) \($0.value)" }.joined(separator: ", "))
         print("  end valuations \(all.map { m($0.end.valuation) }) · end rev/mo \(all.map { m($0.end.revenue) }) · end rank \(all.map(\.end.rank))")
+        print("  worst cash residual \(all.map { m($0.worstResidual) }) · max valuation jump \(all.map { "×" + Fmt.trim($0.maxValJump, 1) }) · min cash \(all.map { m($0.minCash) })")   // 3.8
+        print("  crises: " + all.map { "[" + $0.crises.joined(separator: ", ") + "]" }.joined(separator: " "))
         print("  stages reached: " + all.map { "[" + $0.stages.joined(separator: ", ") + "]" }.joined(separator: " "))   // 3.7
         var stops: [Int: Int] = [:], days: [Int: Int] = [:], causes: [String: Int] = [:]
         for s in all {

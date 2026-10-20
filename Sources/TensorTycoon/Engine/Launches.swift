@@ -15,6 +15,9 @@ enum Launches {
     /// Days a launch shapes its model's demand, and its price stance lasts.
     static let window = 150.0
     static let priceDays = 120.0
+    /// 3.8: a research preview's cheap, rate-limited phase, and limited-access testing's tester-only phase.
+    static let previewDays = 45.0
+    static let testingDays = 30.0
     static let decisionKind = "launch_followup"
     static let reportTitle = "Launch report: "
 
@@ -72,7 +75,7 @@ enum Launches {
         case .stealth:
             add("Demand", "Starts at 60% and builds to normal over a month.", false)
             add("Brand", "30% of the usual gain. No keynote, no headlines.", false)
-            add("Rivals", "Barely notice (5% chance of an answer).", true)
+            add("Rivals", "Barely notice (5% chance of an answer; a tenth of the usual chance of a code red).", true)
             add("Regulators", "No attention.", true)
         case .staged:
             add("Demand", "Waitlist (45%) for two weeks, paid users (80%) to week five, then a pent-up +25% that fades.", nil)
@@ -107,14 +110,30 @@ enum Launches {
             add("Demand", top3 ? "A +\(Int(35 * spikeQuality(rank)))% spike from the charts, halving every two weeks." : "A small dip while people pick the evals apart.", top3)
             add("Researchers", top3 ? "+1 for publishing everything." : "−1: contamination doubts.", top3)
             add("Rivals", "~\(Int(strategyOdds * 100))% chance of an answer.", nil)
+        case .researchPreview:
+            add("Price", "A quarter of the going rate (never below serving cost) for \(Int(previewDays)) days.", nil)
+            add("Demand", "Rate-limited: API demand capped at 40% for \(Int(previewDays)) days.", false)
+            add("Feedback", "Researchers' reports make the model's next post-training pass 30% cheaper.", true)
+            add("Standing", "Researchers +2, developers +1.", true)
+            add("Brand", "40% of the usual gain.", false)
+            add("Rivals", "Rivals study it closely: for nine months they copy more of your lead by distilling it.", false)
+        case .limitedAccess:
+            add("Revenue", "Trusted testers only: no API sales for \(Int(testingDays)) days, and your chat app, agents and contracts stay on the models they're on until general release.", false)
+            add("Safety", "+6 model safety, +2 lab safety; while it's live, safety incidents are rarer (testers found the worst failure modes first).", true)
+            add("Standing", "Public +1, researchers +1, every government +0.5.", true)
+            add("Brand", "Half the usual gain.", false)
+            add("Rivals", "Barely notice until it's on sale.", true)
+        }
+        if rank == 1 && p.strategy != .limitedAccess {
+            add("Enterprise", "A new #1: clients of rival labs with weaker models ask for proposals (extra enterprise leads).", true)
         }
         switch p.pricing {
         case .match: break
         case .premium:
-            add("Price", "List +25% for 120 days: more per token, fewer tokens.", nil)
+            add("Price", "List +25% over the going rate for 120 days (auto-pricing holds it there; a hand-set price goes back afterwards): more per token, fewer tokens.", nil)
             add("Standing", "Developers −1, investors +1\(top3 ? "; +1 brand for a premium top-3 model" : "").", nil)
         case .undercut:
-            add("Price", "List −25% for 120 days, plus a developer rush (+15% demand, fading over six weeks).", true)
+            add("Price", "List −25% under the going rate for 120 days (held by auto-pricing; a hand-set price goes back afterwards), plus a developer rush (+15% demand, fading over six weeks).", true)
             add("Standing", "Developers +2, investors −1.", nil)
             add("Price war", "The leading rival is ~\(Int(min(0.95, responseOdds(p, rank: rank)) * 100))% likely to cut prices within six weeks.", false)
         }
@@ -123,13 +142,36 @@ enum Launches {
         case .light:
             add("Safety posture", "A short card: +5% buzz, but researchers and the public mark you down\(top3 ? ", concern rises and the EU takes note" : "").", false)
         case .thorough:
-            add("Safety posture", "\(Fmt.money(redTeamCost(s))): +3 model safety, public +1.5, researchers +1.5, every government +1\(top3 ? ", concern eases" : "").", true)
+            add("Safety posture", thoroughText(s, top3: top3), true)
         }
         return out
     }
 
+    private static func thoroughText(_ s: GameState, top3: Bool) -> String {
+        let evals = s.researched.contains("evals_rsp") ? " It counts as the model's dangerous-capability evaluation (EU AI Act)." : ""
+        return "\(Fmt.money(redTeamCost(s))): +3 model safety, public +1.5, researchers +1.5, every government +1\(top3 ? ", concern eases" : "")." + evals
+    }
+
     /// How hot a launch can run for a model at this rank (1 = new #1).
     static func spikeQuality(_ rank: Int) -> Double { rank == 1 ? 1 : (rank <= 3 ? 0.8 : (rank <= 5 ? 0.6 : 0.4)) }
+
+    /// 3.8: whether a launch registers with rival labs whose next model it beats (`notice`), and how much likelier it
+    /// makes a rushed answer (`rush`, on each lab's own odds). A stealth drop is noticed a tenth as often; a keynote
+    /// always lands and makes a rush 30% likelier.
+    static func rivalHeat(_ st: LaunchStyle) -> (notice: Double, rush: Double) {
+        switch st {
+        case .stealth: (0.1, 0.5)
+        case .limitedAccess: (0.2, 0.6)
+        case .researchPreview: (0.6, 0.8)
+        case .staged: (0.6, 0.8)
+        case .government: (0.7, 0.8)
+        case .enterprise: (0.8, 0.9)
+        case .standard: (1, 1)
+        case .openWeights: (1, 1.1)
+        case .blitz: (1, 1.2)
+        case .keynote: (1, 1.3)
+        }
+    }
 
     /// Chance the leading rival answers the launch.
     static func responseOdds(_ p: LaunchPlan, rank: Int) -> Double {
@@ -143,6 +185,8 @@ enum Launches {
         case .enterprise: o = 0.2
         case .government: o = 0.15
         case .blitz: o = rank <= 3 ? 0.4 : 0.15
+        case .researchPreview: o = 0.1
+        case .limitedAccess: o = 0.03
         }
         if p.pricing == .undercut { o += 0.35 }
         if p.pricing == .premium { o = max(0, o - 0.05) }
@@ -160,6 +204,8 @@ enum Launches {
         case .openWeights: t += 0.2
         case .government: t -= 0.15
         case .staged: t += 0.05
+        case .researchPreview: t = 0.2 + t * 0.5
+        case .limitedAccess: t = 0.15 + t * 0.4
         default: break
         }
         if p.pricing == .undercut { t += 0.1 }
@@ -194,6 +240,10 @@ enum Launches {
         case .enterprise: f *= t < 30 ? (consumer ? 0.85 : 0.75) : (consumer ? 1 : 1 + 0.1 * exp(-(t - 30) / 45))
         case .government: f *= t < 30 ? 0.85 : 1
         case .blitz: spike = r.rank <= 3 ? 0.35 * q : (r.rank > 5 ? -0.1 : 0)
+        case .researchPreview: if !consumer && t < previewDays { f *= 0.4 }
+        case .limitedAccess:
+            // Trusted testers only: nothing on sale until general release.
+            if !consumer && t < testingDays { return 0 }
         }
         if let up = r.upstaged, up <= today { spike *= 0.4 }
         f *= 1 + spike * pow(0.5, t / half)
@@ -223,9 +273,20 @@ enum Launches {
         for r in s.launches.reversed() {
             if Double(GameCalendar.daysBetween(r.date, s.date)) >= window { break }
             guard r.modelID == modelID else { continue }
-            return Double(GameCalendar.daysBetween(r.date, s.date)) < priceDays ? r.plan.pricing.priceFactor : 1
+            let t = Double(GameCalendar.daysBetween(r.date, s.date))
+            if r.plan.strategy == .researchPreview && t < previewDays { return 0.25 }   // 3.8: nearly free
+            return t < priceDays ? r.plan.pricing.priceFactor : 1
         }
         return 1
+    }
+
+    /// 3.8: where auto-pricing holds a model while its launch's pricing stance lasts (nil when no stance applies): within
+    /// 10% of the going rate's auto-price anchor (0.85×) times the stance, so the stance isn't priced away in a week.
+    static func stanceBand(_ s: GameState, _ m: AIModel) -> ClosedRange<Double>? {
+        let f = priceFactor(s, m.id)
+        guard abs(f - 1) > 0.001 else { return nil }
+        let anchor = Treasury.marketPrice(m, s) * 0.85 * f
+        return (anchor * 0.9)...(anchor * 1.1)
     }
 
     /// Enterprise leads: an enterprise-first launch in the last 90 days, and the Startup stage's sales desk.
@@ -245,10 +306,11 @@ enum Launches {
     // MARK: On the day
 
     /// Brand gain after the plan's pricing and safety posture (the strategy is applied by `release`).
-    static func adjustGain(_ gain: Double, _ p: LaunchPlan, rank: Int) -> Double {
+    static func adjustGain(_ gain: Double, _ p: LaunchPlan, rank: Int, lift: Double = 1) -> Double {
         var g = gain
         if p.pricing == .premium && rank <= 3 && g > 0 { g += 1 }
         if p.safety == .light && g > 0 { g *= 1.1 }
+        if g > 0 { g *= lift }   // 3.8: a later generation of a known family (Families.generationLift)
         return g
     }
 
@@ -262,16 +324,168 @@ enum Launches {
                              tokensBefore: s.models.filter { $0.released && !$0.retired && $0.id != m.id }.reduce(0) { $0 + $1.demandTokensDay },
                              leadsBefore: s.deals.count)
         r.by = by
+        r.apiShareBefore = s.apiShareNow
+        r.passesAtLaunch = m.passes.count
         if !p.isDefault {
-            if p.pricing != .match {
+            let f = p.strategy == .researchPreview ? 0.25 : p.pricing.priceFactor
+            if abs(f - 1) > 0.001 {
+                // 3.8: auto-pricing holds the stance around the going rate (stanceBand); a hand-set price is scaled
+                // and restored when the stance ends.
                 let floor = m.deployments.isEmpty ? 0 : Treasury.minPrice(m, s)
-                s.models[i].apiPrice = max(0.001, max(floor, Treasury.tidy(m.apiPrice * p.pricing.priceFactor)))
+                let price = m.autoPrice ? Treasury.marketPrice(m, s) * 0.85 * f : m.apiPrice * f
+                if !m.autoPrice { r.priorPrice = m.apiPrice }
+                s.models[i].apiPrice = max(0.001, max(floor, Treasury.tidy(price)))
+                r.stancePrice = s.models[i].apiPrice
             }
             reactions(&s, m, p, rank: rank)
             r.responses = queueResponses(s, m, p, rank: rank)
         }
         s.launches.append(r)
         if s.launches.count > 80 { s.launches.removeFirst(s.launches.count - 80) }
+        if by != "family" { marketReactions(&s, s.models[i], p, rank: rank) }
+    }
+
+    // MARK: 3.8: the market after a launch
+
+    /// What any launch of yours does beyond the plan's own effects: a new #1 pulls rivals' enterprise clients and
+    /// governments' attention; climbing the board moves investors.
+    static func marketReactions(_ s: inout GameState, _ m: AIModel, _ p: LaunchPlan, rank: Int) {
+        let last = s.marketMoves.lastRank
+        if last > 0 && rank < last {
+            s.marketMoves.rankMomentum = clamp(s.marketMoves.rankMomentum + 0.1 * Double(min(3, last - rank)), -1, 1)
+            s.marketMoves.lastRank = rank
+            note(&s, "\(m.name) took your lab from #\(last) to #\(rank): investors mark up their expectations.")
+        }
+        guard rank == 1, p.strategy != .limitedAccess else { return }
+        let won = winLeads(&s, m)
+        if won > 0 { note(&s, "\(m.name) topped the board: \(won) enterprise client\(won == 1 ? "" : "s") of weaker rival labs asked for proposals.") }
+        // Governments want a briefing from the lab at the top (and sovereign buyers take note).
+        Stakeholders.move(&s, [HQ.region(s).rawValue: 1], "\(m.name) tops the leaderboard: officials ask for briefings")
+    }
+
+    static func note(_ s: inout GameState, _ text: String) {
+        s.marketMoves.log.insert("\(s.date.gameShort): \(text)", at: 0)
+        if s.marketMoves.log.count > 12 { s.marketMoves.log.removeLast(s.marketMoves.log.count - 12) }
+    }
+
+    /// The kinds of enterprise work clients buy (as Business.generateDeals names them).
+    static func dealTitles(_ y: Double) -> [String] {
+        y < 2022 ? ["custom NLP model", "document classification", "translation pipeline", "search ranking", "chatbot pilot"]
+            : ["customer-support agents", "coding assistant rollout", "document intelligence", "internal copilot",
+               "research assistant", "claims automation", "contract review", "voice agents"]
+    }
+
+    /// A new #1 makes clients of weaker rival labs ask for proposals: the enterprise money held by labs whose best model
+    /// is now beaten (it follows their API share, as in RivalEconomy) turns into up to three leads, for the kinds of
+    /// work this model is best at. Never more than six open leads.
+    @discardableResult
+    static func winLeads(_ s: inout GameState, _ m: AIModel) -> Int {
+        let room = max(0, 6 - s.deals.filter { !$0.active }.count)
+        guard room > 0, s.year >= 2019 else { return 0 }
+        var held = 0.0
+        var biggest: (lab: String, share: Double, index: Double)? = nil
+        for c in s.competitors where c.alive {
+            guard let best = (c.models + c.openModels).map(\.index).max(), best < m.index, c.apiShare > 0 else { continue }
+            held += c.apiShare
+            if c.apiShare > (biggest?.share ?? 0) { biggest = (c.id, c.apiShare, best) }
+        }
+        guard held > 0.02, let from = biggest else { return 0 }
+        let n = min(room, held > 0.3 ? 3 : (held > 0.12 ? 2 : 1))
+        let size = Macro.marketSize(s.year) * Macro.segmentSplit(s.year, chatMoment: s.chatMoment != nil).enterprise
+        let titles = dealTitles(s.year).sorted { Capabilities.dealFitPoints(m, title: $0, s) > Capabilities.dealFitPoints(m, title: $1, s) }
+        let price = max(0.05, Macro.referencePrice(c: Macro.frontier(s.year) - 0.3, y: s.year) * s.market.apiPricePressure)
+        let rival = CompetitorCatalog.def(from.lab).name
+        for k in 0..<n {
+            let key = "leads|\(s.lifecycleSalt)|\(m.id.uuidString)|\(k)"
+            let monthly = max(8_000, size / 12 * (0.0001 + 0.0003 * RivalIntel.unit(key + "|size")))
+            let months = [12, 24, 36][Int(RivalIntel.unit(key + "|months") * 3) % 3]
+            let client = NameBank.clients[Int(RivalIntel.unit(key + "|client") * Double(NameBank.clients.count)) % NameBank.clients.count]
+            let deal = EnterpriseDeal(client: client, title: titles[k % titles.count], monthly: monthly,
+                                      tokensPerDay: monthly / 30.4 / price * 1e6 * 0.6, months: months, monthsLeft: months,
+                                      minIndex: from.index, minSafety: 20 + 40 * RivalIntel.unit(key + "|safety"),
+                                      expires: GameCalendar.addDays(s.date, 30))
+            s.deals.append(deal)
+            Sim.news(&s, "Enterprise lead: \(client) looks beyond \(rival)", "\(Fmt.money(monthly))/month for \(deal.title), \(months) months — they want what \(m.name) does better. Review it in Market.",
+                     .market, important: false, good: true)
+        }
+        s.marketMoves.leadsWon += n
+        return n
+    }
+
+    /// The developer ecosystem's lift on your API demand: up to +15% when it's at 100.
+    static func ecosystemFactor(_ s: GameState) -> Double { 1 + 0.15 * clamp(s.marketMoves.devEcosystem, 0, 100) / 100 }
+
+    /// Hook for the valuation (Economy.valuation): what investors make of your recent rank changes, 0.88–1.12.
+    static func valuationFactor(_ s: GameState) -> Double { 1 + 0.12 * clamp(s.marketMoves.rankMomentum, -1, 1) }
+
+    /// How much more of your lead rivals copy by distilling your outputs when they plan a release on `date`: 1.5×
+    /// within nine months of a research preview of yours (one month in, so they've had time to collect outputs).
+    static func previewExposure(_ s: GameState, before date: Date) -> Double {
+        guard !s.launches.isEmpty else { return 1 }
+        let open = s.launches.contains { r in
+            r.plan.strategy == .researchPreview && GameCalendar.daysBetween(r.date, date) >= 30 && GameCalendar.daysBetween(r.date, date) <= 270
+        }
+        return open ? 1.5 : 1
+    }
+
+    /// First of the month (from Competitors.monthly): the developer ecosystem, rank momentum and contract renewals.
+    static func monthly(_ s: inout GameState) {
+        ecosystem(&s)
+        momentum(&s)
+        renewals(&s)
+    }
+
+    /// Developers building on your models: near-frontier open weights, your API share and how developers see you feed
+    /// it; it grows a tenth of the way to that each month and fades only 3% of the way when you stop feeding it.
+    static func ecosystem(_ s: inout GameState) {
+        let frontier = Macro.frontier(s.year)
+        let open = s.models.filter { $0.released && !$0.retired && $0.openWeights }.map(\.c).max().map { 40 * clamp(1 + $0 - frontier, 0, 1) } ?? 0
+        let devs = s.world.ready ? s.world.developers : 50
+        let target = clamp(open + 150 * s.apiShareNow + 0.4 * (devs - 50), 0, 100)
+        let e = s.marketMoves.devEcosystem
+        s.marketMoves.devEcosystem = e + (target - e) * (target > e ? 0.1 : 0.03)
+    }
+
+    /// Investors read rank: momentum jumps when your lab climbs or falls and fades by 15% a month.
+    static func momentum(_ s: inout GameState) {
+        let set = Leaderboard.indexSet(s)
+        guard let best = RivalIntel.playerBest(s, set: set) else { return }
+        let rank = Leaderboard.labRank(index: best.index, board: Leaderboard.entries(s, set: set, includeUnreleased: false), gone: Leaderboard.goneLabs(s))
+        let last = s.marketMoves.lastRank
+        var m = s.marketMoves.rankMomentum * 0.85
+        if last > 0 && rank != last {
+            m += 0.1 * Double(clamp(last - rank, -3, 3))
+            if rank > last { note(&s, "Your lab slipped from #\(last) to #\(rank): investors trim their expectations.") }
+        }
+        s.marketMoves.rankMomentum = clamp(m, -1, 1)
+        s.marketMoves.lastRank = rank
+    }
+
+    /// Points a rival must lead your contract's model by, on the contract's kind of work, before the client looks around
+    /// at renewal.
+    static let churnGap = 5.0
+
+    /// Each contract comes up for renewal every 12 months. If a live rival now beats the model serving it by more than
+    /// `churnGap` points on that kind of work, the client may move (15–70% likely as the gap grows; hashed per renewal).
+    static func renewals(_ s: inout GameState) {
+        var lost: [UUID] = []
+        for d in s.deals where d.active && d.months >= 12 && d.monthsLeft > 0 {
+            let elapsed = d.months - d.monthsLeft
+            guard elapsed > 0, elapsed % 12 == 0, let mid = d.modelID, let m = s.models.first(where: { $0.id == mid }),
+                  let v = s.domainScores[mid.uuidString], let rival = Capabilities.bestRivalFor(s, title: d.title) else { continue }
+            let gap = rival.score - v.mix(Capabilities.dealDomains(d.title))
+            guard gap > churnGap else { continue }
+            let odds = clamp(0.15 + (gap - churnGap) / 10, 0.15, 0.7)
+            guard RivalIntel.unit("renew|\(s.lifecycleSalt)|\(d.id.uuidString)|\(elapsed)") < odds else { continue }
+            lost.append(d.id)
+            let name = CompetitorCatalog.def(rival.lab).name
+            Sim.news(&s, "\(d.client) moves to \(name) at renewal",
+                     "Its \(d.title) contract was up for renewal, and \(name)'s models now beat \(m.name) by \(Int(gap.rounded())) points on that kind of work. \(Fmt.money(d.monthly))/month walks.",
+                     .market, important: d.monthly > 1e6, good: false)
+            note(&s, "\(d.client) took its \(d.title) to \(name) (\(Int(gap.rounded())) points better at it).")
+            s.marketMoves.churned += 1
+        }
+        if !lost.isEmpty { s.deals.removeAll { lost.contains($0.id) } }
     }
 
     /// The plan's effect on the people who matter, with the plan named as the cause.
@@ -313,6 +527,14 @@ enum Launches {
         case .blitz:
             d["researchers", default: 0] += rank <= 3 ? 1 : -1
             d["developers", default: 0] += 0.5
+        case .researchPreview:
+            d["researchers", default: 0] += 2
+            d["developers", default: 0] += 1
+        case .limitedAccess:
+            d["public", default: 0] += 1
+            d["researchers", default: 0] += 1
+            for r in Region.allCases { d[r.rawValue, default: 0] += 0.5 }
+            if frontier { concern -= 0.2 }
         }
         switch p.pricing {
         case .match: break
@@ -366,12 +588,74 @@ enum Launches {
         let today = s.date
         for k in s.launches.indices.reversed() {
             let age = GameCalendar.daysBetween(s.launches[k].date, today)
-            if age > 60 { break }
+            if Double(age) > priceDays + 5 { break }
             if s.launches[k].report == nil && age >= 7 { writeReport(&s, k) }
             for j in s.launches[k].responses.indices where s.launches[k].responses[j].happened == nil && s.launches[k].responses[j].due <= today {
                 respond(&s, k, j)
             }
+            if s.launches[k].plan.strategy == .limitedAccess && s.launches[k].generalRelease == nil { testing(&s, k, age: age) }   // 3.8
+            if !s.launches[k].priceSettled { settlePrice(&s, k, age: age) }
         }
+    }
+
+    /// 3.8: a hand-set price the stance changed goes back when the stance ends (unless you've set another since). A
+    /// research preview's give-away phase ends first: then the plan's pricing stance takes over.
+    static func settlePrice(_ s: inout GameState, _ k: Int, age: Int) {
+        let r = s.launches[k]
+        let t = Double(age)
+        guard r.priorPrice > 0 else {
+            if t >= priceDays { s.launches[k].priceSettled = true }
+            return
+        }
+        guard let i = s.models.firstIndex(where: { $0.id == r.modelID }), !s.models[i].autoPrice, abs(s.models[i].apiPrice - r.stancePrice) < 1e-9 else {
+            s.launches[k].priceSettled = true   // you've priced it yourself since
+            return
+        }
+        let floor = s.models[i].deployments.isEmpty ? 0 : Treasury.minPrice(s.models[i], s)
+        if r.plan.strategy == .researchPreview && t >= previewDays && t < priceDays && r.plan.pricing != .match {
+            let next = max(floor, Treasury.tidy(r.priorPrice * r.plan.pricing.priceFactor))
+            if abs(next - r.stancePrice) > 1e-9 {
+                s.models[i].apiPrice = next
+                s.launches[k].stancePrice = next
+            }
+            return
+        }
+        let ends = r.plan.strategy == .researchPreview && r.plan.pricing == .match ? previewDays : priceDays
+        guard t >= ends else { return }
+        s.models[i].apiPrice = max(floor, r.priorPrice)
+        s.launches[k].priceSettled = true
+        Sim.news(&s, "\(s.models[i].name)'s launch pricing ends", "Back to the \(Fmt.price(s.models[i].apiPrice))/1M you had set before launch.", .company)
+    }
+
+    /// 3.8: limited-access testing. Until general release your chat app, agents and contracts stay on the models they
+    /// were on; then the tested model takes over wherever it's better, as on any launch.
+    static func testing(_ s: inout GameState, _ k: Int, age: Int) {
+        let id = s.launches[k].modelID
+        guard let m = s.models.first(where: { $0.id == id && !$0.retired }) else {
+            s.launches[k].generalRelease = s.date
+            return
+        }
+        let others = s.models.filter { $0.released && !$0.retired && $0.id != id }
+        if Double(age) < testingDays {
+            if s.chatModelID == id, let alt = others.filter(\.design.instruct).max(by: { $0.index < $1.index }) { s.chatModelID = alt.id }
+            if s.agentModelID == id, let alt = others.filter(\.design.toolUse).max(by: { $0.index < $1.index }) { s.agentModelID = alt.id }
+            for d in s.deals.indices where s.deals[d].active && s.deals[d].modelID == id {
+                if let alt = others.filter({ $0.index + 0.01 >= s.deals[d].minIndex }).max(by: { $0.index < $1.index }) { s.deals[d].modelID = alt.id }
+            }
+            return
+        }
+        s.launches[k].generalRelease = s.date
+        func better(than other: UUID?) -> Bool {
+            guard let other, let o = s.models.first(where: { $0.id == other && !$0.retired }) else { return true }
+            return m.index > o.index
+        }
+        if m.design.instruct && better(than: s.chatModelID) { s.chatModelID = id }
+        if s.agentModelID != nil && m.design.toolUse && better(than: s.agentModelID) { s.agentModelID = id }
+        for d in s.deals.indices where s.deals[d].active && s.deals[d].modelID != id && m.index + 0.01 >= s.deals[d].minIndex && better(than: s.deals[d].modelID) {
+            s.deals[d].modelID = id
+        }
+        Sim.news(&s, "\(m.name) is generally available", "Thirty days with trusted testers are over: it's on sale, and your products move to it where it's the better model.",
+                 .company, good: true)
     }
 
     /// A queued rival answer falls due: it happens or it doesn't (hashed against its odds).
@@ -422,6 +706,8 @@ enum Launches {
         case .enterprise: ("enterprise leads and investor confidence", 0.8)
         case .government: ("goodwill with governments", 0.8)
         case .blitz: ("winning the benchmark conversation", 1.1)
+        case .researchPreview: ("feedback from researchers", 0.3)
+        case .limitedAccess: ("a safe, tested release", 0)
         }
     }
 
@@ -439,6 +725,19 @@ enum Launches {
                                tokensDay: tokens, tokensBefore: r.tokensBefore, servedShare: served, revenueDay: m?.revenueDay ?? 0,
                                rank: rank, index: m?.index ?? r.index, pressTone: tone, verdict: "on", verdictText: "")
         rep.leads = leads
+        // 3.8: the model as the market met it.
+        let snap = Market.snapshot(s)
+        rep.apiShareBefore = r.apiShareBefore
+        rep.apiShare = snap.api.filter(\.isPlayer).reduce(0) { $0 + $1.share }
+        if let m {
+            rep.architecture = architecture(m)
+            rep.pricePerM = m.api ? m.apiPrice : 0
+            rep.servingPerM = Economy.servingCostPerM(m, s)
+            rep.tokensPerSec = m.tps
+            rep.powers = powers(s, m)
+            rep.segments = Market.segments(of: m.id, snap).prefix(3).map { "\($0.segment.label) \(Fmt.pct($0.share, decimals: 0))" }
+        }
+        rep.moves = s.marketMoves.log.filter { line in m.map { line.contains($0.name) } ?? false }
         rep.quotes = pressQuotes(&s, r, rank: rank, tone: tone, frontier: frontier)
         rep.benchmarks = benchmarkLines(s, r, m, rank: rank)
         rep.rivals = rivalLines(s, r)
@@ -496,11 +795,37 @@ enum Launches {
         case .enterprise: options.append(("lreport.enterprise", Voices.anyInvestor(s, key)))
         case .government: options.append(("lreport.government", Voices.official(s, key)))
         case .blitz: options.append((rank <= 3 ? "lreport.blitz.top" : "lreport.blitz.doubt", Voices.academic(s, key)))
+        case .researchPreview: options.append(("lreport.preview", Voices.academic(s, key)))
+        case .limitedAccess: options.append(("lreport.limited", Voices.critic(s, key)))
         }
         if r.plan.pricing == .undercut, let ci = leadingRival(s) { options.append(("lreport.undercut", Cast.voice(s, s.competitors[ci].id))) }
         if r.plan.safety == .light && frontier { options.append(("lreport.safety.light", Voices.critic(s, key))) }
         if r.plan.safety == .thorough { options.append(("lreport.safety.thorough", Voices.critic(s, key))) }
         if !options.isEmpty { out += Voices.quotes(&s, options, vars: v, key: key + "|plan", second: 0.8) }
+        return out
+    }
+
+    /// "1.2T MoE (120B active) · 128K context · reasoning · vision".
+    static func architecture(_ m: AIModel) -> String {
+        let d = m.design
+        var parts = [d.isMoE ? "\(Fmt.params(d.paramsB)) MoE (\(Fmt.params(d.activeParamsB)) active)" : "\(Fmt.params(d.paramsB)) dense"]
+        parts.append(d.contextK >= 1000 ? "1M context" : "\(d.contextK)K context")
+        if m.reasoning { parts.append("reasoning (\(m.effort.label.lowercased()) effort)") }
+        if d.vision { parts.append("vision") }
+        if d.audio { parts.append("voice") }
+        if d.toolUse { parts.append("tool use") }
+        return parts.joined(separator: " · ")
+    }
+
+    /// What a model powers today: the products it serves and the product lines its scores carry.
+    static func powers(_ s: GameState, _ m: AIModel) -> [String] {
+        var out = Families.segments(s, m)
+        if let v = s.domainScores[m.id.uuidString], let best = s.labDomains["player"] {
+            for p in s.productLines {
+                guard let def = ProductLines.byID[p.id] else { continue }
+                if v.mix(def.mix) + 0.05 >= best.mix(def.mix) { out.append(def.name) }
+            }
+        }
         return out
     }
 
@@ -580,7 +905,7 @@ enum Launches {
             if rep.leads > 0 { score += 1; notes.append("\(rep.leads) new enterprise lead\(rep.leads == 1 ? "" : "s")") } else { notes.append("no enterprise leads yet") }
         case .blitz:
             if rep.rank <= 3 { score += 1 } else { score -= 1; notes.append("the charts didn't top the board") }
-        case .staged, .government, .stealth:
+        case .staged, .government, .stealth, .researchPreview, .limitedAccess:
             score += 1
         case .openWeights:
             if r.rank <= 5 { score += 1 }

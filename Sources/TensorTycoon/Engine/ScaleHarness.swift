@@ -28,10 +28,8 @@ extension BalanceHarness {
         _ = s.startSwarm(name: "Ops", modelID: modelID, agents: 100, mission: .trainingOps, accelID: d.accelID, chips: 100, autonomy: 1, oversight: 0, targetRunID: runID)
         s.intelBudget = 5e6
         for _ in 0..<5 { Sim.advanceDay(&s); s.decisions.removeAll() }
-        let enc = JSONEncoder()
-        enc.dateEncodingStrategy = .secondsSince1970
-        let dec = JSONDecoder()
-        dec.dateDecodingStrategy = .secondsSince1970
+        let enc = SaveCoding.encoder()
+        let dec = SaveCoding.decoder()
         do {
             let t = try dec.decode(GameState.self, from: try enc.encode(s))
             let checks: [(String, Bool)] = [

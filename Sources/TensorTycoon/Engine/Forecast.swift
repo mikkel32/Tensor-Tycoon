@@ -99,14 +99,15 @@ enum ForecastEngine {
 
     // MARK: Forecast
 
-    static func forecast(_ d: ModelDesign, state s: GameState, dataSources: [String]) -> Forecast {
+    /// `frozen`: a run's data plan as it stood at launch (`TrainingRun.dataPlan`); nil prices today's data.
+    static func forecast(_ d: ModelDesign, state s: GameState, dataSources: [String], frozen: DataPlanSummary? = nil) -> Forecast {
         let dataSources = dataSources.sorted()   // 3.7: fixed order (float sums), whatever order a run's snapshot was saved in
         let b = s.bonuses
         let y = s.year
         var f = Forecast()
         let sources = dataSources.compactMap { DataCatalog.byID[$0] }
         var drivers: [ForecastDriver] = []
-        let plan = DataEconomy.plan(d, state: s, sources: dataSources)   // 3.6: data economy (all zero without new data)
+        let plan = frozen.map { DataPlan($0) } ?? DataEconomy.plan(d, state: s, sources: dataSources)   // 3.6: data economy (all zero without new data)
 
         let pre = Physics.pretrainFLOPs(d)
         f.rawC = log10(max(pre, 1e12)) - 21
@@ -115,7 +116,7 @@ enum ForecastEngine {
 
         // Data available & repetition
         var unique = Physics.availableTokensT(dataSources, y: y, bonuses: b)
-        if d.syntheticShare > 0 && b.has(.syntheticData) { unique *= 1 + d.syntheticShare * 3 }
+        unique += plan.syntheticUniqueT   // one synthetic budget: the slider and synthetic datasets, approaching your real tokens
         if plan.active { unique += plan.extraUniqueT }
         f.tokensPerParam = d.tokensT * 1000 / max(d.activeParamsB, 0.001)
         f.optimalTokensPerParam = d.tokensT > 0 ? (pre / 6 / (optimalParamsB(flops: pre) * 1e9)) / (optimalParamsB(flops: pre) * 1e9) : 20
@@ -173,6 +174,18 @@ enum ForecastEngine {
                 drivers.append(ForecastDriver(name: "Mixture-of-Experts (1/\(Int((1 / d.activeFraction).rounded())))", value: g, kind: .gain,
                                               detail: "Gains grow with sparsity and scale"))
                 f.keyTech.append("MoE 1/\(Int((1 / d.activeFraction).rounded()))")
+                // 3.4: the expert pool. Finer experts (more of them, more per token, same active share) learn more per FLOP
+                // once fine-grained experts are researched; coarser ones learn less. Their traffic costs throughput
+                // (Physics.moeEfficiency), so neither end is free.
+                if d.experts > 0 {
+                    let steps = log2(Double(d.experts) / Double(TrainingExperience.experts(for: d.activeFraction).experts))
+                    let pool = clamp(steps * (steps > 0 ? (b.has(.fineMoE) ? 0.012 : 0.004) : 0.015), -0.045, 0.04)
+                    if abs(pool) > 0.0005 {
+                        algo += pool
+                        drivers.append(ForecastDriver(name: "Expert pool (\(TrainingExperience.layout(d).label))", value: pool, kind: pool > 0 ? .gain : .penalty,
+                                                      detail: pool > 0 ? "Finer experts specialise more; they cost more all-to-all traffic" : "Coarse experts: cheaper routing, less specialisation"))
+                    }
+                }
             }
             // Attention / mixer / heads
             if d.attention == .mla && b.has(.mla) {
@@ -219,7 +232,7 @@ enum ForecastEngine {
                 f.penalties.append("FP4 training noise (×0.91)")
             }
             // Team: careful hyperparameter work
-            let team = s.employees.filter { $0.role == .researcher || $0.role == .mlEngineer }.reduce(0.0) { $0 + $1.weight }
+            let team = s.workforce(.researcher) + s.workforce(.mlEngineer)
             let teamGain = 0.03 * min(1, team / 8)
             algo += teamGain
             let culture = s.traits.algo
@@ -231,7 +244,7 @@ enum ForecastEngine {
 
             // Data quality
             var data = b.dataAlgo + sources.reduce(0) { $0 + $1.quality }
-            let dataTeam = s.employees.filter { $0.role == .data }.reduce(0.0) { $0 + $1.weight }
+            let dataTeam = s.workforce(.data)
             data += 0.08 * min(1, dataTeam / 3)
             switch d.dataMix {
             case .balanced: break
@@ -240,12 +253,8 @@ enum ForecastEngine {
             case .conversational: data -= 0.02
             }
             if d.syntheticShare > 0 && b.has(.syntheticData) {
-                data += 0.08 * min(d.syntheticShare, 0.25) / 0.25 * b.result("synthetic_data")
-                if d.syntheticShare > 0.3 {
-                    let collapse = -0.12 * (d.syntheticShare - 0.3) / 0.2
-                    data += collapse
-                    f.penalties.append("\(Int(d.syntheticShare * 100))% synthetic data: risk of model collapse (×\(Fmt.trim(pow(10, collapse), 2)))")
-                }
+                // Model collapse is judged on all generated data together (slider and datasets): it's in `plan.dData`.
+                data += 0.08 * min(d.syntheticShare, 0.25) / 0.25 * b.result("synthetic_data") * plan.collapseFactor
             }
             if plan.active {
                 data += plan.dData
@@ -271,7 +280,7 @@ enum ForecastEngine {
             let l1 = loss(paramsB: d.activeParamsB, tokensT: d.tokensT)
             let own = f.rawC + min(0, log10(computeForLoss(l1, reference: pre) / pre)) + b.algo + b.dataAlgo
             if let ref = d.baseModelRef, let teacher = s.models.first(where: { $0.id.uuidString == ref }) {
-                let gap = max(0.15, 0.45 - b.distill)
+                let gap = Families.distillGap(teacherParamsB: teacher.design.paramsB, studentParamsB: d.paramsB, bonuses: b)   // 3.8: one rule with model families
                 c = max(own, min(teacher.c - gap, own + 1.3))
                 drivers = [ForecastDriver(name: "Teacher: \(teacher.name)", value: teacher.c, kind: .base),
                            ForecastDriver(name: "Distillation gap", value: -gap, kind: .penalty)]
@@ -343,9 +352,11 @@ enum ForecastEngine {
                 drivers.append(ForecastDriver(name: "Data plan", value: skills, kind: .skill, detail: "Your datasets' domain-relevant, quality-weighted tokens (Training Data page)"))
             }
         }
-        if d.rlhf && !dataSources.contains("human_feedback") && !plan.hasPreferences {
-            chat -= 0.2
-            f.penalties.append("RLHF without a human-preference data vendor is weak (Training Data page)")
+        if d.rlhf && !dataSources.contains("human_feedback") && plan.preferenceShortfall > 0.01 {
+            // Needs fresh labels: the minimum delivered in the last twelve months; the penalty scales with what's missing.
+            chat -= 0.2 * plan.preferenceShortfall
+            f.penalties.append(plan.preferenceShortfall >= 0.99 ? "RLHF without fresh human-preference data is weak (Training Data page)"
+                                                                 : "RLHF on too little fresh preference data: \(Int(plan.preferenceShortfall * 100))% weaker (Training Data page)")
         }
         var lang = 0.05 + b.skill(.lang)
         if d.dataMix == .multilingual { lang += 0.3 }
@@ -355,7 +366,7 @@ enum ForecastEngine {
         var vis = d.vision ? b.skill(.vis) : 0
         if plan.active { lang += plan.dLang; longctx += plan.dLongctx; vis += plan.dVis }
         var safety = 25 + b.safety + (d.safetyTraining ? 15 : 0) + (d.rlhf ? 5 : 0)
-        let safetyTeam = s.employees.filter { $0.role == .safety }.reduce(0.0) { $0 + $1.weight }
+        let safetyTeam = s.workforce(.safety)
         safety += 20 * min(1, safetyTeam / 4)
         safety += s.traits.safety
         if d.mixer == .alien {
@@ -476,7 +487,7 @@ enum ForecastEngine {
                 novel.append(name)
             }
         }
-        let team = s.employees.filter { $0.role == .researcher || $0.role == .mlEngineer }.reduce(0.0) { $0 + $1.weight }
+        let team = s.workforce(.researcher) + s.workforce(.mlEngineer)
         let teamSig = 0.05 * max(0, 1 - team / 6)
         let covered = s.scalingFits.contains { $0.signature == d.recipeSignature && flops <= $0.maxCompute * pow(10, 3.7) }
         var sigma = sqrt(base * base + ext * ext + novelSq * (covered ? 0.16 : 1) + teamSig * teamSig)
@@ -493,7 +504,7 @@ enum ForecastEngine {
 
     static func bugRisk(_ d: ModelDesign, state s: GameState, covered: Bool, novelCount: Int) -> Double {
         let b = s.bonuses
-        let engineers = s.employees.filter { $0.role == .mlEngineer }.reduce(0.0) { $0 + $1.weight }
+        let engineers = s.workforce(.mlEngineer)
         var p = 0.18 + 0.04 * Double(novelCount)
         p *= b.bugKeep
         if covered { p *= 0.4 }

@@ -23,7 +23,7 @@ struct HardwareStoreView: View {
         let rentable = catalog.filter { Economy.canRent($0, s) }.count
         Page(title: "Hardware Store", subtitle: "Real accelerators with real specs. Dense TFLOPS shown (vendor headline numbers are often sparse). Buy for your sites or rent by the chip-hour.", screen: .hardware) {
             ScreenHint(.hardware)
-            HeroBanner(image: "gb200_rack", height: 150) {
+            HeroBanner(image: "hpc_marenostrum5", height: 150) {   // landscape: the GB200 photo is a tall portrait
                 HStack(alignment: .bottom) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Compute is the new oil").font(.title.weight(.bold))
@@ -318,7 +318,7 @@ struct AcceleratorDetail: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     ImageCreditLabel(key: a.image, representative: a.representativeImage)
-                    if a.photoIsIllustrative {
+                    if a.photoIsUnreleased {
                         Label("This chip isn't shipping hardware you could photograph: the picture is illustrative, and specs marked est. are the game's projections.",
                               systemImage: "paintbrush.pointed.fill")
                             .font(.caption).foregroundStyle(.secondary)

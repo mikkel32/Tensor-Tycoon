@@ -20,7 +20,8 @@ enum RivalEconomy {
     /// What one H100-equivalent costs this lab a month: under export controls Dragon Lake runs on domestic
     /// accelerators and grey-market GPUs, paying far more for the same compute.
     static func unitCost(_ c: CompetitorState, _ s: GameState) -> Double {
-        costPerH100eMonth(s.year) * (c.id == "dragonlake" && s.market.exportControls ? 1.6 : 1)
+        // 3.8: a lab that specialised in its own silicon runs about 20% cheaper once its chips are in (two years).
+        costPerH100eMonth(s.year) * (c.id == "dragonlake" && s.market.exportControls ? 1.6 : 1) * (1 - 0.2 * Market.specialistRamp(s, c.id, .hardware, years: 2))
     }
 
     /// Who pays the bills when it isn't investors: a giant parent, or a state.
@@ -41,17 +42,31 @@ enum RivalEconomy {
     }
 
     /// Monthly revenue a lab earns from its shares of today's market.
-    static func monthlyRevenue(_ c: CompetitorState, _ snap: MarketSnapshot) -> Double {
+    static func monthlyRevenue(_ c: CompetitorState, _ snap: MarketSnapshot, _ s: GameState) -> Double {
         // Most of an open-weights lab's usage runs on other people's servers.
         let open = c.def.openWeights ? 0.5 : 1
         let apiDay = apiRevenueDay(c.id, snap)
-        let allAPI = snap.api.reduce(0) { $0 + $1.share * snap.apiTokenPool * $1.price / 1e6 }
         let api = apiDay * 30.4 * open
         let consumer = snap.consumerUsersPool * c.consumerShare * Market.paidConversion(price: 20, freeTier: true) * 20
         let agents = snap.agentSeatsPool * c.agentShare * 100
-        // Enterprises buy from the labs that earn the API money, not the ones with the cheapest tokens.
-        let enterprise = allAPI > 0 ? snap.enterprisePool / 12 * apiDay / allAPI * open * RivalStrategy.enterpriseBoost(c) : 0
-        return api + consumer + agents + enterprise
+        return api + consumer + agents + enterpriseRevenue(c, snap, s)
+    }
+
+    /// Enterprises buy from the labs that earn the API money, not the ones with the cheapest tokens. 3.8: an enterprise
+    /// push wins a lab a bigger slice (×1.35) of what the rival labs hold between them, never more than the pool: the
+    /// rivals' part of the enterprise pool is their (open-discounted) API billing against everyone's, as Sim uses for you.
+    static func enterpriseRevenue(_ c: CompetitorState, _ snap: MarketSnapshot, _ s: GameState) -> Double {
+        let allAPI = snap.api.reduce(0) { $0 + $1.share * snap.apiTokenPool * $1.price / 1e6 }
+        guard allAPI > 0 else { return 0 }
+        var plain = 0.0, weighted = 0.0
+        for o in s.competitors where !o.acquired {
+            let w = apiRevenueDay(o.id, snap) * (o.def.openWeights ? 0.5 : 1)
+            plain += w
+            weighted += w * RivalStrategy.enterpriseBoost(o)
+        }
+        let mine = apiRevenueDay(c.id, snap) * (c.def.openWeights ? 0.5 : 1) * RivalStrategy.enterpriseBoost(c)
+        guard weighted > 0 else { return 0 }
+        return snap.enterprisePool / 12 * (plain / allAPI) * mine / weighted
     }
 
     /// Year-on-year revenue growth (1 = flat), when there's a year of history.
@@ -120,10 +135,13 @@ enum RivalEconomy {
         let talent = Macro.frontierValuation(y) * science * clamp(s.market.hype / 1.3, 0.5, 2)
         let g = growth(c).map { clamp(1 + (min($0, 6) - 1) * 0.12, 0.8, 1.6) } ?? 1
         let revenueValue = c.revenueRun * Macro.revenueMultiple(y) * g * sentiment(s)
-        if isDivision(c) { return max(revenueValue * 0.8, talent * (live ? 0.25 : 0.4)) }
+        // 3.8: the frontier premium is bounded by fundamentals: at most 60× revenue, or about 1.2% of a frontier lab's
+        // worth (scaled by how close its science is) for a lab that has little revenue yet.
+        let cap = max(c.revenueRun * 60, Macro.frontierValuation(y) * 0.012 * science)
+        if isDivision(c) { return max(revenueValue * 0.8, min(talent * (live ? 0.25 : 0.4), cap)) }
         // Labs without much revenue are priced on their people and their models.
         let talentWeight = c.revenueRun < 2e9 ? 0.5 : 0.25
-        return max(revenueValue, talent * talentWeight * (inCorrection(s) ? 0.65 : 1))
+        return max(revenueValue, min(talent * talentWeight, cap) * (inCorrection(s) ? 0.65 : 1))
     }
 
     // MARK: Setup
@@ -170,6 +188,7 @@ enum RivalEconomy {
             guard !s.competitors[i].acquired, y >= s.competitors[i].def.founded.decimal else { continue }
             applyHistory(&s, i)
             operate(&s, i, snap, squeeze: squeeze)
+            research(&s, i)   // 3.8: R&D buys proprietary techniques
             revalue(&s, i)
             if live && parent(s.competitors[i], s) == nil {
                 fundraise(&s, i)
@@ -222,7 +241,7 @@ enum RivalEconomy {
         let y = s.year
         let live = y >= RivalHistory.end
         let c = s.competitors[i]
-        var rev = monthlyRevenue(c, snap)
+        var rev = monthlyRevenue(c, snap, s) + chipSales(&s, i)
         if live, let last = c.revenueHistory.last {
             // Customers come only as fast as a lab can sign and serve them: booked revenue grows at most 25% a month
             // (a hit model still makes a young lab ten times bigger within a year).
@@ -246,12 +265,128 @@ enum RivalEconomy {
         let cost = compute + payroll + rev * (RivalStrategy.play(c) == .consumer ? 0.18 : 0.12)
         s.competitors[i].computeCostMonth = compute
         s.competitors[i].costMonth = cost
-        guard parent(c, s) == nil else { return }
         s.competitors[i].cash += rev - cost
-        // Before October 2026, history says they found the money: keep a few months of runway.
-        if !live {
-            s.competitors[i].cash = max(s.competitors[i].cash, max(0, cost - rev) * 6)
+        // 3.8: no free money. A parent or a state pays from a finite yearly budget; before October 2026 a lab that
+        // history says found the money gets it as a recorded bridge round from its investors (diluting them, you
+        // included), not out of thin air.
+        if parent(c, s) != nil {
+            parentDraw(&s, i, burn: max(0, cost - rev))
+        } else if !live && s.competitors[i].cash < max(0, cost - rev) * 3 {
+            bridge(&s, i, burn: max(0, cost - rev))
         }
+    }
+
+    // MARK: 3.8: parents, bridges, R&D and chips
+
+    /// A parent's (or state's) budget for its lab this year: what it planned to spend on it (`backing`, a year of it)
+    /// or, before October 2026, the lab's running costs with 20% headroom; a downturn at the parent (about one year in
+    /// eight, hashed) cuts it by 40%.
+    static func refreshParentBudget(_ s: inout GameState, _ i: Int) {
+        let c = s.competitors[i]
+        let year = s.date.ym.year
+        var book = s.rivalBooks[c.id] ?? RivalBook()
+        guard book.budgetYear != year else { return }
+        let live = s.year >= RivalHistory.end
+        let base = live ? (backing(c, s) ?? 0) * 12 : max(c.costMonth - (c.revenueHistory.last ?? 0), 0) * 12 * 1.2
+        // History (before October 2026) has no downturns to replay.
+        let downturn = live && book.budgetYear > 0 && RivalLifecycle.roll(s, "parentcut|\(c.id)|\(year)") < 0.12
+        book.budgetYear = year
+        book.annualBudget = max(0, base) * (downturn ? 0.6 : 1)
+        book.parentBudget = book.annualBudget
+        if downturn {
+            book.squeezeUntil = GameCalendar.addMonths(s.date, 12)
+            if c.alive {
+                Sim.news(&s, "\(c.def.name)'s backer cuts its budget", "\(parent(c, s).map { $0.prefix(1).uppercased() + $0.dropFirst() } ?? "Its parent") is tightening spending: \(c.def.name) gets 40% less this year (\(Fmt.money(book.annualBudget))). Expect slower hiring and less compute.",
+                         .competitor)
+            }
+        }
+        s.rivalBooks[c.id] = book
+    }
+
+    /// The parent covers the month's burn and keeps about three months of costs in the lab's account, until the year's
+    /// budget runs out.
+    static func parentDraw(_ s: inout GameState, _ i: Int, burn: Double) {
+        refreshParentBudget(&s, i)
+        let id = s.competitors[i].id
+        guard var book = s.rivalBooks[id] else { return }
+        let reserve = s.competitors[i].costMonth * 3
+        let want = max(0, reserve - s.competitors[i].cash)
+        let draw = min(book.parentBudget, want)
+        guard draw > 0 else { return }
+        book.parentBudget -= draw
+        book.parentPaid += draw
+        s.rivalBooks[id] = book
+        s.competitors[i].cash += draw
+    }
+
+    /// Before October 2026: the lab's investors bridge it with a year of burn, recorded as a round.
+    static func bridge(_ s: inout GameState, _ i: Int, burn: Double) {
+        let amount = max(burn * 12, s.competitors[i].costMonth * 3)
+        guard amount > 0 else { return }
+        dilute(&s, i, amount: amount, post: 0)
+        s.competitors[i].rounds.append(RivalRound(date: s.date, label: "Bridge funding", amount: amount, postMoney: 0, lead: "existing investors", kind: .equity))
+        s.competitors[i].cash += amount
+        s.competitors[i].totalRaised += amount
+    }
+
+    /// What a breakthrough of its own costs a lab in research spending (people and the compute they experiment on).
+    static func techniqueCost(_ y: Double) -> Double {
+        interpolateLog([(2016, 1.5e8), (2020, 6e8), (2023, 2e9), (2026, 6e9), (2030, 2e10), (2035, 6e10)], at: y, extrapolate: true)
+    }
+
+    /// R&D: a quarter of a lab's compute and half its payroll go on research. When that adds up to a breakthrough's
+    /// cost, the lab bets it on a technique nobody else holds (one it could plausibly invent by now): about three bets in
+    /// five pay off and the technique becomes the lab's own; the rest fail and most of the spend is gone.
+    static func research(_ s: inout GameState, _ i: Int) {
+        let c = s.competitors[i]
+        guard c.alive, !c.models.isEmpty else { return }
+        var book = s.rivalBooks[c.id] ?? RivalBook()
+        let payroll = max(0, c.costMonth - c.computeCostMonth - (c.revenueHistory.last ?? 0) * 0.12)
+        book.rdPool += 0.25 * c.computeCostMonth + 0.5 * payroll
+        let cost = techniqueCost(s.year)
+        defer { s.rivalBooks[c.id] = book }
+        guard book.rdPool >= cost else { return }
+        let held = Set(s.exoticOwned).union(s.rivalTech.values.flatMap { $0 })
+        let open = ResearchCatalog.exotic.filter { !held.contains($0.id) && $0.year <= s.year + 0.3 && $0.rival != nil }.map(\.id).sorted()
+        guard !open.isEmpty else {
+            book.rdPool = min(book.rdPool, cost * 2)
+            return
+        }
+        let key = "rd|\(s.lifecycleSalt)|\(c.id)|\(book.techniques)|\(s.date.ym.year)-\(s.date.ym.month)"
+        if RivalLifecycle.roll(s, key) < 0.6 {
+            let tech = open[Int(RivalLifecycle.roll(s, key + "|pick") * Double(open.count)) % open.count]
+            s.rivalTech[c.id, default: []].append(tech)
+            book.rdPool -= cost
+            book.techniques += 1
+            let name = ResearchCatalog.byID[tech]?.name ?? tech
+            RivalIntel.add(&s, c.id, c.releaseCount, kind: "breakthrough", reliability: RivalIntel.quality(s) > 0.5 ? .credible : .speculative,
+                           title: "\(c.def.name) has a breakthrough of its own",
+                           body: "After \(Fmt.money(cost)) of research, \(c.def.name)'s lab cracked \(RivalIntel.quality(s) > 0.5 ? name : "something new (\(ResearchCatalog.byID[tech]?.domainHint ?? "research"))"). Its next models will show it.",
+                           news: true, important: false)
+        } else {
+            book.rdPool -= cost * 0.7
+            RivalIntel.add(&s, c.id, c.releaseCount, kind: "strategy", reliability: .speculative,
+                           title: "\(c.def.name)'s big research bet falls flat",
+                           body: "Insiders say \(c.def.name) spent about \(Fmt.money(cost * 0.7)) on an approach that didn't scale.")
+        }
+    }
+
+    /// A lab with its own silicon sells some of it to other labs and clouds: part of what the other labs spend on
+    /// compute goes to it instead of to the chip makers (no new money: it's their compute spend, redirected), at most
+    /// 30% of its own compute bill. Returns this month's chip revenue.
+    static func chipSales(_ s: inout GameState, _ i: Int) -> Double {
+        let c = s.competitors[i]
+        let ramp = Market.specialistRamp(s, c.id, .hardware, years: 2)
+        guard ramp > 0 else {
+            if s.rivalBooks[c.id]?.chipsSold ?? 0 > 0 { s.rivalBooks[c.id]?.chipsSold = 0 }
+            return 0
+        }
+        let others = s.competitors.filter { $0.alive && $0.id != c.id }.reduce(0) { $0 + $1.computeCostMonth }
+        let sales = min(0.05 * others, 0.3 * c.computeCostMonth) * ramp
+        var book = s.rivalBooks[c.id] ?? RivalBook()
+        book.chipsSold = sales / max(1, unitCost(c, s))
+        s.rivalBooks[c.id] = book
+        return sales
     }
 
     // MARK: Compute and people (after October 2026)
@@ -332,7 +467,11 @@ enum RivalEconomy {
         let reinvest = rev * reinvestRate(s)
         var budget: Double
         if let backing = backing(c, s) {
-            budget = reinvest + backing
+            // 3.8: a parent pays from its yearly budget: no more than what's left of it, spread over the rest of the year.
+            refreshParentBudget(&s, i)
+            let monthsLeft = Double(max(1, 13 - s.date.ym.month))
+            let left = (s.rivalBooks[c.id]?.parentBudget ?? 0) / monthsLeft
+            budget = reinvest + min(backing, left) + max(0, c.cash - c.costMonth * 3) / spendHorizon(c)
         } else {
             // Investors' money goes on compute over the spend horizon — faster, if there's a year of cash or more,
             // when that wouldn't keep the lab at its usual share (it will need to raise again sooner).
@@ -342,14 +481,16 @@ enum RivalEconomy {
                 budget = max(budget, min(normalCompute(c, s) * unit, reinvest + cash / 12))
             }
         }
-        let target = min(budget / unit * squeeze, industry * 0.35)
+        // 3.8: an efficiency specialist trains smaller models and buys a quarter less compute for the same results.
+        let lean = Market.specialistRamp(s, c.id, .efficient, years: 1)
+        let target = min(budget / unit * squeeze * (1 - 0.25 * lean), industry * 0.35)
         let prev = c.computePlan > 0 ? c.computePlan : max(1, c.computeH100e)
         var next = prev + (target - prev) * (target > prev ? 0.15 : 0.2)
         if c.distressMonths > 0 { next = min(next, prev * 0.9) }
         next = max(next, 50)
         s.competitors[i].computePlan = next
         s.competitors[i].computeH100e = next
-        s.competitors[i].fundingFactor = fundingFactor(next, s.competitors[i], s)
+        s.competitors[i].fundingFactor = fundingFactor(next / (1 - 0.25 * lean), s.competitors[i], s)
     }
 
     /// Compute against what the lab normally runs (`normalCompute`). Falling short costs capability steeply; having
@@ -620,6 +761,46 @@ enum RivalEconomy {
     /// Whether you sell compute (chips or leased GPUs) a rival could commit to buy.
     static func sellsCompute(_ s: GameState) -> Bool { s.chipLines.contains { $0.active } || s.leases.values.contains { $0 > 0 } }
 
+    // MARK: 3.8: compute commitments run on your leased chips
+
+    /// H100-equivalents per chip of an accelerator.
+    static func h100e(_ a: Accelerator) -> Double { a.bf16 / HardwareCatalog.h100.bf16 }
+
+    /// What a rival pays a month for one H100-equivalent of your leased capacity, rented in full (the list rate).
+    static func commitRate(_ a: Accelerator, _ s: GameState) -> Double {
+        ChipBusiness.listRate(a, s) * 24 * 30.4 / h100e(a)
+    }
+
+    /// H100e of each leased accelerator type already committed to rivals.
+    static func committedH100e(_ s: GameState) -> [String: Double] {
+        var out: [String: Double] = [:]
+        for c in s.computeCommitments where c.monthsLeft > 0 && c.h100e > 0 { out[c.accelID, default: 0] += c.h100e }
+        return out
+    }
+
+    /// The leased accelerator with the most H100e not yet committed to a rival, and how much.
+    static func freeLeaseCapacity(_ s: GameState) -> (accelID: String, h100e: Double)? {
+        let committed = committedH100e(s)
+        var best: (String, Double)? = nil
+        for (id, n) in s.leases.sorted(by: { $0.key < $1.key }) where n > 0 {
+            guard let a = HardwareCatalog.get(id) else { continue }
+            let free = Double(n) * h100e(a) - (committed[id] ?? 0)
+            if free > (best?.1 ?? 0) { best = (id, free) }
+        }
+        return best.map { (accelID: $0.0, h100e: $0.1) }
+    }
+
+    /// The commitment a big cheque could carry: twice the investment over 24 months, as far as your uncommitted leased
+    /// capacity can serve it at the list rate (nil when it can't carry a meaningful one).
+    static func commitmentOffer(_ s: GameState, invest: Double) -> (accelID: String, h100e: Double, monthly: Double)? {
+        guard let free = freeLeaseCapacity(s), let a = HardwareCatalog.get(free.accelID) else { return nil }
+        let rate = commitRate(a, s)
+        let wanted = invest * 2 / 24
+        let h = min(free.h100e, wanted / rate)
+        guard h * rate >= wanted * 0.05, h >= 1 else { return nil }
+        return (free.accelID, h, h * rate)
+    }
+
     /// When a rival raises, a big enough player may get a slice of the round.
     static func offerStake(_ s: inout GameState, _ i: Int, amount: Double, post: Double) {
         let c = s.competitors[i]
@@ -628,12 +809,13 @@ enum RivalEconomy {
         let small = amount * 0.05
         guard s.cash >= small * 1.5, s.rng.chance(0.35) else { return }
         let big = amount * 0.15
-        let deal = sellsCompute(s)
+        // 3.8: a compute deal needs leased capacity to run on; it rents those chips in full at the list rate.
+        let deal = commitmentOffer(s, invest: big)
         Events.addDecision(&s, kind: "rival_round", title: "Join \(c.def.name)'s round?",
-                           body: "\(c.def.name) is raising \(Fmt.money(amount)) at \(Fmt.money(post)). Strategic investors like you get an allocation. A stake rises (or falls) with their value and pays out if they're sold or go public.\(deal ? " Because you sell compute, a big cheque comes with a deal: they spend twice your investment on your chips and cloud over two years." : "")",
+                           body: "\(c.def.name) is raising \(Fmt.money(amount)) at \(Fmt.money(post)). Strategic investors like you get an allocation. A stake rises (or falls) with their value and pays out if they're sold or go public.\(deal.map { " Because you lease out compute, a big cheque comes with a deal: they rent \(Fmt.count($0.h100e)) H100e of your leased chips in full for two years (\(Fmt.money($0.monthly))/month at the list rate, paid from their cash)." } ?? "")",
                            image: "stock_exchange",
                            options: [DecisionOption(label: "Invest \(Fmt.money(small))", detail: "\(Fmt.pct(small / post)) of \(c.def.name)."),
-                                     DecisionOption(label: "Invest \(Fmt.money(big))", detail: "\(Fmt.pct(big / post)) of \(c.def.name)\(deal ? ", plus \(Fmt.money(big * 2 / 24))/month of compute purchases for two years" : "").") ,
+                                     DecisionOption(label: "Invest \(Fmt.money(big))", detail: "\(Fmt.pct(big / post)) of \(c.def.name)\(deal.map { ", plus \(Fmt.money($0.monthly))/month of rented capacity for two years" } ?? "").") ,
                                      DecisionOption(label: "Pass", detail: "Keep your cash.")],
                            amount: amount, ref: "\(c.id)|\(post)")
     }
@@ -655,21 +837,43 @@ enum RivalEconomy {
         s.rivalStakes[c.id, default: 0] += invest / post
         s.rivalStakeCost[c.id, default: 0] += invest
         var body = "You now own \(Fmt.pct(s.rivalStakes[c.id] ?? 0)) of \(c.def.name)."
-        if option == 1 && sellsCompute(s) {
-            s.computeCommitments.append(ComputeCommitment(labID: c.id, labName: c.def.name, monthly: invest * 2 / 24, monthsLeft: 24))
-            body += " They'll spend \(Fmt.money(invest * 2 / 24)) a month on your compute for two years — round-tripping, the industry calls it."
+        if option == 1, let deal = commitmentOffer(s, invest: invest) {
+            var commit = ComputeCommitment(labID: c.id, labName: c.def.name, monthly: deal.monthly, monthsLeft: 24)
+            commit.accelID = deal.accelID
+            commit.h100e = deal.h100e
+            s.computeCommitments.append(commit)
+            body += " They'll rent \(Fmt.count(deal.h100e)) H100e of your leased chips in full for two years (\(Fmt.money(deal.monthly))/month from their cash) — round-tripping, the industry calls it. Recall those leases and the deal shrinks with them."
         }
         Sim.news(&s, "You invested \(Fmt.money(invest)) in \(c.def.name)", body, .finance, image: "stock_exchange", good: true)
     }
 
-    /// Compute commitments from rivals you invested in: hardware revenue with a hardware margin.
+    /// Compute commitments from rivals you invested in. 3.8: the lab pays from its own cash and runs on the leased
+    /// chips it rents (its compute grows by them); you earn it as lease income at full occupancy (ChipBusiness). If you
+    /// recall the leases, the commitment shrinks to what's still leased; a lab that leaves the market ends it.
     static func commitments(_ s: inout GameState) {
+        var used: [String: Double] = [:]
         for i in s.computeCommitments.indices where s.computeCommitments[i].monthsLeft > 0 {
-            let m = s.computeCommitments[i].monthly
-            s.cash += m * 0.55
-            s.month.revCloud += m
-            s.month.costChips += m * 0.45
-            s.lifetimeRevenue += m
+            let d = s.computeCommitments[i]
+            guard let ci = s.competitors.firstIndex(where: { $0.id == d.labID }), s.competitors[ci].alive else {
+                s.computeCommitments[i].monthsLeft = 0
+                continue
+            }
+            if d.h100e > 0, let a = HardwareCatalog.get(d.accelID) {
+                let leased = Double(s.leases[d.accelID] ?? 0) * h100e(a) - (used[d.accelID] ?? 0)
+                let live = max(0, min(d.h100e, leased))
+                used[d.accelID, default: 0] += live
+                let paid = d.monthly * (d.h100e > 0 ? live / d.h100e : 0)
+                s.competitors[ci].cash -= paid
+                s.competitors[ci].computeH100e += live
+            } else {
+                // A commitment from before 3.8: hardware revenue with a hardware margin, now paid from the lab's cash.
+                let m = d.monthly
+                s.competitors[ci].cash -= m
+                s.cash += m * 0.55
+                s.month.revCloud += m
+                s.month.costChips += m * 0.45
+                s.lifetimeRevenue += m
+            }
             s.computeCommitments[i].monthsLeft -= 1
         }
         s.computeCommitments.removeAll { $0.monthsLeft <= 0 }

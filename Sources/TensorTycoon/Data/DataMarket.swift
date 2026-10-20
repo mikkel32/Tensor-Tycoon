@@ -167,12 +167,20 @@ struct DataQuality: Codable, Hashable, Sendable {
         specialist = spec; provenance = prov; licence = lic; contamination = contam; processing = proc
     }
 
-    /// How much a token of it is worth to training, 0–1. Provenance, licence and contamination don't make the data
-    /// teach better or worse — they decide legal risk and benchmark contamination instead.
+    /// How much a token of it is worth to training, 0–1: accuracy, freshness, duplication, diversity and processing.
+    /// Scientific reliability and specialist coverage decide which domains it teaches (`DataEconomy.relevance`), so they
+    /// aren't counted here a second time. Provenance, licence and contamination don't make the data teach better or
+    /// worse — they decide legal risk, what you may do with the model, and benchmark contamination.
     var effective: Double {
-        clamp(0.22 * accuracy + 0.08 * freshness + 0.15 * (1 - duplication) + 0.13 * diversity + 0.08 * science
-              + 0.12 * specialist + 0.22 * processing, 0, 1)
+        clamp(0.275 * accuracy + 0.1 * freshness + 0.1875 * (1 - duplication) + 0.1625 * diversity + 0.275 * processing, 0, 1)
     }
+
+    /// Share of its tokens that teach nothing — wrong answers, broken code, boilerplate — because nobody checked or
+    /// cleaned them: (1 − accuracy) × (1 − processing). A noisy bulk set has far fewer useful tokens than its size.
+    var noise: Double { clamp((1 - accuracy) * (1 - processing), 0, 0.9) }
+
+    /// Licence terms below this are research-only: a model trained on it can't be released as open weights.
+    static let openLicence = 0.6
 
     /// Value weight of a quality-q token relative to a q = 0.5 one: curated data is worth many times raw crawl.
     static func weight(_ q: Double) -> Double { pow(10, 2.5 * (q - 0.5)) }

@@ -68,6 +68,10 @@ struct Employee: Codable, Identifiable, Hashable {
     var equity: Double = 0
     @D var trait: String = ""
     @D var promoted: Bool = false
+    /// 3.4 overhaul: the satellite office they work in (HQState.satellites ID); empty = headquarters.
+    @D var office: String = ""
+    /// Hired from abroad into headquarters, on the international rate rather than local pay.
+    @D var relocated: Bool = false
 }
 
 struct Candidate: Codable, Identifiable, Hashable {
@@ -81,6 +85,9 @@ struct Candidate: Codable, Identifiable, Hashable {
     var expires: Date
     var bio: String
     @D var trait: String = ""
+    /// 3.4 overhaul: the satellite office hiring them (empty = headquarters), and whether they'd relocate from abroad.
+    @D var office: String = ""
+    @D var relocated: Bool = false
 }
 
 // MARK: - Hardware
@@ -365,6 +372,17 @@ struct ModelDesign: Codable, Hashable {
     @D var family: String = ""
     @D var generation: Int = 0
     @D var blurb: String = ""
+    // 3.4: architecture and systems choices with real trade-offs (Physics).
+    /// Expert pool size for a sparse model (0 = the standard layout for its active share); top-k follows from the share.
+    @D var experts: Int = 0
+    /// How training state fits in memory: recompute activations or move optimizer state to host memory, both slower.
+    @D var memoryPlan: MemoryPlan = .standard
+    /// Share of the cluster held back as hot spares that replace a failed node in seconds.
+    @D var spares: Double = 0
+    /// A quantisation-aware training stage: the model loses far less quality when served in FP8/FP4.
+    @D var qat: Bool = false
+    /// A dangerous-capability evaluation stage before release (needs evaluation research).
+    @D var safetyEvals: Bool = false
     /// 3.9: other chip types training alongside the lead type (`accelID`/`chips`). Each group runs at its own speed;
     /// see `Physics.throughputChips`. Empty for a single-type run, as every run before 3.9 was.
     @D var helpers: [ChipPart] = []
@@ -383,6 +401,23 @@ struct ModelDesign: Codable, Hashable {
     }
 }
 
+/// How a design's training state fits in accelerator memory.
+enum MemoryPlan: String, Codable, CaseIterable, Identifiable {
+    case standard = "Standard"
+    case checkpointing = "Activation checkpointing"
+    case offload = "Optimizer offload"
+    var id: String { rawValue }
+    var detail: String {
+        switch self {
+        case .standard: "Keep every activation and the optimizer state on the chips: fastest."
+        case .checkpointing: "Recompute activations in the backward pass: about a fifth of the activation memory, about 10% slower."
+        case .offload: "Keep the optimizer state in host memory: needs a quarter of the memory per parameter, about 20% slower."
+        }
+    }
+}
+
+extension MemoryPlan: DefaultValue { static var defaultValue: MemoryPlan { .standard } }
+
 enum RunStatus: String, Codable {
     case running = "Training"
     case paused = "Paused"
@@ -398,6 +433,30 @@ struct LossPoint: Codable, Hashable {
     /// The scaling-law forecast for this point.
     @D var pred: Double = 0
     @D var gnorm: Double = 0
+    /// 3.4: held-out validation loss at this point (0 in older saves, which show a smoothed training curve instead).
+    @D var val: Double = 0
+}
+
+/// One simulated day of a training run, kept for the command centre's live views.
+struct RunDay: Codable, Hashable {
+    var date: Date
+    /// Hardware faults that day (after ops agents drained the predictable ones), and faults prevented.
+    var failures: Int
+    var prevented: Double
+    /// Hours of cluster time lost to restarts.
+    var hoursLost: Double
+    /// FLOPs that moved the model forward, and the cluster's peak FLOPs.
+    var useful: Double
+    var peak: Double
+    /// Model FLOPs utilisation and expected goodput that day.
+    var mfu: Double
+    var goodput: Double
+    /// Ops coverage, corrupt nodes caught and missed, loss spikes, and spend.
+    var coverage: Double
+    var sdcCaught: Double
+    var sdcMissed: Double
+    var spike: Bool
+    var cost: Double
 }
 
 struct TrainCheckpoint: Codable, Identifiable, Hashable {
@@ -413,6 +472,8 @@ struct TrainCheckpoint: Codable, Identifiable, Hashable {
     @D var projected: Double = 0
     @D var projectedLow: Double = 0
     @D var projectedHigh: Double = 0
+    /// 3.4: learning-rate quality credited up to this checkpoint (nil in older saves), restored on a rollback.
+    @D var lrCredit: Double? = nil
 }
 
 enum LRSchedule: Int, Codable, CaseIterable, Identifiable {
@@ -451,6 +512,8 @@ struct TrainingRun: Codable, Identifiable, Hashable {
     var failures: Int = 0
     var note: String = ""
     var dataSnapshot: [String] = []
+    /// 3.6: the data plan frozen when the run started (nil for runs started before 3.6, which recompute it).
+    @D var dataPlan: DataPlanSummary? = nil
     var cFinal: Double? = nil
     @D var saved: [TrainCheckpoint] = []
     /// 3.8: when it was paused (the planner ignores runs paused for over a month).
@@ -509,8 +572,44 @@ struct TrainingRun: Codable, Identifiable, Hashable {
     @D var plan: RunPlan? = nil
     /// Where the cluster's peak compute actually went, day by day (TrainingExperience).
     @D var ledger: RunLedger = RunLedger()
+    /// 3.4: the learning rate's quality effect, earned over pre-training: each stretch of progress counts at the
+    /// learning rate it was trained with, so switching to Aggressive late only helps the part still to come.
+    @D var lrCredit: Double = 0
+    /// Pre-training progress the credit covers so far.
+    @D var lrCreditTo: Double = 0
+    /// 3.4: launched before the lab had scaling laws, so there was no real forecast to show (only checkpoint evals).
+    @D var forecastHidden: Bool = false
+    // 3.4: interventions (TrainingInterventions)
+    /// Unique tokens the run's data offers (set at launch; 0 in older saves).
+    @D var uniqueT: Double = 0
+    /// When the last diagnostic eval sweep ran.
+    @D var diagnosedAt: Date? = nil
+    /// An instability investigation has run (once per run); `stabilised` when it fixed the cause.
+    @D var investigated: Bool = false
+    @D var stabilised: Bool = false
+    /// The reasoning-RL environments were red-teamed before the stage began.
+    @D var redTeamed: Bool = false
+    /// A contamination scan found leaked benchmarks early, so scrubbing costs less.
+    @D var contaminationEarly: Bool = false
+    /// Pre-training progress at which you ended it early (0 = ran as planned), and how much you extended it.
+    @D var endedEarlyAt: Double = 0
+    @D var extendedBy: Double = 0
+    /// Quality lost to stopping a cosine schedule before it decayed.
+    @D var penaltySchedule: Double = 0
+    /// The last 120 days of the run, as the simulation lived them (heatmap, throughput chart).
+    @D var telemetry: [RunDay] = []
+    /// 3.4: where `qualityPenalty` came from, for the results screen (older saves have only the total).
+    @D var penaltySpikes: Double = 0
+    @D var penaltyBug: Double = 0
+    @D var penaltySDC: Double = 0
+    /// What a silent bug would have cost had it not been fixed (kept after the fix zeroes `bugPenalty`).
+    @D var bugFixedPenalty: Double = 0
+    /// The player was told about the bug and chose to ship it.
+    @D var bugIgnored: Bool = false
 
     var schedule: LRSchedule { LRSchedule(rawValue: lr) ?? .standard }
+    /// Learning-rate quality the finished model would carry if the current learning rate held to the end.
+    var lrCreditAtEnd: Double { lrCredit + max(0, 1 - lrCreditTo) * schedule.qualityBonus }
     var interval: Double { checkpointEvery > 0 ? checkpointEvery : 0.1 }
 
     var progress: Double { flopsTotal > 0 ? min(1, flopsDone / flopsTotal) : 0 }
@@ -538,6 +637,11 @@ struct RunForecast: Codable, Hashable {
     var tier: String
     var comparable: String
     var finalLoss: Double
+    /// 3.4: the learning-rate quality included in `c` and the index band (0 in older saves, whose forecasts left it out).
+    @D var lrBonus: Double = 0
+
+    /// The forecast without the learning rate's effect, which the run earns separately as it trains.
+    var baseC: Double { c - lrBonus }
 }
 
 /// A completed scaling ladder: small proxy runs that validate a recipe up to some compute.
@@ -594,6 +698,15 @@ struct AIModel: Codable, Identifiable, Hashable {
     var retired = false
     @D var agentBoost: Double = 0
     @D var efficiencyBoost: Double = 0
+    /// 3.4: trained with design-specific serving physics (attention KV cache, MTP decoding, QAT). Older models keep
+    /// the serving rules they were balanced with.
+    @D var archV2: Bool = false
+    /// 3.4: trained with a quantisation-aware stage (smaller FP8/FP4 serving penalty).
+    @D var qat: Bool = false
+    /// 3.4: went through a dangerous-capability evaluation before release.
+    @D var evaluated: Bool = false
+    /// 3.4: when commissioned evaluations of a trained model report (Evaluations).
+    @D var evalDue: Date? = nil
     @D var rsiGeneration: Int = 0
     @D var preview: Bool = false
     @D var safeguards: Bool = false
@@ -622,6 +735,11 @@ struct AIModel: Codable, Identifiable, Hashable {
     @D var tradeoffChat: Double = 0
     /// The model it was distilled from.
     @D var teacherID: UUID? = nil
+    /// 3.8: domain know-how from research (CapDomain order) as of its training, kept so later research doesn't flow
+    /// into it for free. Empty for models scored before 3.8 (rebuilt from their stored scores on first use).
+    @D var knowHow: [Double] = []
+    /// 3.8: how long a reasoning model thinks per answer (Families.thinkingTokens).
+    @D var effort: ReasoningEffort = .medium
     // live stats (updated daily)
     var demandTokensDay: Double = 0
     var servedTokensDay: Double = 0
@@ -748,6 +866,10 @@ struct NewsItem: Codable, Identifiable, Hashable {
     var image: String? = nil
     var important = false
     var good: Bool? = nil
+    /// The photo stands in for what the story is about (a chip shown with a photo of a related one, a roadmap chip,
+    /// the player's own office or site), so the feed marks it "Illustrative". Stock photos are marked whatever this
+    /// says (`ImagePicker.isIllustrative`).
+    @D var illustrative: Bool = false
 }
 
 struct DecisionOption: Codable, Hashable {
@@ -876,6 +998,9 @@ struct ComputeCommitment: Codable, Hashable, Identifiable {
     var labName: String
     var monthly: Double
     var monthsLeft: Int
+    /// 3.8: the leased accelerator type it rents and how many H100-equivalents of it (0 for commitments from before 3.8).
+    @D var accelID: String = ""
+    @D var h100e: Double = 0
 }
 
 struct MonthRecord: Codable, Identifiable, Hashable {
@@ -934,12 +1059,39 @@ struct MonthRecord: Codable, Identifiable, Hashable {
     // 3.5: corporate — subsidiaries you folded back in, booked as divisions of the company
     @D var revGroup: Double = 0
     @D var costGroup: Double = 0
+    // 3.8: the books (Books)
+    /// Government programme payments (Advanced Projects milestones, reimbursements and settlements): revenue, but lumpy,
+    /// so never annualised into the run rate.
+    @D var revContracts: Double = 0
+    /// Straight-line depreciation of owned accelerators (4 years) and datacenter shells (20 years): a cost with no cash.
+    @D var costDepreciation: Double = 0
+    /// Gains (+) or losses (−) on assets and stakes sold or written off, against what they were carried at. No cash of
+    /// their own: the sale proceeds are an investing flow.
+    @D var assetGains: Double = 0
+    /// Cash that moved outside the income statement, by `CashFlowKind` raw value (+ in, − out).
+    @D var flows: [String: Double] = [:]
+    /// Cash when the month opened (nil for months kept before the ledger, which can't be reconciled).
+    @D var opening: Double? = nil
+    /// Demand for your API, chat and agents that your go-to-market couldn't book yet, and what held it back
+    /// (`Commercial.Limit` raw value).
+    @D var revUnbooked: Double = 0
+    @D var bookingLimit: String = ""
 
-    var revenue: Double { revAPI + revConsumer + revEnterprise + revOther + revAgents + revCloud + revChips + revLicensing + revLabor + revGroup }
+    var revenue: Double { revAPI + revConsumer + revEnterprise + revOther + revAgents + revCloud + revChips + revLicensing + revLabor + revGroup + revContracts }
+    /// Revenue that recurs month to month (everything but programme milestones): the base of the run rate.
+    var recurringRevenue: Double { revenue - revContracts }
+    /// What customers paid for your models directly: API, chat, agent seats and enterprise contracts.
+    var commercialRevenue: Double { revAPI + revConsumer + revAgents + revEnterprise }
     /// Selling hardware and leasing compute: valued like a hardware business, not a software one.
     var hardwareRevenue: Double { revCloud + revChips }
     var opex: Double { costRent + costPower + costSites + costPayroll + costData + costMarketing + costOther + costChipDesign + costAgentOrgs + costChips + costGroup }
-    var profit: Double { revenue + interestIncome + oneOffIncome - opex - costInterest - taxes }
+    /// Operating profit before depreciation, interest and tax.
+    var ebitda: Double { revenue - opex }
+    /// Operating profit after depreciation.
+    var ebit: Double { ebitda - costDepreciation }
+    var profit: Double { revenue + interestIncome + oneOffIncome + assetGains - opex - costDepreciation - costInterest - taxes }
+    /// Net income with the non-cash lines (depreciation, gains on disposals) taken back out: what operations did to cash.
+    var cashProfit: Double { profit + costDepreciation - assetGains }
 }
 
 struct StockPoint: Codable, Hashable {
@@ -1256,6 +1408,8 @@ struct GameState: Codable {
     @D var domainScores: [String: DomainScores] = [:]
     /// Lab ID ("player" for you) → its best released score in each domain.
     @D var labDomains: [String: DomainScores] = [:]
+    /// 3.4: landmark firsts waiting for their full-screen moment (the Training screen shows them, oldest first).
+    @D var ceremonies: [String] = []
     /// AI milestones reached so far, oldest first. Those reached before the game began are credited to the labs that got there.
     @D var milestoneWins: [MilestoneWin] = []
     /// Your product lines, and the rivals' competing ones (ProductLines).
@@ -1365,6 +1519,10 @@ struct GameState: Codable {
     // 3.7: launches and progression
     /// Every model launch, newest last: the plan, the rivals' queued answers and the report a week later (Launches).
     @D var launches: [LaunchRecord] = []
+    /// 3.8: what launches do to the market after the day: the developer ecosystem and rank momentum.
+    @D var marketMoves: MarketMovesState = MarketMovesState()
+    /// 3.8: the parts of rival labs' books that 3.3 didn't keep (parent budgets, R&D).
+    @D var rivalBooks: [String: RivalBook] = [:]
     /// The plan one-click launches and the launch delegate use. The default is the plain release the game always had.
     @D var launchDefault: LaunchPlan = LaunchPlan()
     /// Your company stage, when each was reached and the powers it unlocked (Progression).
@@ -1579,6 +1737,14 @@ struct CustomChip: Codable, Identifiable, Hashable {
     var generation: Int
     /// Designed by your agents from an alien architecture.
     @D var alien: Bool = false
+    /// 3.9 (chips from the Semiconductors page; 0 or "" = the old defaults): training MFU the part reaches before your
+    /// lab's own bonuses, how much of its peak survives training (inference parts train badly), serving throughput
+    /// against a merchant part with the same peak (compiler maturity), and its scale-up interconnect.
+    @D var mfu: Double = 0
+    @D var trainFactor: Double = 0
+    @D var serveFactor: Double = 0
+    @D var icGBs: Double = 0
+    @D var link: String = ""
 }
 
 // MARK: - Supply agreements

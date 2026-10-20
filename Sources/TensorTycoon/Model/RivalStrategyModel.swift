@@ -69,3 +69,21 @@ enum RivalPlay: String, Codable, CaseIterable, Sendable {
         }
     }
 }
+
+/// 3.8: the parts of a rival lab's books 3.3 didn't keep. Parents and states budget a year at a time and can cut it in
+/// a downturn; R&D spend buys proprietary techniques over time.
+struct RivalBook: Codable, Hashable {
+    /// What the parent (or state) still has for its AI lab this budget year, the year it was set, and its full size.
+    @D var parentBudget: Double = 0
+    @D var budgetYear: Int = 0
+    @D var annualBudget: Double = 0
+    /// A downturn at the parent cuts the lab's budget until this date.
+    @D var squeezeUntil: Date? = nil
+    /// Everything the parent has put in.
+    @D var parentPaid: Double = 0
+    /// R&D spend since the lab's last proprietary technique, and how many it has bought.
+    @D var rdPool: Double = 0
+    @D var techniques: Int = 0
+    /// The lab's own silicon (hardware specialists): H100e sold to other labs last month.
+    @D var chipsSold: Double = 0
+}

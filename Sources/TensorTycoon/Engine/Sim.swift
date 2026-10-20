@@ -4,6 +4,10 @@ enum Sim {
     // MARK: - Daily tick
 
     static func advanceDay(_ s: inout GameState) {
+        StableID.drawing { simulateDay(&s) }
+    }
+
+    private static func simulateDay(_ s: inout GameState) {
         guard s.gameOver == nil else { return }
         let oldMonth = s.date.ym
         s.date = GameCalendar.addDays(s.date, 1)
@@ -59,11 +63,14 @@ enum Sim {
 
     // MARK: - News helper
 
+    /// `illustrative`: the photo stands in for the story's subject (e.g. `Accelerator.photoIsStandIn`, the player's own
+    /// office), so the feed labels it.
     static func news(_ s: inout GameState, _ title: String, _ body: String, _ cat: NewsCategory,
-                     image: String? = nil, important: Bool = false, good: Bool? = nil) {
+                     image: String? = nil, important: Bool = false, good: Bool? = nil, illustrative: Bool = false) {
         // The photo is a pure function of the headline (ImagePicker never draws from the game's RNG).
         s.news.insert(NewsItem(date: s.date, title: title, body: body, category: cat,
-                               image: ImagePicker.illustrate(image, title: title, category: cat), important: important, good: good), at: 0)
+                               image: ImagePicker.illustrate(image, title: title, category: cat), important: important, good: good,
+                               illustrative: illustrative && image != nil), at: 0)
         if s.news.count > 400 { s.news.removeLast(s.news.count - 400) }
         s.unreadNews += 1
     }
@@ -78,13 +85,14 @@ enum Sim {
                 if a.available > ym {
                     news(&s, "\(a.vendor.rawValue) announces \(a.name)",
                          "\(a.fact) Expected availability: \(a.available.label). \(Fmt.memory(a.memoryGB)) \(a.memoryType), \(Fmt.trim(a.bandwidthTBs, 1)) TB/s, \(Fmt.tflops(a.best)) \(a.bestPrecisionLabel).",
-                         .hardware, image: a.image)
+                         .hardware, image: a.image, illustrative: a.photoIsStandIn)
                 }
             }
             if a.available <= ym && !s.availableHardware.contains(a.id) {
                 s.availableHardware.insert(a.id)
                 let how = a.purchasable ? "Orders are open" : "Available to rent on \(a.cloudProvider)"
-                news(&s, "\(a.name) is now available", "\(how). \(a.fact)", .hardware, image: a.image, important: a.cls == .datacenter || a.cls == .tpu, good: true)
+                news(&s, "\(a.name) is now available", "\(how). \(a.fact)", .hardware, image: a.image, important: a.cls == .datacenter || a.cls == .tpu, good: true,
+                     illustrative: a.photoIsStandIn)
             }
         }
     }
@@ -136,7 +144,7 @@ enum Sim {
             let name = HardwareCatalog.get(o.accelID)?.name ?? o.accelID
             let site = s.sites.first { $0.id == o.siteID }?.name ?? "your site"
             news(&s, "Delivered: \(Fmt.int(o.count))× \(name)", "Racked, cabled and burned in at \(site). They're ready for work.",
-                 .company, image: HardwareCatalog.get(o.accelID)?.image, good: true)
+                 .company, image: HardwareCatalog.get(o.accelID)?.image, good: true, illustrative: HardwareCatalog.get(o.accelID)?.photoIsStandIn ?? false)
         }
         mergeOwned(&s)
     }
@@ -144,7 +152,9 @@ enum Sim {
     static func mergeOwned(_ s: inout GameState) {
         var merged: [String: OwnedBatch] = [:]
         for b in s.owned where b.count > 0 {
-            let key = "\(b.accelID)|\(b.siteID)"
+            // 3.8: chips delivered in different months stay separate batches, so each keeps its own age (resale wear,
+            // depreciation); same-month deliveries still merge.
+            let key = "\(b.accelID)|\(b.siteID)|\(b.purchased.ym.year)-\(b.purchased.ym.month)"
             if var m = merged[key] {
                 let total = m.count + b.count
                 m.unitCost = (m.unitCost * Double(m.count) + b.unitCost * Double(b.count)) / Double(total)
@@ -314,7 +324,7 @@ enum Sim {
     }
 
     static func researchRate(_ s: GameState, _ b: ResearchBonuses) -> Double {
-        let people = s.employees.filter { $0.role == .researcher && !s.advanced.seconded.contains($0.id) }.reduce(0.0) { $0 + pow($1.skill / 50, 1.3) * $1.traitMultiplier * (0.6 + $1.morale / 250) }
+        let people = s.staff(.researcher).reduce(0.0) { $0 + pow($1.skill / 50, 1.3) * $1.traitMultiplier * (0.6 + $1.morale / 250) }
         let t = s.traits
         let founder = 0.8 * (1 + t.founderRP)
         let computePF = researchPF(s.researchChips)
@@ -349,14 +359,18 @@ enum Sim {
             s.competitors[i].agentShare = snap.agents.filter { $0.lab == id }.reduce(0) { $0 + $1.share }
         }
 
+        // 3.8: the share of today's demand your go-to-market can take on (Commercial): the rest goes unbooked.
+        let reach = Commercial.reach(&s, snap)
+
         // Demand per player model
         var demand: [UUID: Double] = [:]
         var apiDemand: [UUID: Double] = [:]
         for p in snap.api where p.isPlayer {
             guard let id = p.modelID else { continue }
-            let tokens = p.share * snap.apiTokenPool
+            let tokens = p.share * snap.apiTokenPool * reach
             apiDemand[id, default: 0] += tokens
-            demand[id, default: 0] += tokens
+            // 3.8: buyers pay for answers; a reasoning model's servers also generate its thinking tokens.
+            demand[id, default: 0] += tokens * (s.models.first { $0.id == id }.map { Families.thinkingTokens($0, b) } ?? 1)
         }
 
         // Consumer
@@ -368,7 +382,7 @@ enum Sim {
         // What rival apps earn per weekly user a month (RivalEconomy's assumption).
         let rivalChatARPU = Market.paidConversion(price: 20, freeTier: true) * 20
         if let chat = snap.consumer.first(where: { $0.isPlayer }) {
-            let target = chat.share * snap.consumerUsersPool
+            let target = chat.share * snap.consumerUsersPool * reach
             let speed = s.year < 2022.91 ? 0.08 : 0.04
             var users = s.consumerUsers + (target - s.consumerUsers) * speed
             // Paying users follow the price against what the app is worth to them (chatWTP).
@@ -382,14 +396,15 @@ enum Sim {
             let others = (1 - chat.share) * snap.consumerUsersPool * rivalChatARPU / 30.4
             s.paidUsers = s.consumerUsers * conv
                 * Market.budgetFactor(s.consumerUsers * conv * s.chatPrice / 30.4, pool: snap.consumerRevenuePool, others: others)
-            let reasoningMult = chat.reasoning ? 2.2 : 1
+            let chatModel = s.models.first { $0.id == chat.modelID }
+            let reasoningMult = chatModel.map { Families.thinkingTokens($0, b) } ?? (chat.reasoning ? 2.2 : 1)   // 3.8: research and effort
             chatTokens = s.consumerUsers * Macro.tokensPerUserDay(y) * reasoningMult
             if let id = chat.modelID, let free = Families.freeRoute(s, chatID: id) {
                 // 3.5: model families — free users are served by a cheaper tier, paying users by the chat model.
                 freeRoute = (free.id, Families.freeShare(s))
                 let base = s.consumerUsers * Macro.tokensPerUserDay(y)
                 let paid = base * (1 - freeRoute!.share) * reasoningMult
-                let freeTokens = base * freeRoute!.share * (free.reasoning ? 2.2 : 1)
+                let freeTokens = base * freeRoute!.share * Families.thinkingTokens(free, b)
                 chatTokens = paid + freeTokens
                 demand[id, default: 0] += paid
                 demand[free.id, default: 0] += freeTokens
@@ -423,7 +438,7 @@ enum Sim {
         var billedSeats = 0.0
         if let ag = snap.agents.first(where: { $0.isPlayer }) {
             // Seat budgets are fixed too (the agent pool): at a price that would outspend it you sell fewer seats.
-            let target = Market.agentSeatTarget(snap, ag: ag, price: s.agentPrice)
+            let target = Market.agentSeatTarget(snap, ag: ag, price: s.agentPrice) * reach
             s.agentSeats = max(0, s.agentSeats + (target - s.agentSeats) * 0.05)
             // Seats take weeks to sign up or wind down, but only as many as your share supports at today's price pay it.
             billedSeats = min(s.agentSeats, target)
@@ -570,10 +585,11 @@ enum Sim {
             power += draw * site.pue * 24 * site.powerPrice * (site.kind == .colo || site.kind == .datacenter ? grid : 1)
                 * Nations.powerFactor(s, location: site.locationID)   // 3.7: energy policy where the site is
         }
-        power *= max(0.5, 1 - s.traits.power) * XenoScience.powerFactor(s) * AgentOrgs.powerFactor(s) * Science.powerFactor(s) * AdvancedProjects.powerFactor(s)   // 3.6: infrastructure teams; energy discoveries; cooling programmes
+        power += AdvancedProjects.facilityPowerDay(s)   // 3.8: classified facilities draw their site's power
+        power *= Power.billFactor(s)   // traits, alien materials, infrastructure teams, energy discoveries, cooling programmes, an energy subsidiary (floored)
         // 3.8: a new colo's first month is paid up front (`setup`), so it bills only once it's ready, like a term lease.
         let sites = s.sites.reduce(0) { $0 + ($1.isReady(s.date) ? $1.monthlyFee : 0) } / 30.4
-        let office = Economy.office(s, s.officeLevel).monthly / 30.4   // 3.5: local rent
+        let office = (Economy.office(s, s.officeLevel).monthly + HQ.satelliteRent(s)) / 30.4   // 3.5: local rent; 3.4 overhaul: satellite offices
         let payroll = Economy.payrollYear(s) / 365
         let data = Economy.dataMonthlyCost(s) / 30.4
         let marketing = s.marketingBudget / 30.4

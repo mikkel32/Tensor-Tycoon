@@ -2,11 +2,15 @@ import Foundation
 
 /// Custom AI accelerator programs (like TPU, Trainium, Maia, MTIA): multi-year projects that end
 /// with a chip only you can buy, at cost.
+///
+/// 3.9: retired for new programmes. Custom silicon now runs through the semiconductor business (Semis): nodes,
+/// foundries, wafers, packaging and HBM, a compiler stack and real production. Programmes already under way in an older
+/// save finish as they would have, and their chips stay buyable at cost.
 enum Silicon {
     static let codenames = ["Lumen", "Quasar", "Helix", "Nova", "Atlas", "Zephyr", "Orion", "Vega", "Cobalt", "Ember"]
 
     static func designerFactor(_ s: GameState) -> Double {
-        let skill = s.employees.filter { $0.role == .chipDesigner }.reduce(0.0) { $0 + $1.weight }
+        let skill = s.workforce(.chipDesigner)
         return min(1, skill / 20)
     }
 
@@ -99,20 +103,11 @@ enum Silicon {
 }
 
 extension GameState {
+    /// 3.9: partner programmes are closed to new chips (one already running in an older save finishes as planned).
+    /// New accelerators are designed on the Semiconductors page: a design team, a node, a tape-out and real production.
     mutating func startChipProject(partner: ChipPartner, focus: ChipFocus, budget: Double) -> String? {
         guard bonuses.has(.customSilicon) else { return "Research Custom Accelerator Design first." }
-        if chipProjects.contains(where: { !$0.done }) { return "Finish your current chip program first." }
-        if budget < 50_000_000 { return "A serious chip program needs at least $50M." }
-        if budget * 0.1 > cash { return "Keep at least 10% of the budget (\(Fmt.money(budget * 0.1))) in cash to start." }
-        let gen = customChips.count + 1
-        let name = "\(Silicon.codenames[(gen - 1) % Silicon.codenames.count]) v\(gen)"
-        var p = ChipProject(name: name, partner: partner, focus: focus, budget: budget, started: date, phaseDaysLeft: 0, generation: gen)
-        p.phaseDaysLeft = ChipProject.phaseDays[0] * Silicon.speed(p, self)
-        chipProjects.append(p)
-        Sim.news(&self, "Silicon program kicked off: \(name)",
-                 "A \(focus.rawValue.lowercased()) accelerator with \(partner.rawValue), \(Fmt.money(budget)) budget. Expect ~\(Int(Silicon.totalDays(p, self) / 30)) months to volume.",
-                 .company, image: "wafer", important: true)
-        return nil
+        return "Partner programmes have closed to new chips. Design your accelerator on the Semiconductors page: hire a design team, pick a node and tape it out."
     }
 
     mutating func cancelChipProject(_ id: UUID) {

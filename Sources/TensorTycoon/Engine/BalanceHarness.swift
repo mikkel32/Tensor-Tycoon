@@ -174,46 +174,20 @@ enum BalanceHarness {
         siliconTest(s)
     }
 
+    /// Partner custom-silicon programmes take no new chips since 3.4: the Semiconductors page replaced them, and
+    /// `--scenarios G` plays a chip programme end to end (design, tape-out, packaging, scale, fleet, sales). This checks
+    /// the old path refuses with directions instead of starting a programme.
     static func siliconTest(_ start: GameState) {
         var s = start
         s.gameOver = nil
-        s.decisions.removeAll()
         s.cash = max(s.cash, 2e9)
         s.researched.insert("custom_silicon")
         print("\n== Silicon test from \(s.date.gameShort) ==")
         for (partner, focus) in [(ChipPartner.broadcom, ChipFocus.training), (.inHouse, .inference)] {
-            var t = s
-            if let e = t.startChipProject(partner: partner, focus: focus, budget: 5e8) { print("  start error: \(e)"); continue }
-            var day = 0
-            while t.customChips.isEmpty && day < 1200 {
-                Sim.advanceDay(&t)
-                for d in t.decisions { t.resolveDecision(d.id, option: d.kind == "acquisition" ? 1 : 0) }
-                t.gameOver = nil
-                day += 1
-            }
-            if let c = t.customChips.last, let p = t.chipProjects.last {
-                print(String(format: "  %@ %@: %d days, %d respins, spent %@ -> %@ bf16 %.0f fp8 %.0f fp4 %.0f %.0fGB %.1fTB/s %.0fW $%.0f",
-                             partner.rawValue as NSString, focus.rawValue as NSString, day, p.respins, Fmt.money(p.spent) as NSString,
-                             c.name as NSString, c.bf16, c.fp8, c.fp4, c.memoryGB, c.bandwidthTBs, c.tdpW, c.unitCost))
-                print("     store sees it: \(HardwareCatalog.get(c.id).map { "\($0.name), buyable \(Economy.canBuy($0, t))" } ?? "missing")")
-                // Sell it to other companies for a year.
-                if let e = t.openChipLine(c.id) ?? t.addFabCapacity(c.id, units: 20_000) { print("     sales error: \(e)"); continue }
-                let price = t.chipLines.first?.price ?? 0
-                let cash0 = t.cash
-                for _ in 0..<365 {
-                    Sim.advanceDay(&t)
-                    for d in t.decisions { t.resolveDecision(d.id, option: d.kind == "acquisition" ? 1 : 0) }
-                    t.gameOver = nil
-                }
-                if let line = t.chipLines.first {
-                    print(String(format: "     sold 1y at $%.0f: %@ chips, revenue %@, profit %@ (capacity cost incl. in cash Δ %@), reputation %.2f",
-                                 price, Fmt.count(line.shipped) as NSString, Fmt.money(line.revenue) as NSString, Fmt.money(line.profit) as NSString,
-                                 Fmt.money(t.cash - cash0) as NSString, ChipBusiness.reputation(t)))
-                }
-            } else {
-                print("  \(partner.rawValue): no chip after \(day) days")
-            }
+            let why = s.startChipProject(partner: partner, focus: focus, budget: 5e8)
+            print("  \(partner.rawValue) \(focus.rawValue): \(why.map { "refused as designed: \($0)" } ?? "STARTED (partner programmes should be closed)")")
         }
+        print("  the semiconductor programme itself is played end to end by --scenarios G")
     }
 
     static func benchReport(_ s: GameState) {

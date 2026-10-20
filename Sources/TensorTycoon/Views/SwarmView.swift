@@ -298,6 +298,9 @@ private struct FoundOrgCard: View {
                 SpecRow(label: "Work right first time", value: Fmt.pct(e.accuracy, decimals: 1))
                 SpecRow(label: "Compute cost", value: "\(Fmt.money(cost * 30.4))/mo")
                 SpecRow(label: "Tools budget", value: funded ? "\(Fmt.money(e.needDaily * 30.4))/mo" : "None (−\(Fmt.pct(kind.toolCost.weight, decimals: 0)))")
+                if let goal = AgentOrgs.goalOptions(kind, s).first {
+                    SpecRow(label: "First objective (12 months)", value: goal.title)
+                }
                 if need != chips {
                     Button(need <= free ? "Use \(Fmt.int(need)) chips" : "Use all \(Fmt.int(free)) free chips") { chips = max(1, min(free, need)) }
                         .buttonStyle(.link)
@@ -466,7 +469,8 @@ private struct OrgCard: View {
                         if o.incidents > 0 { Pill(text: "\(o.incidents) incident\(o.incidents == 1 ? "" : "s")", color: .red, symbol: "exclamationmark.triangle.fill") }
                     }
                     Text("Objective: \(o.objective)").font(.callout).foregroundStyle(.secondary)
-                    Text("\(teams.count) team\(teams.count == 1 ? "" : "s") · founded \(o.founded.gameShort) · \(AgentOrgs.impact(o.kind, s))").font(.caption).foregroundStyle(.secondary)
+                    OrgGoalLine(org: o, state: s)
+                    Text(orgLine(o, teams: teams.count, s)).font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
                 HStack {
@@ -490,7 +494,7 @@ private struct OrgCard: View {
                 OrgStat(label: "Budget", value: "\(Fmt.money(e.spendDaily * 30.4)) of \(Fmt.money(o.budgetMonthly))", symbol: "banknote.fill", tint: e.tools < 0.999 ? .orange : .mint)
             }
             OrgChart(org: o, eval: e, teams: teams, state: s)
-            ActivitiesView(org: o, eval: e)
+            ActivitiesView(org: o, eval: e, state: s)
             DisclosureGroup(isExpanded: $showWhy) {
                 VStack(alignment: .leading, spacing: 4) {
                     ForEach(Array(AgentOrgs.explanation(o, e, s).enumerated()), id: \.offset) { _, row in
@@ -521,6 +525,15 @@ private struct OrgCard: View {
         .confirmationDialog("Dissolve \(o.name)? Every team is disbanded and its chips become idle.", isPresented: $confirmDissolve) {
             Button("Dissolve", role: .destructive) { store.mutate { $0.dissolveOrg(o.id) } }
         }
+    }
+}
+
+extension OrgCard {
+    func orgLine(_ o: AgentOrg, teams: Int, _ s: GameState) -> String {
+        var t = "\(teams) team" + (teams == 1 ? "" : "s")
+        t += " · founded \(o.founded.gameShort) · " + AgentOrgs.impact(o.kind, s)
+        t += " · \(Fmt.money(o.totalSpend)) spent on tools so far"
+        return t
     }
 }
 
@@ -642,15 +655,68 @@ private struct TeamBox: View {
     }
 }
 
+/// 3.9: the organisation's measurable objective: where the number stands, the target, the deadline and how it ended.
+private struct OrgGoalLine: View {
+    let org: AgentOrg
+    let state: GameState
+
+    var body: some View {
+        let o = org
+        if let m = AgentOrgs.metric(o.goalKey), let line = AgentOrgs.goalLine(o, state) {
+            let now = m.value(state)
+            let span = o.goalTarget - o.goalStart
+            let progress = span > 0 ? (now - o.goalStart) / span : 0
+            let onTrack = AgentOrgs.goalOnTrack(o, state)
+            let tone = Self.tone(o.goalStatus, onTrack: onTrack)
+            HStack(spacing: 8) {
+                Pill(Self.word(o.goalStatus, onTrack: onTrack), tone: tone)
+                Text(Self.capitalised(line)).font(.caption).lineLimit(1)
+                if o.goalStatus == 0 {
+                    Meter(value: progress, tint: tone.color, height: 6).frame(width: 120)
+                        .accessibilityLabel("Progress to the objective")
+                }
+            }
+        }
+    }
+}
+
+extension OrgGoalLine {
+    static func tone(_ status: Int, onTrack: Bool) -> Tone {
+        switch status {
+        case 1: return .good
+        case 2: return .bad
+        default: return onTrack ? .info : .warning
+        }
+    }
+
+    static func word(_ status: Int, onTrack: Bool) -> String {
+        switch status {
+        case 1: return "Met"
+        case 2: return "Missed"
+        default: return onTrack ? "On track" : "Behind"
+        }
+    }
+
+    static func capitalised(_ line: String) -> String {
+        guard let first = line.first else { return line }
+        return String(first).uppercased() + String(line.dropFirst())
+    }
+}
+
 /// Classes of work and how the effort is split between them.
 private struct ActivitiesView: View {
     let org: AgentOrg
     let eval: AgentOrgs.Eval
+    let state: GameState
 
     var body: some View {
         let acts = org.kind.activities
         VStack(alignment: .leading, spacing: 4) {
             Text("Work").font(.headline)
+            if org.kind == .research && state.orgTechniques < AgentOrgs.techniqueCap(state) && eval.shares.count > 1 && eval.shares[1] > 0 {
+                Text("Next technique: \(Fmt.pct(org.techProgress / AgentOrgs.techniqueCost(state.orgTechniques), decimals: 0)) of the way (\(state.orgTechniques) of \(AgentOrgs.techniqueCap(state)) published)")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             ForEach(Array(acts.enumerated()), id: \.offset) { i, a in
                 let share = i < eval.shares.count ? eval.shares[i] : 0
                 let open = eval.bestQuality >= a.minQuality
@@ -662,12 +728,21 @@ private struct ActivitiesView: View {
                         Meter(value: share, tint: .purple, height: 6).frame(width: 120)
                         Text(Fmt.pct(share, decimals: 0)).font(.caption.monospacedDigit()).frame(width: 40, alignment: .trailing)
                     } else {
-                        Text("Unlocks with \(Swarms.tier(a.minQuality).lowercased())-level agents").font(.caption).foregroundStyle(.orange).frame(width: 166, alignment: .leading)
+                        Text("Unlocks with \(Swarms.tier(a.minQuality).lowercased())-level agents").font(.caption).foregroundStyle(Theme.warning).frame(width: 166, alignment: .leading)
                     }
-                    Text(a.effect).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    Text(effectLine(a, index: i, open: open)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
             }
         }
+    }
+}
+
+extension ActivitiesView {
+    /// What an activity does and, for the levelled ones, how far along it is.
+    func effectLine(_ a: OrgActivity, index i: Int, open: Bool) -> String {
+        guard open && (i > 0 || !AgentOrgs.classic.contains(org.kind)) else { return a.effect }
+        let level = Fmt.pct(AgentOrgs.level(state, org.kind, i), decimals: 0)
+        return a.effect + " · level \(level) (full at \(Fmt.count(a.full)) researcher-eq)"
     }
 }
 
@@ -686,11 +761,16 @@ private struct OrgSettings: View {
     @State private var noBudget = false
     @State private var focus = 0
     @State private var loaded = false
+    @State private var goalKey = ""
+    @State private var goalTarget = 0.0
+    @State private var goalMonths = 12
 
     var body: some View {
         let o = org
         let s = state
         let models = AgentOrgs.members(o, s).compactMap { sw in s.models.first { $0.id == sw.modelID } }
+        let goals = AgentOrgs.goalOptions(o.kind, s)
+        let goal = goals.first { $0.key == goalKey } ?? goals.first
         let open = o.kind.activities.indices.filter { eval.bestQuality >= o.kind.activities[$0].minQuality }
         VStack(alignment: .leading, spacing: 10) {
             HStack {
@@ -708,6 +788,23 @@ private struct OrgSettings: View {
                     budgetLog = log10(max(1e4, eval.needDaily * 30.4 * 1.05))
                 }
                 .help("What it could use at today's output: \(Fmt.money(eval.needDaily * 30.4))/mo")
+            }
+            if let goal {
+                HStack {
+                    Picker("Objective", selection: Binding(get: { goal.key }, set: { k in
+                        goalKey = k
+                        if let m = AgentOrgs.metric(k) { goalTarget = m.step(m.value(s)) }
+                    })) {
+                        ForEach(goals, id: \.key) { m in Text(m.title).tag(m.key) }
+                    }
+                    .frame(width: 300)
+                    Text("now \(goal.format(goal.value(s))) →").font(.caption).foregroundStyle(.secondary)
+                    TextField("Target", value: $goalTarget, format: .number).textFieldStyle(.roundedBorder).frame(width: 90)
+                    Stepper("by \(GameCalendar.addMonths(s.date, goalMonths).gameShort)", value: $goalMonths, in: 1...60)
+                    Button("Set objective") { store.act("Objective set") { $0.setOrgGoal(o.id, key: goal.key, target: goalTarget, months: goalMonths) } }
+                }
+                Text("A target the game measures: \(goal.title.lowercased()), \(goal.format(goalTarget)) as entered (percentages as fractions: 0.8 is 80%). The organisation reports progress monthly and you hear when it's met or missed.")
+                    .font(.caption2).foregroundStyle(.secondary)
             }
             if open.count > 1 {
                 Picker("Focus", selection: $focus) {
@@ -741,6 +838,8 @@ private struct OrgSettings: View {
             noBudget = o.budgetMonthly <= 0
             budgetLog = o.budgetMonthly > 0 ? clamp(log10(o.budgetMonthly), 4, 11) : 6
             focus = o.focus
+            goalKey = o.goalKey.isEmpty ? (AgentOrgs.goalOptions(o.kind, s).first?.key ?? "") : o.goalKey
+            if let m = AgentOrgs.metric(goalKey) { goalTarget = o.goalStatus == 0 && !o.goalKey.isEmpty ? o.goalTarget : m.step(m.value(s)) }
         }
     }
 }

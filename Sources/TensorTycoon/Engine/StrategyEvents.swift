@@ -7,10 +7,13 @@ enum StrategyEvents {
         guard s.decisions.count < 2 else { return }
         let y = s.year
 
-        // A hyperscaler wants your chips all to itself.
-        if let line = s.chipLines.filter({ $0.active && $0.sellToRivals && $0.unitsToday > 0 }).max(by: { $0.unitsToday * $0.price < $1.unitsToday * $1.price }),
+        // A hyperscaler wants your chips all to itself: a merchant line selling to rival labs, or (3.9) your own chip
+        // business when rival labs bought from it last month.
+        let lineYearly = s.chipLines.filter { $0.active && $0.sellToRivals && $0.unitsToday > 0 }.map { $0.unitsToday * $0.price * 365 }.max()
+        var semiYearly: Double? = nil
+        if s.semi.allowRivals, let last = s.semi.history.first, last.rivalRevenue > 0 { semiYearly = last.revenue * 12 }
+        if let yearly = [lineYearly, semiYearly].compactMap({ $0 }).max(),
            (s.exclusiveSupplyUntil ?? .distantPast) < s.date, s.rng.chance(0.08) {
-            let yearly = line.unitsToday * line.price * 365
             let premium = max(2e8, yearly * 0.5 * 0.3)
             let buyer = s.rng.pick(["Nimbus Cloud", "Stratus Compute", "Meridian Sovereign AI"])
             Events.addDecision(&s, kind: "exclusive_supply", title: "\(buyer) wants your chips exclusively",

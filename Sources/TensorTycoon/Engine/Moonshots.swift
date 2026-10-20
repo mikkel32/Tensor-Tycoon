@@ -176,6 +176,7 @@ enum Moonshots {
         let taken = Set(s.moonshots.map(\.id))
         let eligible = MoonshotCatalog.all.filter {
             $0.year <= s.year && !taken.contains($0.id) && s.researched.contains($0.prereq) && s.safetyScore >= $0.minSafety - 15
+                && ($0.year < Progression.lateMoonshotYear || Progression.allows(s, .lateMoonshots))   // 3.8: Civilisational
         }
         guard !eligible.isEmpty, s.rng.chance(0.15) else { return }
         let d = s.rng.pick(eligible)

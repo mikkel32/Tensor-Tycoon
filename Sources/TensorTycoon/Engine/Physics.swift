@@ -17,8 +17,51 @@ enum Physics {
     /// LoRA-style fine-tune: frozen BF16 weights plus small adapters, optimizer states and activations.
     static let finetuneBytesPerParam = 2.4
 
+    /// Bytes of training state per parameter: BF16 weights and gradients plus FP32 master weights and the optimizer's
+    /// moments (Adam keeps two, Muon one, Shampoo/SOAP adds preconditioners). Lower-precision training keeps smaller
+    /// copies, and offloading moves the master weights and moments to host memory.
+    static func stateBytesPerParam(_ d: ModelDesign) -> Double {
+        var bytes = trainingBytesPerParam
+        switch d.optimizer {
+        case .adamw: break
+        case .muon: bytes -= 4
+        case .shampoo: bytes += 4
+        }
+        switch d.precision {
+        case .bf16: break
+        case .fp8: bytes -= 1
+        case .fp4: bytes -= 1.5
+        }
+        if d.memoryPlan == .offload { bytes = min(bytes, 4) }
+        return bytes
+    }
+
+    /// Activation memory per parameter at the design's context length (1.6 bytes up to 8K tokens). Long sequences
+    /// hold more activations; sequence parallelism (ring attention) splits long ones across chips; recomputing
+    /// activations in the backward pass keeps about a fifth of them.
+    static func activationBytesPerParam(_ d: ModelDesign, bonuses b: ResearchBonuses) -> Double {
+        var ctx = d.contextK >= 512 ? 5.0 : (d.contextK >= 128 ? 2.5 : (d.contextK >= 32 ? 1.5 : 1))
+        if b.has(.context1m) { ctx = 1 + (ctx - 1) * 0.5 }
+        return 1.6 * ctx * (d.memoryPlan == .checkpointing ? 0.2 : 1)
+    }
+
+    /// Training memory per parameter, state plus activations (17.6 bytes for an AdamW BF16 short-context design).
+    static func trainingBytes(_ d: ModelDesign, bonuses b: ResearchBonuses) -> Double {
+        d.mode == .finetune ? finetuneBytesPerParam : stateBytesPerParam(d) + activationBytesPerParam(d, bonuses: b)
+    }
+
+    /// Throughput kept by the memory plan: recomputing activations costs about a third of a forward pass, and
+    /// streaming optimizer state over PCIe stalls each step.
+    static func memoryPlanSpeed(_ d: ModelDesign) -> Double {
+        switch d.memoryPlan {
+        case .standard: 1
+        case .checkpointing: 0.9
+        case .offload: 0.8
+        }
+    }
+
     static func trainingMemory(_ d: ModelDesign, accel: Accelerator, bonuses b: ResearchBonuses) -> MemoryCheck {
-        let need = d.paramsB * (d.mode == .finetune ? finetuneBytesPerParam : trainingBytesPerParam * 1.1)
+        let need = d.paramsB * trainingBytes(d, bonuses: b)
         if accel.weightStreaming {
             return MemoryCheck(ok: true, needGB: need, haveGB: .infinity, note: "Weights stream from external memory — no limit.")
         }
@@ -73,7 +116,7 @@ enum Physics {
 
     static func mfu(accel: Accelerator, chips: Int, state s: GameState, bonuses b: ResearchBonuses) -> Double {
         var base = accel.baseMFU + min(0.10, b.mfu) + Partners.mfuBonus(accel, s)
-        let engineers = s.employees.filter { $0.role == .mlEngineer }.reduce(0.0) { $0 + $1.weight }
+        let engineers = s.workforce(.mlEngineer)
         let needed = 0.5 + Double(chips) / 1_500
         base += 0.04 * min(1, engineers / needed)
         // Agent swarms on training operations tune kernels and route around bad nodes.
@@ -93,7 +136,7 @@ enum Physics {
 
     /// Infra engineers on the team, weighted by skill (a skill-50 engineer counts as one).
     static func infraWeight(_ s: GameState) -> Double {
-        s.employees.filter { $0.role == .infra }.reduce(0.0) { $0 + $1.weight }
+        s.workforce(.infra)
     }
 
     /// Chips of the biggest run going (or about to go: `planned`), which the infra team is staffed against.
@@ -128,7 +171,30 @@ enum Physics {
     static func runMFU(_ d: ModelDesign, accel: Accelerator, coverage cov: Double, state s: GameState, bonuses b: ResearchBonuses) -> Double {
         var m = mfu(accel: accel, chips: d.allChips, state: s, bonuses: b) + 0.02 * cov
         if d.optimizer == .shampoo { m -= 0.02 }
+        // 3.4: what the design itself costs: sparse experts' all-to-all traffic and router imbalance, the memory plan,
+        // and chips held back as hot spares.
+        m *= moeEfficiency(d, accel: accel, bonuses: b) * memoryPlanSpeed(d) * (1 - clamp(d.spares, 0, 0.1))
         return max(0.05, m)
+    }
+
+    /// Share of MFU a sparse model keeps after expert-parallel communication and router load imbalance (1 when dense).
+    /// Every layer sends each token to its experts and back: more and smaller experts, and more of them per token,
+    /// mean more traffic, which costs about three times as much once it leaves a scale-up domain. DualPipe-style overlap
+    /// hides most of it; auxiliary-loss-free balancing removes most of the imbalance that leaves chips waiting.
+    static func moeEfficiency(_ d: ModelDesign, accel: Accelerator, bonuses b: ResearchBonuses) -> Double {
+        guard d.isMoE else { return 1 }
+        let layout = TrainingExperience.layout(d)
+        let fan = 0.6 * log2(Double(max(4, layout.experts)) / 4) + 0.4 * log2(Double(max(1, layout.active)))
+        var comm = 0.022 * fan * (d.allChips > accel.scaleUp ? 1 : 0.35)
+        if b.researched.contains("dualpipe") { comm *= 0.35 }
+        let imbalance = b.researched.contains("aux_free") ? 0.01 : 0.035
+        return clamp(1 - comm - imbalance, 0.7, 1)
+    }
+
+    /// Hours lost per failure kept when hot spares stand by: a failed node is swapped for a spare in seconds instead of
+    /// waiting for the job to be rescheduled (3% spares capture most of it).
+    static func spareRecovery(_ spares: Double) -> Double {
+        1 - 0.7 * min(1, max(0, spares) / 0.03)
     }
 
     /// Expected FLOPs a design's cluster delivers per day, exactly as the daily simulation computes them on average.
@@ -137,7 +203,7 @@ enum Physics {
         let b = s.bonuses
         let cov = Training.plannedCoverage(s, chips: d.allChips)
         return throughputChips(d) * a.trainTFLOPS(d.precision) * 1e12 * runMFU(d, accel: a, coverage: cov, state: s, bonuses: b)
-            * Training.goodput(chips: d.allChips, coverage: cov, state: s, bonuses: b) * 86_400 * lr.speed * Sim.checkpointOverhead(interval)
+            * Training.goodput(chips: d.allChips, coverage: cov, state: s, bonuses: b, spares: d.spares) * 86_400 * lr.speed * Sim.checkpointOverhead(interval)
     }
 
     static func pretrainFLOPs(_ d: ModelDesign) -> Double {
@@ -184,7 +250,7 @@ enum Physics {
         let post = postTrainFLOPs(d, pretrain: pre, bonuses: b)
         let cov = Training.plannedCoverage(s, chips: d.allChips)
         let m = runMFU(d, accel: accel, coverage: cov, state: s, bonuses: b)
-        let g = Training.goodput(chips: d.allChips, coverage: cov, state: s, bonuses: b)
+        let g = Training.goodput(chips: d.allChips, coverage: cov, state: s, bonuses: b, spares: d.spares)
         let perDay = flopsPerDay(d, state: s, lr: lr, interval: interval)
         let daily = dailyChipCost(d, state: s)
         var days = Double.infinity, incidents = 0.0, toy = false
@@ -230,9 +296,7 @@ enum Physics {
 
     /// Unique tokens (trillions) a design can draw on: your data sources, data research and its synthetic share.
     static func uniqueTokensT(_ d: ModelDesign, state s: GameState) -> Double {
-        let b = s.bonuses
-        let raw = availableTokensT(s.dataSources.sorted(), y: s.year, bonuses: b)
-        return raw * (d.syntheticShare > 0 && b.has(.syntheticData) ? 1 + d.syntheticShare * 3 : 1) + DataEconomy.extraUniqueT(s)   // 3.6
+        DataEconomy.uniqueTokensT(d, state: s, sources: s.dataSources.sorted())   // exactly as the forecast counts them (synthetic data bounded)
     }
 
     /// Passes over the unique data worth planning: past this a repeated token is worth well under half a fresh one.
@@ -305,9 +369,100 @@ enum Physics {
 
     // MARK: Inference
 
+    // MARK: Architecture (3.4)
+
+    /// A design's layer shape from its active parameters (12·L·d² per dense stack, width ≈ 128 × depth). The
+    /// architecture diagram draws it, and serving reads the KV cache from it.
+    struct Shape: Hashable {
+        var layers: Int
+        var dModel: Int
+        var heads: Int
+        var kvHeads: Int
+        var latent: Int
+        var attentionLayers: Int
+        var ssmLayers: Int
+    }
+
+    static func shape(_ d: ModelDesign) -> Shape {
+        let active = max(d.activeParamsB, 0.001) * 1e9
+        let l = max(2, Int(pow(active / (12 * 128 * 128), 1.0 / 3).rounded()))
+        let rawD = (active / (12 * Double(l))).squareRoot()
+        let dModel = max(256, Int((rawD / 128).rounded()) * 128)
+        let heads = max(2, dModel / 128)
+        var kv = heads, latent = 0
+        switch d.attention {
+        case .mha: break
+        case .gqa: kv = min(8, heads)
+        case .mla:
+            kv = 0
+            latent = max(256, dModel / 14 / 64 * 64)
+        }
+        var attn = l, ssm = 0
+        if d.mixer == .hybrid {
+            attn = max(1, l / 8)
+            ssm = l - attn
+        }
+        return Shape(layers: l, dModel: dModel, heads: heads, kvHeads: kv, latent: latent, attentionLayers: attn, ssmLayers: ssm)
+    }
+
+    /// KV-cache bytes per token of context (every attention layer, BF16).
+    static func kvBytesPerToken(_ d: ModelDesign) -> Double {
+        let sh = shape(d)
+        let width = d.attention == .mla ? Double(sh.latent) : Double(2 * sh.kvHeads * 128)
+        return Double(sh.attentionLayers) * width * 2
+    }
+
+    /// The design's KV footprint relative to multi-head attention on the same model (1 = MHA): grouped-query heads share
+    /// keys and values, latent attention compresses them, hybrid models keep attention in one layer in eight. The floor
+    /// covers activations and buffers that don't shrink with the attention.
+    static func kvFactor(_ d: ModelDesign) -> Double {
+        let sh = shape(d)
+        let mha = Double(sh.layers * 2 * sh.heads * 128 * 2)
+        return 0.15 + 0.85 * min(1, kvBytesPerToken(d) / max(mha, 1))
+    }
+
+    /// Serving speed-ups the design itself brings (on top of research): diffusion decodes blocks at once, hybrid SSM
+    /// layers decode in linear time, alien operators are leaner.
+    static func designEfficiency(_ d: ModelDesign, bonuses b: ResearchBonuses) -> Double {
+        switch d.mixer {
+        case .diffusion: 1.5 * b.result("x_diffusion_lm")
+        case .hybrid: 0.3
+        case .alien: 0.4
+        case .transformer: 0
+        }
+    }
+
+    /// Research bonuses as they apply to serving model `m`. Models trained from 3.4 on only get attention and decoding
+    /// research their design uses: grouped-query and latent attention shape the KV cache of designs built with them
+    /// (`kvFactor` covers it, so their KV-memory research isn't counted twice) and lift throughput only there, and
+    /// multi-token prediction speeds up decoding only for models trained with its heads. Older models keep the rules
+    /// they were balanced with.
+    static func servingBonuses(_ m: AIModel, _ b: ResearchBonuses) -> ResearchBonuses {
+        guard m.archV2 else { return b }
+        var out = b
+        let d = m.design
+        func q(_ id: String) -> Double { b.researched.contains(id) ? b.result(id) : 0 }
+        out.kvMemory = min(0.85, max(0, rawKVMemory(b) - 0.5 * q("gqa") - 0.3 * q("mla")))
+        if d.attention == .mha { out.throughput -= 0.15 * q("gqa") + 0.2 * q("mla") }
+        if d.attention == .gqa { out.throughput -= 0.2 * q("mla") }
+        if !d.mtp { out.tps -= 0.15 * q("mtp") }
+        return out
+    }
+
+    /// KV-memory research before the 85% cap (so taking the attention items out of it is exact).
+    static func rawKVMemory(_ b: ResearchBonuses) -> Double {
+        var sum = 0.0
+        for id in b.researched.sorted() {
+            guard let item = ResearchCatalog.byID[id] else { continue }
+            for e in item.effects { if case .kvMemory(let x) = e { sum += x * b.result(id) } }
+        }
+        return sum
+    }
+
     static func kvOverhead(_ m: AIModel, bonuses b: ResearchBonuses) -> Double {
         let ctx = m.design.contextK >= 512 ? 2.0 : (m.design.contextK >= 128 ? 1.4 : (m.design.contextK >= 32 ? 1.15 : 1.0))
-        return 0.3 * ctx * (1 - b.kvMemory)
+        guard m.archV2 else { return 0.3 * ctx * (1 - b.kvMemory) }
+        return 0.3 * ctx * kvFactor(m.design) * (1 - servingBonuses(m, b).kvMemory)
     }
 
     static func chipsPerReplica(_ m: AIModel, accel: Accelerator, precision: Precision, bonuses b: ResearchBonuses) -> Int {
@@ -321,22 +476,26 @@ enum Physics {
     }
 
     /// Max tokens/day a deployment can produce.
-    static func capacity(_ m: AIModel, deployment dep: Deployment, bonuses b: ResearchBonuses) -> Double {
+    static func capacity(_ m: AIModel, deployment dep: Deployment, bonuses b0: ResearchBonuses) -> Double {
         guard let accel = HardwareCatalog.get(dep.accelID) else { return 0 }
-        let k = chipsPerReplica(m, accel: accel, precision: m.servingPrecision, bonuses: b)
+        let b = servingBonuses(m, b0)
+        let k = chipsPerReplica(m, accel: accel, precision: m.servingPrecision, bonuses: b0)
         let usable = (dep.chips / k) * k
         guard usable > 0 else { return 0 }
         let flopsPerToken = 2 * max(m.design.activeParamsB, 0.001) * 1e9
-        let tf = accel.inferTFLOPS(m.servingPrecision) * 1e12 * servingUtilization(b)
+        let tf = accel.inferTFLOPS(m.servingPrecision) * 1e12 * servingUtilization(b) * accel.serveFactor   // 3.9: your chips' compiler maturity
         return Double(usable) * tf / flopsPerToken * 86_400 * (1 + m.efficiencyBoost)
     }
 
     /// Per-user decode speed in tokens/second.
-    static func tps(_ m: AIModel, accel: Accelerator, precision: Precision, bonuses b: ResearchBonuses, load: Double = 0.5) -> Double {
-        let k = chipsPerReplica(m, accel: accel, precision: precision, bonuses: b)
+    static func tps(_ m: AIModel, accel: Accelerator, precision: Precision, bonuses b0: ResearchBonuses, load: Double = 0.5) -> Double {
+        let k = chipsPerReplica(m, accel: accel, precision: precision, bonuses: b0)
+        let b = servingBonuses(m, b0)
         let bw = Double(k) * accel.bandwidthTBs * 1e12 * accel.decodeEff
         let effParams = m.design.activeParamsB + 0.25 * (m.design.paramsB - m.design.activeParamsB)
-        let bytesPerToken = max(effParams, 0.001) * 1e9 * precision.bytesPerParam
+        var bytesPerToken = max(effParams, 0.001) * 1e9 * precision.bytesPerParam
+        // 3.4: each decoded token also reads the sequence's KV cache (a typical request fills a fifth of the window).
+        if m.archV2 { bytesPerToken += kvBytesPerToken(m.design) * (1 - b.kvMemory) * min(200_000, Double(m.design.contextK) * 1024 * 0.2) }
         var t = bw / bytesPerToken * (1 + b.tps) * (1 + 0.5 * m.efficiencyBoost)
         t = min(t, 4_000)
         if load > 0.85 { t *= max(0.25, 1 - (load - 0.85) * 2.5) }
@@ -363,6 +522,11 @@ enum Physics {
         case .fp4: 0.05
         }
     }
+
+    /// Quality hit from serving model `m` at its precision: quantisation-aware training cuts it to about a third.
+    static func servingPenalty(_ m: AIModel) -> Double {
+        servingPenalty(m.servingPrecision) * (m.qat ? 0.3 : 1)
+    }
 }
 
 extension ResearchBonuses {
@@ -385,9 +549,11 @@ enum LabMath {
         } else {
             active = sqrt(flops / (6 * 2 * overtrain)) / 1e9
         }
+        let perParam = Physics.trainingBytes(design, bonuses: b)
+        // 3.9: sharded memory counts every chip group's own memory.
         let sharded = design.parts.reduce(0.0) { $0 + Double($1.chips) * (HardwareCatalog.get($1.accelID)?.memoryGB ?? a.memoryGB) }
-        let memCap = a.weightStreaming ? 1e9 : (b.has(.sharding) ? sharded / 17.6
-            : (b.has(.modelParallel) ? Double(min(design.chips, a.scaleUp)) * a.memoryGB / 17.6 : a.memoryGB / 17.6))
+        let memCap = a.weightStreaming ? 1e9 : (b.has(.sharding) ? sharded / perParam
+            : (b.has(.modelParallel) ? Double(min(design.chips, a.scaleUp)) * a.memoryGB / perParam : a.memoryGB / perParam))
         let paramCap = Physics.maxParamsB(s)
         let tokenCap = Physics.maxTokensT(design, state: s)
         func tokensFor(_ act: Double) -> Double { flops / (6 * max(act, 0.001) * 1e9) / 1e12 }

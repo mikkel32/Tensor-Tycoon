@@ -111,6 +111,9 @@ struct Accelerator: Identifiable, Sendable, Hashable {
     let weightStreaming: Bool
     let baseMFU: Double
     let minOrder: Int
+    /// Serving throughput against a merchant part with the same peak (1 for every catalogue chip; your own chips'
+    /// compiler maturity sets theirs).
+    var serveFactor: Double = 1
 
     static func == (a: Accelerator, b: Accelerator) -> Bool { a.id == b.id }
     func hash(into h: inout Hasher) { h.combine(id) }
@@ -180,7 +183,8 @@ private func acc(
     price: Double?, rent: Double?, rentFloor: Double = 0,
     liquid: Bool = false, transistors: Double? = nil,
     image: String, rep: Bool = false, fact: String, est: String = "",
-    decodeEff: Double = 0.65, trainFP4: Double = 1, streaming: Bool = false, mfu: Double? = nil, minOrder: Int = 1
+    decodeEff: Double = 0.65, trainFP4: Double = 1, streaming: Bool = false, mfu: Double? = nil, minOrder: Int = 1,
+    serveFactor: Double = 1
 ) -> Accelerator {
     let defaultMFU: Double
     switch cls {
@@ -200,7 +204,7 @@ private func acc(
         price: price, rent: rent, rentFloor: rentFloor > 0 ? rentFloor : (rent ?? 0) * 0.3,
         liquid: liquid, transistorsB: transistors, image: image, representativeImage: rep,
         fact: fact, estimates: est, decodeEff: decodeEff, trainFP4Factor: trainFP4,
-        weightStreaming: streaming, baseMFU: (mfu ?? defaultMFU) * 0.85, minOrder: minOrder)
+        weightStreaming: streaming, baseMFU: (mfu ?? defaultMFU) * 0.85, minOrder: minOrder, serveFactor: serveFactor)
 }
 
 enum HardwareCatalog {
@@ -286,14 +290,14 @@ enum HardwareCatalog {
             mem: 192, memType: "Unified LPDDR5", bw: 0.8, bf16: 27.2,
             tdp: 295, ic: "Thunderbolt 4", icGBs: 5, scaleUp: 1,
             price: 6_599, rent: nil, transistors: 134,
-            image: "mac_studio", fact: "192 GB of unified memory in a desktop box — runs a 180B model with 4-bit weights.",
+            image: "mac_studio", rep: true, fact: "192 GB of unified memory in a desktop box — runs a 180B model with 4-bit weights.",
             est: "tdp", decodeEff: 0.6, mfu: 0.22),
         acc("m3ultra", "Mac Studio M3 Ultra 512GB", .apple, .workstation, arch: "Apple M3 Ultra",
             announced: YM(2025, 3), available: YM(2025, 3), process: "TSMC N3B",
             mem: 512, memType: "Unified LPDDR5", bw: 0.819, bf16: 28,
             tdp: 300, ic: "Thunderbolt 5", icGBs: 15, scaleUp: 1,
             price: 9_499, rent: nil, transistors: 184,
-            image: "mac_studio", fact: "512 GB unified memory: hobbyists run 600B+ MoE models at home.",
+            image: "mac_studio", rep: true, fact: "512 GB unified memory: hobbyists run 600B+ MoE models at home.",
             est: "bf16, tdp", decodeEff: 0.6, mfu: 0.22),
         acc("dgxspark", "DGX Spark (GB10)", .nvidia, .workstation, arch: "Grace Blackwell",
             announced: YM(2025, 1), available: YM(2025, 10), process: "TSMC 3nm",
@@ -309,14 +313,14 @@ enum HardwareCatalog {
             mem: 40, memType: "HBM2", bw: 1.555, bf16: 312, int8: 624,
             tdp: 400, ic: "NVLink 3.0", icGBs: 600, scaleUp: 8,
             price: 10_000, rent: 4.10, rentFloor: 0.8, transistors: 54.2,
-            image: "a100", fact: "Introduced BF16 and TF32 tensor cores; the workhorse of the GPT-3 → GPT-4 era.",
+            image: "h100_stack", rep: true, fact: "Introduced BF16 and TF32 tensor cores; the workhorse of the GPT-3 → GPT-4 era.",
             est: "price"),
         acc("a100_80", "A100 SXM 80GB", .nvidia, .datacenter, arch: "Ampere",
             announced: YM(2020, 11), available: YM(2020, 12), discontinued: YM(2024, 6), process: "TSMC 7nm",
             mem: 80, memType: "HBM2e", bw: 2.039, bf16: 312, int8: 624,
             tdp: 400, ic: "NVLink 3.0", icGBs: 600, scaleUp: 8,
             price: 15_000, rent: 4.10, rentFloor: 1.0, transistors: 54.2,
-            image: "a100", fact: "80 GB HBM2e at 2 TB/s. GPT-4 was trained on ~25,000 of these.",
+            image: "h100_stack", rep: true, fact: "80 GB HBM2e at 2 TB/s. GPT-4 was trained on ~25,000 of these.",
             est: "price"),
         acc("a10", "A10 24GB", .nvidia, .datacenter, arch: "Ampere (GA102)",
             announced: YM(2021, 4), available: YM(2021, 5), process: "Samsung 8nm",
@@ -336,7 +340,7 @@ enum HardwareCatalog {
             mem: 80, memType: "HBM3", bw: 3.35, bf16: 989, fp8: 1_979, int8: 1_979,
             tdp: 700, ic: "NVLink 4.0", icGBs: 900, scaleUp: 8,
             price: 30_000, rent: 6.60, rentFloor: 1.9, transistors: 80,
-            image: "h100_stack", fact: "The GPU of the 2023 gold rush: Transformer Engine + FP8, with 6+ month waitlists."),
+            image: "h100_stack", rep: true, fact: "The GPU of the 2023 gold rush: Transformer Engine + FP8, with 6+ month waitlists."),
         acc("h200", "H200 SXM 141GB", .nvidia, .datacenter, arch: "Hopper",
             announced: YM(2023, 11), available: YM(2024, 7), process: "TSMC 4N",
             mem: 141, memType: "HBM3e", bw: 4.8, bf16: 989, fp8: 1_979, int8: 1_979,
@@ -516,7 +520,7 @@ enum HardwareCatalog {
             mem: 192, memType: "HBM3", bw: 5.3, bf16: 1_307, fp8: 2_615, int8: 2_615,
             tdp: 750, ic: "Infinity Fabric", icGBs: 896, scaleUp: 8,
             price: 15_000, rent: 4.0, rentFloor: 1.9, transistors: 153,
-            image: "amd_instinct", fact: "192 GB of HBM3 — 2.4x an H100 — made it an inference favourite.",
+            image: "amd_instinct", rep: true, fact: "192 GB of HBM3 — 2.4x an H100 — made it an inference favourite.",
             est: "price", mfu: 0.36),
         acc("mi325x", "Instinct MI325X", .amd, .datacenter, arch: "CDNA 3",
             announced: YM(2024, 6), available: YM(2025, 1), process: "TSMC 5nm + 6nm",
@@ -961,20 +965,26 @@ enum HardwareCatalog {
 
     static var everything: [Accelerator] { all + custom.values.sorted { $0.available < $1.available } }
 
+    /// Registers the player's chips. 3.9: a chip from the Semiconductors page carries its own training MFU (after
+    /// compiler maturity), training factor (inference parts train badly: it scales that MFU and FP4 training),
+    /// serving factor, interconnect and scale-up domain; older custom chips keep the old defaults.
     static func register(_ chips: [CustomChip]) {
         var map: [String: Accelerator] = [:]
         for c in chips {
             let ym = c.available.ym
+            let train = c.trainFactor > 0 ? c.trainFactor : 1
             map[c.id] = acc(c.id, c.name, .custom, .custom,
                             arch: c.alien ? "Alien architecture (agent-designed, gen \(c.generation))" : "Custom \(c.focus.rawValue.lowercased()) ASIC (gen \(c.generation))",
                             announced: ym, available: ym, process: c.process,
                             mem: c.memoryGB, memType: c.memoryType, bw: c.bandwidthTBs,
                             bf16: c.bf16, fp8: c.fp8, fp4: c.fp4, int8: c.fp8,
-                            tdp: c.tdpW, ic: "Custom scale-up fabric", icGBs: 1_800, scaleUp: c.scaleUp,
+                            tdp: c.tdpW, ic: c.link.isEmpty ? "Custom scale-up fabric" : c.link, icGBs: c.icGBs > 0 ? c.icGBs : 1_800, scaleUp: c.scaleUp,
                             price: c.unitCost, rent: nil, liquid: c.alien ? false : c.tdpW > 900,
                             image: c.alien ? "wafer_closeup" : (c.focus == .training ? "wafer" : "wafer_closeup"), rep: true,
                             fact: c.alien ? "Designed by your agent swarm. Nobody fully understands how it works — it just does, at a fraction of the cost, and air cooling is enough."
-                                          : "Your own silicon: built only for you, at cost.", decodeEff: c.decodeEff)
+                                          : (c.mfu > 0 ? "Your own silicon from the Semiconductors page: made in your own supply chain, at cost."
+                                                       : "Your own silicon: built only for you, at cost."), decodeEff: c.decodeEff,
+                            trainFP4: train, mfu: c.mfu > 0 ? c.mfu * train : nil, serveFactor: c.serveFactor > 0 ? c.serveFactor : 1)
         }
         custom = map
     }

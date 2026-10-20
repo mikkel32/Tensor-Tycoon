@@ -289,8 +289,10 @@ enum Nations {
         for year in max(2017, now - 6)...now {
             let d = GameCalendar.date(year, 1, 1)
             updateEconomies(&s, at: d, live: false)
+            applyEvents(&s, upTo: d, live: false)   // 3.4 overhaul: dated policy events that had already happened
             review(&s, year: year, at: d, live: false)
         }
+        applyEvents(&s, upTo: s.date, live: false)
         updateEconomies(&s, at: s.date, live: false)
         // Rivals: where you lead now counts from today (they haven't seen it yet), and each lab starts on its natural specialty.
         refreshLeads(&s)
@@ -307,7 +309,10 @@ enum Nations {
         guard s.gameOver == nil else { return }
         guard s.world.ready else { return }
         guard s.nations.ready else { bootstrap(&s); return }
+        if s.nations.countries.isEmpty { setUpCountries(&s) }   // 3.4 overhaul: saves from before the country layer
         let ym = s.date.ym
+        recessionsMonthly(&s)   // 3.4 overhaul: regional recessions
+        applyEvents(&s, upTo: s.date, live: true)   // 3.4 overhaul: dated policy events
         updateEconomies(&s, at: s.date, live: true)
         if ym.month == 1 && s.nations.strategies.first.map({ $0.reviewed < ym.year }) ?? true {
             review(&s, year: ym.year, at: s.date, live: true)
@@ -346,6 +351,7 @@ enum Nations {
             e.automation = first || !live ? autoTarget : e.automation + (autoTarget - e.automation) * 0.2
             let shock = (roll(s, "gdp|\(r.rawValue)|\(ym.year)") - 0.5) * 0.6
             e.gdpGrowth = baseGrowth(r, y) + 0.6 * clamp(e.aiShare - e.aiShareYearAgo, -1, 4) - 0.25 * e.automation + shock
+                - (live ? recessionDepth(s, r, at: date) : 0)   // 3.4 overhaul: regional recessions
             s.nations.economies[r.index] = e
         }
     }
@@ -387,15 +393,17 @@ enum Nations {
         }
         let keep = Region.allCases.count * 40
         if s.nations.years.count > keep { s.nations.years.removeFirst(s.nations.years.count - keep) }
+        let countries = reviewCountries(&s, year: year, at: date)   // 3.4 overhaul: the country layer
         guard live else { return }
-        // One news story a year: home first, then the biggest move elsewhere.
+        // One news story a year: home first (your country's own moves too), then the biggest move elsewhere.
         let home = HQ.region(s)
-        var picked = lines.filter { $0.region == home }
-        if let other = lines.filter({ $0.region != home && $0.size >= 6 }).max(by: { $0.size < $1.size }) { picked.append(other) }
+        var picked = lines.filter { $0.region == home }.map { "\($0.region.title): \($0.text)" }
+        if let mine = countries.first(where: { $0.country == s.hqCountry }) { picked.append("\(HQ.country(s).name): \(mine.text)") }
+        if let other = lines.filter({ $0.region != home && $0.size >= 6 }).max(by: { $0.size < $1.size }) { picked.append("\(other.region.title): \(other.text)") }
         guard !picked.isEmpty else { return }
-        let big = (lines.first { $0.region == home }?.size ?? 0) >= 8
+        let big = (lines.first { $0.region == home }?.size ?? 0) >= 8 || (countries.first { $0.country == s.hqCountry }?.size ?? 0) >= 6
         Sim.news(&s, "National AI strategies for \(year)",
-                 picked.map { "\($0.region.title): \($0.text)" }.joined(separator: " ") + " See Nations for what it means for you.",
+                 picked.joined(separator: " ") + " See Nations for what it means for you.",
                  .policy, important: big)
     }
 
@@ -407,40 +415,98 @@ enum Nations {
 
     // MARK: Effects on you
 
-    /// Chips and cloud at home: subsidies make them cheaper; export controls aimed at your country make them dearer.
+    /// Chips and cloud at home: subsidies make them cheaper; export controls aimed at your country make them dearer
+    /// (the US's at everyone outside it, more at China; Europe's, the UK's and Japan/Korea's chipmaking-tool controls at
+    /// China; China's critical-mineral controls at everyone else; the 2025 US diffusion rule at Tier 2 countries).
     static func chipFactor(_ s: GameState) -> Double {
         guard s.nations.ready else { return 1 }
         let home = HQ.region(s)
-        var f = 1 - 0.08 * (s.nations.level(home, .subsidy) - 45) / 60
+        var f = 1 - 0.08 * (homeLevel(s, .subsidy) - 45) / 60
         let us = s.nations.level(.us, .exports)
-        if home == .china { f += 0.15 * max(0, us - 40) / 60 } else if home != .us { f += 0.04 * max(0, us - 65) / 35 }
+        if home == .china {
+            f += 0.15 * max(0, us - 40) / 60
+            for r in [Region.eu, .uk, .japanKorea] { f += 0.03 * max(0, s.nations.level(r, .exports) - 40) / 60 }
+        } else {
+            if home != .us { f += 0.04 * max(0, us - 65) / 35 }
+            f += 0.03 * max(0, s.nations.level(.china, .exports) - 50) / 50
+        }
+        if diffusionCapped(s) { f += 0.03 }
         return clamp(f, 0.9, 1.15)
     }
 
-    /// Datacenter power in a location's region: energy policy sets how cheap and available it is.
+    /// Datacenter power where a site is: the energy policy of its country (the four European headquarters countries
+    /// set their own) or its region.
     static func powerFactor(_ s: GameState, location: String) -> Double {
-        guard s.nations.ready, let r = Region.of(location: location) else { return 1 }
-        return clamp(1 - 0.1 * (s.nations.level(r, .energy) - 55) / 50, 0.88, 1.12)
+        guard s.nations.ready else { return 1 }
+        let level: Double
+        if let c = CountryCatalog.country(ofLocation: location) {
+            level = self.level(s, country: c.id, .energy)
+        } else if let r = Region.of(location: location) {
+            level = s.nations.level(r, .energy)
+        } else {
+            return 1
+        }
+        return clamp(1 - 0.1 * (level - 55) / 50, 0.88, 1.12)
     }
 
     /// Candidates on the job market at home: talent visas widen or narrow the pool.
-    static func candidateFactor(_ s: GameState) -> Double {
+    static func candidateFactor(_ s: GameState) -> Double { candidateFactor(s, country: s.hqCountry) }
+
+    /// Candidates in a country's cities (satellite offices hire under that country's visa policy).
+    static func candidateFactor(_ s: GameState, country: String) -> Double {
         guard s.nations.ready else { return 1 }
-        return clamp(1 + 0.25 * (s.nations.level(HQ.region(s), .visas) - 50) / 50, 0.8, 1.2)
+        return clamp(1 + 0.25 * (level(s, country: country, .visas) - 50) / 50, 0.8, 1.2)
     }
 
-    /// Agency AI budgets in a region: sovereign-AI programmes spend more.
-    static func agencyFactor(_ s: GameState, _ r: Region) -> Double {
+    /// Agency AI budgets in a region: sovereign-AI programmes spend more (a national agency follows its own country's
+    /// programme), and a recession there cuts them.
+    static func agencyFactor(_ s: GameState, _ r: Region, country: String = "") -> Double {
         guard s.nations.ready else { return 1 }
-        return clamp(1 + 0.3 * (s.nations.level(r, .sovereign) - 40) / 60, 0.85, 1.3)
+        let sovereign = country.isEmpty ? s.nations.level(r, .sovereign) : level(s, country: country, .sovereign)
+        let f = clamp(1 + 0.3 * (sovereign - 40) / 60, 0.85, 1.3)
+        let d = recessionDepth(s, r)
+        return d > 0 ? f * (1 - 0.05 * d) : f
     }
 
-    /// Enterprise leads at home: a growing economy buys more.
+    /// Enterprise leads at home: a growing economy buys more, and where the safety regime is strict, buyers favour
+    /// labs with a strong safety record (and shun weak ones).
     static func dealFactor(_ s: GameState) -> Double {
         guard s.nations.ready else { return 1 }
         let home = HQ.region(s)
         let e = s.nations.economy(home)
-        return clamp(1 + 0.04 * (e.gdpGrowth - baseGrowth(home, s.year)), 0.92, 1.08)
+        let growth = clamp(1 + 0.04 * (e.gdpGrowth - baseGrowth(home, s.year)), 0.92, 1.08)
+        let audited = 1 + 0.1 * clamp((homeLevel(s, .safety) - 50) / 50, -1, 1) * clamp((s.safetyScore - 50) / 50, -1, 1)
+        return growth * audited
+    }
+
+    /// Licensed data at home: strict data rules make consented, licensed data dearer (×0.85 … ×1.25).
+    static func dataPriceFactor(_ s: GameState) -> Double {
+        guard s.nations.ready else { return 1 }
+        return clamp(1 + 0.25 * (homeLevel(s, .data) - 50) / 50, 0.85, 1.25)
+    }
+
+    /// Lawsuits over scraped or pirated training data at home: likelier under strict data rules (×0.7 … ×1.4).
+    static func dataLawsuitFactor(_ s: GameState) -> Double {
+        guard s.nations.ready else { return 1 }
+        return clamp(1 + 0.4 * (homeLevel(s, .data) - 50) / 50, 0.7, 1.4)
+    }
+
+    /// How hard a region's rules tighten after an incident: its safety regime dial (×0.6 at 0, ×1 at 50, ×1.4 at 100).
+    static func safetyResponse(_ s: GameState, _ r: Region) -> Double {
+        guard s.nations.ready else { return 1 }
+        return clamp(0.6 + 0.8 * s.nations.level(r, .safety) / 100, 0.6, 1.4)
+    }
+
+    /// Grant and compute-allocation offers at home: national research funding (×0.6 at 0, ×1 at 50, ×1.4 at 100), and
+    /// ×1.3 while you co-fund a national compute centre there.
+    static func grantFactor(_ s: GameState) -> Double {
+        let policy = s.nations.ready ? 0.6 + 0.8 * homeLevel(s, .subsidy) / 100 : 1
+        return policy * (HQ.homeComputePartner(s) ? 1.3 : 1)
+    }
+
+    /// National contract offers at home: the sovereign-AI programme (×0.6 at 0, ×1 at 50, ×1.4 at 100).
+    static func contractFactor(_ s: GameState) -> Double {
+        s.nations.ready ? 0.6 + 0.8 * homeLevel(s, .sovereign) / 100 : 1
     }
 
     /// A gentle pull on world adoption from all strategies together (−4% … +4% of the target).
@@ -460,11 +526,24 @@ enum Nations {
         let home = HQ.region(s)
         var out: [(String, String, String, Bool?)] = []
         func pct(_ f: Double) -> String { abs(f - 1) < 0.005 ? "no change" : "\(f < 1 ? "−" : "+")\(Fmt.trim(abs(f - 1) * 100, 0))%" }
+        let place = HQ.isDefault(s) ? home.short : HQ.country(s).name
         let chips = chipFactor(s)
-        out.append(("Chips & cloud", pct(chips), "\(programme(home, .subsidy).prefix(1).uppercased() + programme(home, .subsidy).dropFirst()) at \(Int(s.nations.level(home, .subsidy).rounded()))"
-                    + (home != .us ? "; US export controls at \(Int(s.nations.level(.us, .exports).rounded()))" : ""), chips < 0.995 ? true : (chips > 1.005 ? false : nil)))
+        out.append(("Chips & cloud", pct(chips), "\(place) compute subsidies at \(Int(homeLevel(s, .subsidy).rounded()))"
+                    + (home != .us ? "; US export controls at \(Int(s.nations.level(.us, .exports).rounded()))" : "")
+                    + (diffusionCapped(s) ? "; Tier 2 under the US diffusion rule" : ""), chips < 0.995 ? true : (chips > 1.005 ? false : nil)))
         let cand = candidateFactor(s)
-        out.append(("Candidates", pct(cand), "\(home.short) talent visas at \(Int(s.nations.level(home, .visas).rounded()))", cand > 1.005 ? true : (cand < 0.995 ? false : nil)))
+        out.append(("Candidates", pct(cand), "\(place) talent visas at \(Int(homeLevel(s, .visas).rounded()))", cand > 1.005 ? true : (cand < 0.995 ? false : nil)))
+        if !HQ.isDefault(s) {
+            let g = grantFactor(s)
+            out.append(("Grant offers", pct(g), "\(place) research funding at \(Int(homeLevel(s, .subsidy).rounded()))\(HQ.homeComputePartner(s) ? "; your compute-centre partnership" : "")", g > 1.005 ? true : (g < 0.995 ? false : nil)))
+            let k = contractFactor(s)
+            out.append(("National contract offers", pct(k), "\(place) sovereign-AI programme at \(Int(homeLevel(s, .sovereign).rounded()))", k > 1.005 ? true : (k < 0.995 ? false : nil)))
+        }
+        let data = dataPriceFactor(s)
+        out.append(("Licensed data", pct(data), "\(place) data rules at \(Int(homeLevel(s, .data).rounded())); scraped-data lawsuits \(pct(dataLawsuitFactor(s)))", data < 0.995 ? true : (data > 1.005 ? false : nil)))
+        if diffusionCapped(s) {
+            out.append(("Chip allocation", pct(exportCapFactor(s)), "Tier 2 under the US AI Diffusion Rule (January–May 2025)", false))
+        }
         let regions = Set(s.sites.compactMap { Region.of(location: $0.locationID) })
         for r in Region.allCases where regions.contains(r) {
             let f = powerFactor(s, location: r.locations.first ?? "")
@@ -473,7 +552,12 @@ enum Nations {
         let ag = agencyFactor(s, home)
         out.append(("Agency budgets at home", pct(ag), "\(programme(home, .sovereign).prefix(1).uppercased() + programme(home, .sovereign).dropFirst()) at \(Int(s.nations.level(home, .sovereign).rounded()))", ag > 1.005 ? true : (ag < 0.995 ? false : nil)))
         let deals = dealFactor(s)
-        out.append(("Enterprise leads", pct(deals), "\(home.short) growth \(Fmt.trim(s.nations.economy(home).gdpGrowth, 1))% against a \(Fmt.trim(baseGrowth(home, s.year), 1))% trend", deals > 1.005 ? true : (deals < 0.995 ? false : nil)))
+        out.append(("Enterprise leads", pct(deals), "\(home.short) growth \(Fmt.trim(s.nations.economy(home).gdpGrowth, 1))% against a \(Fmt.trim(baseGrowth(home, s.year), 1))% trend; safety regime at \(Int(homeLevel(s, .safety).rounded())) with your safety score \(Int(s.safetyScore))", deals > 1.005 ? true : (deals < 0.995 ? false : nil)))
+        let demand = demandFactor(s)
+        if demand < 0.999 {
+            let where_ = Region.allCases.filter { recessionDepth(s, $0) > 0 }.map(\.short).joined(separator: ", ")
+            out.append(("World AI demand", pct(demand), "Recession in \(where_)", false))
+        }
         let pull = adoptionPull(s)
         out.append(("World AI adoption", abs(pull) < 0.002 ? "no change" : "\(pull > 0 ? "+" : "−")\(Fmt.trim(abs(pull) * 100, 1))%", "Subsidies and sovereign programmes speed it; strict data rules slow it", pull > 0.002 ? true : (pull < -0.002 ? false : nil)))
         return out
@@ -490,14 +574,14 @@ extension Nations {
     /// How naturally each specialisation comes to each lab (0–1).
     static func character(_ id: String) -> [RivalFocus: Double] {
         switch id {
-        case "prometheus": return [.consumer: 0.9, .coding: 0.6, .enterprise: 0.5, .science: 0.3, .robotics: 0.3, .sovereign: 0.3, .openWeights: 0.1]
-        case "deepgrove": return [.science: 0.9, .robotics: 0.7, .consumer: 0.6, .enterprise: 0.4, .coding: 0.4, .sovereign: 0.2, .openWeights: 0.3]
-        case "halcyon": return [.coding: 0.9, .enterprise: 0.8, .science: 0.5, .sovereign: 0.3, .consumer: 0.2, .robotics: 0.1, .openWeights: 0]
-        case "xenon": return [.consumer: 0.7, .robotics: 0.7, .sovereign: 0.6, .coding: 0.4, .science: 0.3, .enterprise: 0.2, .openWeights: 0.4]
-        case "openweights": return [.openWeights: 1.0, .consumer: 0.6, .robotics: 0.4, .coding: 0.3, .science: 0.3, .enterprise: 0.2, .sovereign: 0.1]
-        case "dragonlake": return [.openWeights: 0.9, .coding: 0.6, .sovereign: 0.5, .science: 0.4, .consumer: 0.4, .robotics: 0.3, .enterprise: 0.2]
-        case "sirocco": return [.sovereign: 0.8, .enterprise: 0.7, .openWeights: 0.6, .coding: 0.4, .consumer: 0.3, .science: 0.3, .robotics: 0.1]
-        case "aletheia": return [.science: 0.9, .coding: 0.4, .enterprise: 0.1, .sovereign: 0.1, .consumer: 0, .robotics: 0.1, .openWeights: 0]
+        case "prometheus": return [.consumer: 0.9, .coding: 0.6, .enterprise: 0.5, .science: 0.3, .robotics: 0.3, .sovereign: 0.3, .openWeights: 0.1, .hardware: 0.4, .efficient: 0.2]
+        case "deepgrove": return [.science: 0.9, .robotics: 0.7, .consumer: 0.6, .enterprise: 0.4, .coding: 0.4, .sovereign: 0.2, .openWeights: 0.3, .hardware: 0.8, .efficient: 0.3]
+        case "halcyon": return [.coding: 0.9, .enterprise: 0.8, .science: 0.5, .sovereign: 0.3, .consumer: 0.2, .robotics: 0.1, .openWeights: 0, .hardware: 0.1, .efficient: 0.2]
+        case "xenon": return [.consumer: 0.7, .robotics: 0.7, .sovereign: 0.6, .coding: 0.4, .science: 0.3, .enterprise: 0.2, .openWeights: 0.4, .hardware: 0.5, .efficient: 0.1]
+        case "openweights": return [.openWeights: 1.0, .consumer: 0.6, .robotics: 0.4, .coding: 0.3, .science: 0.3, .enterprise: 0.2, .sovereign: 0.1, .hardware: 0.3, .efficient: 0.4]
+        case "dragonlake": return [.openWeights: 0.9, .coding: 0.6, .sovereign: 0.5, .science: 0.4, .consumer: 0.4, .robotics: 0.3, .enterprise: 0.2, .hardware: 0.4, .efficient: 0.9]
+        case "sirocco": return [.sovereign: 0.8, .enterprise: 0.7, .openWeights: 0.6, .coding: 0.4, .consumer: 0.3, .science: 0.3, .robotics: 0.1, .hardware: 0.1, .efficient: 0.7]
+        case "aletheia": return [.science: 0.9, .coding: 0.4, .enterprise: 0.1, .sovereign: 0.1, .consumer: 0, .robotics: 0.1, .openWeights: 0, .hardware: 0.1, .efficient: 0]
         default:
             if let spec = CompetitorCatalog.spec(id) {
                 let p = spec.personality
@@ -506,7 +590,7 @@ extension Nations {
                 }
                 return [.consumer: p[RivalPlay.consumer.rawValue] ?? 0.3, .enterprise: p[RivalPlay.enterprise.rawValue] ?? 0.3,
                         .coding: p[RivalPlay.agents.rawValue] ?? 0.3, .openWeights: p[RivalPlay.openGambit.rawValue] ?? 0.2,
-                        .science: 0.4, .robotics: 0.3, .sovereign: 0.2]
+                        .science: 0.4, .robotics: 0.3, .sovereign: 0.2, .efficient: p[RivalPlay.efficiency.rawValue] ?? 0.2]
             }
             return [:]
         }
@@ -561,6 +645,10 @@ extension Nations {
                 ht = r == .china ? "US export controls (open weights route around them)" : programme(r, .safety)
             case .robotics: hw = 0.3 * (st.level(.energy) - 50) / 50 + 0.15 * (st.level(.subsidy) - 40) / 60; ht = "\(r.short) power and industrial subsidies"
             case .coding: hw = 0.3 * (st.level(.visas) - 50) / 50; ht = programme(r, .visas)
+            // 3.8: chip subsidies make own silicon pay; dear power makes efficiency pay.
+            case .hardware: hw = 0.35 * (st.level(.subsidy) - 40) / 60; ht = programme(r, .subsidy)
+            case .efficient: hw = -0.3 * (st.level(.energy) - 50) / 50 + (r == .china ? 0.2 * (s.nations.level(.us, .exports) - 50) / 50 : 0)
+                ht = r == .china ? "US export controls (efficiency routes around them)" : "\(r.short) power policy"
             }
             hw *= 1.5
             if abs(hw) >= 0.05 {
@@ -878,6 +966,298 @@ extension Nations {
             s.employees.remove(at: e)
             if let i = s.competitors.firstIndex(where: { $0.id == parts[1] }) { s.competitors[i].brand = min(100, s.competitors[i].brand + 1) }
             Sim.news(&s, "\(who) joins \(lab)", "You let the offer stand.", .company, good: false)
+        }
+    }
+}
+
+// MARK: - 3.4 overhaul: the country layer under the EU
+
+/// A dated, real policy event (its date and description are facts; the dial pushes are game estimates).
+struct CountryEvent: Sendable {
+    let id: String
+    let date: Date
+    /// CountryCatalog IDs it concerns ("all" for a rule that applies everywhere).
+    let countries: [String]
+    let title: String
+    let body: String
+    /// Dial pushes for each concerned country (added to its boost, fading 30% a year).
+    let pushes: [(NationLever, Double)]
+}
+
+enum CountryEvents {
+    static func d(_ y: Int, _ m: Int, _ day: Int) -> Date { GameCalendar.date(y, m, day) }
+
+    static let all: [CountryEvent] = [
+        CountryEvent(id: "fr_strategy_2018", date: d(2018, 3, 29), countries: ["fr"], title: "France launches a national AI strategy",
+                     body: "\"AI for Humanity\": €1.5B of public money to 2022 for research institutes, talent and public data.", pushes: [(.subsidy, 4)]),
+        CountryEvent(id: "dk_strategy_2019", date: d(2019, 3, 14), countries: ["dk"], title: "Denmark adopts a national AI strategy",
+                     body: "Twenty-four initiatives for responsible AI in business and the public sector.", pushes: [(.subsidy, 2)]),
+        CountryEvent(id: "fr_2030", date: d(2021, 10, 12), countries: ["fr"], title: "France 2030",
+                     body: "A €30B investment plan that names AI, chips and new nuclear among its priorities.", pushes: [(.subsidy, 5), (.energy, 2)]),
+        CountryEvent(id: "it_garante_2023", date: d(2023, 3, 31), countries: ["it"], title: "Italy's data authority blocks ChatGPT",
+                     body: "The Garante orders a temporary halt over data-protection concerns; the service returns four weeks later with changes.", pushes: [(.data, 8)]),
+        CountryEvent(id: "ro_turnover_tax", date: d(2024, 1, 1), countries: ["ro"], title: "Romania's minimum turnover tax takes effect",
+                     body: "Companies with more than €50M of turnover now pay at least 1% of it as profit tax.", pushes: []),
+        CountryEvent(id: "it_ai_fund", date: d(2024, 3, 21), countries: ["it"], title: "Italy announces a €1B AI fund",
+                     body: "CDP Venture Capital is to invest a billion euros in Italian AI companies.", pushes: [(.subsidy, 4)]),
+        CountryEvent(id: "ro_strategy_2024", date: d(2024, 7, 11), countries: ["ro"], title: "Romania adopts a national AI strategy",
+                     body: "A 2024–2027 strategy for research, skills and public-sector use, funded mostly through EU programmes.", pushes: [(.subsidy, 3)]),
+        CountryEvent(id: "dk_gefion", date: d(2024, 10, 23), countries: ["dk"], title: "Denmark switches on Gefion, its national AI supercomputer",
+                     body: "1,528 H100s funded by the Novo Nordisk Foundation and the Export and Investment Fund of Denmark, open to researchers and startups.", pushes: [(.subsidy, 6)]),
+        CountryEvent(id: "eu_ai_factories", date: d(2024, 12, 10), countries: ["it"], title: "EuroHPC selects its first AI Factories",
+                     body: "Seven AI-optimised supercomputers, Italy's in Bologna among them, open to startups across the EU.", pushes: [(.subsidy, 3)]),
+        CountryEvent(id: "us_diffusion", date: d(2025, 1, 13), countries: ["all"], title: "The US publishes the AI Diffusion Rule",
+                     body: "Advanced-chip exports get three tiers: the US and 18 close allies (France, Italy and Denmark among them) buy freely; most other countries, Romania among them, face country caps from May 15.", pushes: []),
+        CountryEvent(id: "fr_summit", date: d(2025, 2, 10), countries: ["fr"], title: "Paris AI Action Summit: €109B for French AI infrastructure",
+                     body: "Private pledges for datacenters and compute, with sites prepared for fast-track grid connections.", pushes: [(.energy, 5), (.subsidy, 2)]),
+        CountryEvent(id: "fr_ai_factory", date: d(2025, 3, 12), countries: ["fr"], title: "France wins a EuroHPC AI Factory",
+                     body: "France joins the second wave of AI Factories, offering supercomputer time to startups.", pushes: [(.subsidy, 2)]),
+        CountryEvent(id: "us_diffusion_end", date: d(2025, 5, 13), countries: ["all"], title: "The US rescinds the AI Diffusion Rule",
+                     body: "Two days before compliance would have begun, the tiers are withdrawn; chip exports go back to case-by-case licensing.", pushes: []),
+        CountryEvent(id: "it_ai_law", date: d(2025, 9, 17), countries: ["it"], title: "Italy passes a national AI law",
+                     body: "The first EU country with its own framework alongside the AI Act: oversight bodies, penalties for harmful deepfakes and a billion euros of support.", pushes: [(.safety, 4), (.subsidy, 1)]),
+    ]
+
+    static let byID: [String: CountryEvent] = Dictionary(uniqueKeysWithValues: all.map { ($0.id, $0) })
+}
+
+extension Nations {
+    // MARK: Levels
+
+    /// A country's level on a dial: its own policy for the four European headquarters countries, the region's for the
+    /// US (and before the country layer is set up).
+    static func level(_ s: GameState, country: String, _ l: NationLever) -> Double {
+        let c = CountryCatalog.get(country)
+        if c.id != "us", let v = s.nations.countries[c.id]?.level(l) { return v }
+        return s.nations.level(c.region, l)
+    }
+
+    /// Your home's level on a dial (the region's for a US headquarters).
+    static func homeLevel(_ s: GameState, _ l: NationLever) -> Double { level(s, country: s.hqCountry, l) }
+
+    /// Saves from before the country layer: each country starts from its region's dials plus its character and the
+    /// dated events that already happened.
+    static func setUpCountries(_ s: inout GameState) {
+        applyEvents(&s, upTo: s.date, live: false)
+        reviewCountries(&s, year: s.date.ym.year, at: s.date)
+    }
+
+    /// January, after the regions: each country moves part of the way to where its character, recent events, your
+    /// partnerships and the economy push it, on top of its region. Returns one line per country for the news.
+    @discardableResult
+    static func reviewCountries(_ s: inout GameState, year: Int, at date: Date) -> [(country: String, text: String, size: Double)] {
+        let n = NationLever.allCases.count
+        let k = salience(date.decimalYear)
+        var out: [(country: String, text: String, size: Double)] = []
+        for c in CountryCatalog.all where c.character.count == n {
+            var cp = s.nations.countries[c.id] ?? CountryPolicy()
+            if cp.offsets.count != n { cp.offsets = Array(repeating: 0, count: n) }
+            if cp.boost.count != n { cp.boost = Array(repeating: 0, count: n) }
+            var pushes: [Push] = []
+            // Partnerships you signed since the last review push the dials they touch, and keep pushing (fading).
+            for i in s.hq.partners.indices where !s.hq.partners[i].counted && s.hq.partners[i].country == c.id && s.hq.partners[i].signed <= date {
+                s.hq.partners[i].counted = true
+                let p = s.hq.partners[i]
+                switch p.kind {
+                case .computeCentre:
+                    cp.boost[NationLever.subsidy.index] += 4
+                    cp.boost[NationLever.sovereign.index] += 2
+                    pushes.append(Push(lever: .subsidy, delta: 4, why: "\(s.companyName) co-invested in a national compute centre"))
+                    pushes.append(Push(lever: .sovereign, delta: 2, why: "\(s.companyName) co-invested in a national compute centre"))
+                case .universityChair:
+                    cp.boost[NationLever.visas.index] += 3
+                    cp.boost[NationLever.subsidy.index] += 1
+                    pushes.append(Push(lever: .visas, delta: 3, why: "\(s.companyName) endowed a university chair in \(c.city(p.city).name)"))
+                }
+            }
+            // Events since the last review explain the boosts they added ("lever|delta|why").
+            for line in cp.pending {
+                let parts = line.split(separator: "|", maxSplits: 2).map(String.init)
+                if parts.count == 3, let l = NationLever(rawValue: parts[0]), let d = Double(parts[1]) { pushes.append(Push(lever: l, delta: d, why: parts[2])) }
+            }
+            cp.pending = []
+            var target = (0..<n).map { c.character[$0] * k + cp.boost[$0] }
+            func push(_ l: NationLever, _ d: Double, _ why: String) {
+                target[l.index] += d
+                pushes.append(Push(lever: l, delta: d, why: why))
+            }
+            if c.id == s.hqCountry, let mine = s.models.filter(\.released).map(\.c).max(), mine >= Macro.frontier(date.decimalYear) - 0.3 {
+                push(.subsidy, 5 * k, "\(s.companyName) is a national champion")
+                push(.sovereign, 3 * k, "\(s.companyName) is a national champion")
+            }
+            if recessionDepth(s, c.region, at: date) > 0 { push(.subsidy, -3, "national budgets squeezed by the recession") }
+            for l in NationLever.allCases { target[l.index] += (roll(s, "country|\(c.id)|\(l.rawValue)|\(year)") - 0.5) * 4 }
+            let region = s.nations.strategy(c.region)
+            let before = cp.levels
+            var reasons: [(String, Double)] = []
+            var levels: [Double] = []
+            for l in NationLever.allCases {
+                let i = l.index
+                cp.offsets[i] += clamp((target[i] - cp.offsets[i]) * 0.6, -10, 10)
+                let v = clamp(region.level(l) + cp.offsets[i], 0, 100)
+                levels.append(v)
+                guard before.indices.contains(i) else { continue }
+                let d = v - before[i]
+                guard abs(d) >= 3 else { continue }
+                let own = pushes.filter { $0.lever == l && ($0.delta > 0) == (d > 0) }.max { abs($0.delta) < abs($1.delta) }?.why
+                let character = c.characterWhy.indices.contains(i) && !c.characterWhy[i].isEmpty && (c.character[i] > 0) == (d > 0) ? c.characterWhy[i] : nil
+                reasons.append(("\(l.title) \(Int(before[i].rounded())) → \(Int(v.rounded())): \(own ?? character ?? "following the \(c.region.short)'s review")", abs(d)))
+            }
+            reasons.sort { $0.1 > $1.1 }
+            cp.levels = levels
+            cp.boost = cp.boost.map { $0 * 0.7 }
+            cp.reasons = reasons.map(\.0)
+            cp.reviewed = year
+            s.nations.countries[c.id] = cp
+            let appeal = self.appeal(s, c.id).value
+            s.nations.countries[c.id]?.history.append(CountryYear(year: year, levels: levels.map { ($0 * 10).rounded() / 10 }, appeal: (appeal * 10).rounded() / 10))
+            if let h = s.nations.countries[c.id]?.history, h.count > 40 { s.nations.countries[c.id]?.history.removeFirst(h.count - 40) }
+            let text = reasons.isEmpty ? "\(c.name) keeps its course." : reasons.prefix(2).map(\.0).joined(separator: "; ") + "."
+            note(&s, NationNote(date: date, who: c.id, text: text, kind: "country"))
+            out.append((c.id, text, reasons.first?.1 ?? 0))
+        }
+        return out
+    }
+
+    // MARK: Dated events
+
+    /// Applies the dated events due by `upTo`: news (live, when they concern you), the Nations timeline, and the dial
+    /// pushes for the next January review.
+    static func applyEvents(_ s: inout GameState, upTo: Date, live: Bool) {
+        for e in CountryEvents.all where e.date <= upTo && !s.nations.events.contains(e.id) {
+            s.nations.events.insert(e.id)
+            let targets = e.countries == ["all"] ? CountryCatalog.all.filter { !$0.character.isEmpty }.map(\.id) : e.countries
+            for id in targets {
+                var cp = s.nations.countries[id] ?? CountryPolicy()
+                let n = NationLever.allCases.count
+                if cp.boost.count != n { cp.boost = Array(repeating: 0, count: n) }
+                for (l, d) in e.pushes {
+                    cp.boost[l.index] += d
+                    cp.pending.append("\(l.rawValue)|\(d)|\(e.title.prefix(1).lowercased() + e.title.dropFirst())")
+                }
+                s.nations.countries[id] = cp
+                note(&s, NationNote(date: e.date, who: id, text: "\(e.title). \(e.body)", kind: "event"))
+            }
+            guard live, e.countries == ["all"] || e.countries.contains(s.hqCountry) else { continue }
+            var extra = ""
+            if e.id == "us_diffusion" && HQ.country(s).diffusionTier >= 2 && !HQ.isDefault(s) {
+                extra = " As a \(HQ.country(s).adjective) company you're in Tier 2: suppliers ration your chip orders (×\(Fmt.trim(exportCapFactor(s), 1))) and price in the licence risk until the rule settles."
+            } else if e.id == "us_diffusion_end" && HQ.country(s).diffusionTier >= 2 && !HQ.isDefault(s) {
+                extra = " Your chip orders are back to normal."
+            }
+            Sim.news(&s, e.title, e.body + extra, .policy, important: !extra.isEmpty || e.countries.contains(s.hqCountry), good: e.pushes.contains(where: { $0.1 > 0 }) ? true : nil)
+        }
+    }
+
+    /// Whether the US AI Diffusion Rule is in force for you: published 13 January 2025 with country caps for Tier 2
+    /// from May, rescinded 13 May 2025. Suppliers rationed Tier 2 orders while it stood (game estimate).
+    static func diffusionCapped(_ s: GameState) -> Bool {
+        guard !HQ.isDefault(s), HQ.country(s).diffusionTier >= 2 else { return false }
+        return s.date >= GameCalendar.date(2025, 1, 13) && s.date < GameCalendar.date(2025, 5, 13)
+    }
+
+    /// Your chip allocation from vendors: rationed for Tier 2 countries while the diffusion rule stood.
+    static func exportCapFactor(_ s: GameState) -> Double { diffusionCapped(s) ? 0.6 : 1 }
+
+    // MARK: Attractiveness
+
+    /// How attractive a country is right now for building an AI lab, 0–100: a summary of effects the game applies
+    /// there (each part is a mechanic of its own), so it moves as policy, the economy and your own partnerships change.
+    static func appeal(_ s: GameState, _ id: String) -> (value: Double, parts: [(label: String, value: Double)]) {
+        let c = CountryCatalog.get(id)
+        let city = c.id == s.hqCountry ? HQ.city(s) : c.cities[0]
+        var parts: [(label: String, value: Double)] = []
+        func add(_ label: String, _ v: Double) { if abs(v) >= 0.5 { parts.append((label, v)) } }
+        add("Cost of a hire (pay and on-costs)", 25 * (1 - c.netPayrollFactor(city)))
+        add("Corporate tax", 60 * (0.25 - c.corporateTax))
+        add("Talent pool and visas", 20 * (c.talentPool * city.talent * candidateFactor(s, country: id) - 0.85))
+        add("Early-stage capital", 40 * (c.investorDepth - 0.9))
+        if s.nations.ready {
+            add("Public research funding", 0.25 * (level(s, country: id, .subsidy) - 50))
+            add("Sovereign-AI demand", 0.1 * (level(s, country: id, .sovereign) - 50))
+            add("Data rules", -0.08 * (level(s, country: id, .data) - 50))
+            if let loc = c.location { add("Datacenter power", 150 * (0.09 - loc.powerPrice * powerFactor(s, location: loc.id))) }
+            let e = s.nations.economy(c.region)
+            add("Economy", 3 * clamp(e.gdpGrowth - baseGrowth(c.region, s.year), -3, 2))
+            if c.diffusionTier >= 2 && s.date >= GameCalendar.date(2025, 1, 13) && s.date < GameCalendar.date(2025, 5, 13) { add("Chip access (US diffusion rule, Tier 2)", -8) }
+        }
+        add("Your partnerships there", 3 * Double(s.hq.partners.filter { $0.country == id && $0.active(s.date) }.count))
+        return (clamp(50 + parts.reduce(0) { $0 + $1.value }, 0, 100), parts.sorted { abs($0.value) > abs($1.value) })
+    }
+
+    /// What co-funding costs this year (public AI budgets grew with the era, and so did the stakes).
+    static func partnershipCost(_ k: PartnershipKind, _ s: GameState) -> Double {
+        ((k == .computeCentre ? 25e6 : 4e6) * HQ.scale(s.year) / 1e5).rounded() * 1e5
+    }
+
+    // MARK: Recessions
+
+    /// Chance a recession starts in a region in a calm quarter (about one a decade in the big Western economies).
+    static func recessionOdds(_ r: Region) -> Double {
+        switch r {
+        case .us: 0.025
+        case .eu, .uk, .japanKorea: 0.03
+        case .gulf: 0.02
+        case .china, .india: 0.012
+        }
+    }
+
+    /// Points a recession is taking off a region's growth on `date` (0: none).
+    static func recessionDepth(_ s: GameState, _ r: Region, at date: Date? = nil) -> Double {
+        let d = date ?? s.date
+        return s.nations.recessions.last { $0.region == r.rawValue && $0.active(d) }?.depth ?? 0
+    }
+
+    /// Investors price rounds lower while your home region is in recession (−5% per point of lost growth).
+    static func recessionInvestorFactor(_ s: GameState) -> Double {
+        guard s.nations.ready, !s.nations.recessions.isEmpty else { return 1 }
+        let d = recessionDepth(s, HQ.region(s))
+        return d > 0 ? 1 - 0.05 * d : 1
+    }
+
+    /// The world's AI spending while regions are in recession (−3% of each region's share per point of lost growth).
+    static func demandFactor(_ s: GameState) -> Double {
+        guard s.nations.ready, !s.nations.recessions.isEmpty else { return 1 }
+        var f = 1.0
+        for r in Region.allCases {
+            let d = recessionDepth(s, r)
+            if d > 0 { f -= 0.03 * d * r.weight }
+        }
+        return f
+    }
+
+    /// Recessions end, and each quarter a new one may start in a region — likelier while markets correct or the AI
+    /// boom cools. Regional: a market crash or credit crisis is a different, global event.
+    static func recessionsMonthly(_ s: inout GameState) {
+        for i in s.nations.recessions.indices where !s.nations.recessions[i].over && s.nations.recessions[i].end <= s.date {
+            s.nations.recessions[i].over = true
+            guard let r = Region(rawValue: s.nations.recessions[i].region) else { continue }
+            let quarters = max(1, GameCalendar.daysBetween(s.nations.recessions[i].start, s.date) / 91)
+            note(&s, NationNote(date: s.date, who: r.rawValue, text: "The recession \(r.inPlace) is over after \(quarters) quarters: growth returns to its trend.", kind: "recession"))
+            Sim.news(&s, "Recession over \(r.inPlace)", "After \(quarters) quarters, growth \(r.inPlace) is back on its trend.",
+                     .finance, important: r == HQ.region(s), good: true)
+        }
+        let ym = s.date.ym
+        guard (ym.month - 1) % 3 == 0 else { return }
+        let q = (ym.month - 1) / 3
+        let correction = s.correctionUntil.map { $0 > s.date } ?? false
+        let cooled = s.market.hype < EventCatalog.hypeBase(s.year) * 0.85
+        let risk = correction ? 2.5 : (cooled ? 1.8 : 1)
+        for r in Region.allCases {
+            // One at a time, and at least two years after the last one ended.
+            guard !s.nations.recessions.contains(where: { $0.region == r.rawValue && GameCalendar.daysBetween($0.end, s.date) < 730 }) else { continue }
+            let key = "\(r.rawValue)|\(ym.year)|\(q)"
+            guard roll(s, "recession|\(key)") < recessionOdds(r) * risk else { continue }
+            let quarters = 4 + min(2, Int(roll(s, "recq|\(key)") * 3))
+            let depth = ((1.5 + roll(s, "recd|\(key)")) * 10).rounded() / 10
+            let cause = correction ? "after the market correction" : (cooled ? "as the AI boom cooled" : "after a run of weak quarters")
+            s.nations.recessions.append(Recession(region: r.rawValue, start: s.date, end: GameCalendar.addMonths(s.date, quarters * 3), depth: depth, cause: cause))
+            if s.nations.recessions.count > 30 { s.nations.recessions.removeFirst(s.nations.recessions.count - 30) }
+            let home = r == HQ.region(s)
+            note(&s, NationNote(date: s.date, who: r.rawValue, text: "Recession \(r.inPlace) \(cause): growth −\(Fmt.trim(depth, 1)) points for about \(quarters) quarters.", kind: "recession"))
+            Sim.news(&s, "Recession \(r.inPlace)",
+                     "\(r.title) tips into recession \(cause): growth falls by \(Fmt.trim(depth, 1)) points for about \(quarters) quarters. AI spending there slows and agency budgets shrink\(home ? "; at home, enterprise leads thin out and investors price rounds lower" : "").",
+                     .finance, important: home, good: false)
         }
     }
 }

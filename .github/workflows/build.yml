@@ -10,7 +10,7 @@ jobs:
   macos:
     name: Build & balance checks (macOS 26)
     runs-on: macos-26
-    timeout-minutes: 40
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       - name: Toolchain
@@ -19,6 +19,18 @@ jobs:
         run: swift build -c release
       - name: Saves from shipped versions still load and play
         run: for f in Tests/Fixtures/*.json; do .build/release/TensorTycoon --check-save "$f"; done
+      - name: Calendar check (integer calendar matches Foundation's)
+        run: .build/release/TensorTycoon --calendar-check
+      - name: Scenario playthroughs (countries, frontier run, classified research, chips, empire)
+        run: .build/release/TensorTycoon --scenarios all
+      - name: Finance check (books, valuation, debt, payouts, tax, crises, stages)
+        run: .build/release/TensorTycoon --finance-check
+      - name: Data and science check (frozen plans, synthetic data, licences, unlocks)
+        run: .build/release/TensorTycoon --data-check
+      - name: Intelligence check (domains, families, launches, markets, rivals)
+        run: .build/release/TensorTycoon --intelligence
+      - name: Photo check (credits and honest labels)
+        run: .build/release/TensorTycoon --photo-check
       - name: Determinism check (same seed, same game — in one process and across launches)
         run: |
           .build/release/TensorTycoon --determinism

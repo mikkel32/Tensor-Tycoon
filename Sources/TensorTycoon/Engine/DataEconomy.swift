@@ -4,13 +4,20 @@ import Foundation
 // contamination detection, rare auctions, data lawsuits and rivals' data access.
 //
 // How data feeds training (see `plan`): every source in a run's data — the original sources (`DataCatalog`, exactly as
-// before) plus datasets you hold — gets an effective quality q from its eleven quality dimensions and a value weight
-// w(q) = 10^(2.5 (q − 0.5)). Its domain-relevant, quality-weighted tokens are E_d = Σ unique tokens × relevance_d × w(q).
-// The new layer compares E_d with what your original sources alone (at their default quality) give, and turns the
-// log-ratio into the forecast's existing inputs: data quality (log10 compute), code/reasoning/agent/chat/language/vision
-// skills, and extra unique tokens. With no datasets held and nothing processed, every ratio is exactly 1 and the
-// forecast is unchanged. A small curated dataset with high relevance and quality moves E_d for its domain far more than
-// a huge, noisy, irrelevant one does.
+// before) plus datasets you hold — gets an effective quality q from its quality dimensions and a value weight
+// w(q) = 10^(2.5 (q − 0.5)). Only its signal teaches: (1 − noise) of its unique tokens, where noise is the share nobody
+// checked or cleaned. Its domain-relevant, quality-weighted tokens are E_d = Σ unique tokens × signal × relevance_d × w(q),
+// with relevance scaled by scientific reliability and specialist coverage. The layer compares E_d with what your
+// original sources alone (at their default quality) give, and turns the log-ratio — weighted by what the design is
+// for — into the forecast's existing inputs: data quality (log10 compute), code/reasoning/agent/chat/language/vision
+// skills, domain know-how (science, robotics) and extra unique tokens. With no datasets held, nothing processed and no
+// synthetic data, every ratio is exactly 1 and the forecast is unchanged. A small curated dataset with high relevance
+// and quality moves E_d for its domain far more than a huge, noisy, irrelevant one does — or a noisy relevant one.
+//
+// Synthetic data (the Model Lab slider and generated datasets) shares one budget: its value in a domain approaches but
+// never passes half of what your real data there is worth, its unique tokens approach but never pass your real ones,
+// it can't teach a design more than its generator knew, and once generated data passes 40% of the corpus model collapse
+// scales back everything the data adds.
 
 // MARK: - State
 
@@ -35,6 +42,13 @@ struct DataHolding: Codable, Identifiable, Hashable {
     var active = true
     var synthetic = false
     var value: Double = 0
+    /// When a licence ran out or a per-run licence was used up. A lapsed holding stays stored — processing and all —
+    /// and can be renewed for `DataEconomy.renewDays`; nil while active, or once it's gone for good (ended, purged).
+    @D var lapsed: Date? = nil
+    /// Annotation output by month for the last twelve months (oldest first): the RLHF freshness rule reads it.
+    @D var delivered: [Double] = []
+    /// Synthetic data: the capability (log10 compute) of the model that wrote it (0 = not recorded, older saves).
+    @D var teacherC: Double = 0
 }
 
 enum DataStage: String, Codable, CaseIterable, Identifiable {
@@ -52,7 +66,7 @@ enum DataStage: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .dedup: "Near-duplicate removal: fewer stored tokens, same unique ones, better quality per token."
         case .filter: "A classifier drops low-quality text: accuracy up, contamination down, ~15% of tokens gone."
-        case .verify: "Fact and source checks plus a provenance audit: processing quality, scientific reliability and provenance up."
+        case .verify: "Fact and source checks plus a provenance audit: processing quality, scientific reliability, provenance and documented licence terms up."
         case .decontaminate: "Strip benchmark test items: three quarters of the contamination risk gone."
         }
     }
@@ -96,6 +110,8 @@ struct SynthJob: Codable, Identifiable, Hashable {
     var started: Date
     var done: Date
     var cost: Double
+    /// The generator's capability when the job started (what the data can teach up to).
+    @D var teacherC: Double = 0
 }
 
 /// An annotation contract: a vendor producing preference labels, expert demonstrations or robot trajectories.
@@ -110,7 +126,8 @@ struct DataEcoState: Codable, DefaultValue {
     @D var holdings: [DataHolding] = []
     /// Original source ID → its quality after processing (absent: the default profile).
     @D var processed: [String: DataQuality] = [:]
-    /// Target ID → processing stages already applied.
+    /// Target ID → processing stages already applied. Holdings are keyed by their own ID, which is unique to one
+    /// acquisition, so a dataset bought again starts unprocessed.
     @D var applied: [String: [String]] = [:]
     @D var jobs: [DataJob] = []
     @D var synth: [SynthJob] = []
@@ -122,18 +139,24 @@ struct DataEcoState: Codable, DefaultValue {
     @D var lastOffer: Date? = nil
     /// Lab ID → rare datasets it won.
     @D var rivalGains: [String: [String]] = [:]
-    /// Holdings already sued over.
+    /// Holdings already sued over (by holding ID: one acquisition each).
     @D var sued: Set<String> = []
     /// Running totals, for the hub and the harness.
     @D var spent: Double = 0
     @D var settlements: Double = 0
     @D var auctionsWon: Int = 0
     @D var auctionsLost: Int = 0
+    /// Original source ID → share of its tokens kept after quality filtering (absent: all of them).
+    @D var kept: [String: Double] = [:]
 }
 
-/// What a run's data does to its forecast, and why.
+/// What a run's data does to its forecast, and why. Working copy; `DataPlanSummary` is the frozen, saved form.
 struct DataPlan {
+    /// Something beyond the original sources is in play (datasets, processing or synthetic data).
     var active = false
+    /// Datasets held or sources processed (not just the Model Lab's synthetic slider).
+    var datasets = false
+    /// Real (non-synthetic) unique text tokens the datasets add, net of tokens filtering removed from original sources.
     var extraUniqueT = 0.0
     var dData = 0.0
     var dReasoning = 0.0
@@ -143,24 +166,120 @@ struct DataPlan {
     var dLang = 0.0
     var dVis = 0.0
     var dLongctx = 0.0
-    /// log10 ratio of quality-weighted domain tokens vs. your original sources alone, per domain.
+    /// Domain know-how (CapDomain order, log10-compute units: 0.1 is one point) for domains no skill carries: science
+    /// and robotics data. Belongs in the trained model's `domainBonus`.
+    var domain = [Double](repeating: 0, count: CapDomain.count)
+    /// log10 ratio of quality-weighted domain tokens vs. your original sources alone, per domain (after emphasis).
     var gains = [Double](repeating: 0, count: CapDomain.count)
     /// Quality-weighted relevant tokens per domain (with everything), and with the original sources only.
     var effective = [Double](repeating: 0, count: CapDomain.count)
     var baseEffective = [Double](repeating: 0, count: CapDomain.count)
     /// Unique relevant tokens per domain (no quality weighting): what a run can draw on before repeating.
     var relevantT = [Double](repeating: 0, count: CapDomain.count)
+    /// Synthetic data: tokens generated (slider + datasets), how many count as new, and their share of the corpus.
+    var syntheticRawT = 0.0
+    var syntheticUniqueT = 0.0
     var syntheticShare = 0.0
+    /// Model collapse: what's left of every gain (1 = none), and the log10 hit to data quality (≤ 0).
+    var collapseFactor = 1.0
+    var collapse = 0.0
+    /// Synthetic value held back because the real data can't ground more of it (sum over domains of the cut share).
+    var syntheticCapped = false
+    /// Human-preference tokens delivered in the last twelve months, and the share of the minimum missing (1 = none).
+    var preferenceT = 0.0
+    var preferenceShortfall = 1.0
     var hasPreferences = false
     /// Multiplier on benchmark-contamination incidents from this data (before detection).
     var contamination = 1.0
-    var collapse = 0.0
+    /// Chance contamination nobody caught inflates the model's scores (it ships benchmark-tuned).
+    var silentTuning = 0.0
+    /// Datasets under research-only licence terms (no open-weights release).
+    var restricted: [String] = []
+    /// Synthetic datasets this design is already forecast to outgrow.
+    var outgrown: [String] = []
+}
+
+/// A run's data plan, frozen when the run starts and saved with it, so data bought, processed or expiring later never
+/// changes a run in flight. Every field defaults to neutral; `DataPlan(summary)` rebuilds what the forecast reads.
+struct DataPlanSummary: Codable, Hashable, DefaultValue {
+    static var defaultValue: DataPlanSummary { DataPlanSummary() }
+    @D var active: Bool = false
+    @D var datasets: Bool = false
+    @D var dData: Double = 0
+    @D var dReasoning: Double = 0
+    @D var dCode: Double = 0
+    @D var dAgent: Double = 0
+    @D var dChat: Double = 0
+    @D var dLang: Double = 0
+    @D var dVis: Double = 0
+    @D var dLongctx: Double = 0
+    /// Domain know-how for the model's `domainBonus` (CapDomain order; 0.1 = one point). Empty = none.
+    @D var domainBonus: [Double] = []
+    /// Per-domain gains (log10 ratio after emphasis), for reports.
+    @D var gains: [Double] = []
+    @D var extraUniqueT: Double = 0
+    @D var syntheticUniqueT: Double = 0
+    @D var syntheticShare: Double = 0
+    /// 1 − the collapse factor (0 = no collapse), and the log10 data-quality hit (≤ 0).
+    @D var collapseLoss: Double = 0
+    @D var collapse: Double = 0
+    /// Share of the human-preference minimum missing (0 = enough fresh preference data, 1 = none).
+    @D var preferenceShortfall: Double = 0
+    /// Contamination multiplier (0 = not recorded, read as 1).
+    @D var contamination: Double = 0
+    @D var silentTuning: Double = 0
+    @D var restricted: [String] = []
+
+    var collapseFactor: Double { 1 - collapseLoss }
+    var contaminationFactor: Double { contamination > 0 ? contamination : 1 }
+    func domain(_ d: CapDomain) -> Double { d.index < domainBonus.count ? domainBonus[d.index] : 0 }
+}
+
+extension DataPlan {
+    /// The frozen form of this plan.
+    var summary: DataPlanSummary {
+        var x = DataPlanSummary()
+        x.active = active; x.datasets = datasets
+        x.dData = dData; x.dReasoning = dReasoning; x.dCode = dCode; x.dAgent = dAgent; x.dChat = dChat
+        x.dLang = dLang; x.dVis = dVis; x.dLongctx = dLongctx
+        x.domainBonus = domain.contains { $0 != 0 } ? domain : []
+        x.gains = gains.contains { $0 != 0 } ? gains : []
+        x.extraUniqueT = extraUniqueT; x.syntheticUniqueT = syntheticUniqueT; x.syntheticShare = syntheticShare
+        x.collapseLoss = 1 - collapseFactor; x.collapse = collapse
+        x.preferenceShortfall = preferenceShortfall
+        x.contamination = contamination; x.silentTuning = silentTuning; x.restricted = restricted
+        return x
+    }
+
+    /// A plan rebuilt from a frozen summary (what the forecast reads; per-domain token tallies are not kept).
+    init(_ x: DataPlanSummary) {
+        self.init()
+        active = x.active; datasets = x.datasets
+        dData = x.dData; dReasoning = x.dReasoning; dCode = x.dCode; dAgent = x.dAgent; dChat = x.dChat
+        dLang = x.dLang; dVis = x.dVis; dLongctx = x.dLongctx
+        for d in CapDomain.allCases { domain[d.index] = x.domain(d) }
+        for i in x.gains.indices where i < gains.count { gains[i] = x.gains[i] }
+        extraUniqueT = x.extraUniqueT; syntheticUniqueT = x.syntheticUniqueT; syntheticShare = x.syntheticShare
+        collapseFactor = x.collapseFactor; collapse = x.collapse
+        preferenceShortfall = x.preferenceShortfall
+        hasPreferences = x.preferenceShortfall < 1
+        contamination = x.contaminationFactor; silentTuning = x.silentTuning; restricted = x.restricted
+    }
 }
 
 // MARK: - Engine
 
 enum DataEconomy {
     static let marker = "dx"
+    /// Snapshot entries naming a dataset the run used under research-only licence terms ("dxr:<name>").
+    static let restrictedPrefix = "dxr:"
+    /// Days a lapsed licence stays renewable (with its processed copy) before the data is deleted.
+    static let renewDays = 90
+    /// Fresh human-preference tokens (last twelve months) a run needs for full-strength RLHF.
+    static let minPreferenceT = 0.0002
+    /// Model collapse starts when generated data passes this share of the corpus, and is complete this much later.
+    static let collapseStart = 0.4
+    static let collapseSpan = 0.2
 
     // MARK: Sources in a run
 
@@ -173,6 +292,9 @@ enum DataEconomy {
         let uniqueT: Double
         let quality: DataQuality
         let synthetic: Bool
+        /// Share of its tokens that teach: its signal (1 − noise), and for synthetic data how much its generator
+        /// still knows beyond the design.
+        var teach: Double = 1
     }
 
     /// Freshness fades about 0.08 a year after a dataset was acquired or last refreshed.
@@ -183,7 +305,8 @@ enum DataEconomy {
         return q
     }
 
-    /// Holdings a run uses: its snapshot when it has one, otherwise everything active today.
+    /// Holdings a run uses: its snapshot when it has one (every run started since the snapshot always has the marker,
+    /// even with no datasets), otherwise — the Model Lab, older runs — everything active today.
     static func holdings(_ s: GameState, sources: [String]) -> [DataHolding] {
         let all = s.dataEco.holdings
         guard !all.isEmpty else { return [] }
@@ -194,28 +317,49 @@ enum DataEconomy {
         return all.filter { $0.active && $0.tokensT > 0 }
     }
 
+    /// Tokens of an original source a run can use: its stock, less what quality filtering removed.
+    static func legacyTokensT(_ s: GameState, _ id: String, processed: Bool) -> Double {
+        guard let src = DataCatalog.byID[id] else { return 0 }
+        let t = max(src.tokensT(s.year), DataMarketCatalog.legacyProfile(id).tokensT)
+        return processed ? t * (s.dataEco.kept[id] ?? 1) : t
+    }
+
     /// The original sources' entries (default profile when `processed` is false).
     static func legacyEntries(_ s: GameState, sources: [String], processed: Bool) -> [Entry] {
         sources.compactMap { id -> Entry? in
             guard let src = DataCatalog.byID[id] else { return nil }
             let p = DataMarketCatalog.legacyProfile(id)
-            let t = max(src.tokensT(s.year), p.tokensT)
             let q = processed ? (s.dataEco.processed[id] ?? p.quality) : p.quality
             // Unique tokens of the original sources are what `Physics.availableTokensT` already counts.
-            return Entry(id: id, name: src.name, kind: p.kind, focus: nil, uniqueT: t, quality: q, synthetic: false)
+            return Entry(id: id, name: src.name, kind: p.kind, focus: nil, uniqueT: legacyTokensT(s, id, processed: processed), quality: q,
+                         synthetic: false, teach: 1 - q.noise)
         }
     }
 
-    static func holdingEntries(_ s: GameState, _ hs: [DataHolding]) -> [Entry] {
+    /// Held datasets as entries. With a design, synthetic data teaches only what its generator knows beyond it.
+    static func holdingEntries(_ s: GameState, _ hs: [DataHolding], student: Double? = nil) -> [Entry] {
         hs.map { h in
-            Entry(id: h.id, name: h.name, kind: h.kind, focus: h.focus, uniqueT: h.tokensT * (1 - h.quality.duplication),
-                  quality: aged(h.quality, since: h.refreshed, now: s.date), synthetic: h.synthetic)
+            let q = aged(h.quality, since: h.refreshed, now: s.date)
+            var teach = 1 - q.noise
+            if h.synthetic, let st = student { teach *= teacherUsefulness(h, student: st, s) }
+            return Entry(id: h.id, name: h.name, kind: h.kind, focus: h.focus, uniqueT: h.tokensT * (1 - h.quality.duplication),
+                         quality: q, synthetic: h.synthetic, teach: teach)
         }
     }
 
-    /// Relevance of one source to each domain, scaled by its scientific reliability and specialist coverage.
+    /// Relevance of one source to each domain, scaled by its scientific reliability and specialist coverage (which is
+    /// why those two don't count in its effective quality as well).
     static func relevance(_ e: Entry) -> [Double] {
         var r = e.kind.relevance
+        // 3.8: the five domains added after the data tables (DataKind.relevance lists the first eleven) learn from
+        // what teaches their neighbours: chips from code, reliability from agentic traces, calibration from reasoning,
+        // architecture from code and reasoning, languages from text that teaches knowledge.
+        if r.count < CapDomain.count {
+            func at(_ d: CapDomain) -> Double { d.index < r.count ? r[d.index] : 0 }
+            let extra: [CapDomain: Double] = [.hardware: 0.15 * at(.coding), .reliability: 0.5 * at(.agents), .calibration: 0.4 * at(.reasoning),
+                                              .architecture: 0.2 * at(.coding) + 0.2 * at(.reasoning), .multilingual: 0.5 * at(.knowledge)]
+            r += CapDomain.allCases.dropFirst(r.count).map { extra[$0] ?? 0 }
+        }
         let primary = Set(e.kind.primary + (e.focus.map { [$0] } ?? []))
         if let f = e.focus { r[f.index] = max(r[f.index], 1) }
         for d in CapDomain.allCases {
@@ -243,15 +387,16 @@ enum DataEconomy {
             let w = DataQuality.weight(x.quality.effective)
             let r = relevance(x)
             for i in 0..<CapDomain.count {
-                e[i] += x.uniqueT * r[i] * w
+                e[i] += x.uniqueT * x.teach * r[i] * w
                 raw[i] += x.uniqueT * min(1, r[i])
             }
-            if x.kind.isText { lang += x.uniqueT * w * x.quality.language }
+            if x.kind.isText { lang += x.uniqueT * x.teach * w * x.quality.language }
         }
         return (e, raw, lang)
     }
 
-    /// How hard the design's mix leans on each domain (mix and mid-training shift).
+    /// How hard the design leans on each domain: its data mix, its mid-training shift, and what it's for (the
+    /// objective's focus domains count 30% more: a coding model values code data more than a general one does).
     static func emphasis(_ d: ModelDesign) -> [Double] {
         var m = [Double](repeating: 1, count: CapDomain.count)
         switch d.dataMix {
@@ -266,6 +411,7 @@ enum DataEconomy {
         case .stem: m[CapDomain.math.index] += 0.2; m[CapDomain.science.index] += 0.2
         case .multilingual, .keep: break
         }
+        if d.objective != .general { for dm in d.objective.focus { m[dm.index] *= 1.3 } }
         return m
     }
 
@@ -274,85 +420,203 @@ enum DataEconomy {
         return clamp(log10((new + eps) / (base + eps)), -0.5, 1.0)
     }
 
+    /// x, approaching but never passing k (k (1 − e^(−x/k))): how synthetic data adds up against a real budget.
+    static func saturate(_ x: Double, _ k: Double) -> Double {
+        guard x > 0, k > 0 else { return 0 }
+        return k * (1 - exp(-x / k))
+    }
+
+    /// A quick forecast of the design's capability (log10 compute): its compute and your research stack.
+    static func studentC(_ d: ModelDesign, _ s: GameState, bonuses: ResearchBonuses? = nil) -> Double {
+        let b = bonuses ?? s.bonuses
+        if d.mode == .finetune, let base = Physics.openModelC(d.baseModelRef, state: s) { return base }
+        return log10(max(Physics.pretrainFLOPs(d), 1e12)) - 21 + b.algo + b.dataAlgo
+    }
+
+    /// The generator's capability for a synthetic holding (older saves: the model of that name, if it still exists).
+    static func teacherC(_ h: DataHolding, _ s: GameState) -> Double? {
+        if h.teacherC != 0 { return h.teacherC }
+        return s.models.first { $0.name == h.source }?.c
+    }
+
+    /// How much a synthetic dataset can still teach a design: a model can't teach what it doesn't know. Full value
+    /// while its generator is at least 0.3 (log10 compute) ahead of the design's forecast, nothing once the design
+    /// would match it — or, for verified data, pass it by a little (`teacherReach`).
+    static func teacherUsefulness(_ h: DataHolding, student: Double, _ s: GameState) -> Double {
+        guard let teacher = teacherC(h, s) else { return 0.5 }
+        let reach = teacherReach(verified: h.quality.processing >= 0.8, focus: h.focus)
+        return clamp((teacher + reach - student) / 0.3, 0, 1)
+    }
+
+    /// How far past its generator verified data can teach (log10 compute): samples filtered by tests, checkers and
+    /// judges keep only what's right, so a little further in code and maths, where answers can be checked.
+    static func teacherReach(verified: Bool, focus: CapDomain?) -> Double {
+        guard verified else { return 0 }
+        return focus == .coding || focus == .math ? 0.15 : 0.05
+    }
+
+    /// Synthetic tokens the Model Lab slider adds: 3 × the share × your original sources' tokens.
+    static func sliderSyntheticT(_ d: ModelDesign, _ s: GameState, sources: [String]) -> Double {
+        guard d.syntheticShare > 0, s.bonuses.has(.syntheticData) else { return 0 }
+        return 3 * d.syntheticShare * Physics.availableTokensT(sources, y: s.year, bonuses: s.bonuses)
+    }
+
+    /// Data research extracts more usable tokens from raw data; it has little left to do on data that's already
+    /// cleaned, and nothing on synthetic data.
+    static func researchTokens(_ q: DataQuality, synthetic: Bool, _ b: ResearchBonuses) -> Double {
+        synthetic ? 1 : 1 + b.dataTokens * clamp((0.95 - q.processing) / 0.65, 0, 1)
+    }
+
+    /// Fresh human-preference tokens among these holdings: annotation delivered in the last twelve months, and any
+    /// other preference data refreshed within a year.
+    static func preferenceT(_ s: GameState, _ hs: [DataHolding]) -> Double {
+        hs.filter { $0.kind == .preferences }.reduce(0) { acc, h in
+            if h.id.hasPrefix("an:") { return acc + h.delivered.suffix(12).reduce(0, +) }
+            return acc + (GameCalendar.daysBetween(h.refreshed, s.date) <= 365 ? h.tokensT : 0)
+        }
+    }
+
     /// Everything the run's data adds beyond your original sources at their default quality.
     /// `detail` fills the per-domain tallies for the Model Lab even when nothing new is in play.
     static func plan(_ d: ModelDesign, state s: GameState, sources: [String], detail: Bool = false) -> DataPlan {
         let sources = sources.sorted()   // 3.7: fixed order (float sums), whatever order a run's snapshot was saved in
         var p = DataPlan()
+        let b = s.bonuses
         let hs = holdings(s, sources: sources)
         let touched = sources.contains { s.dataEco.processed[$0] != nil }
-        guard detail || !hs.isEmpty || touched else { return p }
+        let slider = sliderSyntheticT(d, s, sources: sources)
+        p.preferenceT = preferenceT(s, hs)
+        p.hasPreferences = p.preferenceT > 0
+        p.preferenceShortfall = clamp(1 - p.preferenceT / minPreferenceT, 0, 1)
+        guard detail || !hs.isEmpty || touched || slider > 0 else { return p }
         let base = legacyEntries(s, sources: sources, processed: false)
-        let now = legacyEntries(s, sources: sources, processed: true) + holdingEntries(s, hs)
+        let legacyNow = legacyEntries(s, sources: sources, processed: true)
+        let student = hs.contains(where: \.synthetic) ? studentC(d, s, bonuses: b) : 0
+        let held = holdingEntries(s, hs, student: student)
+        let real = legacyNow + held.filter { !$0.synthetic }
+        let syn = held.filter(\.synthetic)
         let tb = tally(base, design: d)
-        let tn = tally(now, design: d)
-        p.effective = tn.e
-        p.baseEffective = tb.e
-        p.relevantT = tn.raw
-        p.hasPreferences = hs.contains { $0.kind == .preferences }
-        guard !hs.isEmpty || touched else { return p }
-        p.active = true
-        let b = s.bonuses
-        let m = emphasis(d)
-        for i in 0..<CapDomain.count { p.gains[i] = logRatio(tn.e[i], tb.e[i]) * m[i] }
-        func g(_ dm: CapDomain) -> Double { p.gains[dm.index] }
-        // Skill per decade of quality-weighted domain data, each capped at ±0.25 (a strong data-mix choice is ~0.08).
-        func cap(_ x: Double) -> Double { clamp(x, -0.25, 0.25) }
-        p.dData = cap(0.06 * g(.knowledge))
-        p.dCode = cap(0.30 * g(.coding))
-        p.dReasoning = cap(0.12 * g(.reasoning) + 0.10 * g(.math) + 0.06 * g(.science))
-        p.dAgent = cap(0.12 * g(.agents) + 0.05 * g(.robotics))
-        p.dChat = cap(0.12 * g(.social) + (d.audio ? 0.05 * g(.voice) : 0))
-        p.dVis = d.vision ? cap(0.15 * g(.vision) + 0.06 * g(.robotics)) : 0
-        p.dLongctx = cap(0.06 * g(.memory))
-        let mLang = d.dataMix == .multilingual ? 1.6 : 1
-        p.dLang = cap(0.2 * logRatio(tn.lang, tb.lang) * mLang)
-        // New text adds unique tokens like the original sources do (data research scales both).
-        let text = holdingEntries(s, hs).filter { $0.kind.isText }
-        p.extraUniqueT = text.reduce(0) { $0 + $1.uniqueT } * (1 + b.dataTokens)
-        // Model collapse: too much of the corpus generated by models.
-        let legacyT = Physics.availableTokensT(sources, y: s.year, bonuses: b)
-        let synT = text.filter(\.synthetic).reduce(0) { $0 + $1.uniqueT } * (1 + b.dataTokens)
-        p.syntheticShare = synT / max(1e-9, legacyT + p.extraUniqueT)
-        if p.syntheticShare > 0.2 {
-            p.collapse = -0.15 * min(1, (p.syntheticShare - 0.2) / 0.3)
-            p.dData += p.collapse
+        let tr = tally(real, design: d)
+        let ts = tally(syn, design: d)
+        // Synthetic value is grounded by real data: in each domain it approaches, never passes, half of the real value.
+        var e = tr.e, raw = tr.raw
+        for i in 0..<CapDomain.count {
+            let add = saturate(ts.e[i], 0.5 * tr.e[i])
+            if ts.e[i] > 0.01 && add < 0.8 * ts.e[i] { p.syntheticCapped = true }
+            e[i] += add
+            raw[i] += saturate(ts.raw[i], tr.raw[i])
         }
+        let lang = tr.lang + saturate(ts.lang, 0.5 * tr.lang)
+        p.effective = e
+        p.baseEffective = tb.e
+        p.relevantT = raw
+        // Unique tokens: real held text (data research helps raw data more), less what filtering took from the
+        // original sources; synthetic tokens approach, never pass, your real ones.
+        let legacyT = Physics.availableTokensT(sources, y: s.year, bonuses: b)
+        let heldReal = zip(held, hs).filter { !$0.0.synthetic && $0.0.kind.isText }
+            .reduce(0) { $0 + $1.0.uniqueT * researchTokens($1.1.quality, synthetic: false, b) }
+        let filtered = zip(base, legacyNow).filter { $0.0.kind.isText }.reduce(0) { $0 + ($1.0.uniqueT - $1.1.uniqueT) } * (1 + b.dataTokens)
+        p.extraUniqueT = heldReal - filtered
+        let realT = max(1e-9, legacyT + p.extraUniqueT)
+        p.syntheticRawT = slider + syn.filter(\.kind.isText).reduce(0) { $0 + $1.uniqueT }
+        p.syntheticUniqueT = saturate(p.syntheticRawT, realT)
+        p.syntheticShare = p.syntheticRawT / (realT + p.syntheticRawT)
+        let over = clamp((p.syntheticShare - collapseStart) / collapseSpan, 0, 1)
+        p.collapseFactor = 1 - 0.5 * over
+        p.collapse = -0.15 * over
+        p.datasets = !hs.isEmpty || touched
+        p.active = p.datasets || slider > 0
         // Benchmark contamination: risky new data raises it, decontaminated sources lower it.
-        let total = max(1e-9, legacyT + p.extraUniqueT)
+        let total = realT + p.syntheticUniqueT
         var risk = 0.0
-        for x in holdingEntries(s, hs) where x.kind.isText { risk += x.uniqueT * max(0, x.quality.contamination - 0.3) }
+        for x in held where x.kind.isText { risk += x.uniqueT * max(0, x.quality.contamination - 0.3) }
         for id in sources {
-            guard let q = s.dataEco.processed[id], let src = DataCatalog.byID[id] else { continue }
-            risk += src.tokensT(s.year) * (q.contamination - DataMarketCatalog.legacyProfile(id).quality.contamination)
+            guard let q = s.dataEco.processed[id], DataCatalog.byID[id] != nil else { continue }
+            risk += legacyTokensT(s, id, processed: true) * (q.contamination - DataMarketCatalog.legacyProfile(id).quality.contamination)
         }
         p.contamination = max(0.2, 1 + 4 * risk / total)
+        p.silentTuning = clamp(0.2 * (p.contamination * detectionFactor(s.dataEco.detection) - 1), 0, 0.5)
+        p.restricted = hs.filter { $0.quality.licence < DataQuality.openLicence }.map(\.name)
+        p.outgrown = hs.filter { $0.synthetic && teacherUsefulness($0, student: student, s) < 0.25 }.map(\.name)
+        guard p.datasets else {
+            p.dData = p.collapse   // the slider alone: only the collapse
+            return p
+        }
+        let m = emphasis(d)
+        for i in 0..<CapDomain.count {
+            let g = logRatio(e[i], tb.e[i]) * m[i]
+            p.gains[i] = g > 0 ? g * p.collapseFactor : g
+        }
+        func g(_ dm: CapDomain) -> Double { p.gains[dm.index] }
+        // Skill per decade of quality-weighted domain data, each capped at ±0.25 (a strong data-mix choice is ~0.08).
+        // Each domain feeds one place: science and robotics data go to those domains' know-how, not to broad skills.
+        func cap(_ x: Double) -> Double { clamp(x, -0.25, 0.25) }
+        p.dData = cap(0.06 * g(.knowledge)) + p.collapse
+        p.dCode = cap(0.30 * g(.coding))
+        p.dReasoning = cap(0.12 * g(.reasoning) + 0.10 * g(.math))
+        p.dAgent = cap(0.12 * g(.agents))
+        p.dChat = cap(0.12 * g(.social) + (d.audio ? 0.05 * g(.voice) : 0))
+        p.dVis = d.vision ? cap(0.15 * g(.vision)) : 0
+        p.dLongctx = cap(0.06 * g(.memory))
+        p.domain[CapDomain.science.index] = cap(0.10 * g(.science))
+        p.domain[CapDomain.robotics.index] = cap(0.12 * g(.robotics))
+        let mLang = d.dataMix == .multilingual ? 1.6 : 1
+        let gl = logRatio(lang, tb.lang) * mLang
+        p.dLang = cap(0.2 * (gl > 0 ? gl * p.collapseFactor : gl))
         return p
     }
 
-    /// A run's snapshot: the original sources, the marker, and every dataset held today. Per-run licences are used up.
+    /// The data plan to freeze on a run when it starts: call it with the run's snapshot (`snapshot(&s)`).
+    static func freeze(_ d: ModelDesign, state s: GameState, sources: [String]) -> DataPlanSummary {
+        plan(d, state: s, sources: sources).summary
+    }
+
+    /// Unique training tokens a design can draw on — exactly as the forecast counts them: original sources, real
+    /// datasets, and synthetic data (slider and datasets) up to your real tokens. For the Model Lab's token limit and
+    /// a run's validation curve (pass the run's snapshot).
+    static func uniqueTokensT(_ d: ModelDesign, state s: GameState, sources: [String]) -> Double {
+        let p = plan(d, state: s, sources: sources)
+        return Physics.availableTokensT(sources, y: s.year, bonuses: s.bonuses) + p.syntheticUniqueT + (p.active ? p.extraUniqueT : 0)
+    }
+
+    /// Whether contamination nobody caught leaves a finished run's model benchmark-tuned (a hashed roll on the run).
+    static func silentlyTuned(_ p: DataPlanSummary, run: UUID) -> Bool {
+        p.silentTuning > 0 && RivalIntel.unit("data|tuned|\(run)") < p.silentTuning
+    }
+
+    /// A run's snapshot: the original sources, the marker (always), every dataset held today, and a note for each one
+    /// under research-only licence terms. Per-run licences are used up.
     static func snapshot(_ s: inout GameState) -> [String] {
         var out = s.dataSources.sorted()
-        guard !s.dataEco.holdings.isEmpty else { return out }
         out.append(marker)
         for i in s.dataEco.holdings.indices where s.dataEco.holdings[i].active && s.dataEco.holdings[i].tokensT > 0 {
-            out.append("dx:" + s.dataEco.holdings[i].id)
-            if let left = s.dataEco.holdings[i].runsLeft {
+            let h = s.dataEco.holdings[i]
+            out.append("dx:" + h.id)
+            if h.quality.licence < DataQuality.openLicence { out.append(restrictedPrefix + h.name) }
+            if let left = h.runsLeft {
                 s.dataEco.holdings[i].runsLeft = left - 1
                 if left - 1 <= 0 {
                     s.dataEco.holdings[i].active = false
-                    Sim.news(&s, "\(s.dataEco.holdings[i].name): licence used up", "This run was the last one the per-run licence covers. License it again on the Training Data page.", .company)
+                    s.dataEco.holdings[i].lapsed = s.date
+                    Sim.news(&s, "\(h.name): licence used up", "This run was the last one the per-run licence covers. Renew it on the Training Data page within \(renewDays) days to keep your processed copy.", .company)
                 }
             }
         }
         return out
     }
 
-    /// Unique tokens your held datasets add today (for the Model Lab's token limit).
+    /// Unique tokens your datasets add today beyond the original sources: real text, and synthetic data up to your
+    /// real tokens (the Training Data page; the Model Lab adds its slider through `uniqueTokensT`).
     static func extraUniqueT(_ s: GameState) -> Double {
-        let hs = s.dataEco.holdings.filter { $0.active && $0.kind.isText }
-        guard !hs.isEmpty else { return 0 }
-        return hs.reduce(0) { $0 + $1.tokensT * (1 - $1.quality.duplication) } * (1 + s.bonuses.dataTokens)
+        let hs = s.dataEco.holdings.filter { $0.active && $0.kind.isText && $0.tokensT > 0 }
+        let filtered = s.dataSources.filter { DataMarketCatalog.legacyProfile($0).kind.isText }
+            .reduce(0) { $0 + legacyTokensT(s, $1, processed: false) - legacyTokensT(s, $1, processed: true) } * (1 + s.bonuses.dataTokens)
+        guard !hs.isEmpty || filtered > 0 else { return 0 }
+        let b = s.bonuses
+        let real = hs.filter { !$0.synthetic }.reduce(0) { $0 + $1.tokensT * (1 - $1.quality.duplication) * researchTokens($1.quality, synthetic: false, b) } - filtered
+        let syn = hs.filter(\.synthetic).reduce(0) { $0 + $1.tokensT * (1 - $1.quality.duplication) }
+        let legacy = Physics.availableTokensT(s.dataSources.sorted(), y: s.year, bonuses: b)
+        return real + saturate(syn, max(1e-9, legacy + real))
     }
 
     /// Benchmark-contamination incidents for a run: the data's risk times your detection.
@@ -360,6 +624,23 @@ enum DataEconomy {
         let f = detectionFactor(s.dataEco.detection)
         guard !s.dataEco.holdings.isEmpty || !s.dataEco.processed.isEmpty else { return f }
         return f * plan(run.design, state: s, sources: run.dataSnapshot).contamination
+    }
+
+    /// Why a model's weights can't be published: data under research-only terms in its run (or its teacher's).
+    static func openWeightsBlocker(_ s: GameState, model id: UUID) -> String? {
+        var names = Set<String>()
+        var next: UUID? = id
+        var seen = Set<UUID>()
+        while let m = next, !seen.contains(m), seen.count < 4 {
+            seen.insert(m)
+            if let run = s.runs.first(where: { $0.modelID == m }) {
+                for x in run.dataSnapshot where x.hasPrefix(restrictedPrefix) { names.insert(String(x.dropFirst(restrictedPrefix.count))) }
+            }
+            next = s.models.first { $0.id == m }?.teacherID
+        }
+        guard !names.isEmpty else { return nil }
+        let list = names.sorted()
+        return "Trained on \(list.joined(separator: ", ")) under research-only licence terms (below \(Int(DataQuality.openLicence * 100))/100): the licence forbids publishing weights trained on \(list.count == 1 ? "it" : "them"). Release it through the API instead."
     }
 
     // MARK: Contamination detection
@@ -381,6 +662,9 @@ enum DataEconomy {
 
     static func terabytes(_ h: DataHolding) -> Double { h.tokensT * h.kind.bytesPerToken }
 
+    /// Moving a dataset in from its seller.
+    static func transferCost(_ def: DatasetDef, _ s: GameState) -> Double { def.tokensT * def.kind.bytesPerToken * transferPerTB(s.year) }
+
     static func storageMonthly(_ s: GameState) -> Double {
         s.dataEco.holdings.reduce(0) { $0 + terabytes($1) } * storagePerTB(s.year)
     }
@@ -398,6 +682,15 @@ enum DataEconomy {
         let e = s.dataEco
         guard !e.holdings.isEmpty || !e.annotation.isEmpty || e.detection > 0 else { return 0 }
         return licenceMonthly(s) + annotationMonthly(s) + storageMonthly(s) + detectionLevels[clamp(e.detection, 0, 3)].monthly
+    }
+
+    /// Book value of the data you own — bought, exclusive, won at auction, produced by annotators or your models —
+    /// at cost, written off over four years. Licences and partnerships are rentals, not assets. For the balance sheet.
+    static func assetValue(_ s: GameState) -> Double {
+        s.dataEco.holdings.filter { $0.active && ($0.term == .buy || $0.term == .exclusive) }.reduce(0) { acc, h in
+            let years = Double(GameCalendar.daysBetween(h.acquired, s.date)) / 365
+            return acc + h.value * max(0, 1 - years / 4)
+        }
     }
 
     /// H100-hour price for data jobs (rented at market rates).
@@ -430,12 +723,32 @@ enum DataEconomy {
         case .buy: return "\(Fmt.money(p.upfront)) once. Yours to keep."
         case .licence: return "\(Fmt.money(p.monthly))/mo for \(def.licenceMonths) months. Live data stays fresh."
         case .perRun: return "\(Fmt.money(p.upfront)) for \(def.runs) training runs."
-        case .partnership: return "\(Fmt.money(p.monthly))/mo, open-ended. Fresh releases monthly; researchers approve."
+        case .partnership: return "\(Fmt.money(p.monthly))/mo, open-ended. Fresh releases monthly; researchers approve, and your science labs get the data."
         case .exclusive: return "\(Fmt.money(p.upfront)) once. Yours alone: rival labs lose access."
         }
     }
 
     static func holdingID(_ def: DatasetDef) -> String { "ds:" + def.id }
+
+    /// A holding ID for one acquisition: the dataset and the day, unique even when it's bought twice the same day, and
+    /// never the ID of an earlier copy any run's snapshot names.
+    static func newHoldingID(_ s: GameState, _ base: String) -> String {
+        let c = GameCalendar.components(s.date)
+        let stem = "\(base)@\(c.year)-\(c.month)-\(c.day)"
+        func taken(_ id: String) -> Bool {
+            s.dataEco.holdings.contains { $0.id == id } || s.dataEco.applied[id] != nil || s.dataEco.sued.contains(id)
+                || s.runs.contains { $0.dataSnapshot.contains("dx:" + id) }
+        }
+        var id = stem
+        var n = 2
+        while taken(id) { id = "\(stem)#\(n)"; n += 1 }
+        return id
+    }
+
+    /// Whether a holding can still be renewed: active, or lapsed less than `renewDays` ago.
+    static func renewable(_ h: DataHolding, _ s: GameState) -> Bool {
+        h.active || (h.lapsed.map { GameCalendar.daysBetween($0, s.date) <= renewDays } ?? false)
+    }
 
     /// Who holds a market dataset exclusively (you or a rival), if anyone.
     static func exclusiveHolder(_ s: GameState, _ id: String) -> String? {
@@ -450,14 +763,25 @@ enum DataEconomy {
         if let holder = exclusiveHolder(s, id), holder != "you" { return "\(holder) holds it exclusively." }
         if s.dataEco.holdings.contains(where: { $0.source == id && $0.active }) { return "You already hold it." }
         let p = price(def, term)
-        let transfer = def.tokensT * def.kind.bytesPerToken * transferPerTB(s.year)
-        if p.upfront + transfer > s.cash { return "Costs \(Fmt.money(p.upfront + transfer)) upfront." }
-        pay(&s, p.upfront + transfer)
-        let snap = s
-        s.dataEco.holdings.removeAll { $0.source == id && !$0.active && !inUse(snap, $0.id) }
-        var h = DataHolding(id: holdingID(def) + (s.dataEco.holdings.contains { $0.id == holdingID(def) } ? "-\(s.date.ym.year)\(s.date.ym.month)" : ""),
-                            name: def.name, kind: def.kind, focus: def.focus, source: def.id,
+        let transfer = transferCost(def, s)
+        // A lapsed copy still on your storage (processing and all) comes back with the new rights: no transfer.
+        let prev = s.dataEco.holdings.last { $0.source == id && !$0.active && renewable($0, s) }
+        let moving = prev == nil ? transfer : 0
+        if p.upfront + moving > s.cash { return "Costs \(Fmt.money(p.upfront + moving)) upfront." }
+        pay(&s, p.upfront + moving)
+        var h = DataHolding(id: newHoldingID(s, holdingID(def)), name: def.name, kind: def.kind, focus: def.focus, source: def.id,
                             tokensT: def.tokensT, quality: def.quality, term: term, acquired: s.date, refreshed: s.date)
+        if let prev {
+            h.tokensT = prev.tokensT
+            h.quality = prev.quality
+            h.quality.freshness = max(prev.quality.freshness, def.quality.freshness)
+            s.dataEco.applied[h.id] = s.dataEco.applied[prev.id]
+            if let i = s.dataEco.holdings.firstIndex(where: { $0.id == prev.id }) { s.dataEco.holdings[i].lapsed = nil }
+        }
+        let snap = s
+        let old = Set(s.dataEco.holdings.filter { $0.source == id && !$0.active && !inUse(snap, $0.id) }.map(\.id))
+        s.dataEco.holdings.removeAll { old.contains($0.id) }
+        for x in old { s.dataEco.applied[x] = nil }
         h.value = p.upfront + p.monthly * 24
         switch term {
         case .licence: h.expires = GameCalendar.addMonths(s.date, def.licenceMonths); h.monthly = p.monthly
@@ -472,6 +796,9 @@ enum DataEconomy {
             Sim.news(&s, "Exclusive: \(def.name)", "You signed an exclusive contract with \(def.seller). Rival labs lose access\(def.rivalValue > 0 ? ", which will show in their next models" : "").",
                      .company, good: true)
         }
+        if prev != nil {
+            Sim.news(&s, "\(def.name) is back", "Your processed copy was still on storage, so it comes back as you left it — no transfer, no reprocessing.", .company, good: true)
+        }
         return nil
     }
 
@@ -480,13 +807,16 @@ enum DataEconomy {
         s.runs.contains { $0.status != .done && $0.status != .cancelled && $0.dataSnapshot.contains("dx:" + id) }
     }
 
+    /// End a licence or partnership, or delete a dataset. Runs using it keep their snapshot until they finish.
     static func drop(_ s: inout GameState, _ id: String) -> String? {
         guard let i = s.dataEco.holdings.firstIndex(where: { $0.id == id }) else { return "Not found." }
         if inUse(s, id) {
             s.dataEco.holdings[i].active = false
             s.dataEco.holdings[i].monthly = 0
+            s.dataEco.holdings[i].lapsed = nil
         } else {
             s.dataEco.holdings.remove(at: i)
+            s.dataEco.applied[id] = nil
         }
         s.dataEco.jobs.removeAll { $0.target == id }
         return nil
@@ -494,18 +824,23 @@ enum DataEconomy {
 
     static func renew(_ s: inout GameState, _ id: String) -> String? {
         guard let i = s.dataEco.holdings.firstIndex(where: { $0.id == id }), let def = DataMarketCatalog.byID[s.dataEco.holdings[i].source] else { return "Not found." }
+        guard renewable(s.dataEco.holdings[i], s) else { return "It lapsed more than \(renewDays) days ago and the copy is gone: license it again on the market." }
+        if let holder = exclusiveHolder(s, def.id), holder != "you" { return "\(holder) holds it exclusively now." }
         switch s.dataEco.holdings[i].term {
         case .licence:
-            let from = max(s.date, s.dataEco.holdings[i].expires ?? s.date)
+            let from = s.dataEco.holdings[i].active ? max(s.date, s.dataEco.holdings[i].expires ?? s.date) : s.date
             s.dataEco.holdings[i].expires = GameCalendar.addMonths(from, def.licenceMonths)
             s.dataEco.holdings[i].monthly = def.monthly
             s.dataEco.holdings[i].active = true
+            s.dataEco.holdings[i].lapsed = nil
+            s.dataEco.holdings[i].refreshed = s.date
         case .perRun:
             let cost = def.perRun * Double(def.runs)
             if cost > s.cash { return "Costs \(Fmt.money(cost))." }
             pay(&s, cost)
-            s.dataEco.holdings[i].runsLeft = (s.dataEco.holdings[i].runsLeft ?? 0) + def.runs
+            s.dataEco.holdings[i].runsLeft = max(0, s.dataEco.holdings[i].runsLeft ?? 0) + def.runs
             s.dataEco.holdings[i].active = true
+            s.dataEco.holdings[i].lapsed = nil
         default: return "Nothing to renew."
         }
         return nil
@@ -518,7 +853,7 @@ enum DataEconomy {
         let legacy = s.dataSources.sorted().compactMap { id -> (String, String, DataKind, Double, DataQuality)? in
             guard let src = DataCatalog.byID[id] else { return nil }
             let p = DataMarketCatalog.legacyProfile(id)
-            return (id, src.name, p.kind, max(src.tokensT(s.year), p.tokensT), s.dataEco.processed[id] ?? p.quality)
+            return (id, src.name, p.kind, legacyTokensT(s, id, processed: true), s.dataEco.processed[id] ?? p.quality)
         }
         let held = s.dataEco.holdings.filter(\.active).map { ($0.id, $0.name, $0.kind, $0.tokensT, aged($0.quality, since: $0.refreshed, now: s.date)) }
         return legacy + held
@@ -544,12 +879,13 @@ enum DataEconomy {
         return nil
     }
 
-    static func apply(_ stage: DataStage, to q: inout DataQuality, tokensT: inout Double, holding: Bool) {
+    /// What a stage does to a dataset's quality and stored tokens (the same for a held dataset and an original source).
+    static func apply(_ stage: DataStage, to q: inout DataQuality, tokensT: inout Double) {
         switch stage {
         case .dedup:
             let keep = 1 - 0.7 * q.duplication
             let newDup = 0.3 * q.duplication / max(keep, 1e-9)
-            if holding { tokensT *= keep }
+            tokensT *= keep
             q.duplication = newDup
             q.diversity = min(1, q.diversity + 0.03)
             q.processing = min(0.95, q.processing + 0.1)
@@ -558,7 +894,7 @@ enum DataEconomy {
             q.contamination *= 0.8
             q.processing = min(0.95, q.processing + 0.15)
             q.diversity = max(0, q.diversity - 0.03)
-            if holding { tokensT *= 0.85 }
+            tokensT *= 0.85
         case .verify:
             q.processing = min(0.95, q.processing + 0.2)
             q.science = min(1, q.science + 0.1)
@@ -585,27 +921,50 @@ enum DataEconomy {
         return (h * gpuHour(s) + 150_000, Int(10 + 8 * log10(1 + tokensT * 100)) + (verified ? 7 : 0))
     }
 
+    /// Duplication in generated data rises with volume: one model writing more and more of the same domain repeats itself.
+    static func synthDuplication(tokensT: Double, verified: Bool) -> Double {
+        clamp((verified ? 0.08 : 0.15) + 0.2 * log10(1 + tokensT / 0.02), 0, 0.8)
+    }
+
+    /// Synthetic tokens held or being generated, and how many more are worth generating: past your real unique tokens,
+    /// generated data mostly repeats itself.
+    static func synthRoom(_ s: GameState) -> (held: Double, room: Double) {
+        let held = s.dataEco.holdings.filter { $0.synthetic && $0.active }.reduce(0) { $0 + $1.tokensT } + s.dataEco.synth.reduce(0) { $0 + $1.tokensT }
+        let real = Physics.availableTokensT(s.dataSources.sorted(), y: s.year, bonuses: s.bonuses)
+            + s.dataEco.holdings.filter { $0.active && !$0.synthetic && $0.kind.isText }.reduce(0) { $0 + $1.tokensT * (1 - $1.quality.duplication) }
+        return (held, max(0, real - held))
+    }
+
     static func startSynth(_ s: inout GameState, model id: UUID, focus: CapDomain, tokensT: Double, verified: Bool) -> String? {
         guard s.bonuses.has(.syntheticData) else { return "Research Synthetic Data Pipelines first." }
         guard let m = s.models.first(where: { $0.id == id }) else { return "Pick one of your models." }
+        guard tokensT > 0, tokensT <= 1 else { return "A generation job writes between 10B and 1T tokens." }
         if s.dataEco.synth.count >= 3 { return "Three generation jobs at once is the most your pipeline handles." }
+        let room = synthRoom(s)
+        if tokensT > room.room + 1e-9 {
+            return "You'd have more synthetic data (\(Fmt.tokens(room.held + tokensT))) than real data to ground it: past that, generated data mostly repeats itself. Add real data first, or generate less (\(Fmt.tokens(room.room)) left)."
+        }
         let c = synthCost(s, model: m, tokensT: tokensT, verified: verified)
         if c.cost > s.cash { return "Costs \(Fmt.money(c.cost))." }
         pay(&s, c.cost)
-        s.dataEco.synth.append(SynthJob(modelID: m.id, modelName: m.name, focus: focus, tokensT: tokensT,
-                                        quality: synthQuality(s, model: m, focus: focus, verified: verified), verified: verified,
-                                        started: s.date, done: GameCalendar.addDays(s.date, c.days), cost: c.cost))
+        var job = SynthJob(modelID: m.id, modelName: m.name, focus: focus, tokensT: tokensT,
+                           quality: synthQuality(s, model: m, focus: focus, verified: verified), verified: verified,
+                           started: s.date, done: GameCalendar.addDays(s.date, c.days), cost: c.cost)
+        job.teacherC = m.c
+        s.dataEco.synth.append(job)
         return nil
     }
 
     static func synthHolding(_ j: SynthJob, date: Date) -> DataHolding {
         let q = j.quality
         let sci = j.focus == .science || j.focus == .math ? q : 0.3
-        let quality = DataQuality(acc: min(0.97, q + 0.05), fresh: 0.8, dup: j.verified ? 0.1 : 0.2, div: 0.35, lang: 0.3, sci: sci, spec: 0.8,
-                                  prov: 1, lic: 1, contam: 0.25, proc: j.verified ? 0.85 : 0.5)
-        return DataHolding(id: "syn:" + j.id.uuidString, name: "Synthetic \(j.focus.short.lowercased()) by \(j.modelName)", kind: .synthetic,
-                           focus: j.focus, source: j.modelName, tokensT: j.tokensT, quality: quality, term: .buy,
-                           acquired: date, refreshed: date, synthetic: true, value: j.cost)
+        let quality = DataQuality(acc: min(0.97, q + 0.05), fresh: 0.8, dup: synthDuplication(tokensT: j.tokensT, verified: j.verified), div: 0.35, lang: 0.3,
+                                  sci: sci, spec: 0.8, prov: 1, lic: 1, contam: 0.25, proc: j.verified ? 0.85 : 0.5)
+        var h = DataHolding(id: "syn:" + j.id.uuidString, name: "Synthetic \(j.focus.short.lowercased()) by \(j.modelName)", kind: .synthetic,
+                            focus: j.focus, source: j.modelName, tokensT: j.tokensT, quality: quality, term: .buy,
+                            acquired: date, refreshed: date, synthetic: true, value: j.cost)
+        h.teacherC = j.teacherC
+        return h
     }
 
     // MARK: Annotation
@@ -631,6 +990,42 @@ enum DataEconomy {
         }
         s.dataEco.detection = l
         return nil
+    }
+
+    // MARK: Science
+
+    /// Lab notebooks from a reproduced discovery — every attempt, failures included — become a small, clean specialist
+    /// dataset in its field: zero contamination (none of it is on a benchmark) and yours outright.
+    static func addLabNotebooks(_ s: inout GameState, discovery id: UUID, project p: SciProject, def d: SciProjectDef) {
+        let hid = "lab:" + id.uuidString
+        guard !s.dataEco.holdings.contains(where: { $0.id == hid }) else { return }
+        let (kind, focus): (DataKind, CapDomain) = switch d.field {
+        case .mathematics: (.math, .math)
+        case .software: (.code, .coding)
+        case .robotics: (.robotics, .robotics)
+        case .automation, .aerospace: (.industrial, .robotics)
+        default: (.specialist, .science)
+        }
+        let attempts = Double(max(1, p.log.count))
+        let failures = Double(p.log.filter { $0.outcome != "passed" }.count)
+        let q = DataQuality(acc: 0.9, fresh: 0.9, dup: 0.05, div: clamp(0.35 + 0.03 * failures, 0.35, 0.6), lang: 0.2, sci: 0.92, spec: 0.95,
+                            prov: 1, lic: 1, contam: 0, proc: 0.6)
+        s.dataEco.holdings.append(DataHolding(id: hid, name: "Lab notebooks: \(d.name)", kind: kind, focus: focus, source: "science:\(d.id)",
+                                              tokensT: 0.0005 * d.size * attempts, quality: q, term: .buy, acquired: s.date, refreshed: s.date))
+    }
+
+    /// Research-data partnerships whose data covers a science field (journals cover every field).
+    static func researchPartners(_ s: GameState, field f: SciField) -> [String] {
+        s.dataEco.holdings.filter { h in
+            guard h.active, h.term == .partnership else { return false }
+            switch h.kind {
+            case .papers: return true
+            case .specialist: return f == .medical || h.focus == .science
+            case .robotics: return f == .robotics || f == .automation
+            case .industrial: return f == .automation || f == .energy
+            default: return false
+            }
+        }.map(\.name).sorted()
     }
 
     // MARK: Rivals
@@ -675,37 +1070,53 @@ enum DataEconomy {
             for j in s.dataEco.synth where j.done <= today {
                 let h = synthHolding(j, date: today)
                 s.dataEco.holdings.append(h)
-                Sim.news(&s, "Synthetic data ready: \(Fmt.tokens(j.tokensT))", "\(j.modelName) generated \(j.focus.label.lowercased()) data at quality \(Int(h.quality.effective * 100)). Keep synthetic data under ~20% of your corpus to avoid model collapse.",
+                Sim.news(&s, "Synthetic data ready: \(Fmt.tokens(j.tokensT))", "\(j.modelName) generated \(j.focus.label.lowercased()) data at quality \(Int(h.quality.effective * 100)) (\(Int(h.quality.duplication * 100))% near-duplicates). It can teach designs up to about \(j.modelName)'s level; past ~40% of the corpus, model collapse sets in.",
                          .research, good: true)
             }
             s.dataEco.synth.removeAll { $0.done <= today }
         }
-        // Annotation output
+        // Annotation output (what it costs is part of its book value)
         for c in s.dataEco.annotation {
             guard let v = DataMarketCatalog.vendorByID[c.id] else { continue }
             let add = v.throughputT * throughputMult(c.tier) / 30.4
+            let cost = v.monthly * Double(c.tier) / 30.4
             let hid = "an:" + v.id
             if let i = s.dataEco.holdings.firstIndex(where: { $0.id == hid }) {
+                if s.dataEco.holdings[i].delivered.isEmpty {
+                    // Older saves: count the last year of this contract as delivered.
+                    s.dataEco.holdings[i].delivered = [min(s.dataEco.holdings[i].tokensT, add * 365)]
+                }
                 s.dataEco.holdings[i].tokensT += add
+                s.dataEco.holdings[i].delivered[s.dataEco.holdings[i].delivered.count - 1] += add
                 s.dataEco.holdings[i].refreshed = today
                 s.dataEco.holdings[i].active = true
+                s.dataEco.holdings[i].value += cost
             } else {
-                s.dataEco.holdings.append(DataHolding(id: hid, name: "\(v.name) output", kind: v.kind, focus: v.focus, source: v.id, tokensT: add,
-                                                      quality: v.quality, term: .buy, acquired: today, refreshed: today))
+                var h = DataHolding(id: hid, name: "\(v.name) output", kind: v.kind, focus: v.focus, source: v.id, tokensT: add,
+                                    quality: v.quality, term: .buy, acquired: today, refreshed: today)
+                h.delivered = [add]
+                h.value = cost
+                s.dataEco.holdings.append(h)
             }
         }
-        // Licence expiry
+        // Licence expiry: the data stays stored and renewable for a while.
         for i in s.dataEco.holdings.indices where s.dataEco.holdings[i].active {
             if let e = s.dataEco.holdings[i].expires, e <= today {
                 s.dataEco.holdings[i].active = false
                 s.dataEco.holdings[i].monthly = 0
-                Sim.news(&s, "Licence expired: \(s.dataEco.holdings[i].name)", "New runs can't use it. Renew it on the Training Data page.", .company, good: false)
+                s.dataEco.holdings[i].lapsed = today
+                Sim.news(&s, "Licence expired: \(s.dataEco.holdings[i].name)", "New runs can't use it. Renew it on the Training Data page within \(renewDays) days to keep your processed copy; after that it's deleted.", .company, good: false)
             }
         }
-        // Expired data no run uses any more is dropped.
+        // Inactive data no run uses and nobody can renew any more is deleted.
         if s.dataEco.holdings.contains(where: { !$0.active }) {
-            let keep = s.dataEco.holdings.filter { $0.active || inUse(s, $0.id) }
-            if keep.count != s.dataEco.holdings.count { s.dataEco.holdings = keep }
+            let snap = s
+            let gone = s.dataEco.holdings.filter { !$0.active && !inUse(snap, $0.id) && !renewable($0, snap) }.map(\.id)
+            if !gone.isEmpty {
+                let ids = Set(gone)
+                s.dataEco.holdings.removeAll { ids.contains($0.id) }
+                for id in gone { s.dataEco.applied[id] = nil }
+            }
         }
         let day = GameCalendar.components(today).day
         if day == 1 { monthly(&s) }
@@ -713,17 +1124,19 @@ enum DataEconomy {
     }
 
     static func finish(_ s: inout GameState, _ j: DataJob) {
-        s.dataEco.applied[j.target, default: []].append(j.stage.rawValue)
         if let i = s.dataEco.holdings.firstIndex(where: { $0.id == j.target }) {
             var q = s.dataEco.holdings[i].quality, t = s.dataEco.holdings[i].tokensT
-            apply(j.stage, to: &q, tokensT: &t, holding: true)
+            apply(j.stage, to: &q, tokensT: &t)
             s.dataEco.holdings[i].quality = q
             s.dataEco.holdings[i].tokensT = t
         } else if DataCatalog.byID[j.target] != nil {
-            var q = s.dataEco.processed[j.target] ?? DataMarketCatalog.legacyProfile(j.target).quality, t = 0.0
-            apply(j.stage, to: &q, tokensT: &t, holding: false)
+            // An original source: its stock is the world's, so what filtering removes is tracked as a kept share.
+            var q = s.dataEco.processed[j.target] ?? DataMarketCatalog.legacyProfile(j.target).quality, t = 1.0
+            apply(j.stage, to: &q, tokensT: &t)
             s.dataEco.processed[j.target] = q
-        } else { return }
+            if j.stage == .filter { s.dataEco.kept[j.target] = (s.dataEco.kept[j.target] ?? 1) * t }
+        } else { return }   // the dataset is gone: nothing was processed
+        s.dataEco.applied[j.target, default: []].append(j.stage.rawValue)
         Sim.news(&s, "Data pipeline: \(j.name) — \(j.stage.label.lowercased()) done", j.stage.detail, .research, good: true)
     }
 
@@ -739,6 +1152,11 @@ enum DataEconomy {
             default: break
             }
         }
+        // Annotation output: a new month's bucket, twelve kept.
+        for i in s.dataEco.holdings.indices where s.dataEco.holdings[i].id.hasPrefix("an:") && !s.dataEco.holdings[i].delivered.isEmpty {
+            s.dataEco.holdings[i].delivered.append(0)
+            if s.dataEco.holdings[i].delivered.count > 12 { s.dataEco.holdings[i].delivered.removeFirst(s.dataEco.holdings[i].delivered.count - 12) }
+        }
         lawsuits(&s)
     }
 
@@ -747,7 +1165,8 @@ enum DataEconomy {
     static func lawsuits(_ s: inout GameState) {
         let y = s.year
         let ym = s.date.ym
-        for h in s.dataEco.holdings where h.quality.provenance < 0.5 && !s.dataEco.sued.contains(h.id) {
+        let snap = s
+        for h in s.dataEco.holdings where h.quality.provenance < 0.5 && !s.dataEco.sued.contains(h.id) && (h.active || inUse(snap, h.id)) {
             let law = s.lawsPassed.contains("copyright") ? 1.5 : 1
             let p = 0.06 * (0.5 - h.quality.provenance) / 0.5 * s.market.copyrightHeat * law * (y < 2023 ? 0.3 : 1)
             guard roll(s, "suit|\(h.id)|\(ym.year)-\(ym.month)") < p else { continue }
@@ -780,22 +1199,23 @@ enum DataEconomy {
         s.dataEco.offered.insert(def.id)
         s.dataEco.lastOffer = s.date
         let reserve = def.price
+        let transfer = transferCost(def, s)
         let bidders = rivalBidders(s, def)
         if roll(s, "kind|\(def.id)") < 0.65 && !bidders.isEmpty {
             let names = bidders.map { CompetitorCatalog.def($0).name }
             let heat = roll(s, "heat|\(def.id)")
             Events.addDecision(&s, kind: "data_auction", title: "Auction: \(def.name)",
-                               body: "\(def.seller.capitalizedFirst) is auctioning \(def.name.lowercased()) (\(Fmt.tokens(def.tokensT)), quality \(Int(def.quality.effective * 100))). \(def.blurb) Sealed bids, highest wins exclusive rights. Also bidding: \(names.joined(separator: ", ")) — interest looks \(heat > 0.6 ? "fierce" : (heat > 0.3 ? "keen" : "modest")).",
+                               body: "\(def.seller.capitalizedFirst) is auctioning \(def.name.lowercased()) (\(Fmt.tokens(def.tokensT)), quality \(Int(def.quality.effective * 100))). \(def.blurb) Sealed bids, highest wins exclusive rights; moving the data in costs \(Fmt.money(transfer)) on top. Also bidding: \(names.joined(separator: ", ")) — interest looks \(heat > 0.6 ? "fierce" : (heat > 0.3 ? "keen" : "modest")).",
                                image: "stock_exchange",
-                               options: [DecisionOption(label: "Bid the reserve (\(Fmt.money(reserve)))", detail: "Wins only if rivals bid low. You pay just above the best rival bid."),
-                                         DecisionOption(label: "Bid high (\(Fmt.money(reserve * 1.6)))", detail: "Likely wins. You pay just above the best rival bid."),
+                               options: [DecisionOption(label: "Bid the reserve (\(Fmt.money(reserve)))", detail: "Wins only if rivals bid low. You pay just above the best rival bid, plus the transfer."),
+                                         DecisionOption(label: "Bid high (\(Fmt.money(reserve * 1.6)))", detail: "Likely wins. You pay just above the best rival bid, plus the transfer."),
                                          DecisionOption(label: "Pass", detail: "A rival takes it and its next models get a little better.")],
                                amount: reserve, ref: def.id)
         } else {
             Events.addDecision(&s, kind: "data_collection", title: "Private sale: \(def.name)",
                                body: "\(def.seller.capitalizedFirst) offers you \(def.name.lowercased()) privately before going wider (\(Fmt.tokens(def.tokensT)), quality \(Int(def.quality.effective * 100))). \(def.blurb)",
                                image: "stock_exchange",
-                               options: [DecisionOption(label: "Buy it (\(Fmt.money(reserve)))", detail: "Exclusive: no rival lab gets it."),
+                               options: [DecisionOption(label: "Buy it (\(Fmt.money(reserve + transfer)))", detail: "Exclusive: no rival lab gets it. Includes \(Fmt.money(transfer)) to move the data."),
                                          DecisionOption(label: "Pass", detail: "It goes to the next lab on their list.")],
                                amount: reserve, ref: def.id)
         }
@@ -817,21 +1237,27 @@ enum DataEconomy {
             let winner = bidders.max { roll(s, "bid|\(def.id)|\($0)") < roll(s, "bid|\(def.id)|\($1)") }
             let mine = option == 0 ? def.price : (option == 1 ? def.price * 1.6 : 0)
             let paid = max(def.price, min(mine, top * 1.02))
-            if mine > 0 && mine >= top && paid <= s.cash {
+            let transfer = transferCost(def, s)
+            if mine > 0 && mine >= top && paid + transfer <= s.cash {
                 win(&s, def, paid: paid)
                 s.dataEco.auctionsWon += 1
-                Sim.news(&s, "You won the auction for \(def.name)", "Paid \(Fmt.money(paid)); the best rival bid was \(Fmt.money(top)). It's yours alone.", .company, good: true)
+                Sim.news(&s, "You won the auction for \(def.name)", "Paid \(Fmt.money(paid)) plus \(Fmt.money(transfer)) to move it; the best rival bid was \(Fmt.money(top)). It's yours alone.", .company, good: true)
             } else {
-                if mine > 0 { s.dataEco.auctionsLost += 1 }
+                if mine > 0 {
+                    s.dataEco.auctionsLost += 1
+                    if mine >= top { Sim.news(&s, "Auction lost: \(def.name)", "Your bid won, but you couldn't cover \(Fmt.money(paid + transfer)) with the transfer, so it went to the next bidder.", .company, good: false) }
+                }
                 if let w = winner { rivalWins(&s, def, lab: w, price: top) }
             }
         case "data_collection":
             guard let def = DataMarketCatalog.byID[d.ref] else { return }
-            if option == 0 && def.price <= s.cash {
+            let transfer = transferCost(def, s)
+            if option == 0 && def.price + transfer <= s.cash {
                 win(&s, def, paid: def.price)
-                Sim.news(&s, "Bought: \(def.name)", "\(Fmt.money(def.price)), exclusively yours.", .company, good: true)
-            } else if let w = rivalBidders(s, def).first {
-                rivalWins(&s, def, lab: w, price: def.price)
+                Sim.news(&s, "Bought: \(def.name)", "\(Fmt.money(def.price)) plus \(Fmt.money(transfer)) to move it, exclusively yours.", .company, good: true)
+            } else {
+                if option == 0 { Sim.news(&s, "Couldn't buy \(def.name)", "It costs \(Fmt.money(def.price + transfer)) with the transfer; the seller moved on.", .company, good: false) }
+                if let w = rivalBidders(s, def).first { rivalWins(&s, def, lab: w, price: def.price) }
             }
         case "data_lawsuit":
             let fine = d.amount
@@ -846,8 +1272,10 @@ enum DataEconomy {
                 if let i = s.dataEco.holdings.firstIndex(where: { $0.id == d.ref }) {
                     s.dataEco.holdings[i].active = false
                     s.dataEco.holdings[i].monthly = 0
+                    s.dataEco.holdings[i].lapsed = nil   // purged: not renewable
                 }
-                Sim.news(&s, "Data lawsuit settled; dataset purged", "Paid \(Fmt.money(fine * 0.6)) and deleted the data from future runs.", .policy)
+                s.dataEco.jobs.removeAll { $0.target == d.ref }
+                Sim.news(&s, "Data lawsuit settled; dataset purged", "Paid \(Fmt.money(fine * 0.6)) and deleted the data from future runs. Buying it again means a new copy — and new exposure.", .policy)
             default:
                 if roll(s, "court|\(d.ref)") < 0.5 {
                     pay(&s, fine * 0.1)
@@ -864,9 +1292,8 @@ enum DataEconomy {
     }
 
     static func win(_ s: inout GameState, _ def: DatasetDef, paid: Double) {
-        let transfer = def.tokensT * def.kind.bytesPerToken * transferPerTB(s.year)
-        pay(&s, paid + transfer)
-        var h = DataHolding(id: holdingID(def), name: def.name, kind: def.kind, focus: def.focus, source: def.id, tokensT: def.tokensT,
+        pay(&s, paid + transferCost(def, s))
+        var h = DataHolding(id: newHoldingID(s, holdingID(def)), name: def.name, kind: def.kind, focus: def.focus, source: def.id, tokensT: def.tokensT,
                             quality: def.quality, term: .exclusive, acquired: s.date, refreshed: s.date)
         h.exclusive = true
         h.value = paid
@@ -898,15 +1325,20 @@ enum DataEconomy {
         let legacy = s.dataSources.sorted().compactMap { id -> Item? in
             guard let src = DataCatalog.byID[id] else { return nil }
             let p = DataMarketCatalog.legacyProfile(id)
-            return Item(id: id, name: src.name, kind: p.kind, tokensT: max(src.tokensT(s.year), p.tokensT), quality: s.dataEco.processed[id] ?? p.quality,
+            return Item(id: id, name: src.name, kind: p.kind, tokensT: legacyTokensT(s, id, processed: true), quality: s.dataEco.processed[id] ?? p.quality,
                         term: src.free ? "Open" : (src.upfront > 0 ? "Owned" : "Licensed"), legacy: true, holding: nil)
         }
         let held = s.dataEco.holdings.map { h -> Item in
             var term = h.exclusive ? "Exclusive" : h.term.label
-            if let e = h.expires { term += h.active ? " · to \(e.gameShort)" : " · expired" }
-            if let r = h.runsLeft { term += " · \(r) run\(r == 1 ? "" : "s") left" }
+            if let e = h.expires, h.active { term += " · to \(e.gameShort)" }
+            if let r = h.runsLeft, h.active { term += " · \(r) run\(r == 1 ? "" : "s") left" }
+            if !h.active {
+                if let l = h.lapsed, renewable(h, s) { term += " · lapsed, renew by \(GameCalendar.addDays(l, renewDays).gameShort)" }
+                else { term += " · ended (used by a running training run)" }
+            }
             if h.synthetic { term = "Synthetic" }
             if h.id.hasPrefix("an:") { term = "Annotation" }
+            if h.id.hasPrefix("lab:") { term = "Your lab notebooks" }
             return Item(id: h.id, name: h.name, kind: h.kind, tokensT: h.tokensT, quality: aged(h.quality, since: h.refreshed, now: s.date),
                         term: term, legacy: false, holding: h)
         }
@@ -940,13 +1372,26 @@ enum DataEconomy {
                 out.append("Too little \(word) data for a\(word.first.map { "aeiou".contains($0) } == true ? "n" : "") \(d.objective == .general ? "\(word)-heavy" : d.objective.label.lowercased()) model: the mix wants ~\(Fmt.tokens(need)) of \(word) but you have \(Fmt.tokens(have)) unique, so it repeats \(Int(need / max(have, 1e-6)))×. Buy or license \(word) data, or commission annotators.")
             }
         }
-        if p.syntheticShare > 0.2 {
-            out.append("\(Int(p.syntheticShare * 100))% of the corpus is synthetic: model collapse is costing quality (×\(Fmt.trim(pow(10, p.collapse), 2))).")
+        if p.syntheticShare > collapseStart {
+            out.append("\(Int(p.syntheticShare * 100))% of the corpus is generated (the synthetic slider and synthetic datasets together): model collapse keeps only ×\(Fmt.trim(p.collapseFactor, 2)) of what the data adds and costs data quality ×\(Fmt.trim(pow(10, p.collapse), 2)).")
+        } else if p.syntheticRawT > 1.5 * p.syntheticUniqueT && p.syntheticRawT > 0.01 {
+            out.append("Synthetic data is outgrowing your real data: of \(Fmt.tokens(p.syntheticRawT)) generated, only \(Fmt.tokens(p.syntheticUniqueT)) count as new tokens. More real data lets synthetic data go further.")
+        }
+        if p.syntheticCapped {
+            out.append("Synthetic data is worth at most half as much again as your real data in each domain: to get more out of it, add real data in the same domains.")
+        }
+        if !p.outgrown.isEmpty {
+            out.append("This design is forecast to be about as good as the models that wrote \(p.outgrown.joined(separator: ", ")): they have little left to teach it. Generate with a stronger model.")
         }
         let cf = p.contamination * detectionFactor(s.dataEco.detection)
-        if cf > 1.3 { out.append("High benchmark-contamination risk (×\(Fmt.trim(cf, 1)) incidents): decontaminate the risky datasets or add detection.") }
-        if d.rlhf && !s.dataSources.contains("human_feedback") && !p.hasPreferences {
-            out.append("RLHF without human-preference data: license a labelling vendor or commission annotators.")
+        if cf > 1.3 { out.append("High benchmark-contamination risk (×\(Fmt.trim(cf, 1)) incidents, \(Int(p.silentTuning * 100))% chance some slips through and inflates its scores): decontaminate the risky datasets or add detection.") }
+        if d.rlhf && !s.dataSources.contains("human_feedback") && p.preferenceShortfall > 0.01 {
+            out.append(p.preferenceT > 0
+                ? "RLHF wants \(Fmt.tokens(minPreferenceT)) of human-preference labels from the last 12 months; you have \(Fmt.tokens(p.preferenceT)), so it's \(Int(p.preferenceShortfall * 100))% weaker. Raise the labelling tier."
+                : "RLHF without fresh human-preference data is weak: commission annotators (\(Fmt.tokens(minPreferenceT)) within a year is enough) or license a labelling vendor.")
+        }
+        if !p.restricted.isEmpty {
+            out.append("\(p.restricted.joined(separator: ", ")) \(p.restricted.count == 1 ? "is" : "are") licensed for research only: a model trained on \(p.restricted.count == 1 ? "it" : "them") can't be released as open weights. Verifying a dataset's provenance documents better terms.")
         }
         if d.vision && p.relevantT[CapDomain.vision.index] < 0.05 { out.append("A vision model with almost no image or video data. License images or video.") }
         if d.audio && p.relevantT[CapDomain.voice.index] < 0.05 { out.append("A voice model with almost no audio or speech data.") }

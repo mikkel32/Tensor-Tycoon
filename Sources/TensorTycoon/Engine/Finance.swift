@@ -6,7 +6,7 @@ enum Finance {
         s.raiseOffers.removeAll { $0.expires < s.date }
         if s.raising {
             let started = s.lastRaise ?? s.date
-            if s.raiseOffers.count < 3 && s.rng.chance(0.07) {
+            if s.raiseOffers.count < 3 && s.rng.chance(0.07 * Crises.offerFactor(s)) {   // 3.8: fewer term sheets in a crisis
                 makeOffer(&s)
             }
             if GameCalendar.daysBetween(started, s.date) > 60 && s.raiseOffers.isEmpty {
@@ -42,12 +42,15 @@ enum Finance {
         let v = privateValue(s)
         let strategic = s.rng.chance(s.year > 2019 ? 0.3 : 0.1)
         // Investors price off where the company is marked (which moves slowly) and where its fundamentals say
-        // it's heading. Lab identity and how much the board believes in you move the price.
-        let anchor = s.valuation > 0 && !s.isPublic ? (s.valuation * v).squareRoot() : v
+        // it's heading. Lab identity and how much the board believes in you move the price. 3.8: an up-round reaches at
+        // most 8× the current mark, and a crisis prices every round lower.
+        let anchor = s.valuation > 0 && !s.isPublic ? min((s.valuation * v).squareRoot(), s.valuation * 8) : v
         var pre = anchor * s.rng.range(0.85, 1.2) * (strategic ? 1.15 : 1) * max(0.6, 1 + s.traits.valuation) * Board.valuationFactor(s) * HQ.investorFactor(s, value: anchor)
+            * Crises.roundFactor(s)
+        if s.valuation > 0 && !s.isPublic { pre = min(pre, s.valuation * 6) }   // 3.8: no round re-prices a company more than 6× in one go
         pre = max(pre, 2_000_000)
         let f = s.raiseFraction
-        let cap = maxRaise(s.year) * s.rng.range(0.5, 1.0)
+        let cap = maxRaise(s.year) * s.rng.range(0.5, 1.0) * Crises.roundFactor(s)
         let amount = min(pre * f / (1 - f), cap)
         let investor = strategic ? "Nimbus Cloud (strategic)" : s.rng.pick(NameBank.investors.filter { !$0.contains("strategic") })
         let credits = strategic ? amount * 0.4 : 0
@@ -66,20 +69,14 @@ enum Finance {
         interpolateLog([(2016, 1.5e8), (2020, 1e9), (2023, 1e10), (2025, 4e10), (2027, 6e10), (2030, 1e11)], at: y, extrapolate: true)
     }
 
+    /// 3.8: one credit system. The score the rating agencies compute (Corporate.metrics: leverage, interest cover,
+    /// size, liquidity, runway) is mapped onto the 300–850 scale band by band, so the credit score and the corporate
+    /// rating always read the same letter; the score moves 30% of the way each month, and bounced payments cost more.
     static func updateCreditScore(_ s: inout GameState) {
-        let rr = Economy.runRate(s)
-        let debt = Economy.debt(s)
-        let burn = max(0, -(s.history.last?.profit ?? 0))
-        let runway = burn > 0 ? s.cash / burn : 48
-        var score = 620.0
-        score += min(120, log10(max(1, rr)) * 12)
-        score += min(60, runway * 2)
-        if let p = s.history.last?.profit, p > 0 { score += 40 }
-        let leverage = rr > 0 ? debt / rr : (debt > 0 ? 5 : 0)
-        score -= min(200, leverage * 40)
-        if s.cash < 0 { score -= 150 }
-        if s.isPublic { score += 30 }
-        s.creditScore = clamp(s.creditScore * 0.7 + score * 0.3, 300, 850)
+        let m = Corporate.metrics(s, closing: true)
+        var target = Corporate.creditScore(forScore: m.score)
+        if s.cash < 0 { target -= 150 }
+        s.creditScore = clamp(s.creditScore * 0.7 + target * 0.3, 300, 850)
     }
 
     static func payLoans(_ s: inout GameState) {
@@ -90,12 +87,15 @@ enum Finance {
             principal = max(0, principal)
             s.cash -= interest + principal
             s.month.costInterest += interest
+            Books.post(&s, .repayments, -principal)   // 3.8
             s.loans[i].balance -= principal
             s.loans[i].monthsLeft -= 1
             if s.cash < 0 {
                 s.creditScore -= 25
                 if s.loans[i].kind == .gpuBacked && s.daysNegativeCash > 20 {
-                    seizeCollateral(&s, value: s.loans[i].balance)
+                    // 3.8: the lender takes chips for the balance: no cash moves, the difference to their book value is a gain or loss.
+                    let book = seizeCollateral(&s, value: s.loans[i].balance)
+                    s.month.assetGains += s.loans[i].balance - book
                     s.loans[i].balance = 0
                 }
             }
@@ -107,13 +107,17 @@ enum Finance {
         }
     }
 
-    static func seizeCollateral(_ s: inout GameState, value: Double) {
+    /// Hands the lender chips worth `value` at resale; returns their book value.
+    @discardableResult
+    static func seizeCollateral(_ s: inout GameState, value: Double) -> Double {
         var remaining = value
         var seized = 0
+        var book = 0.0
         for i in s.owned.indices where remaining > 0 {
             guard let a = HardwareCatalog.get(s.owned[i].accelID) else { continue }
             let unit = Economy.resaleValue(a, s, unitCost: s.owned[i].unitCost, purchased: s.owned[i].purchased)
             let n = min(s.owned[i].count, Int(ceil(remaining / max(unit, 1))))
+            book += Books.book(s.owned[i], chips: n, at: s.date)
             s.owned[i].count -= n
             seized += n
             remaining -= Double(n) * unit
@@ -121,6 +125,7 @@ enum Finance {
         s.owned.removeAll { $0.count <= 0 }
         Sim.news(&s, "Lender seizes \(Fmt.int(seized)) accelerators", "You defaulted on a GPU-backed loan. The collateral has been repossessed.",
                  .finance, image: "gpu_cluster", important: true, good: false)
+        return book
     }
 
     static func settleSupplyDeals(_ s: inout GameState) {
@@ -195,8 +200,11 @@ enum Monthly {
         Finance.monthlyRate(&s)
         Finance.settleSupplyDeals(&s)
 
-        // Taxes on positive monthly profit
-        let pre = s.month.revenue + s.month.interestIncome + s.month.oneOffIncome - s.month.opex - s.month.costInterest
+        // 3.8: depreciation of owned accelerators and datacenter shells (a cost with no cash), before tax
+        Books.depreciate(&s)
+        // Taxes on the month's profit, after losses carried forward
+        let pre = s.month.revenue + s.month.interestIncome + s.month.oneOffIncome + s.month.assetGains - s.month.opex
+            - s.month.costDepreciation - s.month.costInterest
         HQ.settleTaxes(&s, pre: pre)   // 3.5: the home country's rate and R&D credit (21% in the US)
 
         // Market modifiers drift back to normal
@@ -223,7 +231,7 @@ enum Monthly {
         s.brand = clamp(s.brand + marketingBoost * 0.5 + min(2, sales * 0.2) + leader + (s.reliability - 0.9) * 5 + s.traits.brand, 0, 100)
 
         // Safety score: team + research + released models
-        let safetyTeam = s.employees.filter { $0.role == .safety }.reduce(0.0) { $0 + $1.weight }
+        let safetyTeam = s.workforce(.safety)
         let released = s.releasedModels
         let modelSafety = released.isEmpty ? 40 : released.map(\.safety).reduce(0, +) / Double(released.count)
         s.safetyScore = clamp(modelSafety * 0.6 + b.safety * 0.4 + min(25, safetyTeam * 4) + 10 * s.swarmSafety + s.traits.safety * 0.5
@@ -240,11 +248,13 @@ enum Monthly {
         World.monthly(&s)   // 3.4: world and stakeholders
         Nations.monthly(&s)   // 3.7: national strategies and economies, rival specialisations and answers
 
+        Crises.monthly(&s)   // 3.8: corrections, credit crunches and rate shocks start and end
+
         // Valuation and records. A private company's mark moves halfway (in log terms) toward its new level each
         // month, so one launch or one bad month doesn't swing it 40× or wipe out two thirds of it overnight.
         let mark = Economy.valuation(s)
         if !s.isPublic && s.valuation > 0 && mark > 0 {
-            s.valuation = max((s.valuation * mark).squareRoot(), Economy.roundFloor(s))
+            s.valuation = Economy.smoothedMark(old: s.valuation, new: mark, floor: Economy.roundFloor(s))   // 3.8: at most +60% / −30% a month
         } else {
             s.valuation = mark
         }
@@ -261,6 +271,7 @@ enum Monthly {
         s.history.append(s.month)
         if s.history.count > 480 { s.history.removeFirst() }
         s.month = MonthRecord(month: GameCalendar.date(s.date.ym.year, s.date.ym.month, 1))
+        Books.open(&s)   // 3.8: the next month reconciles against today's cash
         if (s.history.last?.profit ?? 0) > 0 { s.achievements.insert("profitable") }
     }
 }
@@ -273,7 +284,6 @@ enum Business {
         let pending = s.deals.filter { !$0.active }.count
         guard pending < 4 else { return }
         let frontier = Macro.frontier(s.year)
-        let quality = exp(1.2 * (best.c - frontier))
         var p = clamp(0.15 + sales * 0.12 + s.brand / 300, 0, 0.9) * (1 + b.enterpriseDemand) * max(0.3, 1 + s.traits.enterprise)
         if s.lawsPassed.contains("liability") { p *= clamp(1 + (s.safetyScore - 50) / 150, 0.6, 1.4) }
         // Rivals running enterprise pushes win some of the deals that would have come to you.
@@ -281,11 +291,17 @@ enum Business {
         p *= Corporate.dealFactor(s)   // 3.5: a consulting arm brings leads (exactly 1 without one)
         p *= Nations.dealFactor(s)   // 3.7: a growing home economy buys more
         p *= Launches.dealFactor(s)   // 3.7: enterprise-first launches and the Startup stage (exactly 1 without either)
+        p *= Commercial.leadFactor(s)   // 3.8: a team already fully booked finds fewer new leads
         let n = s.rng.chance(p) ? (s.rng.chance(p * 0.5) ? 2 : 1) : 0
         for _ in 0..<n {
+            let titles = s.year < 2022 ? ["custom NLP model", "document classification", "translation pipeline", "search ranking", "chatbot pilot"]
+                                       : ["customer-support agents", "coding assistant rollout", "document intelligence", "internal copilot",
+                                          "research assistant", "claims automation", "contract review", "voice agents"]
+            let title = s.rng.pick(titles)
             let size = Macro.marketSize(s.year) * Macro.segmentSplit(s.year, chatMoment: s.chatMoment != nil).enterprise
-            // A typical deal is a tiny slice of the enterprise market.
-            var monthly = size / 12 * s.rng.range(0.00002, 0.0004) * quality * (1 + sales * 0.05)
+            // A typical deal is a tiny slice of the enterprise market, sized by how well your best model does this
+            // kind of work against the frontier (3.8: its domain mix, not one capability number).
+            var monthly = size / 12 * s.rng.range(0.00002, 0.0004) * Capabilities.dealFit(s, title: title) * (1 + sales * 0.05)
             // 3.9: a lab with a real slice of the API market gets the big accounts too: contract size grows with your share
             // (×1 at none, ×4 at 15%, ×9 at 40%), since the enterprise pool is shared in proportion to it.
             monthly *= 1 + 20 * min(0.4, playerAPIShare(s))
@@ -294,12 +310,9 @@ enum Business {
             // Clients size their token needs at the market rate for a near-frontier model, not at your price.
             let price = max(0.05, Macro.referencePrice(c: frontier - 0.3, y: s.year) * s.market.apiPricePressure)
             let tokens = monthly / 30.4 / price * 1e6 * s.rng.range(0.4, 0.9)
-            let titles = s.year < 2022 ? ["custom NLP model", "document classification", "translation pipeline", "search ranking", "chatbot pilot"]
-                                       : ["customer-support agents", "coding assistant rollout", "document intelligence", "internal copilot",
-                                          "research assistant", "claims automation", "contract review", "voice agents"]
             // The bar is set by what the market offers (85–100% of the best rival flagship), so some leads
             // need a better model than you have.
-            let deal = EnterpriseDeal(client: s.rng.pick(NameBank.clients), title: s.rng.pick(titles), monthly: monthly,
+            let deal = EnterpriseDeal(client: s.rng.pick(NameBank.clients), title: title, monthly: monthly,
                                       tokensPerDay: tokens, months: months, monthsLeft: months,
                                       minIndex: marketBar(s, fallback: best.index) * s.rng.range(0.85, 1.0),
                                       minSafety: s.rng.range(20, 70), expires: GameCalendar.addDays(s.date, 30))

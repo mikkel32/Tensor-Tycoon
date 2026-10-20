@@ -2,7 +2,9 @@ import Foundation
 
 /// Agent swarms: thousands to millions of copies of one of your models, running on your own inference chips,
 /// working a single mission. Output is pooled per mission with a coordination exponent, so one big swarm and
-/// ten small ones of the same total size do the same work.
+/// ten small ones of the same total size do the same work. 3.9: the exponent falls as the pool grows (diminishing
+/// returns past ten thousand agents), and where organisations work the same mission the stand-alone swarms pool with
+/// them (AgentOrgs.pool).
 enum Swarms {
     static let autonomyOutput = [0.7, 1.0, 1.45]
     static let autonomyDrift = [0.3, 1.0, 2.6]
@@ -23,8 +25,12 @@ enum Swarms {
 
     /// Agent quality including your lab's traits. A model never trained to call tools still works through a
     /// prompt-only scaffold, at a little over half the output.
-    static func quality(_ m: AIModel, _ s: GameState) -> Double {
-        quality(m) * max(0.3, 1 + s.traits.swarm + s.bonuses.agentQuality) * (m.design.toolUse ? 1 : 0.6)
+    static func quality(_ m: AIModel, _ s: GameState) -> Double { quality(m, s, s.bonuses) }
+
+    /// The same with the research bonuses already worked out (the daily simulation passes them: `s.bonuses` rebuilds
+    /// the whole research bonus set every time it's read).
+    static func quality(_ m: AIModel, _ s: GameState, _ b: ResearchBonuses) -> Double {
+        quality(m) * max(0.3, 1 + s.traits.swarm + b.agentQuality) * (m.design.toolUse ? 1 : 0.6)
     }
 
     /// How well the model's particular strengths fit a mission, against a typical model of its generation
@@ -42,6 +48,7 @@ enum Swarms {
 
     /// Researcher-equivalents per agent on a given mission.
     static func quality(_ m: AIModel, _ s: GameState, mission: SwarmMission) -> Double { quality(m, s) * fit(m, mission) }
+    static func quality(_ m: AIModel, _ s: GameState, _ b: ResearchBonuses, mission: SwarmMission) -> Double { quality(m, s, b) * fit(m, mission) }
 
     /// What one agent is like to work with.
     static func tier(_ q: Double) -> String {
@@ -64,6 +71,12 @@ enum Swarms {
     /// Full autonomy needs a model that works like an engineer on its own — or Automated AI Research.
     static func canRunAutonomous(_ m: AIModel, _ s: GameState, _ b: ResearchBonuses) -> Bool {
         b.has(.autoResearch) || b.has(.rsi) || quality(m, s) >= 0.6
+    }
+
+    /// 3.9: the exponent a pool of `agents` effective agents scales with: coordination, less 0.025 per tenfold past
+    /// ten thousand (a billion agents never do a billion agents' work).
+    static func exponent(_ b: ResearchBonuses, _ s: GameState, agents: Double) -> Double {
+        coordination(b, s) - 0.025 * max(0, log10(max(1, agents) / 1e4))
     }
 
     /// How well big swarms coordinate (output grows as agents^coordination).
@@ -119,6 +132,7 @@ enum Swarms {
 
     static func laborCap(_ s: GameState) -> Double {
         laborMarket(s.year) / 365 * clamp(0.05 + s.brand / 250, 0.05, 0.45) * s.difficulty.demandMultiplier * max(0.3, 1 + s.traits.labor)
+            * AgentOrgs.laborReach(s)   // 3.9: enterprise automation by research-lead agents
     }
 
     static func drift(_ sw: AgentSwarm, model m: AIModel?, _ s: GameState, _ b: ResearchBonuses) -> Double {
@@ -126,6 +140,7 @@ enum Swarms {
             * (0.5 + 0.25 * log10(max(10, Double(sw.agents))))
         if let m, usesAlien(m) { d *= 1 + (1 - Xeno.bestLegibility(s)) }
         if sw.mission != .alignment { d *= 1 - 0.5 * s.swarmSafety }
+        d *= AgentOrgs.interpretabilityFactor(s)   // 3.9: automated interpretability
         if sw.orgID != nil { d *= AgentOrgs.driftFactor(sw, s) }   // 3.6: supervisors and verification
         return d * s.traits.driftKeep * (1 - min(0.6, b.agentSafety)) * (s.signatureAt(.keel, 3) ? 0.7 : 1)
     }
@@ -158,7 +173,7 @@ enum Swarms {
         // Marginal effect: what this swarm adds on top of the swarms already working the mission.
         let others = s.swarms.filter { !$0.paused && $0.mission == mission }.map(\.workforce).reduce(0, +)
         let effective = active * (1 - oversight) * autonomyOutput[autonomy]
-        let w = effective >= 1 ? quality(m, s, mission: mission) * pow(effective, coordination(b, s)) : 0
+        let w = effective >= 1 ? quality(m, s, b, mission: mission) * pow(effective, exponent(b, s, agents: effective)) : 0
         let probe = AgentSwarm(name: "", modelID: m.id, agents: agents, mission: mission, accelID: accelID, chips: chips,
                                autonomy: autonomy, oversight: oversight, started: s.date)
         let a = HardwareCatalog.get(accelID)
@@ -312,8 +327,15 @@ enum Swarms {
                 alignmentStep(&s, i, model: m, b)
                 continue
             }
+            // 3.8: a swarm seconded to a government programme works for the programme, not its mission (no labour revenue).
+            if AdvancedProjects.swarmSeconded(s, sw.id) {
+                s.swarms[i].workforce = 0
+                s.swarms[i].output = 0
+                alignmentStep(&s, i, model: m, b)
+                continue
+            }
             effAgents[sw.mission, default: 0] += eff
-            let q = quality(m, s, mission: sw.mission) * sw.experience
+            let q = quality(m, s, b, mission: sw.mission) * sw.experience
             qualitySum[sw.mission, default: 0] += eff * q
             gateSum[sw.mission, default: 0] += eff * q * xenoGate(m, s)
             shares[i] = eff * q
@@ -324,12 +346,16 @@ enum Swarms {
         var workforce: [SwarmMission: Double] = [:]
         for (mission, a) in effAgents where a >= 1 {
             let q = (qualitySum[mission] ?? 0) / a
-            workforce[mission] = q * pow(a, coordination(b, s))
+            workforce[mission] = q * pow(a, exponent(b, s, agents: a))
         }
-        // 3.6: organisations add their output to the same mission pools (stand-alone swarms keep their own share).
-        let solo = workforce
+        // 3.6: organisations work the same mission pools. 3.9: where they do, the stand-alone swarms pool with them
+        // (one exponent, one overhead) and AgentOrgs reports the whole mission's output and the swarms' part of it.
+        var solo = workforce
         let org = AgentOrgs.daily(&s, b)
-        for (mission, w) in org.workforce { workforce[mission, default: 0] += w }
+        for (mission, w) in org.workforce {
+            workforce[mission] = w
+            solo[mission] = org.solo[mission] ?? 0
+        }
         // Mission effects
         let wResearch = workforce[.research] ?? 0
         s.swarmRPToday = researchRP(wResearch)
@@ -501,6 +527,10 @@ extension GameState {
         sw.targetRunID = mission == .trainingOps ? targetRunID : nil
         sw.alignment = clamp(70 + m.safety * 0.3, 0, 100)
         sw.alignmentMeasured = sw.alignment
+        // 3.4: what it will deliver, until its first day of work replaces it, so plans made right after starting a swarm
+        // (the Model Lab's ops coverage) already count it.
+        sw.workforce = Swarms.forecast(model: m, accelID: accelID, chips: chips, agents: agents, mission: mission, autonomy: autonomy,
+                                       oversight: sw.oversight, self, b).workforce
         swarms.append(sw)
         Swarms.log(&self, swarms.count - 1, "Spun up \(Fmt.int(agents)) agents of \(m.name) on \(Fmt.int(chips))× \(a.name): \(mission.rawValue.lowercased()).")
         if announce { Sim.news(&self, "Agent swarm online: \(sw.name)",

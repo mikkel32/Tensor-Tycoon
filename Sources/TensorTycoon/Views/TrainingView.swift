@@ -36,34 +36,14 @@ struct TrainingView: View {
                 Text("History").font(.title3.weight(.semibold)).padding(.top, 6)
                 Card {
                     ForEach(past) { run in
-                        let model = run.modelID.flatMap { id in s.models.first { $0.id == id } }
-                        Button {
-                            if run.modelID != nil { store.reportRunID = run.id }
-                        } label: {
-                            HStack {
-                                Image(systemName: run.kind == .proxy ? "chart.line.uptrend.xyaxis" : (run.status == .done ? "checkmark.circle.fill" : "xmark.circle.fill"))
-                                    .foregroundStyle(run.status == .done ? (run.kind == .proxy ? .indigo : .green) : .secondary)
-                                Text(run.design.name).font(.callout.weight(.semibold))
-                                Text(run.kind == .proxy ? "scaling ladder · \(Fmt.flops(run.flopsTotal))" : "\(Fmt.params(run.design.paramsB)) · \(Fmt.tokens(run.design.tokensT)) tokens · \(run.design.parts.map { "\(Fmt.int($0.chips))× \(HardwareCatalog.get($0.accelID)?.name ?? "")" }.joined(separator: " + "))")
-                                    .font(.caption).foregroundStyle(.secondary)
-                                if run.spikes > 0 { Pill(text: "\(run.spikes) spikes", color: .orange) }
-                                if let model {
-                                    Pill(text: "Index \(Fmt.score(store.derived.entry(model.id)?.index ?? model.index))", color: .purple)
-                                    if let fc = run.forecast {
-                                        let delta = model.index - fc.index
-                                        Pill(text: abs(delta) < 1.5 ? "on forecast" : (delta > 0 ? "+\(Fmt.trim(delta, 1)) vs forecast" : "\(Fmt.trim(delta, 1)) vs forecast"),
-                                             color: abs(delta) < 1.5 ? .secondary : (delta > 0 ? .green : .orange))
-                                    }
-                                }
-                                Spacer()
-                                Text("\(Fmt.flops(run.flopsDone)) FLOPs · \(Fmt.money(run.cost))").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-                                Text(run.started.gameShort).font(.caption).foregroundStyle(.tertiary)
-                                if run.modelID != nil { Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary) }
-                            }
-                            .contentShape(.rect)
+                        // Finished runs open their results; cancelled runs and scaling ladders have none, so they're plain rows.
+                        if run.modelID != nil {
+                            Button { store.reportRunID = run.id } label: { historyRow(run, s) }
+                                .buttonStyle(.plain)
+                                .help("Open the results")
+                        } else {
+                            historyRow(run, s)
                         }
-                        .buttonStyle(.plain)
-                        .help(run.modelID != nil ? "Open the results" : "")
                         Divider()
                     }
                 }
@@ -75,6 +55,37 @@ struct TrainingView: View {
                 LaunchSequence(run: run, state: s) { store.launchRunID = nil }
             }
         }
+    }
+}
+
+extension TrainingView {
+    /// One finished, cancelled or ladder run in the history list.
+    func historyRow(_ run: TrainingRun, _ s: GameState) -> some View {
+        let model = run.modelID.flatMap { id in s.models.first { $0.id == id } }
+        return HStack {
+            Image(systemName: run.kind == .proxy ? "chart.line.uptrend.xyaxis" : (run.status == .done ? "checkmark.circle.fill" : "xmark.circle.fill"))
+                .foregroundStyle(run.status == .done ? (run.kind == .proxy ? .indigo : .green) : .secondary)
+            Text(run.design.name).font(.callout.weight(.semibold))
+            Text(run.kind == .proxy ? "scaling ladder · \(Fmt.flops(run.flopsTotal))" : "\(Fmt.params(run.design.paramsB)) · \(Fmt.tokens(run.design.tokensT)) tokens · \(run.design.parts.map { "\(Fmt.int($0.chips))× \(HardwareCatalog.get($0.accelID)?.name ?? "")" }.joined(separator: " + "))")
+                .font(.caption).foregroundStyle(.secondary)
+            if run.spikes > 0 { Pill(text: "\(run.spikes) spikes", color: .orange) }
+            if run.endedEarlyAt > 0 { Pill("ended at \(Int(run.endedEarlyAt * 100))%", tone: .info) }
+            if let model {
+                Pill(text: "Index \(Fmt.score(store.derived.entry(model.id)?.index ?? model.index))", color: .purple)
+                if let fc = run.forecast, !run.forecastHidden {
+                    let delta = model.index - fc.index
+                    Pill(text: abs(delta) < 1.5 ? "on forecast" : (delta > 0 ? "+\(Fmt.trim(delta, 1)) vs forecast" : "\(Fmt.trim(delta, 1)) vs forecast"),
+                         color: abs(delta) < 1.5 ? .secondary : (delta > 0 ? .green : .orange))
+                }
+            } else if run.status == .cancelled {
+                Text(run.note.isEmpty ? "Cancelled" : run.note).font(.caption).foregroundStyle(.tertiary)
+            }
+            Spacer()
+            Text("\(Fmt.flops(run.flopsDone)) FLOPs · \(Fmt.money(run.cost))").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+            Text(run.started.gameShort).font(.caption).foregroundStyle(.tertiary)
+            if run.modelID != nil { Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary) }
+        }
+        .contentShape(.rect)
     }
 }
 
@@ -174,77 +185,125 @@ private struct LaunchSequence: View {
     let state: GameState
     let done: () -> Void
     @State private var step = 0
+    @State private var online = 0.0
 
-    private static let steps = 5
+    /// The beats of the sequence: a major run gets five, a frontier run (half the largest known run or more) seven,
+    /// with the datacenters it spans, the cluster coming online and how it measures against the field.
+    private enum Beat { case identity, architecture, sites, cluster, compute, power, started }
+
+    private var frontier: Bool { (TrainingExperience.RunScale(rawValue: run.plan?.scale ?? 1) ?? .standard) >= .frontier }
+    private var beats: [Beat] { frontier ? [.identity, .architecture, .sites, .cluster, .compute, .power, .started] : [.identity, .architecture, .cluster, .compute, .started] }
+    private var calm: Bool { reduceMotion || store.reduceAnimations }
 
     var body: some View {
         let d = run.design
         let s = state
         let a = HardwareCatalog.get(d.accelID)
         let arch = TrainingExperience.sketch(d, state: s)
-        let sites = siteNames(s)
         let scale = TrainingExperience.RunScale(rawValue: run.plan?.scale ?? 1) ?? .standard
-        let shown = reduceMotion ? Self.steps : step
+        let shown = calm ? beats.count : step
+        let ref = TrainingExperience.frontierReference(s)
         ZStack {
-            Rectangle().fill(.black.opacity(0.88)).ignoresSafeArea()
+            Rectangle().fill(.black.opacity(0.9)).ignoresSafeArea()
             VStack(alignment: .leading, spacing: 18) {
                 HStack {
                     Pill(text: scale.label.uppercased(), color: scaleColor(scale), symbol: "flame.fill")
                     Spacer()
-                    Button(shown >= Self.steps ? "Open the command centre" : "Skip") { done() }
+                    Button(shown >= beats.count ? "Open the command centre" : "Skip") { done() }
                         .keyboardShortcut(.cancelAction)
                 }
-                if shown >= 1 {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(d.family.isEmpty ? "\(d.objective.label) model" : "\(d.family)\(d.generation > 0 ? " · generation \(d.generation)" : "")")
-                            .font(.title3.weight(.semibold)).foregroundStyle(.white.opacity(0.7))
-                        Text(d.name).font(.system(size: 56, weight: .black)).foregroundStyle(.white)
-                        if !d.blurb.isEmpty { Text(d.blurb).font(.title3).foregroundStyle(.white.opacity(0.75)) }
-                    }
-                    .transition(.opacity)
-                }
-                if shown >= 2 {
-                    line("square.stack.3d.up.fill", "Architecture",
-                         "\(Fmt.params(d.paramsB)) parameters\(d.isMoE ? " · \(arch.experts) experts, \(arch.activeExperts) active (\(Fmt.params(d.activeParamsB)))" : "") · \(arch.layers) layers · \(d.attention.rawValue) attention · \(d.contextK >= 1000 ? "1M" : "\(d.contextK)K") context")
-                }
-                if shown >= 3 {
-                    line("cpu.fill", "Cluster",
-                         "\(Fmt.int(d.chips))× \(a?.name ?? "accelerators") · \(powerText(run.plan?.powerMW ?? 0)) · \(sites)")
-                }
-                if shown >= 4 {
-                    line("bolt.fill", "Compute",
-                         "\(Fmt.flops(run.flopsTotal + run.postTrainFlops)) FLOPs"
-                         + (run.plan.map { $0.frontierShare >= 0.05 ? " · \(Fmt.trim($0.frontierShare, 2))× the largest known run" : "" } ?? "")
-                         + (run.plan.map { $0.days > 0 ? " · \(Fmt.days($0.days)), done ~\($0.finish.gameShort)" : "" } ?? ""))
-                }
-                if shown >= 5 {
-                    HStack(spacing: 10) {
-                        Image(systemName: "play.circle.fill").font(.title).foregroundStyle(.green)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Training has started").font(.title2.weight(.bold)).foregroundStyle(.white)
-                            if let fc = run.forecast {
-                                Text("Forecast: index \(Fmt.score(fc.index)) (\(Fmt.score(fc.indexLow))–\(Fmt.score(fc.indexHigh))) · \(fc.tier)")
-                                    .font(.callout).foregroundStyle(.white.opacity(0.75))
+                ForEach(Array(beats.prefix(shown).enumerated()), id: \.offset) { _, beat in
+                    switch beat {
+                    case .identity:
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(d.family.isEmpty ? "\(d.objective.label) model" : "\(d.family)\(d.generation > 0 ? " · generation \(d.generation)" : "")")
+                                .font(.title3.weight(.semibold)).foregroundStyle(.white.opacity(0.7))
+                            Text(d.name).font(.system(size: frontier ? 64 : 56, weight: .black)).foregroundStyle(.white)
+                            if !d.blurb.isEmpty { Text(d.blurb).font(.title3).foregroundStyle(.white.opacity(0.75)) }
+                        }
+                        .transition(.opacity)
+                    case .architecture:
+                        line("square.stack.3d.up.fill", "Architecture",
+                             "\(Fmt.params(d.paramsB)) parameters\(d.isMoE ? " · \(arch.experts) experts, \(arch.activeExperts) active (\(Fmt.params(d.activeParamsB)))" : "") · \(arch.layers) layers · \(d.attention.rawValue) attention · \(d.contextK >= 1000 ? "1M" : "\(d.contextK)K") context")
+                    case .sites:
+                        line("building.2.fill", "Datacenters", siteNames(s, all: true))
+                    case .cluster:
+                        VStack(alignment: .leading, spacing: 6) {
+                            line("cpu.fill", "Cluster", "\(Fmt.int(d.chips))× \(a?.name ?? "accelerators") · ops agents watching \(Fmt.pct(run.opsCoverage, decimals: 0))\(frontier ? "" : " · \(siteNames(s, all: false))")")
+                            if frontier {
+                                // The chips coming online, as the scheduler brings the job up domain by domain.
+                                ProgressView(value: calm ? 1 : online)
+                                    .tint(.green)
+                                    .frame(maxWidth: 560)
+                                Text("\(Fmt.int(Int(Double(d.chips) * (calm ? 1 : online)))) of \(Fmt.int(d.chips)) accelerators online")
+                                    .font(.caption.monospacedDigit()).foregroundStyle(.white.opacity(0.6))
                             }
                         }
+                    case .compute:
+                        line("bolt.fill", "Compute", computeLine(ref.source))
+                    case .power:
+                        line("powerplug.fill", "Power", powerLine())
+                    case .started:
+                        HStack(spacing: 10) {
+                            Image(systemName: "play.circle.fill").font(.title).foregroundStyle(.green)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Training has started").font(.title2.weight(.bold)).foregroundStyle(.white)
+                                if run.forecastHidden {
+                                    Text("No forecast: without scaling laws you'll learn how good it is at the first eval checkpoints.")
+                                        .font(.callout).foregroundStyle(.white.opacity(0.75))
+                                } else if let fc = run.forecast {
+                                    Text("Forecast: index \(Fmt.score(fc.index)) (\(Fmt.score(fc.indexLow))–\(Fmt.score(fc.indexHigh))) · \(fc.tier)")
+                                        .font(.callout).foregroundStyle(.white.opacity(0.75))
+                                }
+                            }
+                        }
+                        .transition(.opacity)
                     }
                 }
                 Spacer()
-                Toggle("Play launch sequences for major runs", isOn: Binding(get: { store.showLaunchSequence }, set: { store.showLaunchSequence = $0 }))
-                    .toggleStyle(.checkbox).font(.caption).foregroundStyle(.white.opacity(0.7))
+                HStack(spacing: 18) {
+                    Toggle("Play launch sequences for major runs", isOn: Binding(get: { store.showLaunchSequence }, set: { store.showLaunchSequence = $0 }))
+                    Toggle("Reduce animations", isOn: Binding(get: { store.reduceAnimations }, set: { store.reduceAnimations = $0 }))
+                }
+                .toggleStyle(.checkbox).font(.caption).foregroundStyle(.white.opacity(0.7))
             }
             .padding(48)
             .frame(maxWidth: 900, alignment: .leading)
         }
         .contentShape(.rect)
-        .onTapGesture { if shown >= Self.steps { done() } else { step = Self.steps } }
+        .onTapGesture { if shown >= beats.count { done() } else { step = beats.count; online = 1 } }
         .task {
-            guard !reduceMotion else { return }
-            for i in 1...Self.steps {
-                try? await Task.sleep(for: .milliseconds(i == 1 ? 150 : 800))
+            guard !calm else { return }
+            let pause = frontier ? 1_000 : 800
+            for i in 1...beats.count {
+                try? await Task.sleep(for: .milliseconds(i == 1 ? 150 : pause))
                 withAnimation(.easeOut(duration: 0.4)) { step = max(step, i) }
+                if frontier && beats[i - 1] == .cluster {
+                    withAnimation(.easeInOut(duration: Double(pause) / 1_000 * 0.9)) { online = 1 }
+                }
             }
         }
+    }
+
+    private func computeLine(_ refSource: String) -> String {
+        var t = "\(Fmt.flops(run.flopsTotal + run.postTrainFlops)) FLOPs"
+        if let p = run.plan {
+            if p.frontierShare >= 0.05 {
+                t += " · \(Fmt.trim(p.frontierShare, 2))× the largest known run"
+                if !refSource.isEmpty { t += " (\(refSource))" }
+            }
+            if p.days > 0 { t += " · \(Fmt.days(p.days)), done ~\(p.finish.gameShort)" }
+        }
+        return t
+    }
+
+    private func powerLine() -> String {
+        var t = "\(powerText(run.plan?.powerMW ?? 0)) at the wall"
+        if let p = run.plan {
+            if p.powerMW > 0 { t += ", about as much as \(Fmt.count(p.powerMW * 1_000 / 1.2)) homes" }
+            if p.cost > 0 { t += " · \(Fmt.money(p.cost)) budgeted" }
+        }
+        return t
     }
 
     private func line(_ symbol: String, _ title: String, _ text: String) -> some View {
@@ -259,11 +318,53 @@ private struct LaunchSequence: View {
     }
 
     /// Where the run's chips are: owned batches by site, plus rented cloud capacity.
-    private func siteNames(_ s: GameState) -> String {
+    private func siteNames(_ s: GameState, all: Bool) -> String {
         let ids = Set(s.owned.filter { $0.accelID == run.design.accelID }.map(\.siteID))
         var names = s.sites.filter { ids.contains($0.id) }.map { "\($0.name) (\($0.location.name))" }
         if s.rentals.contains(where: { $0.accelID == run.design.accelID }) { names.append("rented cloud capacity") }
-        return names.isEmpty ? "your fleet" : names.prefix(3).joined(separator: ", ") + (names.count > 3 ? " and \(names.count - 3) more" : "")
+        let cap = all ? 6 : 3
+        return names.isEmpty ? "your fleet" : names.prefix(cap).joined(separator: ", ") + (names.count > cap ? " and \(names.count - cap) more" : "")
+    }
+}
+
+/// 3.4: a landmark first gets the screen to itself for a moment (a trillion parameters, past the frontier, half a
+/// million accelerators, autonomous research…). Presentation only: the game carries on underneath.
+struct FirstCeremony: View {
+    @Environment(GameStore.self) private var store
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let first: TrainingFirst
+    let done: () -> Void
+    @State private var shown = false
+
+    var body: some View {
+        let calm = reduceMotion || store.reduceAnimations
+        ZStack {
+            Rectangle().fill(.black.opacity(0.88)).ignoresSafeArea()
+            VStack(spacing: 18) {
+                Image(systemName: first.symbol)
+                    .font(.system(size: 72, weight: .bold))
+                    .foregroundStyle(.yellow)
+                    .scaleEffect(shown || calm ? 1 : 0.6)
+                    .opacity(shown || calm ? 1 : 0)
+                Text("A first for \(store.game.companyName)".uppercased()).font(.caption.weight(.bold)).foregroundStyle(.white.opacity(0.55))
+                Text(first.title).font(.system(size: 44, weight: .black)).foregroundStyle(.white).multilineTextAlignment(.center)
+                Text(first.model).font(.title2.weight(.semibold)).foregroundStyle(.white.opacity(0.85))
+                Text(first.detail).font(.title3).foregroundStyle(.white.opacity(0.75)).multilineTextAlignment(.center).frame(maxWidth: 680)
+                Text(first.date.gameLong).font(.callout).foregroundStyle(.white.opacity(0.5))
+                Button("Continue") { done() }
+                    .keyboardShortcut(.defaultAction)
+                    .padding(.top, 8)
+            }
+            .padding(48)
+        }
+        .contentShape(.rect)
+        .onTapGesture { done() }
+        .onAppear {
+            guard !calm else { return }
+            withAnimation(.spring(duration: 0.7)) { shown = true }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isModal)
     }
 }
 
@@ -295,24 +396,33 @@ private struct LadderCard: View {
 }
 
 /// Five small loss curves fanning out — what a scaling ladder looks like.
+/// 3.4: the ladder's measured loss against the scaling-law prediction it is fitting, on log tokens (what the proxy
+/// runs actually recorded, not an illustration).
 private struct LadderChart: View {
     let points: [LossPoint]
 
     var body: some View {
-        let done = points.count
-        Chart {
-            ForEach(0..<5, id: \.self) { k in
-                let scale = pow(3.0, Double(k))
-                ForEach(0..<min(done, 30), id: \.self) { i in
-                    let x = Double(i + 1) / 30 * scale
-                    LineMark(x: .value("Compute", x), y: .value("Loss", 3.4 * pow(x + 0.05, -0.08) - 0.12 * Double(k)), series: .value("Run", k))
-                        .foregroundStyle(.indigo.opacity(0.35 + 0.13 * Double(k)))
+        if points.count < 2 {
+            Text("The first proxy runs are warming up.").font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            Chart {
+                ForEach(Array(points.enumerated()).filter { $0.element.pred > 0 }, id: \.offset) { _, p in
+                    LineMark(x: .value("Tokens (T)", max(p.tokensT, 1e-6)), y: .value("Loss", p.pred), series: .value("Series", "Power law"))
+                        .foregroundStyle(.gray.opacity(0.7))
+                        .lineStyle(StrokeStyle(lineWidth: 1.2, dash: [4, 3]))
+                }
+                ForEach(Array(points.enumerated()), id: \.offset) { _, p in
+                    PointMark(x: .value("Tokens (T)", max(p.tokensT, 1e-6)), y: .value("Loss", p.loss))
+                        .foregroundStyle(.indigo)
+                        .symbolSize(14)
                 }
             }
+            .chartXScale(type: .log)
+            .chartYScale(domain: .automatic(includesZero: false))
+            .chartXAxisLabel("Proxy tokens (T, log)")
+            .accessibilityLabel("Scaling ladder")
+            .accessibilityValue("\(points.count) proxy runs" + (points.last.map { ", the largest at loss \(Fmt.trim($0.loss, 3))" } ?? ""))
         }
-        .chartXScale(type: .log)
-        .chartXAxis(.hidden)
-        .chartYAxis(.hidden)
     }
 }
 
@@ -327,13 +437,15 @@ private struct CommandCentre: View {
     @State private var resize = 0
     @State private var showLog = false
     @State private var assigning = false
+    @State private var confirmCancel = false
 
     var body: some View {
         let s = state
         let b = store.derived.bonuses
         let a = HardwareCatalog.get(run.design.accelID)
-        let mfu = a.map { Physics.mfu(accel: $0, chips: run.design.allChips, state: s, bonuses: b) } ?? 0
-        let good = Physics.goodput(chips: run.design.allChips, state: s, bonuses: b, coverage: run.opsCoverage) * Sim.checkpointOverhead(run.interval)
+        // The same MFU and goodput the daily simulation uses for this run (its design, ops coverage and hot spares).
+        let mfu = a.map { Physics.runMFU(run.design, accel: $0, coverage: run.opsCoverage, state: s, bonuses: b) } ?? 0
+        let good = Training.goodput(chips: run.design.allChips, coverage: run.opsCoverage, state: s, bonuses: b, spares: run.design.spares) * Sim.checkpointOverhead(run.interval)
         let flopsPerSec = Physics.throughputChips(run.design) * (a?.trainTFLOPS(run.design.precision) ?? 0) * 1e12 * mfu * good * run.schedule.speed
         let perDay = flopsPerSec * 86_400
         let postTotal = run.postTrainFlops
@@ -382,20 +494,28 @@ private struct CommandCentre: View {
                 LiveStat(label: "Ops coverage", value: Fmt.pct(run.opsCoverage, decimals: 0), symbol: "wrench.and.screwdriver.fill",
                          tint: run.opsCoverage >= 0.9 ? .green : (run.opsCoverage >= 0.5 ? .orange : .red))
                 LiveStat(label: "Forecast confidence", value: confidence(run), symbol: "scope", tint: .purple)
+                // 3.4: how much of the cluster's peak moved the model, and how held-out loss compares with training loss.
+                LiveStat(label: "Useful share of peak", value: run.ledger.tracked ? Fmt.pct(run.ledger.useful / run.ledger.peak, decimals: 0) : "—",
+                         symbol: "gauge.with.dots.needle.67percent", tint: .green)
+                LiveStat(label: "Held-out gap", value: heldOutGap(run), symbol: "chart.line.text.clipboard",
+                         tint: (run.loss.last.map { $0.val > 0 && $0.val - $0.loss > 0.02 } ?? false) ? .orange : .teal)
             }
 
             HStack(alignment: .top, spacing: 16) {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
                         Text("Loss").font(.caption.weight(.semibold))
-                        Text("— training · ⋯ forecast · ╌ validation (derived)").font(.caption2).foregroundStyle(.secondary)
+                        Text(run.loss.last?.val ?? 0 > 0 ? "— training · ⋯ forecast · ╌ held-out validation" : "— training · ⋯ forecast · ╌ validation (smoothed)")
+                            .font(.caption2).foregroundStyle(.secondary)
                     }
                     LossChart(points: run.loss, checkpoints: run.saved.map(\.tokensT),
                               validation: TrainingExperience.validation(run, state: s)
                                   .map { LossChart.Pair(t: $0.tokensT, l: $0.loss) })
                         .equatable()
                         .frame(height: 170)
-                        .help("Validation is the training loss averaged over five points plus a generalisation gap of 0.01 per extra pass over the data. The simulation draws only the training loss.")
+                        .help(run.loss.last?.val ?? 0 > 0
+                              ? "Validation is measured on held-out data the model never trains on. It pulls away from the training loss when data repeats too often or a silent bug corrupts training: run a diagnostic sweep to find out which."
+                              : "This run started before held-out validation was recorded: the dashed line is the training loss smoothed, plus a gap for repeated data.")
                 }
                 .frame(maxWidth: .infinity)
                 VStack(alignment: .leading, spacing: 6) {
@@ -407,13 +527,10 @@ private struct CommandCentre: View {
                 .frame(maxWidth: .infinity)
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Cluster (\(Fmt.int(run.design.allChips)) chips)").font(.caption.weight(.semibold))
-                    ClusterHeatmap(chips: run.design.allChips, active: run.status != .paused && store.speed > 0, mfu: mfu,
-                                   goodput: Training.goodput(chips: run.design.allChips, coverage: run.opsCoverage, state: s, bonuses: b),
-                                   failuresPerDay: lambda, daysPerSecond: GameStore.speeds[min(store.speed, GameStore.speeds.count - 1)].daysPerSecond,
-                                   coverage: run.opsCoverage, phase: inPost ? .post : .pre)
-                        .frame(height: 118)
+                    ClusterHeatmap(run: run, mfu: mfu, scaleUp: a?.scaleUp ?? 8, active: run.status != .paused)
+                        .frame(height: 130)
                         .clipShape(.rect(cornerRadius: 8))
-                    Text(heatmapLegend(mfu: mfu, lambda: lambda)).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
+                    Text(heatmapLegend(mfu: mfu, lambda: lambda)).font(.caption2).foregroundStyle(.secondary).lineLimit(3)
                     Text("Gradient norm").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
                     GradNormChart(points: run.loss)
                         .frame(height: 30)
@@ -423,7 +540,19 @@ private struct CommandCentre: View {
 
             computePanel(actual: actual, expected: expected, bottleneck: bottleneck)
 
+            if run.telemetry.count >= 2 {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("Throughput").font(.caption.weight(.semibold))
+                        Text("green: useful compute as a share of peak, day by day · dashed: what MFU × goodput promised · red: days lost to an incident")
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
+                    ThroughputChart(days: run.telemetry).equatable().frame(height: 110)
+                }
+            }
+
             if run.kind == .full { OpsPanel(run: run, state: s, assigning: $assigning) }
+            if run.kind == .full { InterventionsPanel(run: run, state: s) }
 
             // Checkpoints
             VStack(alignment: .leading, spacing: 6) {
@@ -474,7 +603,21 @@ private struct CommandCentre: View {
                 } else {
                     Button("Pause", systemImage: "pause.fill") { store.act("Paused — chips released") { $0.setRunStatus(run.id, .paused) } }
                 }
-                Button("Cancel run", systemImage: "xmark", role: .destructive) { store.act("Run cancelled") { $0.setRunStatus(run.id, .cancelled) } }
+                Button("Cancel run", systemImage: "xmark", role: .destructive) { confirmCancel = true }
+                    .confirmationDialog("Cancel \(run.design.name)?", isPresented: $confirmCancel) {
+                        if let cp = run.saved.last, cp.forkedModelID == nil {
+                            Button("Keep the \(Int(cp.fraction * 100))% checkpoint as a model, then cancel") {
+                                store.act("Checkpoint kept; run cancelled") { s in
+                                    if let e = s.forkCheckpoint(run.id, checkpoint: cp.id) { return e }
+                                    return s.setRunStatus(run.id, .cancelled)
+                                }
+                            }
+                        }
+                        Button("Cancel without keeping anything", role: .destructive) { store.act("Run cancelled") { $0.setRunStatus(run.id, .cancelled) } }
+                        Button("Keep training", role: .cancel) {}
+                    } message: {
+                        Text("\(Fmt.money(run.cost)) spent so far. The chips go back to your pool; the compute already used is lost unless you keep a checkpoint.")
+                    }
                 Spacer()
                 if resize != run.design.chips, let note = resizeNote(run) { Text(note).font(.caption).foregroundStyle(.secondary) }
                 Text("Resize cluster").font(.caption).foregroundStyle(.secondary)
@@ -497,6 +640,7 @@ private struct CommandCentre: View {
                 Photo(key: a.image)
                     .frame(width: 120, height: 80)
                     .clipShape(.rect(cornerRadius: 10))
+                    .acceleratorPhotoLabel(a)
             }
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 6) {
@@ -637,11 +781,19 @@ private struct CommandCentre: View {
     }
 
     private func heatmapLegend(mfu: Double, lambda: Double) -> String {
-        let cells = min(max(run.design.chips, 1), 384)
-        let per = Int((Double(run.design.chips) / Double(cells)).rounded(.up))
         let minutes = 1_440 / max(lambda, 1e-9)
         let every = minutes < 60 ? "\(Int(minutes.rounded())) min" : (minutes < 2_880 ? "\(Fmt.trim(minutes / 60, 1)) h" : Fmt.days(minutes / 1_440))
-        return "\(per == 1 ? "1 chip" : "\(per) chips") per cell · brightness = MFU \(Fmt.pct(mfu, decimals: 0)) · amber = lost to failures · a fault every \(every)"
+        let week = run.telemetry.suffix(7).reduce(0) { $0 + $1.failures }
+        return "Red: a fault today · amber: faults this week (\(week)) · purple: corrupt nodes quarantined · cyan: watched by ops agents · brightness: MFU \(Fmt.pct(mfu, decimals: 0)) · a fault every \(every). Click a cell."
+    }
+
+    /// Held-out loss minus training loss over the last few points (positive: the model fits training data better than
+    /// fresh data — repetition or a bug).
+    private func heldOutGap(_ run: TrainingRun) -> String {
+        let pts = run.loss.suffix(5).filter { $0.val > 0 && !$0.spike }
+        guard !pts.isEmpty else { return "—" }
+        let gap = pts.reduce(0) { $0 + ($1.val - $1.loss) } / Double(pts.count)
+        return (gap >= 0 ? "+" : "−") + String(format: "%.3f", abs(gap))
     }
 
     private func lossDelta(_ run: TrainingRun) -> String {
@@ -652,6 +804,143 @@ private struct CommandCentre: View {
 }
 
 /// Agents watching the run's GPUs: coverage, what it buys and a way to add more.
+/// 3.4: the calls you can make on a live run, each with its cost and effect shown before you commit.
+private struct InterventionsPanel: View {
+    @Environment(GameStore.self) private var store
+    let run: TrainingRun
+    let state: GameState
+    @State private var extendBy = 0.25
+    @State private var confirmStop = false
+
+    var body: some View {
+        let s = state
+        let diag = TrainingInterventions.diagnoseBlocker(s, run)
+        let cost = TrainingInterventions.diagnoseCost(s, run)
+        let rep = TrainingInterventions.repetition(run)
+        let inv = TrainingInterventions.investigateBlocker(s, run)
+        let red = TrainingInterventions.redTeamBlocker(s, run)
+        let stop = TrainingInterventions.endEarlyBlocker(s, run)
+        let stopPreview = stop == nil ? TrainingInterventions.stopPreview(s, run) : nil
+        let ext = TrainingInterventions.extendBlocker(s, run, by: extendBy)
+        let extPreview = ext == nil ? TrainingInterventions.extendPreview(s, run, by: extendBy) : nil
+        let planned = Training.projectedIndex(s, run).0
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Label("Run decisions", systemImage: "slider.horizontal.3").font(.headline)
+                Spacer()
+                Text("Every call costs cluster time or money; what it does is shown first.").font(.caption).foregroundStyle(.secondary)
+            }
+            LazyVGrid(columns: Theme.columns(min: 260), alignment: .leading, spacing: 10) {
+                tile("Diagnostic sweep", symbol: "stethoscope", body: diagnoseBody(cost.money, rep),
+                     result: latest("Diagnostic sweep"), blocker: diag, action: "Run the sweep") {
+                    store.act("Diagnostic sweep done") { $0.diagnoseRun(run.id) }
+                }
+                if run.spikes > 0 || run.investigated {
+                    tile("Investigate instability", symbol: "waveform.path.badge.minus",
+                         body: "Half a day of engineers on the \(run.spikes) loss spike\(run.spikes == 1 ? "" : "s"): find the cause and fix it. Spikes about 45% less likely for the rest of the run.",
+                         result: latest("Instability investigation"), blocker: inv, action: "Investigate") {
+                        store.act("Cause found and fixed") { $0.investigateRun(run.id) }
+                    }
+                }
+                if run.design.reasoning {
+                    tile("Red-team the RL environments", symbol: "shield.lefthalf.filled",
+                         body: "Harden the graders before reasoning RL starts: the stage takes 5% longer, and the model is about 70% less likely to learn to game its rewards.",
+                         result: run.redTeamed ? "Graders hardened." : nil, blocker: red, action: "Red-team them") {
+                        store.act("Red team assigned") { $0.redTeamRun(run.id) }
+                    }
+                }
+                tile("End pre-training now", symbol: "flag.checkered", body: stopBody(stopPreview),
+                     result: nil, blocker: stop, action: "End pre-training…") {
+                    confirmStop = true
+                }
+                VStack(alignment: .leading, spacing: 6) {
+                    tile("Extend pre-training", symbol: "plus.forwardslash.minus", body: extendBody(extPreview, planned: planned, wsd: run.design.schedule == .wsd && s.bonuses.has(.wsd)),
+                         result: run.extendedBy > 0 ? "Extended by \(Int(run.extendedBy * 100))% so far." : nil, blocker: ext, action: "Extend") {
+                        store.act("Run extended") { $0.extendRun(run.id, by: extendBy) }
+                    }
+                    Picker("By", selection: $extendBy) {
+                        Text("+25%").tag(0.25)
+                        Text("+50%").tag(0.5)
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 160)
+                }
+            }
+        }
+        .confirmationDialog("End pre-training of \(run.design.name) now?", isPresented: $confirmStop) {
+            Button("End pre-training") { store.act("Pre-training ended early") { $0.endPretrainingEarly(run.id) } }
+            Button("Keep training", role: .cancel) {}
+        } message: {
+            Text(stopPreview.map { "Projected index ≈ \(Fmt.score($0.indexNow)) instead of ≈ \(Fmt.score($0.indexPlanned)); you save \(Fmt.money($0.costLeft))." } ?? "")
+        }
+    }
+
+    private func diagnoseBody(_ money: Double, _ rep: (epochs: Double, gap: Double)) -> String {
+        var t = "Evaluate the latest checkpoint and the held-out loss, scan the data for leaked benchmarks and look for a silent bug. "
+        t += "\(Fmt.money(money)) and a quarter-day of cluster time."
+        if rep.epochs > 0 {
+            t += " Data so far: \(Fmt.trim(rep.epochs, 2)) passes"
+            if rep.gap > 0.001 { t += ", held-out gap \(Fmt.trim(rep.gap, 3))" }
+            t += "."
+        }
+        return t
+    }
+
+    private func stopBody(_ preview: TrainingInterventions.StopPreview?) -> String {
+        guard let p = preview else {
+            return run.endedEarlyAt > 0 ? "Ended at \(Int(run.endedEarlyAt * 100))% of the original plan."
+                                        : "Stop pre-training where it is, decay the learning rate and move on to post-training."
+        }
+        var t = "Index ≈ \(Fmt.score(p.indexNow)) (80%: \(Fmt.score(p.indexLow))–\(Fmt.score(p.indexHigh))) if it stops now, against ≈ \(Fmt.score(p.indexPlanned)) as planned. "
+        t += "Saves \(Fmt.days(p.daysLeft)) and \(Fmt.money(p.costLeft))."
+        if p.decayShare > 0 {
+            t += " The learning rate decays over a final \(Int(p.decayShare * 100))%."
+        } else {
+            t += " The cosine schedule stops undecayed (×\(Fmt.trim(pow(10, -p.schedulePenalty), 3)) quality)."
+        }
+        return t
+    }
+
+    private func extendBody(_ preview: (index: Double, days: Double, cost: Double)?, planned: Double, wsd: Bool) -> String {
+        guard let p = preview else { return "Train on more tokens than planned, if your data allows." }
+        var t = "+\(Int(extendBy * 100))% tokens: index ≈ \(Fmt.score(p.index)) (\(Fmt.signed(p.index - planned, 1))) "
+        t += "for \(Fmt.days(p.days)) and \(Fmt.money(p.cost)) more."
+        t += wsd ? " WSD carries on at its stable learning rate." : " A cosine schedule must be re-warmed (2% more compute, a little quality)."
+        return t
+    }
+
+    /// The latest run-log line that starts with `prefix` (what the last call found).
+    private func latest(_ prefix: String) -> String? {
+        run.events.first { $0.contains(prefix) }.map { line in
+            line.split(separator: "·", maxSplits: 1).last.map { String($0).trimmingCharacters(in: .whitespaces) } ?? line
+        }
+    }
+
+    private func tile(_ title: String, symbol: String, body: String, result: String?, blocker: String?, action: String,
+                      perform: @escaping () -> Void) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label(title, systemImage: symbol).font(.callout.weight(.semibold))
+            Text(body).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            if let result {
+                Text(result).font(.caption).foregroundStyle(.primary).fixedSize(horizontal: false, vertical: true)
+                    .padding(6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Theme.insetFill, in: .rect(cornerRadius: Theme.Radius.control))
+            }
+            Button(action, action: perform)
+                .controlSize(.small)
+                .disabled(blocker != nil)
+                .help(blocker ?? "")
+            if let blocker {
+                Text(blocker).font(.caption2).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .background(Theme.insetFill, in: .rect(cornerRadius: Theme.Radius.inset))
+    }
+}
+
 private struct OpsPanel: View {
     @Environment(GameStore.self) private var store
     let run: TrainingRun
@@ -772,6 +1061,7 @@ private struct OpsAssignSheet: View {
                 HStack {
                     Text("Coverage to add")
                     Slider(value: $target, in: 0.25...1, step: 0.05)
+                        .accessibilityLabel("Coverage to add").accessibilityValue(Fmt.pct(target, decimals: 0))
                     Text(Fmt.pct(target, decimals: 0)).monospacedDigit().frame(width: 50)
                 }
                 if let m = models.first(where: { $0.id == modelID }), !accelID.isEmpty {
@@ -880,8 +1170,13 @@ private struct ForecastTracker: View {
         HStack(spacing: 16) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Forecast at launch").font(.caption).foregroundStyle(.secondary)
-                Text("\(Fmt.score(forecast.index))").font(.title2.weight(.bold).monospacedDigit())
-                Text("\(Fmt.score(forecast.indexLow))–\(Fmt.score(forecast.indexHigh)) · \(forecast.tier)").font(.caption2).foregroundStyle(.secondary)
+                if run.forecastHidden {
+                    Text("—").font(.title2.weight(.bold).monospacedDigit())
+                    Text("no scaling laws at launch").font(.caption2).foregroundStyle(.secondary)
+                } else {
+                    Text("\(Fmt.score(forecast.index))").font(.title2.weight(.bold).monospacedDigit())
+                    Text("\(Fmt.score(forecast.indexLow))–\(Fmt.score(forecast.indexHigh)) · \(forecast.tier)").font(.caption2).foregroundStyle(.secondary)
+                }
             }
             Image(systemName: "arrow.right").foregroundStyle(.tertiary)
             VStack(alignment: .leading, spacing: 2) {
@@ -934,7 +1229,15 @@ struct ProjectionChart: View, Equatable {
             .chartXScale(domain: 0...100)
             .chartYScale(domain: .automatic(includesZero: false))
             .chartXAxisLabel("% of pre-training")
+            .accessibilityLabel("Projected capability")
+            .accessibilityValue(summary)
         }
+    }
+
+    private var summary: String {
+        guard let cp = checkpoints.last else { return "" }
+        let now = "projected index \(Fmt.score(cp.projected)) (\(Fmt.score(cp.projectedLow)) to \(Fmt.score(cp.projectedHigh))) at \(Int(cp.fraction * 100))%"
+        return forecast.map { now + ", launch forecast \(Fmt.score($0.index))" } ?? now
     }
 }
 
@@ -946,7 +1249,9 @@ private struct GradNormChart: View {
                 .foregroundStyle(p.spike ? .red : .gray)
         }
         .chartXAxis(.hidden)
-        .chartYAxis(.hidden)
+        .chartYAxis { AxisMarks(values: .automatic(desiredCount: 2)) }   // 3.4: a scale, so a spike reads as a spike
+        .accessibilityLabel("Gradient norm")
+        .accessibilityValue(points.last.map { "\(Fmt.trim($0.gnorm, 2)), \(points.suffix(120).filter(\.spike).count) spikes recently" } ?? "")
     }
 }
 
@@ -997,7 +1302,20 @@ struct LossChart: View, Equatable {
             }
             .chartYScale(domain: .automatic(includesZero: false))
             .chartXAxisLabel("Tokens seen (T)")
+            .accessibilityLabel("Training loss")
+            .accessibilityValue(summary)
         }
+    }
+
+    /// What VoiceOver reads for the chart: where the loss is against the forecast, and how many spikes so far.
+    private var summary: String {
+        guard let last = points.last else { return "" }
+        var parts = ["loss \(Fmt.trim(last.loss, 3)) after \(Fmt.tokens(last.tokensT))"]
+        if last.pred > 0 { parts.append("forecast \(Fmt.trim(last.pred, 3))") }
+        if let v = validation.last { parts.append("held-out \(Fmt.trim(v.l, 3))") }
+        let spikes = points.filter(\.spike).count
+        if spikes > 0 { parts.append("\(spikes) loss spike\(spikes == 1 ? "" : "s")") }
+        return parts.joined(separator: ", ")
     }
 }
 
@@ -1063,73 +1381,164 @@ private struct CheckpointCard: View {
     }
 }
 
-/// A live map of the cluster, every cell a group of accelerators, driven by the run's real rates: cell brightness is
-/// MFU, the share of amber cells is the time lost to failures and restarts (1 − goodput), and red cells flash at the
-/// fault rate the simulation draws from, scaled to game time (faults per chip-day × chips per cell × game days per
-/// frame). Ops-watched cells get a thin outline. Paused game or run: one static frame.
+/// 3.4: the cluster as the simulation lived it. Each cell is a slice of the run's chips (whole scale-up domains);
+/// every hardware fault in the run's telemetry lands in a cell by a stable hash of the day and the fault, so a day with
+/// three faults lights three cells, and they cool from red to amber over the following days. Purple cells hold nodes the
+/// ops agents quarantined for silently corrupting gradients; a cyan outline marks the share the agents watch; brightness
+/// is the run's MFU. Nothing moves unless the simulation does, so it is still when the game is paused (and with Reduce
+/// Motion). Click a cell to inspect it.
 struct ClusterHeatmap: View {
-    enum Phase { case pre, post }
-    let chips: Int
-    let active: Bool
+    let run: TrainingRun
     let mfu: Double
-    let goodput: Double
-    let failuresPerDay: Double
-    let daysPerSecond: Double
-    let coverage: Double
-    let phase: Phase
+    let scaleUp: Int
+    let active: Bool
 
-    private static let frame = 0.35
+    @State private var selected: Int?
+
+    /// Cells drawn: one per scale-up domain up to 384, then groups of domains.
+    var cells: Int { max(1, min(384, run.design.chips / max(1, min(scaleUp, run.design.chips)))) }
+    var chipsPerCell: Int { max(1, run.design.chips / cells) }
+
+    struct CellState {
+        var lastFault: Int?      // days since the most recent fault in this cell
+        var faults = 0           // faults in the window
+        var quarantined = 0      // corrupt nodes caught
+        var watched = false
+    }
+
+    /// Per-cell state from the last `window` days of telemetry.
+    func states(window: Int = 14) -> [CellState] {
+        var out = Array(repeating: CellState(), count: cells)
+        let days = Array(run.telemetry.suffix(window))
+        let seed = Self.mix((UInt64(run.id.uuidString.prefix(8), radix: 16) ?? 0) &+ UInt64(run.design.chips))
+        for (k, day) in days.enumerated() {
+            let age = days.count - 1 - k
+            let stamp = UInt64(day.date.timeIntervalSince1970 / 86_400)
+            for f in 0..<min(day.failures, cells * 4) {
+                let c = Int(Self.mix(seed ^ stamp &* 0x9E37 ^ UInt64(f) &* 0xC2B2_AE3D) % UInt64(cells))
+                out[c].faults += 1
+                out[c].lastFault = min(out[c].lastFault ?? age, age)
+            }
+            for q in 0..<min(Int(day.sdcCaught.rounded()), cells) {
+                let c = Int(Self.mix(seed ^ stamp &* 0x51AB ^ UInt64(q) &* 0x2545_F491) % UInt64(cells))
+                out[c].quarantined += 1
+            }
+        }
+        let watched = Int((Double(cells) * clamp(run.opsCoverage, 0, 1)).rounded())
+        for c in 0..<cells where Int(Self.mix(seed ^ UInt64(c) &* 0x27D4_EB2F) % 1_000) < watched * 1_000 / max(1, cells) { out[c].watched = true }
+        return out
+    }
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: Self.frame, paused: !active)) { ctx in
-            Canvas { g, size in
-                let cells = min(max(chips, 1), 384)
+        let st = states()
+        let post = run.status == .postTraining
+        VStack(alignment: .leading, spacing: 4) {
+            GeometryReader { geo in
+                let size = geo.size
                 let cols = max(1, Int(ceil(sqrt(Double(cells) * size.width / max(size.height, 1)))))
                 let rows = max(1, Int(ceil(Double(cells) / Double(cols))))
-                // Square cells, capped so a handful of chips doesn't become one giant block; grid is centered.
                 let side = min(size.width / CGFloat(cols), size.height / CGFloat(rows), 30)
                 let ox = (size.width - side * CGFloat(cols)) / 2
                 let oy = (size.height - side * CGFloat(rows)) / 2
-                let t = ctx.date.timeIntervalSinceReferenceDate
-                let tick = Int(t / Self.frame)
-                // Chance a cell sees a fault during one frame of game time.
-                let perCell = failuresPerDay / Double(cells)
-                let pFault = 1 - exp(-perCell * daysPerSecond * Self.frame)
-                let lost = clamp(1 - goodput, 0, 1)
-                let watched = Int((Double(cells) * clamp(coverage, 0, 1)).rounded())
-                let bright = clamp(mfu / 0.7, 0.2, 1)
-                g.fill(Path(CGRect(origin: .zero, size: size)), with: .color(.black.opacity(0.85)))
-                for i in 0..<cells {
-                    let r = i / cols, c = i % cols
-                    let rect = CGRect(x: ox + CGFloat(c) * side + 1, y: oy + CGFloat(r) * side + 1, width: max(1, side - 2), height: max(1, side - 2))
-                    let seed = Self.noise(i, tick)
-                    let color: Color
-                    if !active {
-                        color = .gray.opacity(0.25)
-                    } else if seed < pFault {
-                        color = .red
-                    } else if Self.noise(i &+ 7_919, tick / 4) < lost {
-                        color = .orange.opacity(0.75)
-                    } else {
-                        let flicker = 0.85 + 0.15 * sin(t * 2.2 + Double(i) * 0.37)
-                        color = (phase == .pre ? Color.green : Color.purple).opacity(clamp(bright * flicker, 0.2, 1))
+                Canvas { g, _ in
+                    g.fill(Path(CGRect(origin: .zero, size: size)), with: .color(.black.opacity(0.85)))
+                    let bright = clamp(mfu / 0.7, 0.25, 1)
+                    for i in 0..<cells {
+                        let r = i / cols, c = i % cols
+                        let rect = CGRect(x: ox + CGFloat(c) * side + 1, y: oy + CGFloat(r) * side + 1, width: max(1, side - 2), height: max(1, side - 2))
+                        let cell = st[i]
+                        let color: Color
+                        if !active {
+                            color = .gray.opacity(0.3)
+                        } else if let age = cell.lastFault, age <= 6 {
+                            color = age == 0 ? .red : .orange.opacity(max(0.35, 0.9 - Double(age) * 0.1))
+                        } else if cell.quarantined > 0 {
+                            color = .purple.opacity(0.8)
+                        } else {
+                            color = (post ? Color.indigo : Color.green).opacity(bright)
+                        }
+                        g.fill(Path(roundedRect: rect, cornerRadius: side * 0.2), with: .color(color))
+                        if cell.watched && side >= 6 {
+                            g.stroke(Path(roundedRect: rect, cornerRadius: side * 0.2), with: .color(.cyan.opacity(0.55)), lineWidth: 0.6)
+                        }
+                        if selected == i {
+                            g.stroke(Path(roundedRect: rect.insetBy(dx: -1, dy: -1), cornerRadius: side * 0.2), with: .color(.white), lineWidth: 1.5)
+                        }
                     }
-                    g.fill(Path(roundedRect: rect, cornerRadius: side * 0.2), with: .color(color))
-                    if i < watched && side >= 6 {
-                        g.stroke(Path(roundedRect: rect, cornerRadius: side * 0.2), with: .color(.cyan.opacity(0.5)), lineWidth: 0.6)
+                }
+                .contentShape(.rect)
+                .onTapGesture { p in
+                    let c = Int((p.x - ox) / side), r = Int((p.y - oy) / side)
+                    let i = r * cols + c
+                    selected = (c >= 0 && c < cols && r >= 0 && i >= 0 && i < cells && selected != i) ? i : nil
+                }
+            }
+            .accessibilityLabel("Cluster map: \(cells) cells of \(Fmt.int(chipsPerCell)) chips, \(st.filter { ($0.lastFault ?? 99) <= 6 }.count) with faults in the last week, MFU \(Int(mfu * 100))%")
+            if let i = selected, i < st.count {
+                Text(cellDetail(i, st[i]))
+                    .font(.caption2).foregroundStyle(.secondary).lineLimit(2)
+            }
+        }
+    }
+
+    private func cellDetail(_ i: Int, _ cell: CellState) -> String {
+        var t = "Cell \(i + 1): \(Fmt.int(chipsPerCell)) chips · "
+        if cell.faults == 0 {
+            t += "no faults in 14 days"
+        } else {
+            t += "\(cell.faults) fault\(cell.faults == 1 ? "" : "s") in 14 days, the last "
+            t += cell.lastFault == 0 ? "today" : "\(cell.lastFault ?? 0) days ago"
+        }
+        if cell.quarantined > 0 { t += " · \(cell.quarantined) corrupt node\(cell.quarantined == 1 ? "" : "s") quarantined" }
+        t += cell.watched ? " · watched by ops agents" : " · not watched"
+        return t
+    }
+
+    private static func mix(_ x: UInt64) -> UInt64 {
+        var z = x &+ 0x9E37_79B9_7F4A_7C15
+        z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+        z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+        return z ^ (z >> 31)
+    }
+}
+
+/// 3.4: what the cluster actually delivered, day by day: useful compute as a share of peak, against what MFU and
+/// goodput promised, with the days a loss spike or a fault storm hit.
+struct ThroughputChart: View, Equatable {
+    let days: [RunDay]
+
+    var body: some View {
+        if days.count < 2 {
+            Text("Each day of training adds a point.").font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            Chart {
+                ForEach(Array(days.enumerated()), id: \.offset) { i, d in
+                    AreaMark(x: .value("Day", i), y: .value("Useful %", d.peak > 0 ? d.useful / d.peak * 100 : 0))
+                        .foregroundStyle(.green.opacity(0.25))
+                        .interpolationMethod(.stepCenter)
+                    LineMark(x: .value("Day", i), y: .value("Expected %", d.mfu * d.goodput * 100), series: .value("Series", "Expected"))
+                        .foregroundStyle(.gray.opacity(0.7))
+                        .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
+                    if d.spike || d.useful == 0 {
+                        PointMark(x: .value("Day", i), y: .value("Useful %", 0))
+                            .foregroundStyle(.red)
+                            .symbolSize(18)
                     }
                 }
             }
+            .chartYScale(domain: 0...80)
+            .chartXAxisLabel("Last \(days.count) days")
+            .chartYAxisLabel("% of peak")
+            .accessibilityLabel("Useful throughput, last \(days.count) days")
+            .accessibilityValue(summary)
         }
-        .accessibilityLabel("Cluster activity map: MFU \(Int(mfu * 100))%, goodput \(Int(goodput * 100))%")
     }
 
-    /// Cheap per-cell flicker in 0..<1 (integer mix, no string hashing on every frame).
-    private static func noise(_ i: Int, _ tick: Int) -> Double {
-        var h = UInt64(truncatingIfNeeded: i) &* 0x9E37_79B9_7F4A_7C15 ^ UInt64(truncatingIfNeeded: tick) &* 0xC2B2_AE3D_27D4_EB4F
-        h ^= h >> 31
-        h = h &* 0xBF58_476D_1CE4_E5B9
-        h ^= h >> 29
-        return Double(h >> 11) / Double(1 << 53)
+    private var summary: String {
+        guard let d = days.last else { return "" }
+        let useful = d.peak > 0 ? d.useful / d.peak : 0
+        let stalled = days.filter { $0.spike || $0.useful == 0 }.count
+        return "today \(Fmt.pct(useful, decimals: 0)) of peak against \(Fmt.pct(d.mfu * d.goodput, decimals: 0)) expected"
+            + (stalled > 0 ? ", \(stalled) day\(stalled == 1 ? "" : "s") with a spike or a stall" : "")
     }
 }

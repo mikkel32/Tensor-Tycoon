@@ -36,14 +36,17 @@ extension GameState {
         if a.cls == .tpu { Achievements.unlock(&self, "tpu_owner") }
         let days = AlienFab.isAlienChip(a.id) ? AlienFab.book(&self, count: count)
             : (Semis.isSemiChip(a.id) ? Semis.take(&self, a.id, count: count) : Economy.leadTimeDays(a, self))
-        orders.append(HardwareOrder(accelID: accelID, count: count, siteID: siteID, unitCost: unit - rebate / Double(count), ordered: date,
+        // 3.9: your own chips are booked at the server you pay for now plus the silicon the chip business already paid for.
+        orders.append(HardwareOrder(accelID: accelID, count: count, siteID: siteID, unitCost: unit + Semis.siliconCost(a.id, self) - rebate / Double(count), ordered: date,
                                     arrives: GameCalendar.addDays(date, days)))
         if AlienFab.isAlienChip(a.id) {
             orders[orders.count - 1].made = 0
             orders[orders.count - 1].delivered = 0
-            Sim.news(&self, "Ordered \(Fmt.int(count))× \(a.name)", "\(Fmt.money(total)) paid. Your fab line ships them as they're made: the first in about \(AlienFab.shipDays) days, all of them in about \(days) days, to \(site.name).", .company, image: a.image)
+            Sim.news(&self, "Ordered \(Fmt.int(count))× \(a.name)", "\(Fmt.money(total)) paid. Your fab line ships them as they're made: the first in about \(AlienFab.shipDays) days, all of them in about \(days) days, to \(site.name).", .company, image: a.image,
+                     illustrative: a.photoIsStandIn)
         } else {
-            Sim.news(&self, "Ordered \(Fmt.int(count))× \(a.name)", "\(Fmt.money(total)) paid. Delivery in about \(days) days to \(site.name).", .company, image: a.image)
+            Sim.news(&self, "Ordered \(Fmt.int(count))× \(a.name)", "\(Fmt.money(total)) paid. Delivery in about \(days) days to \(site.name).", .company, image: a.image,
+                     illustrative: a.photoIsStandIn)
         }
         return nil
     }
@@ -57,6 +60,7 @@ extension GameState {
         if n > free { return "Only \(free) of these chips are unallocated. Free some up first." }
         let unit = Economy.resaleValue(a, self, unitCost: owned[i].unitCost, purchased: owned[i].purchased)
         cash += unit * Double(n)
+        Books.disposed(&self, proceeds: unit * Double(n), book: Books.book(owned[i], chips: n, at: date))   // 3.8: gain or loss on book value
         owned[i].count -= n
         owned.removeAll { $0.count <= 0 }
         Sim.news(&self, "Sold \(n)× \(a.name)", "Raised \(Fmt.money(unit * Double(n))) on the secondary market.", .company)
@@ -81,7 +85,7 @@ extension GameState {
         let end = term.months.map { GameCalendar.addMonths(date, $0) }
         rentals.append(Rental(accelID: accelID, count: count, hourly: hourly, term: term, start: date, end: end))
         Sim.news(&self, "Rented \(Fmt.int(count))× \(a.name)", "\(term.rawValue) at \(Fmt.price(hourly))/chip-hour (\(Fmt.money(hourly * 24 * 30.4 * Double(count)))/month).",
-                 .company, image: a.image)
+                 .company, image: a.image, illustrative: a.photoIsStandIn)
         return nil
     }
 
@@ -114,14 +118,15 @@ extension GameState {
         case .colo:
             if capacityKW / 1000 > Campus.coloCapMW { return "Month-to-month cages top out at \(Int(Campus.coloCapMW)) MW. Sign a wholesale lease (Datacenters → Buy & lease), buy a campus or build one for more." }
             if power == .gas || power == .smr || power == .fusion { return "A colocation provider picks grid power or a PPA, not on-site generation." }
-            let setup = loc.coloFee * capacityKW * (cooling == .air ? 1 : 1.35)
+            let setup = loc.coloFee * capacityKW * (cooling == .air ? 1 : 1.35) * Science.coloFactor(self)   // energy discoveries, passed on
             if setup > cash { return "The first month's fee of \(Fmt.money(setup)) is more than your cash." }
             cash -= setup
+            month.costSites += setup   // 3.8: the first month's fee is a cost like every later one
             let ready = GameCalendar.addDays(date, 30)
             sites.append(Site(name: name, kind: .colo, locationID: locationID, capacityKW: capacityKW, cooling: cooling, powerDeal: power,
                               opened: date, ready: ready, capex: 0, monthlyFee: setup))
             Sim.news(&self, "Signed colocation lease: \(name)", "\(Fmt.watts(capacityKW * 1000)) in \(loc.name), ready in 30 days. The first month (\(Fmt.money(setup))) is paid now; \(Fmt.money(setup))/month from then on.",
-                     .company, image: loc.image)
+                     .company, image: loc.image, illustrative: true)
         case .datacenter:
             let mw = capacityKW / 1000
             let cap = Campus.siteCapMW(loc, power, self)
@@ -131,18 +136,21 @@ extension GameState {
             // Big campuses come online a phase at a time; each phase is paid for when it starts.
             let n = Campus.phases(mw: mw)
             let phaseMW = mw / Double(n)
-            let capex = phaseMW * Campus.capexPerMW(cooling, self)
+            let capex = phaseMW * Campus.capexPerMW(cooling, self, location: locationID)   // 3.4 overhaul: the home incentive, net
             if capex > cash { return n > 1 ? "The first phase costs \(Fmt.money(capex)); you have \(Fmt.money(cash))." : "Building this costs \(Fmt.money(capex)); you have \(Fmt.money(cash))." }
             let months = buildMonths(mw: phaseMW, loc: loc, power: power)
             cash -= capex
             month.capex += capex
+            HQ.noteIncentive(&self, gross: phaseMW * Campus.capexPerMW(cooling, self), net: capex)
             let ready = GameCalendar.addDays(date, Int(months * 30.4))
             var site = Site(name: name, kind: .datacenter, locationID: locationID, capacityKW: phaseMW * 1000, cooling: cooling, powerDeal: power,
                             opened: date, ready: ready, capex: capex, monthlyFee: 0)
             site.plannedKW = (mw - phaseMW) * 1000
             site.phaseKW = phaseMW * 1000
+            site.pueGain += Science.newSitePUEGain(self)   // lossless superconducting power delivery
             sites.append(site)
-            let phasesNote = n > 1 ? " Built in \(n) phases of \(Fmt.watts(phaseMW * 1e6)); the first is energised \(ready.gameMonth), about \(Fmt.money(mw * Campus.capexPerMW(cooling, self))) in all." : " \(Fmt.money(capex)), online \(ready.gameMonth)."
+            let incentive = HQ.buildCost(self, location: locationID) < 1 ? " \(HQ.country(self).adjective) incentives take \(Fmt.pct(1 - HQ.buildCost(self, location: locationID), decimals: 0)) off each phase." : ""
+            let phasesNote = (n > 1 ? " Built in \(n) phases of \(Fmt.watts(phaseMW * 1e6)); the first is energised \(ready.gameMonth), about \(Fmt.money(mw * Campus.capexPerMW(cooling, self, location: locationID))) in all." : " \(Fmt.money(capex)), online \(ready.gameMonth).") + incentive
             Voices.groundbreaking(&self, site: name, mw: mw, place: loc.name, title: "Breaking ground: \(name)",
                                   body: "\(Fmt.watts(mw * 1e6)) \(cooling.rawValue.lowercased())-cooled campus in \(loc.name) on \(power.rawValue.lowercased()).\(phasesNote)")
         }
@@ -150,7 +158,8 @@ extension GameState {
     }
 
     func buildMonths(mw: Double, loc: Location, power: PowerDeal) -> Double {
-        var m = (7 + min(22, mw * 0.025)) / loc.buildSpeed * market.buildDelay * Policy.buildFactor(self) * XenoScience.buildFactor(self)
+        var m = (7 + min(22, mw * 0.025)) / loc.buildSpeed * market.buildDelay * Policy.buildFactor(self, location: loc.id) * XenoScience.buildFactor(self)   // 3.4 overhaul: US permitting law on US soil only
+            * Science.buildFactor(self) * AgentOrgs.buildFactor(self)   // energy discoveries; 3.9: infrastructure teams planning construction
         m /= Campus.speedup(year)
         if power == .gas { m *= 0.7 }
         if power == .smr || power == .fusion { m *= 0.85 }
@@ -180,7 +189,7 @@ extension GameState {
             let phase = addKW / Double(n)
             let first = min(addKW, phase)
             if site.expanding == 0 && site.plannedKW == 0 && site.isReady(date) {
-                let capex = first / 1000 * Campus.capexPerMW(site.cooling, self)
+                let capex = first / 1000 * Campus.capexPerMW(site.cooling, self, location: site.locationID)
                 if capex > cash { return n > 1 ? "The first phase costs \(Fmt.money(capex))." : "This expansion costs \(Fmt.money(capex))." }
             }
             sites[i].plannedKW += addKW
@@ -253,33 +262,38 @@ extension GameState {
         if d.syntheticShare > 0 && !b.has(.syntheticData) { return "Research synthetic data pipelines first." }
         let pre = Physics.pretrainFLOPs(d)
         var run = TrainingRun(design: d, started: date, flopsTotal: pre, dataSnapshot: DataEconomy.snapshot(&self))   // 3.6
+        run.dataPlan = DataEconomy.freeze(d, state: self, sources: run.dataSnapshot)   // data bought or lost later never changes it
         run.lr = lr.rawValue
         run.checkpointEvery = checkpointEvery
         run.autoRollback = autoRollback
         Training.prepare(&run, state: &self)
         runs.append(run)
-        // Compute-threshold regulation (real thresholds: US EO 14110 10^26, EU AI Act 10^25)
-        if pre >= 1e26 && year >= 2023.83 && year < 2025.06 {
+        // Compute-threshold regulation (real thresholds: US EO 14110 10^26, EU AI Act 10^25). US rules reach a US lab, or a
+        // run mostly on US soil (3.4 overhaul); the EU AI Act reaches any model sold in the EU.
+        let usLaw = Policy.runUnderUSLaw(self, accelID: d.accelID, chips: d.chips)
+        if pre >= 1e26 && year >= 2023.83 && year < 2025.06 && usLaw {
             cash -= 1_500_000
             month.costOther += 1_500_000
             Sim.news(&self, "Training run reported to the US government", "Runs above 10^26 FLOPs must be reported under the October 2023 executive order. Compliance cost: $1.5M.",
                      .policy, important: false)
         }
-        if pre >= 1e26 && lawsPassed.contains("transparency") {
+        if pre >= 1e26 && lawsPassed.contains("transparency") && usLaw {
             cash -= 2_000_000
             month.costOther += 2_000_000
         }
-        if pre >= 1e27 && lawsPassed.contains("compute_licensing") {
+        if pre >= 1e27 && lawsPassed.contains("compute_licensing") && usLaw {
             cash -= 25_000_000
             month.costOther += 25_000_000
             Sim.news(&self, "Federal compute licence granted for \(d.name)", "Runs above 10^27 FLOP need a licence: $25M.", .policy)
         }
-        if pre >= 1e25 && market.euAIAct && !researched.contains("evals_rsp") {
-            Sim.news(&self, "EU flags \(d.name) as a systemic-risk model", "Above 10^25 FLOPs the EU AI Act requires model evaluations. Research Dangerous-Capability Evals before release or expect fines.",
+        if pre >= 1e25 && market.euAIAct && !(d.safetyEvals && researched.contains("evals_rsp")) {
+            let how = researched.contains("evals_rsp") ? "This run has no evaluation stage: add one in the Model Lab next time, or expect fines after release."
+                                                        : "Research Dangerous-Capability Evals and add an evaluation stage before release, or expect fines."
+            Sim.news(&self, "EU flags \(d.name) as a systemic-risk model", "Above 10^25 FLOPs the EU AI Act requires model evaluations. \(how)",
                      .policy, important: true, good: false)
         }
         Sim.news(&self, "Training started: \(d.name)", "\(Fmt.params(d.paramsB)) params on \(Fmt.tokens(d.tokensT)) tokens using \(Fmt.int(d.chips))× \(a.name). \(Fmt.flops(pre)) FLOPs.",
-                 .company, image: a.image)
+                 .company, image: a.image, illustrative: a.photoIsStandIn)
         return nil
     }
 
@@ -350,6 +364,7 @@ extension GameState {
         guard let i = models.firstIndex(where: { $0.id == id }) else { return "Not found." }
         let launch = plan.strategy
         var publishWeights = openWeights
+        if (openWeights || launch == .openWeights) && !models[i].openWeights, let why = DataEconomy.openWeightsBlocker(self, model: id) { return why }   // research-only data licences
         if !models[i].released {
             if launch == .keynote && GameState.keynoteCost(self) > cash { return "A keynote costs \(Fmt.money(GameState.keynoteCost(self)))." }
             if !plan.isDefault, let e = Launches.blocker(plan, self) { return e }   // 3.7
@@ -357,7 +372,9 @@ extension GameState {
             // What this launch adds over your best model so far, and how soon after your last one it comes.
             let earlier = models.filter { $0.released && $0.id != id }
             let previousBest = earlier.map(\.index).max()
-            let lastLaunch = earlier.compactMap(\.releaseDate).max()
+            // 3.8: tiers a family distilled and released on its own are not launches (they don't use up the attention).
+            let autoTiers = Set(launches.filter { $0.by == "family" }.map(\.modelID))
+            let lastLaunch = earlier.filter { !autoTiers.contains($0.id) }.compactMap(\.releaseDate).max()
             models[i].released = true
             models[i].releaseDate = date
             let quality = max(0, 6 + 4 * (models[i].c - Macro.frontier(year)))
@@ -388,6 +405,12 @@ extension GameState {
             case .openWeights: break
             case .enterprise: gain *= 0.6
             case .government: gain *= 0.7
+            // 3.8
+            case .researchPreview: gain *= 0.4
+            case .limitedAccess:
+                gain *= 0.5
+                models[i].safety = min(100, models[i].safety + 6)
+                safetyScore = min(100, safetyScore + 2)
             }
             var spent = launch == .keynote ? GameState.keynoteCost(self) : 0
             if plan.safety == .thorough {
@@ -397,14 +420,16 @@ extension GameState {
                 spent += c
                 models[i].safety = min(100, models[i].safety + 3)
                 safetyScore = min(100, safetyScore + 1)
+                // 3.4: a full system card with a red-team report is the model's dangerous-capability evaluation.
+                if researched.contains("evals_rsp") { models[i].evaluated = true }
             }
-            gain = Launches.adjustGain(gain, plan, rank: rank)
+            gain = Launches.adjustGain(gain, plan, rank: rank, lift: Families.generationLift(self, models[i]))
             // A second launch within 90 days of the last gets half the attention.
             if gain > 0, let last = lastLaunch, GameCalendar.daysBetween(last, date) < 90 { gain *= 0.5 }
             brand = clamp(brand + gain, 0, 100)
-            Voices.playerLaunch(&self, i, rank: rank, previousBest: previousBest, style: launch)   // 3.4: told by people
+            if by != "family" { Voices.playerLaunch(&self, i, rank: rank, previousBest: previousBest, style: launch) }   // 3.4: told by people
             SafetyFramework.onRelease(&self, i)
-            RivalIntel.playerReleased(&self, name: models[i].name, index: models[i].index)
+            if by != "family" { RivalIntel.playerReleased(&self, name: models[i].name, index: models[i].index, plan: plan) }   // 3.8: not for auto-released tiers
             Launches.launched(&self, i, plan: plan, rank: rank, previousBest: previousBest, gain: gain, cost: spent, by: by)   // 3.7
         }
         models[i].api = api
@@ -562,6 +587,7 @@ extension GameState {
             Sim.news(&self, "You poached a \(comp.name) researcher", "They know how \(item.name) works. It's now in your research tree.", .research, important: true, good: true)
             if rng.chance(0.15) {
                 cash -= fee
+                month.costOther += fee   // 3.8: legal settlements are costs
                 brand = max(0, brand - 2)
                 Sim.news(&self, "\(comp.name) sues over trade secrets", "The lawsuit settles for \(Fmt.money(fee)). Talent wars are getting ugly.", .company, good: false)
             }
@@ -569,6 +595,7 @@ extension GameState {
             Sim.news(&self, "\(comp.name) counter-offered", "Their researcher stayed after a retention package. Your recruiting fee is gone.", .company, good: false)
             if rng.chance(0.3) {
                 cash -= fee * 0.5
+                month.costOther += fee * 0.5   // 3.8
                 brand = max(0, brand - 2)
                 Sim.news(&self, "\(comp.name) accuses you of poaching", "A cease-and-desist and an awkward news cycle cost \(Fmt.money(fee * 0.5)) in legal fees.", .company, good: false)
             }
@@ -596,6 +623,7 @@ extension GameState {
         guard let i = candidates.firstIndex(where: { $0.id == candidateID }) else { return "Not found." }
         if employees.count >= Economy.officeCapacity(self) { return "Your office is full. Upgrade it on the Team page." }
         let c = candidates[i]
+        if let e = HQ.seatError(self, c) { return e }   // 3.4 overhaul: each office has its own desks
         let bonus = c.salary * 0.15
         if bonus > cash { return "You can't afford the signing bonus (\(Fmt.money(bonus)))." }
         cash -= bonus
@@ -606,6 +634,8 @@ extension GameState {
         }
         var e = Employee(name: c.name, role: c.role, skill: c.skill, salary: c.salary, morale: 80, hired: date, star: c.star, equity: c.equity)
         e.trait = c.trait
+        e.office = c.office
+        e.relocated = c.relocated
         employees.append(e)
         candidates.remove(at: i)
         return nil
@@ -653,7 +683,8 @@ extension GameState {
         cash -= fitout
         month.capex += fitout
         officeLevel += 1
-        Sim.news(&self, "Moved into: \(next.name)", "Room for \(Fmt.int(next.capacity)) people. Rent \(Fmt.money(next.monthly))/month.", .company, image: next.image, good: true)
+        Sim.news(&self, "Moved into: \(next.name)", "Room for \(Fmt.int(next.capacity)) people. Rent \(Fmt.money(next.monthly))/month.", .company, image: next.image, good: true,
+                 illustrative: true)
         return nil
     }
 
@@ -665,6 +696,7 @@ extension GameState {
         let pay = Economy.monthlyPayment(principal: amount, annualRate: q.rate, months: months)
         loans.append(Loan(kind: kind, principal: amount, balance: amount, rate: q.rate, termMonths: months, monthsLeft: months, payment: pay, taken: date))
         cash += amount
+        Books.post(&self, .borrowing, amount)   // 3.8
         if kind == .venture { holdings.append(Holding(name: "Venture lender warrants", shares: totalShares * 0.005)) }
         Sim.news(&self, "Borrowed \(Fmt.money(amount))", "\(kind.rawValue) at \(Fmt.trim(q.rate, 2))% for \(months) months: \(Fmt.money(pay))/month.", .finance)
         return nil
@@ -674,6 +706,7 @@ extension GameState {
         guard let i = loans.firstIndex(where: { $0.id == id }) else { return "Not found." }
         if loans[i].balance > cash { return "Need \(Fmt.money(loans[i].balance))." }
         cash -= loans[i].balance
+        Books.post(&self, .repayments, -loans[i].balance)   // 3.8
         loans.remove(at: i)
         return nil
     }
@@ -699,6 +732,7 @@ extension GameState {
         holdings.append(Holding(name: o.investor, shares: newShares))
         let cashPart = o.amount - o.cloudCredits
         cash += cashPart
+        Books.post(&self, .equity, cashPart)   // 3.8: the cloud credits are not cash
         cloudCredits += o.cloudCredits
         rounds.append(FundingRound(name: o.roundName, date: date, amount: o.amount, preMoney: o.preMoney, lead: o.investor, percent: o.amount / post))
         raising = false
@@ -726,6 +760,7 @@ extension GameState {
         isPublic = true
         sharePrice = price * rng.range(1.0, 1.45)
         cash += raised
+        Books.post(&self, .equity, raised)   // 3.8
         stock = [StockPoint(date: date, price: price), StockPoint(date: date, price: sharePrice)]
         valuation = sharePrice * totalShares
         rounds.append(FundingRound(name: "IPO", date: date, amount: raised, preMoney: v * 0.9, lead: "Public markets", percent: 0.12))
@@ -779,6 +814,7 @@ extension GameState {
         let capBefore = sharePrice * totalShares
         publicShares += newShares
         cash += raised
+        Books.post(&self, .equity, raised)   // 3.8
         sharePrice = (capBefore + raised) / max(1, totalShares)
         valuation = sharePrice * totalShares
         let today = date
@@ -820,7 +856,7 @@ extension GameState {
         d.tokensT = max(runs[i].design.tokensT * cp.fraction, 0.0001)
         d.name = "\(runs[i].design.name)-preview-\(Int(cp.fraction * 100))"
         d.reasoning = false
-        let fc = ForecastEngine.forecast(d, state: self, dataSources: runs[i].dataSnapshot)
+        let fc = Training.forecast(d, runs[i], self)
         var m = AIModel(name: d.name, design: d, created: date, c: cp.c, reasoning: false, reasoningBoost: fc.reasoning, codeBoost: fc.code,
                         arenaBonus: 75 * fc.chat, scores: [:], index: 0)
         m.chatSkill = fc.chat
@@ -833,6 +869,8 @@ extension GameState {
         m.autoPrice = true
         m.apiPrice = max(0.01, (Macro.referencePrice(c: cp.c, y: year) * market.apiPricePressure * 0.85 * 1000).rounded() / 1000)
         m.servingPrecision = b.has(.int8Serving) ? .fp8 : .bf16
+        m.archV2 = true
+        m.efficiencyBoost = Physics.designEfficiency(d, bonuses: b)
         m.index = BenchmarkCatalog.index(Leaderboard.profile(m), set: Leaderboard.indexSet(self))
         models.append(m)
         runs[i].saved[ci].forkedModelID = m.id

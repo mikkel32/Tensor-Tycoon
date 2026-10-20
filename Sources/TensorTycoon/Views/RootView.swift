@@ -6,11 +6,14 @@ struct RootView: View {
 
     var body: some View {
         @Bindable var updater = updater
+        @Bindable var store = store
         ZStack(alignment: .bottom) {
             if store.state != nil {
                 GameShell()
             } else {
                 MainMenuView()
+                    // Help ▸ Photo Credits without a game (in a game it opens the Credits screen).
+                    .sheet(isPresented: $store.showPhotoCredits) { PhotoCreditsSheet() }
             }
             if let toast = store.toast {
                 ToastView(toast: toast)
@@ -95,6 +98,13 @@ struct GameShell: View {
         .sheet(isPresented: Binding(get: { store.state?.gameOver != nil }, set: { _ in })) {
             GameOverSheet()
                 .interactiveDismissDisabled()
+        }
+        .overlay {
+            // 3.4: a landmark first's moment, oldest first.
+            if let id = store.state?.ceremonies.first, let first = store.state?.trainingFirsts.first(where: { $0.id == id }) {
+                FirstCeremony(first: first) { store.mutate { $0.ceremonies.removeAll { $0 == id } } }
+                    .transition(.opacity)
+            }
         }
     }
 

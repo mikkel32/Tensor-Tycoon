@@ -125,6 +125,14 @@ struct RunReviewSheet: View {
                 Text("Scale-out across domains costs \(Fmt.pct(r.scaleOutLoss, decimals: 0)) of MFU.").font(.caption).foregroundStyle(r.scaleOutLoss > 0.15 ? .orange : .secondary)
             }
             SpecRow(label: "Expected MFU · goodput", value: "\(Fmt.pct(e.mfu, decimals: 0)) · \(Fmt.pct(e.goodput, decimals: 0))")
+            // 3.4: what the design itself costs in throughput and memory.
+            SpecRow(label: "Training memory per parameter", value: "\(Fmt.trim(Physics.stateBytesPerParam(design), 1)) + \(Fmt.trim(Physics.activationBytesPerParam(design, bonuses: store.derived.bonuses), 1)) bytes · \(design.memoryPlan.rawValue.lowercased())")
+            if design.isMoE {
+                SpecRow(label: "Expert routing", value: "\(TrainingExperience.layout(design).label) · keeps \(Fmt.pct(Physics.moeEfficiency(design, accel: r.accel, bonuses: store.derived.bonuses), decimals: 0)) of throughput")
+            }
+            if design.spares > 0 {
+                SpecRow(label: "Hot spares", value: "\(Fmt.int(Int(Double(design.chips) * design.spares))) chips · \(Fmt.pct(1 - Physics.spareRecovery(design.spares), decimals: 0)) less time lost per failure")
+            }
             SpecRow(label: "Ops-agent coverage", value: Fmt.pct(e.coverage, decimals: 0))
             SpecRow(label: "Useful compute per day", value: "\(Fmt.flops(Physics.flopsPerDay(design, state: store.game, lr: lr, interval: interval))) FLOPs")
         }
@@ -156,9 +164,15 @@ struct RunReviewSheet: View {
         let mine = d.board.filter(\.isPlayer).map(\.index).max()
         let sigma = r.est.forecast.sigma
         return Card {
-            CardHeader(title: "Forecast", symbol: "sparkles", subtitle: r.known ? "Scaling-law prediction · 80% interval" : "No scaling laws yet: a rough guess") {
-                Pill(text: r.tier, color: tierColor(r.tier))
+            CardHeader(title: "Forecast", symbol: "sparkles", subtitle: r.known ? "Scaling-law prediction · 80% interval" : "No scaling laws yet") {
+                if r.known { Pill(text: r.tier, color: tierColor(r.tier)) }
             }
+            if !r.known {
+                // Without scaling laws nobody can say in advance how good a run will be: the first checkpoint evals will.
+                Label("Your lab can't predict this model's quality yet. Research Neural Scaling Laws for real forecasts; until then you'll find out at the first eval checkpoints.",
+                      systemImage: "questionmark.circle")
+                    .font(.callout).foregroundStyle(.secondary)
+            } else {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 Text(Fmt.score(r.mean)).font(TypeRamp.display)
                 VStack(alignment: .leading, spacing: 2) {
@@ -170,6 +184,7 @@ struct RunReviewSheet: View {
             BandStrip(low: r.low, mean: r.mean, high: r.high, top: top, mine: mine).frame(height: 34)
             Text("Expected capability domains").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
             DomainGrid(scores: r.domains, compare: s.labDomains["player"], columns: 3)
+            }
         }
     }
 
@@ -178,12 +193,12 @@ struct RunReviewSheet: View {
             CardHeader("Competitive position", symbol: "flag.checkered")
             HStack(spacing: 18) {
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("#\(r.rankNow)").font(.title2.weight(.bold).monospacedDigit()).foregroundStyle(r.rankNow == 1 ? .yellow : .primary)
+                    Text(r.known ? "#\(r.rankNow)" : "?").font(.title2.weight(.bold).monospacedDigit()).foregroundStyle(r.known && r.rankNow == 1 ? .yellow : .primary)
                     Text("if it shipped today").font(.caption2).foregroundStyle(.secondary)
                 }
                 Image(systemName: "arrow.right").foregroundStyle(.tertiary)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(r.finish == nil ? "—" : "#\(r.rankAtFinish)").font(.title2.weight(.bold).monospacedDigit())
+                    Text(r.finish == nil ? "—" : (r.known ? "#\(r.rankAtFinish)" : "?")).font(.title2.weight(.bold).monospacedDigit())
                         .foregroundStyle(r.rankAtFinish == 1 ? .yellow : (r.rankAtFinish > r.rankNow ? .orange : .primary))
                     Text("when it finishes (Rival Watch)").font(.caption2).foregroundStyle(.secondary)
                 }
@@ -193,7 +208,9 @@ struct RunReviewSheet: View {
                     Text("to serve 1M tokens").font(.caption2).foregroundStyle(.secondary)
                 }
             }
-            if r.rivalsAhead.isEmpty {
+            if !r.known {
+                Text("Without scaling laws there's no forecast to rank.").font(.caption).foregroundStyle(.secondary)
+            } else if r.rivalsAhead.isEmpty {
                 Text(r.finish == nil ? "It never finishes as planned." : "No rival release the Rival Watch expects before then beats its forecast.")
                     .font(.caption).foregroundStyle(.secondary)
             } else {

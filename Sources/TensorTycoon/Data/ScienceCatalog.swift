@@ -51,6 +51,18 @@ enum SciEffect: String, Codable, Sendable {
     case superconductor
 }
 
+/// A new technology category a discovery opens (rather than a better number): `Science.has` says whether it's open.
+enum SciUnlock: String, Codable, CaseIterable, Sendable {
+    /// Fusion plants can be contracted (burning-plasma control stack).
+    case fusionPower
+    /// A 2D-channel logic process node (2D-material transistors) — for the semiconductor catalog.
+    case twoDProcess
+    /// New campuses get lossless superconducting power delivery and cryo-free cooling loops (room-temperature superconductor).
+    case losslessPower
+    /// Useful quantum chemistry can be attempted early (below-threshold logical qubit).
+    case quantumChemistry
+}
+
 /// The ten stages of a research project. Computational fields (mathematics, software) run the same pipeline with
 /// different names for the physical stages and skip manufacturing.
 enum SciStage: Int, Codable, CaseIterable, Identifiable, Sendable {
@@ -375,6 +387,29 @@ enum ScienceCatalog {
     ]
 
     static let projectByID: [String: SciProjectDef] = Dictionary(uniqueKeysWithValues: projects.map { ($0.id, $0) })
+
+    /// The effect a project's discovery has: its field's, except where the result is a kind of its own.
+    static func effect(_ d: SciProjectDef) -> SciEffect {
+        d.id == "rt_superconductor" ? .superconductor : field(d.field).effect
+    }
+
+    // MARK: Technology unlocks
+
+    /// Discoveries that open a new technology the moment they reproduce: what opens, and where it shows.
+    static let unlocks: [(project: String, unlock: SciUnlock, title: String, detail: String, opensProject: String?)] = [
+        ("burning_plasma", .fusionPower, "Fusion power plants",
+         "With a control stack that holds a burning plasma, utilities will build fusion plants for you now instead of in the mid-2030s: fusion is on the Power page (plants still take years to build).", nil),
+        ("two_d_transistor", .twoDProcess, "A 2D-channel process node",
+         "Atom-thin channels give foundries a node beyond silicon: a year after the result reproduces, a 2D-channel process opens to your chip programmes (Semiconductors), years before the industry has it.", nil),
+        ("rt_superconductor", .losslessPower, "Lossless power delivery",
+         "Superconducting busbars and cryo-free cooling loops: every campus you build from now on starts with a lower PUE (shown on the Datacenters page), more as the superconductor matures.", nil),
+        ("logical_qubit", .quantumChemistry, "Error-corrected quantum chemistry",
+         "Logical qubits below threshold make real chemistry on qubits worth attempting: your labs can start Useful quantum advantage in chemistry now, years before anyone else.", "quantum_chemistry"),
+    ]
+
+    static func unlock(_ project: String) -> (project: String, unlock: SciUnlock, title: String, detail: String, opensProject: String?)? {
+        unlocks.first { $0.project == project }
+    }
 
     // MARK: Stages
 

@@ -18,12 +18,14 @@ struct RunReportSheet: View {
     @State private var revealed = false
     @State private var launchPlan: LaunchPlan?   // 3.7: nil = your default plan
     @State private var openWeights = false
+    @State private var familySheet: FamilySheet?   // 3.4: distil or post-train straight from the results
 
     var body: some View {
         let d = store.derived
         if let s = store.state, let run = s.runs.first(where: { $0.id == runID }) {
             let model = run.modelID.flatMap { id in s.models.first { $0.id == id } }
             content(s, d, run, model)
+                .familySheet($familySheet)
         } else {
             Text("Run not found").padding(40)
         }
@@ -194,6 +196,9 @@ struct RunReportSheet: View {
                 .frame(maxWidth: .infinity)
                 .clipped()
                 .overlay(LinearGradient(colors: [.black.opacity(0.15), .black.opacity(0.88)], startPoint: .top, endPoint: .bottom))
+                // The report's text sits bottom-leading, so the photo's caption goes top-trailing.
+                .acceleratorPhotoLabel(accel, alignment: .topTrailing)
+                .illustrativePhoto(accel == nil, key: "supercomputer", alignment: .topTrailing)
             HStack(alignment: .bottom) {
                 VStack(alignment: .leading, spacing: 5) {
                     HStack(spacing: 6) {
@@ -359,7 +364,12 @@ struct RunReportSheet: View {
         var rows: [(String, String, Color)] = []
         if run.interruptions > 0 { rows.append(("bolt.trianglebadge.exclamationmark", "\(run.interruptions) hardware interruptions cost \(Fmt.trim(run.lostHours, 0)) cluster-hours", .orange)) }
         if run.spikes > 0 { rows.append(("waveform.path.ecg", "\(run.spikes) loss spike\(run.spikes == 1 ? "" : "s")", .orange)) }
-        if run.bugPenalty > 0 || run.bugFound { rows.append(("ladybug.fill", run.bugFound ? "A silent bug was found and fixed" : "A silent bug was never found", run.bugFound ? .secondary : .red)) }
+        if run.bugIgnored {
+            rows.append(("ladybug.fill", "A silent bug was found, and shipped anyway", .red))
+        } else if run.bugPenalty > 0 || run.bugFound {
+            rows.append(("ladybug.fill", run.bugFound ? (run.penaltyBug > 0 ? "A silent bug was hot-fixed; the damage already done stayed" : "A silent bug was found and fixed") : "A silent bug was never found",
+                         run.bugFound ? (run.penaltyBug > 0 ? .orange : .secondary) : .red))
+        }
         if run.contaminated { rows.append(("drop.triangle.fill", "Benchmark contamination left in: scores flatter it", .red)) }
         if run.sycophantic { rows.append(("hand.thumbsup.fill", "Shipped sycophantic: preference tuning made it a flatterer", .red)) }
         if run.rewardHacked { rows.append(("exclamationmark.lock.fill", "Reward-hacked reasoning RL", .red)) }
@@ -404,6 +414,18 @@ struct RunReportSheet: View {
                     store.open(.models)
                     close()
                 }
+                // 3.4: the other ways to put a new model to work, besides a public launch.
+                Menu("Put it to work") {
+                    Button("Distil a cheaper, faster tier…") { familySheet = .distill(model.id) }
+                    Button("Post-train it: reasoning, agents or a specialisation…") { familySheet = .postTrain(model.id) }
+                    Divider()
+                    Button("Offer it to enterprise customers (Market)") { store.focusModelID = model.id; store.open(.market); close() }
+                    Button("Bid on government programmes with it (Advanced Projects)") { store.open(.advancedProjects); close() }
+                    Button("Run it as agents (AI Organisations)") { store.open(.swarms); close() }
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .help("Distil it, post-train it, sell it to enterprises, use it for government work or as agents")
                 if !model.released {
                     LaunchPlanButton(plan: Binding(get: { launchPlan ?? s.launchDefault }, set: { launchPlan = $0 }), state: s, rank: d.rank(model.id))
                         .frame(maxWidth: 260)
@@ -465,6 +487,19 @@ private struct ForecastVerdict: View {
     let model: AIModel
     let index: Double
     let set: [Benchmark]
+
+    /// A silent bug that was found: hot-fixed (some damage stayed) or fixed by rolling back.
+    private func bugFactor(_ run: TrainingRun, _ compute: (Double) -> String) -> Factor {
+        if run.penaltyBug > 0 {
+            var detail = "Fixed mid-run; the damage already done stayed"
+            let saved = run.bugFixedPenalty - run.penaltyBug
+            if saved > 0.001 { detail += " (fixing it saved \(compute(saved)))" }
+            return Factor(id: "Silent bug — hot-fixed", detail: detail, value: compute(-run.penaltyBug), good: false)
+        }
+        var detail = "Found from the loss curve and fixed"
+        detail += run.bugFixedPenalty > 0.001 ? ": left alone it would have cost \(compute(-run.bugFixedPenalty))" : " before it did lasting damage"
+        return Factor(id: "Silent bug — caught", detail: detail, value: "fixed", good: nil)
+    }
 
     private struct Factor: Identifiable {
         let id: String
@@ -549,15 +584,25 @@ private struct ForecastVerdict: View {
         let luck = run.epsilon
         out.append(Factor(id: "Run luck", detail: "Seed, data order and how well the hyperparameters transferred to full scale",
                           value: compute(luck), good: abs(luck) < 0.01 ? nil : luck > 0))
-        if run.bugPenalty > 0 {
-            out.append(Factor(id: run.bugFound ? "Silent bug — caught" : "Silent bug — never found",
-                              detail: run.bugFound ? "Found from the loss curve and fixed before it did lasting damage" : "A data or code bug quietly hurt every token after it appeared",
-                              value: run.bugFound ? "fixed" : compute(-run.bugPenalty), good: run.bugFound ? nil : false))
+        if run.bugPenalty > 0 && !run.bugFound {
+            out.append(Factor(id: run.bugIgnored ? "Silent bug — ignored" : "Silent bug — never found",
+                              detail: run.bugIgnored ? "Your engineers found it and you shipped on schedule; it hurt every token after it appeared"
+                                                     : "A data or code bug quietly hurt every token after it appeared",
+                              value: compute(-run.bugPenalty), good: false))
+        } else if run.bugFound {
+            out.append(bugFactor(run, compute))
         }
-        if run.qualityPenalty > 0.001 {
-            out.append(Factor(id: "Instabilities", detail: "\(run.spikes) loss spike\(run.spikes == 1 ? "" : "s") and rollbacks left scars", value: compute(-run.qualityPenalty), good: false))
+        // Older saves only kept the total; the part nobody itemised shows as instabilities, as it did before.
+        let other = run.qualityPenalty - run.penaltySpikes - run.penaltyBug - run.penaltySDC
+        if run.penaltySpikes > 0.001 || other > 0.001 {
+            out.append(Factor(id: "Instabilities", detail: "\(run.spikes) loss spike\(run.spikes == 1 ? "" : "s") you trained through left scars",
+                              value: compute(-(run.penaltySpikes + max(0, other))), good: false))
         }
-        let sched = run.schedule.qualityBonus
+        if run.penaltySDC > 0.001 {
+            out.append(Factor(id: "Silent data corruption", detail: "\(Int(run.sdcMissed)) nodes quietly corrupted gradients before anyone caught them",
+                              value: compute(-run.penaltySDC), good: false))
+        }
+        let sched = run.lrCreditTo > 0 ? run.lrCredit : run.schedule.qualityBonus
         if abs(sched) > 0.001 {
             out.append(Factor(id: "Learning-rate schedule", detail: run.schedule.detail, value: compute(sched), good: sched > 0))
         }

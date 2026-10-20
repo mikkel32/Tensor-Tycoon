@@ -15,6 +15,8 @@ enum PowerKind: String, Codable, CaseIterable, Identifiable, Sendable {
     case fusion = "Fusion plant"
     case battery = "Battery storage"
     case interconnect = "Grid interconnection"
+    /// 3.4 overhaul: a long-term share of existing nuclear output (France: EDF's ARENH and the contracts replacing it).
+    case nuclearContract = "Nuclear allocation contract"
 
     var id: String { rawValue }
 
@@ -29,7 +31,7 @@ enum PowerKind: String, Codable, CaseIterable, Identifiable, Sendable {
         case .wind: "wind"
         case .hydro: "drop.fill"
         case .geothermal: "flame.fill"
-        case .nuclearRestart, .smr: "atom"
+        case .nuclearRestart, .smr, .nuclearContract: "atom"
         case .gasTurbines: "fuelpump.fill"
         case .fusion: "sparkles"
         case .battery: "battery.100percent.bolt"
@@ -44,7 +46,8 @@ enum PowerKind: String, Codable, CaseIterable, Identifiable, Sendable {
         case .hydro: "power_hydro"
         case .geothermal: "power_geothermal"
         case .nuclearRestart: "power_nuclear2"
-        case .smr: "nuclear"
+        case .smr: "power_nuclear_build"   // a reactor build site: SMR deals are years of construction
+        case .nuclearContract: "nuclear"   // a share of a running fleet
         case .gasTurbines: "power_gas"
         case .fusion: "power_fusion"
         case .battery: "power_battery"
@@ -60,25 +63,47 @@ enum PowerKind: String, Codable, CaseIterable, Identifiable, Sendable {
         case .smr: 2030
         case .fusion: 2034.5
         case .battery: 2017
+        case .nuclearContract: 2011.5   // ARENH, from July 2011
         default: 2010
         }
     }
 
     func available(_ s: GameState) -> Bool {
-        if self == .fusion && XenoScience.megaDone(s, "supergrid") && s.year >= 2029 { return true }
-        if self == .fusion { return s.year >= availableFrom - Science.fusionPullIn(s) - Progression.fusionPullIn(s) }   // 3.6: fusion-control discoveries; 3.7: Civilisational stage
+        if self == .fusion { return PowerKind.fusionOpen(s, from: availableFrom) }
         return s.year >= availableFrom
     }
 
-    /// Where this kind of power can be had (on-site kinds work anywhere you have a campus).
+    /// Fusion's arrival, the same for power contracts and for a site's power source: the Superconducting Grid
+    /// mega-project, fusion-control discoveries (3.6) and the Civilisational stage (3.7) bring it forward.
+    static func fusionOpen(_ s: GameState, from: Double) -> Bool {
+        if XenoScience.megaDone(s, "supergrid") && s.year >= 2029 { return true }
+        if Science.has(.fusionPower, s) { return true }   // 3.6: the burning-plasma unlock opens it outright
+        return s.year >= from - Science.fusionPullIn(s) - Progression.fusionPullIn(s)   // fusion-control discoveries; the Civilisational stage
+    }
+
+    /// Where this kind of power can be had (on-site kinds work anywhere you have a campus). 3.4 overhaul: Danish wind,
+    /// Romanian hydro, Italian solar and French nuclear contracts at the European sites.
     var locations: [String]? {
         switch self {
-        case .solar: ["texas", "arizona", "uae", "nova", "iowa"]
-        case .wind: ["texas", "iowa", "oregon", "quebec"]
-        case .hydro: ["quebec", "oregon", "iceland"]
+        case .solar: ["texas", "arizona", "uae", "nova", "iowa", "it_milan"]
+        case .wind: ["texas", "iowa", "oregon", "quebec", "dk_jutland"]
+        case .hydro: ["quebec", "oregon", "iceland", "ro_bucharest"]
         case .geothermal: ["iceland", "oregon", "arizona"]
         case .nuclearRestart: ["nova", "iowa", "arizona", "texas"]
+        case .nuclearContract: ["fr_rhone"]
         default: nil
+        }
+    }
+
+    /// Local contract prices against the curve (game estimates from 2024 PPA prices [POWER] in Countries.swift):
+    /// Nordic wind is cheap, Italian solar dear, Romanian hydro sells near the regional wholesale price.
+    func localPriceFactor(_ location: String) -> Double {
+        switch (self, location) {
+        case (.wind, "dk_jutland"): 0.72
+        case (.solar, "it_milan"): 1.25
+        case (.hydro, "ro_bucharest"): 1.3
+        case (.gasTurbines, "uae"): 0.8
+        default: 1
         }
     }
 
@@ -93,6 +118,7 @@ enum PowerKind: String, Codable, CaseIterable, Identifiable, Sendable {
         case .gasTurbines: 0.9
         case .smr: 0.93
         case .fusion: 0.9
+        case .nuclearContract: 0.9
         case .battery, .interconnect: 1
         }
     }
@@ -108,6 +134,8 @@ enum PowerKind: String, Codable, CaseIterable, Identifiable, Sendable {
         case .gasTurbines: interpolate([(2016, 45), (2022, 70), (2024, 52), (2028, 60), (2035, 58)], at: y)
         case .smr: interpolate([(2030, 92), (2033, 70), (2036, 55), (2040, 45)], at: y)
         case .fusion: interpolate([(2034, 55), (2037, 30), (2040, 18)], at: y)
+        // ARENH's €42/MWh with transmission (≈ $48–52) to 2025, then the long-term allocation contracts (≈ €60–70).
+        case .nuclearContract: interpolate([(2016, 48), (2021, 50), (2024, 60), (2026, 65), (2030, 66), (2035, 62)], at: y)
         case .battery, .interconnect: 0
         }
     }
@@ -137,6 +165,7 @@ enum PowerKind: String, Codable, CaseIterable, Identifiable, Sendable {
         case .fusion: 30
         case .battery: 8
         case .interconnect: 0
+        case .nuclearContract: 6
         }
     }
 
@@ -151,6 +180,7 @@ enum PowerKind: String, Codable, CaseIterable, Identifiable, Sendable {
         case .fusion: 100_000
         case .battery: 5_000
         case .interconnect: loc.gridCap(s.year) * 1.5
+        case .nuclearContract: loc.gridCap(s.year)
         }
     }
 
@@ -166,6 +196,7 @@ enum PowerKind: String, Codable, CaseIterable, Identifiable, Sendable {
         case .fusion: "A commercial fusion plant feeding the campus directly: cheap, clean and practically unlimited."
         case .battery: "Four-hour batteries: shave peaks, ride out grid emergencies and squeeze more out of a connection."
         case .interconnect: "Join the utility's queue for a bigger grid connection. Waits run from months to years by region."
+        case .nuclearContract: "A long-term share of France's existing nuclear output, delivered over the grid: 24/7, low-carbon and priced well below the market."
         }
     }
 }
@@ -219,6 +250,14 @@ enum Power {
     /// Purchase agreements and on-site generation are the hedge.
     static func gridMultiplier(_ s: GameState) -> Double { 1 + 0.4 * max(0, s.world.gridStress - 30) / 70 * AdvancedProjects.gridFactor(s) }   // grid programmes
 
+    /// Everything that cuts what your datacenters' power costs, multiplied — culture perks, alien materials,
+    /// infrastructure agent teams, energy discoveries, cooling programmes — with a floor: a campus still pays for at
+    /// least a tenth of its power. The power bill (Sim.dailyCosts) and purchase-agreement settlement (`settle`) both use it.
+    static func billFactor(_ s: GameState) -> Double {
+        max(0.1, max(0.5, 1 - s.traits.power) * XenoScience.powerFactor(s) * AgentOrgs.powerFactor(s) * Science.powerFactor(s) * AdvancedProjects.powerFactor(s)
+                 * Corporate.powerFactor(s))   // 3.8: an energy subsidiary's contracts
+    }
+
     static func summary(_ s: GameState) -> PowerSummary {
         var p = PowerSummary()
         for site in s.sites {
@@ -251,27 +290,39 @@ enum Power {
     }
 
     /// Months you'd wait in the interconnection queue for `mw` more grid power at `loc`.
-    static func queueMonths(_ loc: Location, mw: Double, _ s: GameState) -> Double {
-        let base: Double = switch loc.id {
+    /// Interconnection queue at each site before the era and grid stress (months). The European sites (3.4 overhaul,
+    /// game estimates): Italy's backlog of datacenter connection requests runs longest; Romania's smaller grid and
+    /// France's 2025 fast-track for datacenter sites are quicker.
+    static func queueBase(_ id: String) -> Double {
+        switch id {
         case "nova": 48
         case "oregon": 40
+        case "it_milan": 36
         case "iowa", "arizona": 30
         case "quebec": 26
+        case "dk_jutland": 24
+        case "fr_rhone": 22
         case "texas": 20
         case "iceland": 18
+        case "ro_bucharest": 16
         default: 12
         }
+    }
+
+    /// Months you'd wait in the interconnection queue for `mw` more grid power at `loc`.
+    static func queueMonths(_ loc: Location, mw: Double, _ s: GameState) -> Double {
+        let base = queueBase(loc.id)
         let era = interpolate([(2016, 0.35), (2020, 0.5), (2023, 0.8), (2025, 1.0), (2028, 1.1), (2031, 0.85), (2035, 0.6)], at: s.year)
         let size = 0.8 + 0.4 * min(1, mw / max(1, loc.gridCap(s.year)))
         let stress = 1 + s.world.gridStress / 150
-        let rules = Policy.buildFactor(s) * XenoScience.buildFactor(s)
-        return max(3, base * era * size * stress * rules)
+        let rules = Policy.buildFactor(s, location: loc.id) * XenoScience.buildFactor(s)
+        return max(3, base * era * size * stress * rules * Science.queueFactor(s))   // energy discoveries: flexible load connects sooner
     }
 
     /// Months from signing to first power.
     static func leadMonths(_ kind: PowerKind, _ loc: Location, mw: Double, _ s: GameState) -> Double {
         if kind == .interconnect { return queueMonths(loc, mw: mw, s) }
-        var m = kind.leadMonths(s.year) * Policy.buildFactor(s)
+        var m = kind.leadMonths(s.year) * Policy.buildFactor(s, location: loc.id)
         if kind.onSite { m = m / loc.buildSpeed / max(1, Campus.speedup(s.year) * 0.8) }
         if kind == .solar || kind == .wind { m *= 0.8 + 0.4 * min(1, mw / max(1, loc.gridCap(s.year))) }
         return max(3, m)
@@ -287,7 +338,7 @@ enum Power {
     static func quote(_ kind: PowerKind, locationID: String, siteID: UUID?, mw: Double, _ s: GameState) -> (upfront: Double, priceMWh: Double, months: Double, error: String?) {
         guard let loc = LocationCatalog.byID[locationID] else { return (0, 0, 0, "Pick a location.") }
         let upfront = kind.capexPerMW(s.year) * mw * (kind == .battery ? Science.storageCapexFactor(s) : 1)   // 3.6: battery discoveries
-        let price = kind.priceMWh(s.year) * (kind == .gasTurbines && loc.id == "uae" ? 0.8 : 1)
+        let price = kind.priceMWh(s.year) * kind.localPriceFactor(loc.id)
         let months = leadMonths(kind, loc, mw: mw, s)
         if !kind.available(s) { return (upfront, price, months, "\(kind.rawValue) isn't available until \(Int(kind.availableFrom)).") }
         if mw < 1 { return (upfront, price, months, "Contracts start at 1 MW.") }
@@ -345,6 +396,7 @@ enum Power {
                   site.kind == .datacenter || site.kind == .colo else { continue }
             draw[site.id, default: 0] += Economy.chipKW(a) * Double(b.count) * (0.3 + 0.65 * (util[a.id] ?? 0)) * site.pue
         }
+        for (id, kw) in AdvancedProjects.facilityDraw(s) { draw[id, default: 0] += kw }   // 3.8: classified facilities
         var delta = 0.0   // positive = saving
         let grid = gridMultiplier(s)
         // On-site generation.
@@ -366,7 +418,7 @@ enum Power {
             // Take-or-pay: the rest is sold into the market at 70% of the local wholesale price.
             delta += left * 24 * (c.location.powerPrice * grid * 0.7 - c.priceMWh / 1000)
         }
-        delta *= max(0.5, 1 - s.traits.power) * XenoScience.powerFactor(s) * Science.powerFactor(s) * AdvancedProjects.powerFactor(s)   // 3.6: energy discoveries; cooling programmes
+        delta *= billFactor(s)   // the same factors as the power bill itself (Sim.dailyCosts)
         s.cash += delta
         s.month.costPower -= delta
     }

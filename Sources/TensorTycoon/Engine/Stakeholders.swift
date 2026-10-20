@@ -71,7 +71,7 @@ enum Stakeholders {
             } else {
                 add("No released model yet", -4)
             }
-            let safety = Double(s.employees.filter { $0.role == .safety }.count) / Double(max(1, s.employees.count))
+            let safety = Double(s.staff(.safety).count) / Double(max(1, s.employees.count))   // 3.8: not those seconded to programmes
             add("Safety team", min(4, safety * 40))
             let morale = s.employees.isEmpty ? 70 : s.employees.reduce(0) { $0 + $1.morale } / Double(s.employees.count)
             add("Staff morale", clamp((morale - 70) * 0.2, -5, 5))
@@ -108,6 +108,7 @@ enum Stakeholders {
         if sites > 0 { add("Your datacenters there", min(6, 3 * Double(sites))) }
         if let until = s.world.ties[r.rawValue], until > s.date { add("Sovereign AI deal", 5) }
         add("Government programmes", AdvancedProjects.standingBonus(s, r))   // 3.5
+        add("National partnerships", HQ.partnershipStanding(s, r))   // 3.4 overhaul: compute centres and chairs you fund
         return (clamp(50 + parts.reduce(0) { $0 + $1.value }, 5, 95), parts)
     }
 

@@ -7,9 +7,10 @@ extension BalanceHarness {
     static func frontierLab(year: Double, chips: Int, seed: UInt64 = 11) -> (GameState, UUID) {
         let era = year < 2020 ? "2017" : (year < 2022 ? "2020" : (year < 2026 ? "2022" : "2026"))
         var s = NewGame.create(NewGameSettings(companyName: "Probe Labs", founderName: "Bot", eraID: era, difficulty: .normal), seed: seed)
-        while s.year < year { Sim.advanceDay(&s); s.decisions.removeAll(); s.gameOver = nil; s.cash = max(s.cash, 1e8) }
+        while s.year < year { Sim.advanceDay(&s); s.decisions.removeAll(); s.gameOver = nil; ScenarioHarness.fund(&s, atLeast: 1e8) }
         s.researched.formUnion(ResearchCatalog.core.filter { $0.year <= year && $0.category != .frontier }.map(\.id))
-        s.cash = 5e10
+        ScenarioHarness.fund(&s, atLeast: 5e10)
+        ScenarioHarness.setStage(&s, .frontierLab)   // what the lab this sets up would be
         s.valuation = Macro.frontierValuation(year) * 0.3
         let site = Site(name: "Probe Campus", kind: .datacenter, locationID: "texas", capacityKW: 3_000_000, cooling: .liquid, powerDeal: .grid,
                         opened: s.date, ready: s.date, capex: 0, monthlyFee: 0)

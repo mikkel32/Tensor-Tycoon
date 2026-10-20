@@ -21,6 +21,7 @@ rm -rf "${APP:?}"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/Images"
 cp "$BIN" "$APP/Contents/MacOS/TensorTycoon"
 cp Resources/Images/* "$APP/Contents/Resources/Images/"
+cp Resources/CREDITS.txt "$APP/Contents/Resources/CREDITS.txt"
 cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 
 cat > "$APP/Contents/Info.plist" <<PLIST

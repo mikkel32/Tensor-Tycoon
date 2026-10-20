@@ -205,6 +205,10 @@ enum ReplayHarness {
         for n in s.news.prefix(12) where n.date == s.date && (n.title.hasPrefix("Inbox:") || n.title.contains("ovenant") || n.title.contains("enalty")) {
             print("    NEWS: \(n.title) — \(n.body)")
         }
+        if ProcessInfo.processInfo.environment["REPLAY_BOOK"] != nil {
+            let c = Commercial.capacity(s)
+            print("    BOOKINGS base \(Fmt.money(c.base))/mo · ramp \(Fmt.money(c.ramp)) · team \(Fmt.money(c.team)) (\(Fmt.trim(Commercial.teamUnits(s), 0)) units, \(s.employees.count) staff) · cap \(Fmt.money(c.cap)) · unbooked today \(Fmt.money(s.corp.unbookedToday))/day")
+        }
         let fab = s.orders.filter { AlienFab.isAlienChip($0.accelID) }
         if s.alienFab.exists {
             let own = s.owned.filter { AlienFab.isAlienChip($0.accelID) }.reduce(0) { $0 + $1.count }

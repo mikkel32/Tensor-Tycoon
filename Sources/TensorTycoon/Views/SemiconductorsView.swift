@@ -37,7 +37,9 @@ struct SemiconductorsView: View {
                          detail: last.map { "\(Fmt.count($0.sold)) chips sold · costs \(Fmt.money($0.costs))" } ?? "Open a product for sale on the Sales tab",
                          symbol: "dollarsign.circle.fill", tint: .green)
                 StatTile(title: "Supplier reputation", value: "\(Int(Semis.reputation(s) * 100))/100",
-                         detail: "Grows with chips shipped (\(Fmt.count(s.semi.shipped)))", symbol: "star.fill", tint: .orange)
+                         detail: "Chips shipped (\(Fmt.count(s.semi.shipped))) and software", symbol: "star.fill", tint: .orange)
+                StatTile(title: "Software maturity", value: Fmt.pct(s.semi.software, decimals: 0),
+                         detail: "Compiler, kernels, drivers · \(s.semi.compilerEngineers) engineers", symbol: "chevron.left.forwardslash.chevron.right", tint: .purple)
                 StatTile(title: "Supply shocks", value: "\(Semis.activeShocks(s).count)",
                          detail: Semis.activeShocks(s).first?.title ?? "Packaging \(Semis.tightWords(Semis.tightness("pack", s.year))), HBM \(Semis.tightWords(Semis.tightness("hbm", s.year)))",
                          symbol: "exclamationmark.triangle.fill", tint: Semis.activeShocks(s).isEmpty ? .teal : .red)
@@ -102,6 +104,7 @@ private struct SemiDesignTab: View {
         let s = state
         VStack(alignment: .leading, spacing: 16) {
             SemiTeamsCard(state: s)
+            SoftwareStackCard(state: s)
             if !s.semi.teams.isEmpty { NewDesignCard(state: s) }
             ForEach(s.semi.designs.reversed()) { d in DesignCard(design: d, state: s) }
         }
@@ -161,20 +164,26 @@ private struct NewDesignCard: View {
     @State private var focus: ChipFocus = .training
     @State private var verification = 1
     @State private var teamID: UUID? = nil
-    @State private var derived = false
+    @State private var link: ChipLink = .switched
+    @State private var portOf: UUID? = nil
 
     var body: some View {
         let s = state
         let nodes = Semis.designable(s)
-        let nodeID = nodes.contains(where: { $0.id == node }) ? node : (nodes.last { $0.launch <= s.year }?.id ?? nodes.first?.id ?? "n7")
+        let nodeID = nodes.contains(where: { $0.id == node }) ? node : (nodes.last { Semis.launch($0, s) <= s.year }?.id ?? nodes.first?.id ?? "n7")
         let team = Semis.team(s, teamID) ?? s.semi.teams.first { Semis.teamBusy(s, $0.id) == nil } ?? s.semi.teams.first
-        let parent = s.semi.designs.filter { $0.qualified != nil }.last
-        let isDerived = derived && parent != nil
-        let p = Semis.plan(node: nodeID, verification: verification, team: team, derived: isDerived, s)
-        let arch = Semis.archQuality(generation: s.semi.designs.count + 1, team: team, derived: isDerived, s)
-        let perf = Semis.perfRatio(arch: arch.value, node: nodeID, die: die, erratum: false, s)
+        let parents = Semis.portable(s, focus: focus, node: nodeID)
+        let parent = parents.first { $0.id == portOf }
+        let isDerived = parent != nil
+        let p = Semis.plan(node: nodeID, verification: verification, team: team, derived: isDerived, link: link, s)
+        let gen = parent?.generation ?? Semis.nextGeneration(focus, s)
+        let arch = Semis.archQuality(generation: gen, team: team, port: parent, node: nodeID, s)
+        let sp = Semis.spec(node: nodeID, die: die, stacks: stacks, focus: focus, link: link, arch: arch.value, erratum: false,
+                            year: s.year + p.designDays / 365, s)
+        let probe = SemiDesign(name: "", generation: gen, node: nodeID, die: die, stacks: stacks, focus: focus, verification: verification, teamID: team?.id,
+                               link: link.rawValue, started: s.date)
         let n = SemiCatalog.node(nodeID)
-        let opensAt = SemiCatalog.foundries.map { Semis.opens(n, $0) }.min() ?? n.launch
+        let opensAt = SemiCatalog.foundries.map { Semis.opens(n, $0, s) }.min() ?? Semis.launch(n, s)
         let fsw = SemiCatalog.foundryByID["fsw"]!
         let launchYield = Semis.previewYield(node: nodeID, die: die, foundry: fsw, s, at: s.year + p.months / 12)
         Card {
@@ -184,7 +193,7 @@ private struct NewDesignCard: View {
                 GridRow {
                     Text("Process node").font(.callout)
                     Picker("Node", selection: Binding(get: { nodeID }, set: { node = $0 })) {
-                        ForEach(nodes) { nd in Text("\(nd.name) — opens \(Fmt.trim(nd.launch, 1))").tag(nd.id) }
+                        ForEach(nodes) { nd in Text(nodeLabel(nd, s)).tag(nd.id) }
                     }.labelsHidden()
                 }
                 GridRow {
@@ -207,6 +216,12 @@ private struct NewDesignCard: View {
                         .pickerStyle(.segmented).labelsHidden()
                 }
                 GridRow {
+                    Text("Interconnect").font(.callout)
+                    Picker("Interconnect", selection: $link) {
+                        ForEach(ChipLink.allCases.filter { $0.from <= s.year }) { l in Text(l.title).tag(l) }
+                    }.labelsHidden()
+                }
+                GridRow {
                     Text("Verification").font(.callout)
                     Picker("Verification", selection: $verification) {
                         ForEach(0..<3, id: \.self) { v in Text("\(Semis.verificationName(v)) (time ×\(Fmt.trim(Semis.verificationTime[v], 2)), respin ×\(Fmt.trim(Semis.verificationRisk[v], 2)))").tag(v) }
@@ -218,14 +233,18 @@ private struct NewDesignCard: View {
                         ForEach(s.semi.teams) { t in Text("\(t.name) — \(t.engineers) engineers\(Semis.teamBusy(s, t.id) != nil ? " (busy)" : "")").tag(Optional(t.id)) }
                     }.labelsHidden()
                 }
-                if let parent {
+                if !parents.isEmpty {
                     GridRow {
                         Text("Port").font(.callout)
-                        Toggle("Port \(parent.name) (60% of the time, 0.7× respin odds, a smaller step up)", isOn: $derived)
+                        Picker("Port", selection: $portOf) {
+                            Text("New architecture (generation \(Semis.nextGeneration(focus, s)))").tag(UUID?.none)
+                            ForEach(parents) { d in Text("Port \(d.name) — gen \(d.generation), architecture \(Fmt.trim(d.arch, 2))").tag(Optional(d.id)) }
+                        }.labelsHidden()
                     }
                 }
             }
             Text(SemiCatalog.die(die).blurb).font(.caption).foregroundStyle(.secondary)
+            Text(linkNote(isDerived)).font(.caption).foregroundStyle(.secondary)
             Divider()
             HStack(alignment: .top, spacing: 24) {
                 VStack(alignment: .leading, spacing: 4) {
@@ -233,7 +252,11 @@ private struct NewDesignCard: View {
                     Text("About \(Int(p.months.rounded())) months to production · \(Fmt.money(p.total)) to get there").font(.callout)
                     Text("Team \(Fmt.money(p.teamCost)) · EDA & IP \(Fmt.money(p.ipCost)) · masks \(Fmt.money(p.maskCost))").font(.caption).foregroundStyle(.secondary)
                     Text("Respin odds at bring-up: \(Fmt.pct(p.respin, decimals: 0))").font(.callout.weight(.semibold)).foregroundStyle(p.respin > 0.35 ? .orange : .primary)
-                    Text("Performance ≈ \(Fmt.trim(perf.value, 2))× \(Silicon.reference(s).name) (Ultra bin) at about \(Int(Semis.tdp(node: nodeID, die: die))) W").font(.callout)
+                    Text("Ultra bin ≈ \(Fmt.count(sp.bf16)) TFLOPS BF16 · \(Fmt.count(sp.fp4)) FP4 at \(Int(sp.tdpW)) W (\(Semis.perfLabel(sp.bf16, s)) today)").font(.callout)
+                    Text("\(Fmt.memory(sp.memoryGB)) \(Semis.hbmGeneration(s.year + p.designDays / 365)) at \(Fmt.trim(sp.bandwidthTBs, 1)) TB/s · \(sp.scaleUp)-chip scale-up domains · trains at \(Fmt.pct(sp.trainFactor, decimals: 0)) of its peak's efficiency")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Text("Packaging: \(Fmt.trim(Semis.slotsPerChip(probe), 2)) slots a chip · assembly yield \(Fmt.pct(Semis.assemblyYield(probe, s), decimals: 1))")
+                        .font(.caption).foregroundStyle(stacks > 8 || link == .optical ? Theme.warning : .secondary)
                     Text("First-wafer yield ≈ \(Fmt.pct(launchYield.good, decimals: 0)) good dies (D0 \(Fmt.trim(launchYield.d0, 2))/cm², \(Int(launchYield.diesPerWafer)) dies a wafer)")
                         .font(.caption).foregroundStyle(.secondary)
                     if opensAt > s.year {
@@ -242,15 +265,32 @@ private struct NewDesignCard: View {
                 }
                 Spacer()
                 Button("Start design") {
-                    store.act("Design started") { $0.startChipDesign(node: nodeID, die: die, stacks: stacks, focus: focus, verification: verification, teamID: team?.id, derivedFrom: isDerived ? (parent?.name ?? "") : "") }
+                    store.act("Design started") { $0.startChipDesign(node: nodeID, die: die, stacks: stacks, focus: focus, verification: verification, teamID: team?.id, link: link, portOf: parent?.id) }
                 }
                 .buttonStyle(.borderedProminent)
             }
             Why("Time: \(p.timeWhy).")
             Why("Respin: \(p.respinWhy).")
+            Why("Generation \(gen): one past your newest qualified \(focus.rawValue.lowercased()) chip (designs that never shipped don't count).")
             Why("Architecture \(Fmt.trim(arch.value, 2)): \(arch.why).")
-            Why("Performance: \(perf.why).")
+            Why("Performance: \(sp.why). Fixed when it tapes out — a chip doesn't get faster by shipping later.")
         }
+    }
+}
+
+extension NewDesignCard {
+    /// The interconnect's trade-off, and what a port gives up.
+    /// A node in the picker, with when it opens (and why, for the 2D-channel node your lab brought forward).
+    func nodeLabel(_ n: ProcessNode, _ s: GameState) -> String {
+        let at = Semis.launch(n, s)
+        let early = at < n.launch ? " (your 2D-transistor discovery)" : ""
+        return "\(n.name) — opens \(Fmt.trim(at, 1))" + early
+    }
+
+    func linkNote(_ port: Bool) -> String {
+        var t = link.blurb
+        if port { t += " A port reuses its parent's architecture: 60% of the time, 0.7× the respin odds and 0.8× the masks, but no architecture step — the node does the work." }
+        return t
     }
 }
 
@@ -267,7 +307,7 @@ private struct DesignCard: View {
         let die = SemiCatalog.die(d.die)
         Card {
             CardHeader(title: d.name, symbol: "cpu",
-                       subtitle: "Gen \(d.generation) · \(n.name) · \(die.name) · \(d.stacks) HBM stacks · \(d.focus.rawValue.lowercased()) · \(Semis.verificationName(d.verification).lowercased()) verification\(d.derivedFrom.isEmpty ? "" : " · port of \(d.derivedFrom)")") {
+                       subtitle: "Gen \(d.generation) · \(n.name) · \(die.name) · \(d.stacks) HBM stacks · \(Semis.link(d).short) · \(d.focus.rawValue.lowercased()) · \(Semis.verificationName(d.verification).lowercased()) verification\(d.derivedFrom.isEmpty ? "" : " · port of \(d.derivedFrom)")") {
                 Pill(text: d.phase.title, color: SemiStyle.color(d.phase))
             }
             if d.phase.rawValue < SemiPhase.production.rawValue {
@@ -293,8 +333,7 @@ private struct DesignCard: View {
             } else {
                 ChipBinsTable(design: d, state: s)
                 HStack {
-                    Text("Arch \(Fmt.trim(d.arch, 2))\(d.erratum ? " (shipped with an erratum)" : "") · spent \(Fmt.money(d.spent)) to qualify · production cost so far \(Fmt.money(d.cost)) · revenue \(Fmt.money(d.revenue))")
-                        .font(.caption).foregroundStyle(.secondary)
+                    Text(productLine(d)).font(.caption).foregroundStyle(.secondary)
                     Spacer()
                     if d.inProduction {
                         let tied = s.designContracts(d.id)
@@ -312,6 +351,17 @@ private struct DesignCard: View {
             }
             .font(.caption)
         }
+    }
+}
+
+extension DesignCard {
+    /// Architecture, money and the bring-up roll of a product, in a line.
+    func productLine(_ d: SemiDesign) -> String {
+        var t = "Arch \(Fmt.trim(d.arch, 2))"
+        if d.erratum { t += " (shipped with an erratum)" }
+        t += " · spent \(Fmt.money(d.spent)) to qualify · production cost so far \(Fmt.money(d.cost)) · revenue \(Fmt.money(d.revenue))"
+        if d.lastRoll >= 0 && d.qualified != nil { t += " · bring-up roll \(Fmt.trim(d.lastRoll, 2)) against \(Fmt.pct(d.respinOdds, decimals: 0)) odds" }
+        return t
     }
 }
 
@@ -336,7 +386,7 @@ private struct ChipBinsTable: View {
                 if d.chipIDs.indices.contains(b), let a = HardwareCatalog.get(d.chipIDs[b]) {
                     GridRow {
                         Text(SemiCatalog.binNames[b]).font(.caption)
-                        Text("\(Fmt.trim(a.bf16 / max(1, ref.bf16), 2))× \(ref.name)").font(.caption.monospacedDigit())
+                        Text("\(Fmt.count(a.bf16)) TF (\(Fmt.trim(a.bf16 / max(1, ref.bf16), 2))× \(ref.name))").font(.caption.monospacedDigit())
                         Text("\(Fmt.memory(a.memoryGB)) · \(Fmt.trim(a.bandwidthTBs, 1)) TB/s").font(.caption.monospacedDigit())
                         Text("\(Int(a.tdpW)) W").font(.caption.monospacedDigit())
                         Text(Fmt.count(d.made[b])).font(.caption.monospacedDigit())
@@ -347,6 +397,9 @@ private struct ChipBinsTable: View {
             }
         }
         Why("Bins: perfect dies that clock high are Ultra; slower perfect dies and dies with one defect in a spare block are Standard (0.88×); dies with blocks fused off are Lite (0.7×, three quarters of the HBM).")
+        if let a = d.chipIDs.first.flatMap({ HardwareCatalog.get($0) }) {
+            Why("Training MFU \(Fmt.pct(a.baseMFU, decimals: 1)) before your lab's bonuses (software maturity \(Fmt.pct(state.semi.software, decimals: 0))) · serving ×\(Fmt.trim(a.serveFactor, 2)) · \(a.interconnect), \(a.scaleUp)-chip domains at \(Fmt.count(a.interconnectGBs)) GB/s.")
+        }
     }
 }
 
@@ -376,7 +429,7 @@ private struct FoundryBookingCard: View {
     var body: some View {
         let s = state
         let f = SemiCatalog.foundryByID[foundry] ?? SemiCatalog.foundries[0]
-        let offers = SemiCatalog.nodes.filter { Semis.offered($0, f, s.year) }
+        let offers = SemiCatalog.nodes.filter { Semis.offered($0, f, s) }
         let nodeID = offers.contains(where: { $0.id == node }) ? node : (offers.last?.id ?? "")
         let n = SemiCatalog.node(nodeID)
         let cap = Semis.waferCap(f, n, s)
@@ -389,7 +442,7 @@ private struct FoundryBookingCard: View {
             CardHeader("Book wafers at a foundry", symbol: "building.2.fill",
                        subtitle: "Take-or-pay: you pay for every wafer booked from its start date, used or not. Wafers that arrive before a design qualifies are wasted — time the start.")
             ForEach(SemiCatalog.foundries) { fd in
-                let o = SemiCatalog.nodes.filter { Semis.offered($0, fd, s.year) }
+                let o = SemiCatalog.nodes.filter { Semis.offered($0, fd, s) }
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(fd.name).font(.callout.weight(.semibold))
@@ -433,7 +486,7 @@ private struct FoundryBookingCard: View {
             }
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("\(Fmt.money(price)) a wafer · \(Fmt.money(price * wafers))/month · deposit \(Fmt.money(price * wafers)), credited against your last month · 6-month minimum").font(.callout)
+                    Text("\(Fmt.money(price)) a wafer · \(Fmt.money(price * wafers))/month · deposit \(Fmt.money(price * wafers)), returned when the booking ends · 6-month minimum").font(.callout)
                     if let t = target {
                         let y = t.inProduction ? Semis.productYield(t, foundry: f, s) : Semis.previewYield(node: t.node, die: t.die, foundry: f, s)
                         let chips = wafers * y.diesPerWafer * y.good / Double(SemiCatalog.die(t.die).dies)
@@ -461,7 +514,7 @@ private struct BookingsCard: View {
     var body: some View {
         let s = state
         Card {
-            CardHeader("Wafer bookings", symbol: "calendar", subtitle: "Cancelling costs half of what's left of the commitment.")
+            CardHeader("Wafer bookings", symbol: "calendar", subtitle: "The one-month deposit comes back when a booking ends. Cancelling costs half of what's left of the commitment (less the deposit).")
             if s.semi.bookings.isEmpty {
                 Text("No wafers booked.").font(.callout).foregroundStyle(.secondary)
             }
@@ -504,14 +557,14 @@ private struct OwnFabCard: View {
     var body: some View {
         let s = state
         let st = SemiCatalog.siteByID[site] ?? SemiCatalog.sites[0]
-        let nodes = SemiCatalog.nodes.filter { $0.launch <= s.year && $0.launch >= s.year - 8 }
+        let nodes = SemiCatalog.nodes.filter { Semis.launch($0, s) <= s.year && Semis.launch($0, s) >= s.year - 8 }
         let nodeID = nodes.contains(where: { $0.id == node }) ? node : (nodes.last?.id ?? "n7")
         let n = SemiCatalog.node(nodeID)
         let cost = Semis.fabCost(n, wafers: size) * Progression.fabFactor(s)   // 3.7
         let net = cost * (1 - st.subsidy)
         let days = Semis.fabBuildDays(st, wafers: size)
         let mw = Semis.fabMWFull(n, size)
-        let powerMonth = mw * 1_000 * 24 * 30.4 * st.power
+        let powerMonth = mw * 1_000 * 24 * 30.4 * st.power * Power.gridMultiplier(s)
         let fixedMonth = cost * 0.003
         let perWafer = 0.22 * n.waferPrice
         Card {
@@ -538,7 +591,7 @@ private struct OwnFabCard: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("\(Fmt.money(cost)) to build (\(Fmt.money(net)) after incentives) · opens in about \(Fmt.trim(Double(days) / 365, 1)) years").font(.callout)
                     Text("15% up front (\(Fmt.money(net * 0.15))), the rest paid as it's built (≈ \(Fmt.money(net * 0.85 / max(1, Double(days) / 30.4)))/month)").font(.caption).foregroundStyle(.secondary)
-                    Text("Needs \(Int(mw)) MW of power (\(Fmt.money(powerMonth))/month at $\(Fmt.trim(st.power, 3))/kWh) and \(Fmt.count(n.fabWater * size / 1_000)) m³ of water a day · water stress \(Fmt.pct(st.water, decimals: 0)) · quake risk \(Fmt.pct(st.quake, decimals: 0))")
+                    Text("Needs \(Int(mw)) MW of power (\(Fmt.money(powerMonth))/month on the grid at $\(Fmt.trim(st.power * Power.gridMultiplier(s), 3))/kWh; a power deal can cut it) and \(Fmt.count(n.fabWater * size / 1_000)) m³ of water a day · water stress \(Fmt.pct(st.water, decimals: 0)) · quake risk \(Fmt.pct(st.quake, decimals: 0))")
                         .font(.caption).foregroundStyle(.secondary)
                     Text("Running: \(Fmt.money(fixedMonth))/month staff & upkeep + \(Fmt.money(perWafer)) consumables a wafer (a foundry charges \(Fmt.money(Semis.waferPrice(n, SemiCatalog.foundryByID["fsw"]!, s.year))))")
                         .font(.caption).foregroundStyle(.secondary)
@@ -564,7 +617,7 @@ private struct FabRow: View {
         let total = Double(max(1, GameCalendar.daysBetween(fab.started, fab.opens)))
         let done = Double(GameCalendar.daysBetween(fab.started, s.date))
         VStack(alignment: .leading, spacing: 4) {
-            IllustrativeBanner(key: ImagePicker.pick(fab.open(s.date) ? .fab : .construction, seed: fab.name), height: 70)
+            IllustrativeBanner(key: ImagePicker.pick(fab.open(s.date) ? .fab : .fabConstruction, seed: fab.name), height: 70)
             HStack {
                 Text(fab.name).font(.callout.weight(.semibold))
                 Pill(text: SemiCatalog.node(fab.node).short, color: .indigo)
@@ -594,11 +647,29 @@ private struct FabRow: View {
                     Text("Selling \(target == nil ? "all its" : "the other") wafers to other chipmakers at \(Fmt.money(fs.price)) each (they take \(Fmt.pct(fs.fill, decimals: 0)) of what you offer).").font(.caption).foregroundStyle(.secondary)
                 }
                 if Semis.ownFabFactor(s, fab) < 1 { Text("A supply shock cuts output to \(Fmt.pct(Semis.ownFabFactor(s, fab), decimals: 0)).").font(.caption).foregroundStyle(.orange) }
+                HStack {
+                    Text(powerLine(fab, s)).font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Menu("Power deal") {
+                        ForEach(PowerDeal.allCases.filter { $0.available(s) }) { deal in
+                            Button(deal.rawValue) { store.act("\(fab.name): \(deal.rawValue.lowercased())") { $0.setFabPower(fab.id, deal: deal) } }
+                        }
+                    }
+                    .fixedSize()
+                }
             } else {
                 Meter(value: done / total, tint: .orange)
                 Text("Under construction: opens \(fab.opens.gameShort) · \(Fmt.money(fab.unpaid)) still to pay").font(.caption).foregroundStyle(.secondary)
             }
         }
+    }
+}
+
+extension FabRow {
+    func powerLine(_ fab: SemiFab, _ s: GameState) -> String {
+        let price = Semis.fabPowerPrice(fab, s)
+        let month = Semis.fabMW(fab, s) * 1_000 * 24 * 30.4 * price
+        return "Power: \(Semis.fabPowerDeal(fab).rawValue) at $\(Fmt.trim(price, 3))/kWh · \(Fmt.money(month))/month"
     }
 }
 
@@ -631,7 +702,7 @@ private struct FlowCard: View {
         let chipsPossible = dies / Double(die.dies)
         let slots = Semis.packSlotsDay(s) * 30.4
         let hbm = Semis.hbmStacksDay(s) * 30.4
-        let needSlots = chipsPossible * die.slots
+        let needSlots = chipsPossible * Semis.slotsPerChip(d)
         let needHBM = chipsPossible * Double(d.stacks)
         Card {
             CardHeader("\(d.name): from wafer to chip", symbol: "arrow.triangle.branch",
@@ -653,17 +724,29 @@ private struct FlowCard: View {
                 }
             }
             if src.isEmpty { Text("No wafers: book some at a foundry or assign a fab.").font(.caption).foregroundStyle(.orange) }
-            Text("Die bank: \(d.dieBank.enumerated().map { "\(SemiCatalog.binNames[$0.offset]) \(Fmt.count($0.element))" }.joined(separator: ", ")) dies · HBM in stock: \(Fmt.count(s.semi.hbmStock)) stacks · packaging yield \(Fmt.pct(Semis.packYield(s), decimals: 1))")
-                .font(.caption).foregroundStyle(.secondary)
+            Text(bankLine(d, s)).font(.caption).foregroundStyle(.secondary)
             if d.dieBank.reduce(0, +) > 1 {
                 let days = Semis.dieBankDays(d, s)
-                Why("The bank holds \(days.isFinite ? "\(Fmt.trim(days / 30.4, 1)) months" : "more than packaging takes") of packaging. Holding a die costs \(Fmt.pct(Semis.dieCarryMonthly, decimals: 1)) of its wafer cost a month and \(Fmt.pct(Semis.dieLossMonthly(d, s), decimals: 0)) age out a month\(Semis.superseded(d, s) ? " (a newer generation is out)" : ""). Surplus beyond two months \(s.semi.holdExcessDies ? "stays in the bank" : "goes to other packagers as known-good die at about \(Fmt.money(Semis.kgdPrice(d, s))) a die")\(d.kgdSold > 0 ? " — \(Fmt.count(d.kgdSold)) sold so far" : "").")
+                Why("The bank holds \(days.isFinite ? "\(Fmt.trim(days / 30.4, 1)) months" : "more than packaging takes") of packaging. Holding a die costs \(Fmt.pct(Semis.dieCarryMonthly, decimals: 1)) of its wafer cost a month and \(Fmt.pct(Semis.dieLossMonthly(d, s), decimals: 0)) age out a month\(Semis.superseded(d, s) ? " (a newer generation is out)" : ""). Surplus beyond two months of the packaging you run or have contracted \(s.semi.holdExcessDies ? "stays in the bank" : "goes to other packagers as known-good die at about \(Fmt.money(Semis.kgdPrice(d, s))) a die")\(d.kgdSold > 0 ? " — \(Fmt.count(d.kgdSold)) sold so far" : "").")
             }
             if let fsw = SemiCatalog.foundryByID["fsw"] {
                 let uc = Semis.unitCost(d, foundry: fsw, s)
                 Why("One good chip costs about \(Fmt.money(uc.total)) to make at \(fsw.name) today: wafer \(Fmt.money(uc.wafer)) + packaging \(Fmt.money(uc.pack)) + HBM \(Fmt.money(uc.hbm)) + test \(Fmt.money(uc.test)).")
             }
         }
+    }
+}
+
+extension FlowCard {
+    /// The die bank by bin, its target and write-offs, HBM in stock and assembly.
+    func bankLine(_ d: SemiDesign, _ s: GameState) -> String {
+        var bins: [String] = []
+        for b in 0..<3 { bins.append("\(SemiCatalog.binNames[b]) \(Fmt.count(d.dieBank[b]))") }
+        var t = "Die bank: " + bins.joined(separator: ", ")
+        t += " dies (target \(Fmt.count(Semis.dieBankTarget(d, s))), \(Fmt.count(d.diesScrapped)) written off so far)"
+        t += " · HBM in stock: \(Fmt.count(s.semi.hbmStock)) stacks"
+        t += " · assembly yield \(Fmt.pct(Semis.assemblyYield(d, s), decimals: 1)) (\(Fmt.trim(Semis.slotsPerChip(d), 2)) slots a chip)"
+        return t
     }
 }
 
@@ -771,7 +854,7 @@ private struct SupplyContractsCard: View {
                     Spacer()
                     Button("Sign") { store.act("Contract signed") { $0.signSupply(supplier: sup.id, units: units, months: months) } }.buttonStyle(.borderedProminent)
                 }
-                Text("\(sup.blurb) \(Fmt.money(price)) each → \(Fmt.money(price * units))/month · up to \(Fmt.count(max(0, cap))) more a month · \(Semis.leadDays(sup.leadDays, kind, s)) days lead · \(pack ? "assembly" : "stack") yield \(Fmt.pct(sup.yield, decimals: 0)) · 6-month minimum; the first month is a deposit credited against your last, and billing waits until a product is in production")
+                Text("\(sup.blurb) \(Fmt.money(price)) each → \(Fmt.money(price * units))/month · up to \(Fmt.count(max(0, cap))) more a month · \(Semis.leadDays(sup.leadDays, kind, s)) days lead · \(pack ? "assembly" : "stack") yield \(Fmt.pct(sup.yield, decimals: 0)) · 6-month minimum; the first month is a deposit returned when it ends, and billing waits until a product is in production")
                     .font(.caption).foregroundStyle(.secondary)
                 Why(pack ? "Price: \(Fmt.money(Semis.packPrice(s.year))) a slot in \(Int(s.year)) × \(sup.name) \(Fmt.trim(sup.priceFactor, 2)) × shortage premium \(Fmt.trim(1 + 0.6 * Semis.tightness(kind, s.year), 2))."
                          : "Price: \(Fmt.memory(Semis.stackGB(s.year))) \(Semis.hbmGeneration(s.year)) stack × \(Fmt.money(Semis.hbmPerGB(s.year)))/GB × \(sup.name) \(Fmt.trim(sup.priceFactor, 2)) × shortage premium \(Fmt.trim(1 + 0.6 * Semis.tightness(kind, s.year), 2)).")
@@ -798,6 +881,7 @@ private struct SemiSalesTab: View {
         let s = state
         VStack(alignment: .leading, spacing: 16) {
             SalesPolicyCard(state: s)
+            ComputeEconomicsCard(state: s)
             ForEach(s.semi.designs.filter { $0.inProduction || $0.phase == .retired }) { d in ProductSalesCard(design: d, state: s) }
             ContractsCard(state: s)
             BuyersCard(state: s)
@@ -821,15 +905,29 @@ private struct SalesPolicyCard: View {
                 Text("Keep for my fleet: \(Fmt.pct(s.semi.keepShare, decimals: 0))").font(.callout).frame(width: 200, alignment: .leading)
                 Slider(value: Binding(get: { s.semi.keepShare }, set: { v in store.mutate { $0.setSemiPolicy(keepShare: (v * 20).rounded() / 20) } }), in: 0...1)
             }
-            Toggle("Sell to rival labs on the open market", isOn: Binding(get: { s.semi.allowRivals }, set: { v in store.mutate { $0.setSemiPolicy(allowRivals: v) } }))
+            Toggle("Sell to rival labs on the open market", isOn: Binding(get: { s.semi.allowRivals }, set: { v in store.act { $0.setSemiPolicy(allowRivals: v) } }))
             Text("Rival labs are a quarter of the market. Every chip they buy adds to their fleet — and to their next models: \(armed.isEmpty ? "none have bought from you yet" : armed.map { "\($0.def.name) \(Fmt.count(s.semi.buyers[$0.id] ?? 0)) chips" }.joined(separator: ", ")).")
                 .font(.caption).foregroundStyle(.secondary)
             Toggle("Sell to sovereign AI funds", isOn: Binding(get: { s.semi.allowSovereigns }, set: { v in store.mutate { $0.setSemiPolicy(allowSovereigns: v) } }))
             Toggle("Sell surplus dies to other packagers (known-good die)", isOn: Binding(get: { !s.semi.holdExcessDies }, set: { v in store.mutate { $0.setSemiPolicy(holdExcessDies: !v) } }))
             Text(rules.china ? "Export controls: no sales to Chinese buyers\(rules.gulfHalf ? "; Gulf sales need licences (half the demand)" : "")." : "No export controls on your chips right now.")
                 .font(.caption).foregroundStyle(rules.china ? .orange : .secondary)
-            Why("Supplier reputation \(Int(Semis.reputation(s) * 100))/100 = 5 + 15 × log10(1 + chips shipped / 50k)\(s.semi.repHit > 0 ? " − \(Int(s.semi.repHit * 100)) for late orders" : ""). Buyers need to trust your software stack before they switch.")
+            if let until = Semis.exclusiveUntil(s) {
+                Label("You promised exclusive supply until \(until.gameShort): no chips to rival labs, on the market or by order.", systemImage: "lock.fill")
+                    .font(.caption).foregroundStyle(Theme.warning)
+            }
+            Why(reputationWhy(s))
         }
+    }
+}
+
+extension SalesPolicyCard {
+    func reputationWhy(_ s: GameState) -> String {
+        var t = "Supplier reputation \(Int(Semis.reputation(s) * 100))/100 = 5 + 15 × log10(1 + chips shipped / 50k)"
+        t += " + 20 × software maturity (\(Fmt.pct(s.semi.software, decimals: 0)))"
+        if s.semi.repHit > 0 { t += " − \(Int(s.semi.repHit * 100)) for late orders" }
+        t += ". Buyers need to trust your software stack before they switch. Your SKUs share one vendor share of the market."
+        return t
     }
 }
 
@@ -864,7 +962,7 @@ private struct BinSalesRow: View {
         let s = state
         let b = bin
         let p = price > 0 ? price : d.prices[b]
-        let dem = Semis.demand(chip, price: p, s)
+        let dem = Semis.demand(d.id, bin: b, price: p, s)
         let open = Semis.buyers(s).filter { $0.blocked == nil }.reduce(0) { $0 + $1.weight }
         let uc = Semis.unitCost(d, foundry: SemiCatalog.foundryByID["fsw"]!, s)
         let avail = Int(d.stockMine[b] + d.stockSale[b])
@@ -887,7 +985,7 @@ private struct BinSalesRow: View {
                 QuantityPicker(value: $take, range: 0...max(0, avail), presets: [64, 512, 4096, 32_768])
                 Button("Take for my fleet") { store.act("Chips on their way") { $0.orderOwnChips(chip.id, count: take) } }
                     .disabled(take <= 0)
-                Text("\(Fmt.money(chip.price ?? 0)) each for the server around it · arrives in \(Semis.shipDays) days").font(.caption).foregroundStyle(.secondary)
+                Text("\(Fmt.money(chip.price ?? 0)) each for the server around it (the silicon, about \(Fmt.money(Semis.siliconCost(chip.id, s))), is already paid) · arrives in \(Semis.shipDays) days").font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 Button("Stock → customers") { store.mutate { $0.moveChipStock(d.id, bin: b, toMine: false) } }.help("Move your stock of this part to customer stock")
                 Button("Stock → mine") { store.mutate { $0.moveChipStock(d.id, bin: b, toMine: true) } }.help("Move customer stock to your own")
@@ -984,6 +1082,116 @@ private struct SemiHistoryCard: View {
                 VStack(alignment: .leading, spacing: 3) { ForEach(Array(s.semi.log.prefix(10).enumerated()), id: \.offset) { _, e in EventLine(e: e) } }
             }
         }
+    }
+}
+
+// MARK: - Software stack (3.9)
+
+/// Compiler, kernels and drivers for your chips: how mature they are, what that costs your silicon, and what raises it.
+private struct SoftwareStackCard: View {
+    @Environment(GameStore.self) private var store
+    let state: GameState
+    @State private var engineers = 150
+
+    var body: some View {
+        let s = state
+        let m = s.semi.software
+        let rates = Semis.softwareRates(s)
+        Card {
+            CardHeader("Software stack", symbol: "chevron.left.forwardslash.chevron.right",
+                       subtitle: "A chip is only as fast as its compiler. Maturity sets your chips' training MFU, serving throughput and how far buyers trust them.")
+            HStack(alignment: .top, spacing: 18) {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("Maturity").font(.callout.weight(.semibold))
+                        Spacer()
+                        Text(Fmt.pct(m, decimals: 0)).font(TypeRamp.metricSmall)
+                    }
+                    Meter(value: m, tint: .purple)
+                    SpecRow(label: "Training MFU vs a mature stack", value: Fmt.pct(Semis.softwareMFU(m), decimals: 0), tone: m < 0.4 ? .warning : .neutral)
+                    SpecRow(label: "Serving throughput", value: "×\(Fmt.trim(Semis.softwareServe(m), 2))")
+                    SpecRow(label: "Supplier reputation", value: "+\(Int(20 * m))")
+                }
+                .frame(maxWidth: .infinity)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("What raises it (each year closes this share of the gap)").font(.caption.weight(.semibold))
+                    if rates.isEmpty {
+                        Text(s.semi.designs.isEmpty ? "Nothing to compile for until you start a design." : "Nothing yet: hire compiler engineers, ship chips, or point a software organisation at it.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    ForEach(Array(rates.enumerated()), id: \.offset) { _, x in
+                        SpecRow(label: x.why, value: Fmt.pct(x.rate, decimals: 0))
+                    }
+                    Text("A new architecture costs some of it (the compiler has to learn it); a port keeps it.").font(.caption2).foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity)
+            }
+            HStack {
+                Stepper("Compiler & kernel engineers: \(engineers)", value: $engineers, in: 0...1_500, step: 25)
+                Spacer()
+                Text("\(Fmt.money(Double(engineers) * Semis.engineerCost(s.year) * 0.9))/yr").font(.caption).foregroundStyle(.secondary)
+                Button(s.semi.compilerEngineers == 0 ? "Hire" : "Resize") { store.act("Compiler team updated") { $0.setCompilerTeam(engineers: engineers) } }
+                    .disabled(engineers == s.semi.compilerEngineers || !s.bonuses.has(.customSilicon))
+            }
+            Why("Now \(s.semi.compilerEngineers) engineers (\(Fmt.money(Semis.compilerCostYear(s)))/yr). 150 engineers close about 45% of the gap a year; growing it helps with diminishing returns (√ of the team).")
+        }
+        .onAppear { if s.semi.compilerEngineers > 0 { engineers = s.semi.compilerEngineers } }
+    }
+}
+
+// MARK: - Compute economics (3.9)
+
+/// What a PFLOP-day of delivered compute costs on your chips against the cheapest merchant part you can buy or rent.
+struct ComputeEconomicsCard: View {
+    @Environment(GameStore.self) private var store
+    let state: GameState
+
+    var body: some View {
+        let s = state
+        let ec = Semis.computeEconomics(s, store.derived.bonuses)
+        Card {
+            CardHeader("Compute economics", symbol: "dollarsign.arrow.circlepath",
+                       subtitle: "Dollars per PFLOP-day actually delivered: a day of the chip (four-year amortisation and power, or rent) over its FP8 peak × the MFU you reach (training) or × your serving utilisation (inference).")
+            if ec.mine.isEmpty {
+                Text("None of your chips is in production yet.").font(.callout).foregroundStyle(.secondary)
+            }
+            Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 4) {
+                GridRow {
+                    Text("Chip").font(.caption.weight(.semibold))
+                    Text("How").font(.caption.weight(.semibold))
+                    Text("$/day").font(.caption.weight(.semibold))
+                    Text("Training $/PFLOP-day").font(.caption.weight(.semibold))
+                    Text("Serving $/PFLOP-day").font(.caption.weight(.semibold))
+                }
+                ForEach(Array(rows(ec).enumerated()), id: \.offset) { _, e in
+                    GridRow {
+                        Text(e.name).font(.caption).lineLimit(1)
+                        Text(e.how).font(.caption).foregroundStyle(.secondary)
+                        Text(Fmt.money(e.dayCost)).font(.caption.monospacedDigit())
+                        Text(Self.cost(e.trainCost, e.trainPF)).font(.caption.monospacedDigit())
+                            .foregroundStyle(Self.beats(e, ec.train, train: true) ? Theme.good : Color.primary)
+                        Text(Self.cost(e.serveCost, e.servePF)).font(.caption.monospacedDigit())
+                            .foregroundStyle(Self.beats(e, ec.serve, train: false) ? Theme.good : Color.primary)
+                    }
+                }
+            }
+            Why("Your chips are costed at the server around them plus what their silicon costs to make today; merchant parts at today's price (or rent). The last two rows are the cheapest merchant compute for training and for serving.")
+        }
+    }
+
+    private func rows(_ ec: (mine: [Semis.Economics], train: Semis.Economics?, serve: Semis.Economics?)) -> [Semis.Economics] {
+        var out = ec.mine
+        if let t = ec.train { out.append(t) }
+        if let v = ec.serve { out.append(v) }
+        return out
+    }
+
+    private static func cost(_ value: Double, _ pf: Double) -> String { pf > 0 ? Fmt.money(value) : "—" }
+
+    /// One of your chips that beats the cheapest merchant compute.
+    private static func beats(_ e: Semis.Economics, _ best: Semis.Economics?, train: Bool) -> Bool {
+        guard e.own, let best else { return false }
+        return train ? e.trainCost < best.trainCost : e.serveCost < best.serveCost
     }
 }
 

@@ -673,7 +673,9 @@ enum RivalLifecycle {
         let known = (s.rivalTech[buyer.id] ?? []).count
         absorb(&s, into: b, from: t, price: price, paid: true)
         let techs = (s.rivalTech[buyer.id] ?? []).count - known
-        let paid = payout(&s, t, price)
+        // 3.8: your stake is bought out like everyone's: half in the buyer's cash, half in its shares (all cash from a
+        // parent-funded buyer).
+        let paid = exchange(&s, from: t, into: b, value: price, cashShare: RivalEconomy.parent(s.competitors[b], s) == nil ? 0.5 : 1)
         close(&s, t, by: buyer.id, note: "Acquired by \(buyer.def.name) for \(Fmt.money(price))")
         let body = "\(buyer.def.name) \(distressed ? "picks up the struggling lab" : "buys its smaller rival") for \(Fmt.money(price)): \(Fmt.int(Int(Double(target.headcount) * 0.6))) staff, "
             + "\(Fmt.count(target.computeH100e)) H100e of compute\(techs > 0 ? " and \(techs) secret technique\(techs == 1 ? "" : "s")" : ""). "
@@ -706,6 +708,15 @@ enum RivalLifecycle {
             s.competitors[b].cash += max(0, target.cash) - (paid ? price * 0.5 : 0)
             s.competitors[b].valuation += stock
             RivalEconomy.dilute(&s, b, amount: stock, post: s.competitors[b].valuation)
+        } else {
+            // 3.8: a parent-funded buyer pays in cash, out of its parent's budget for the year.
+            s.competitors[b].cash += max(0, target.cash)
+            if paid {
+                var book = s.rivalBooks[buyerID] ?? RivalBook()
+                book.parentBudget -= price
+                book.parentPaid += price
+                s.rivalBooks[buyerID] = book
+            }
         }
         // Their people know their recipes: the buyer's next run gets a little better.
         if var p = s.competitors[b].project, p.procedural {
@@ -718,7 +729,9 @@ enum RivalLifecycle {
         let survivor = s.competitors[a]
         let other = s.competitors[b]
         absorb(&s, into: a, from: b, price: 0, paid: false)
-        let paid = payout(&s, b, other.valuation)
+        // 3.8: a merger is paid in the survivor's shares (80% of the partner's value, as `absorb` books it): your stake
+        // in the partner becomes a stake in the survivor, not cash from nowhere.
+        let paid = exchange(&s, from: b, into: a, value: other.valuation * 0.8, cashShare: RivalEconomy.parent(s.competitors[a], s) == nil ? 0 : 1)
         close(&s, b, by: survivor.id, note: "Merged into \(survivor.def.name)")
         s.competitors[a].headcount = Int(Double(s.competitors[a].headcount) * 0.9)
         let body = "Neither could keep up alone. The combined lab keeps the \(survivor.def.name) name, \(Fmt.money(max(0, s.competitors[a].cash))) in cash and "
@@ -736,6 +749,34 @@ enum RivalLifecycle {
             + "It returns what's left of its cash to investors; its researchers are on the market.\(paid > 0 ? " Your stake gets \(Fmt.money(paid)) back." : "")"
         Voices.labStory(&s, "winddown", lab: c.id, title: "\(c.def.name) winds down", body: body, .competitor, important: true)
         record(&s, .shutdown, lab: c.id, title: "Wound down", body: body)
+    }
+
+    /// 3.8: your stake in lab `t`, bought by lab `b` for `value`: `cashShare` of it is paid in cash (from the buyer: part
+    /// of what it paid the sellers), the rest in the buyer's shares, which become (or add to) your stake in it. The
+    /// cost basis moves with the shares. Returns the cash paid.
+    @discardableResult
+    static func exchange(_ s: inout GameState, from t: Int, into b: Int, value: Double, cashShare: Double) -> Double {
+        let id = s.competitors[t].id
+        let buyer = s.competitors[b].id
+        guard let stake = s.rivalStakes[id], stake > 0 else { return 0 }
+        let cost = s.rivalStakeCost[id] ?? 0
+        let worth = stake * max(0, value)
+        let cash = worth * cashShare
+        let shares = worth - cash
+        s.rivalStakes[id] = nil
+        s.rivalStakeCost[id] = nil
+        s.cash += cash
+        if shares > 0, s.competitors[b].valuation > 0 {
+            s.rivalStakes[buyer, default: 0] += shares / s.competitors[b].valuation
+            s.rivalStakeCost[buyer, default: 0] += cost * (worth > 0 ? shares / worth : 0)
+            s.month.oneOffIncome += cash - cost * (worth > 0 ? cash / worth : 1)
+            Sim.news(&s, "Your \(s.competitors[t].def.name) stake becomes \(s.competitors[b].def.name) shares",
+                     "\(Fmt.money(shares)) of it was paid in \(s.competitors[b].def.name) stock\(cash > 0 ? " and \(Fmt.money(cash)) in cash" : ""): you now own \(Fmt.pct(s.rivalStakes[buyer] ?? 0)) of \(s.competitors[b].def.name).",
+                     .finance, image: "stock_exchange")
+        } else {
+            s.month.oneOffIncome += cash - cost
+        }
+        return cash
     }
 
     /// Your stake in a lab leaving the market pays its share of `value` (nothing when it's bankrupt).

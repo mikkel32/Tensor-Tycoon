@@ -127,8 +127,26 @@ enum RivalStrategy {
         let short = x.runway.map { $0 < 12 } ?? false
         let lastOpen = c.openModels.last?.date
         var out: [Option] = []
+        // 3.8: the lab's specialisation (Nations) pulls its plays: a lab built for open weights gives models away, an
+        // enterprise specialist sells, an efficiency specialist runs lean, a scientific or robotics specialist doesn't
+        // chase the general frontier, a lab with its own chips races (its compute is cheaper) and needs no alliance.
+        let focus = Nations.focus(s, c.id)
+        func lean(_ play: RivalPlay) -> Double {
+            switch (focus, play) {
+            case (.openWeights, .openGambit), (.enterprise, .enterprise), (.consumer, .consumer), (.coding, .agents): 0.3
+            case (.efficient, .efficiency): 0.35
+            case (.efficient, .priceWar): 0.2
+            case (.efficient, .race), (.science, .race), (.robotics, .race): -0.2
+            case (.hardware, .race): 0.1
+            case (.hardware, .alliance): -0.25
+            case (.sovereign, .lobby), (.sovereign, .enterprise): 0.15
+            default: 0
+            }
+        }
         func add(_ play: RivalPlay, _ score: Double, _ reason: String) {
-            out.append(Option(play: play, score: score + (p[play] ?? 0) * 0.6, reason: reason))
+            let pull = lean(play)
+            let why = pull >= 0.2 ? "\(reason) It fits its specialisation in \(focus?.noun ?? "its field")." : reason
+            out.append(Option(play: play, score: score + (p[play] ?? 0) * 0.6 + pull, reason: why))
         }
 
         // Race: close enough to catch the leader, with the money to try.
@@ -185,6 +203,7 @@ enum RivalStrategy {
 
     static func monthly(_ s: inout GameState) {
         let y = s.year
+        pivot(&s)   // 3.8
         let playerAPIShare = s.models.filter { $0.released && $0.api }.isEmpty ? 0
             : Market.snapshot(s).api.filter(\.isPlayer).reduce(0) { $0 + $1.share }
         for i in s.competitors.indices {
@@ -390,6 +409,54 @@ enum RivalStrategy {
                            options: [DecisionOption(label: "Retention bonuses (\(Fmt.money(bonus)))", detail: "They stay, morale up."),
                                      DecisionOption(label: "Let them go", detail: "Lose your three best researchers. \(rival.def.name)'s next model gets stronger.")],
                            amount: bonus, ref: rival.id)
+    }
+
+    // MARK: 3.8: answering a runaway leader
+
+    /// Specialisations that change what a lab's models are good at (as against how it sells them).
+    static let capabilityFocuses: [RivalFocus] = [.coding, .science, .robotics, .hardware, .efficient]
+
+    /// When your lead has held two quarters and is wide, the strongest rival that hasn't already specialised stops
+    /// chasing you across the board and pivots to where your models are weakest against the field — or, if you lead
+    /// everywhere by a mile, to small cheap models that undercut you. At most one pivot every nine months.
+    static func pivot(_ s: inout GameState) {
+        guard s.monthsAtTop >= 6, s.year >= 2019, let mine = s.labDomains["player"],
+              s.marketMoves.lastPivot.map({ GameCalendar.daysBetween($0, s.date) >= 270 }) ?? true else { return }
+        let live = s.competitors.filter { isActive($0, s) }
+        let playerC = s.models.filter { $0.released && !$0.retired }.map(\.c).max() ?? -10
+        guard let rivalBest = live.compactMap({ $0.latest?.c }).max(), playerC - rivalBest >= 0.25 else { return }
+        guard let lab = live.filter({ c in !(Nations.focus(s, c.id).map { capabilityFocuses.contains($0) } ?? false) })
+            .max(by: { ($0.latest?.c ?? -10, $1.id) < ($1.latest?.c ?? -10, $0.id) }) else { return }
+        let best = Capabilities.bestRival(s)
+        // Where your lead over the best rival is smallest.
+        let options: [RivalFocus] = [.coding, .science, .robotics, .hardware]
+        let leads = options.map { f -> (RivalFocus, Double) in
+            let d = f.domains[0]
+            return (f, mine[d] - best[d.index].score)
+        }
+        guard let weakest = leads.min(by: { $0.1 != $1.1 ? $0.1 < $1.1 : $0.0.rawValue < $1.0.rawValue }) else { return }
+        let target: RivalFocus = weakest.1 > 6 ? .efficient : weakest.0
+        let name = lab.def.name
+        let months = s.monthsAtTop
+        let d = target.domains[0]
+        let why = target == .efficient
+            ? "\(s.companyName) has led for \(months) months and is ahead in every field by \(Int(weakest.1.rounded())) points or more. Rather than chase it, \(name) is shrinking its models and cutting prices to win the buyers who care about cost."
+            : "\(s.companyName) has led for \(months) months by a wide margin. Rather than chase it across the board, \(name) is putting its best people on \(target.noun), where \(s.companyName)'s lead is thinnest (\(d.label.lowercased()) \(Int(mine[d].rounded())), \(weakest.1 >= 0 ? "only \(Int(weakest.1.rounded())) ahead of" : "\(Int((-weakest.1).rounded())) behind") the best rival)."
+        var st = s.nations.focus[lab.id] ?? RivalFocusState()
+        let was = st.rivalFocus
+        st.focus = target.rawValue
+        st.since = s.date
+        st.reason = why
+        st.considering = ""
+        st.consideringSince = nil
+        st.nextReview = GameCalendar.addMonths(s.date, 12)
+        s.nations.focus[lab.id] = st
+        s.marketMoves.lastPivot = s.date
+        guard let i = s.competitors.firstIndex(where: { $0.id == lab.id }) else { return }
+        s.competitors[i].playLog.insert("\(s.date.gameMonth): Pivots to \(target.noun) — \(why)", at: 0)
+        if s.competitors[i].playLog.count > 8 { s.competitors[i].playLog.removeLast() }
+        Nations.rivalNote(&s, lab.id, "\(why)\(was.map { " It was \($0.noun) before." } ?? "")", kind: "focus")
+        Sim.news(&s, "\(name) pivots to \(target.noun)", "\(why) \(target.effect)", .competitor, important: true)
     }
 
     // MARK: Hooks used by the market

@@ -65,13 +65,19 @@ struct MainMenuView: View {
                 .font(.title3)
                 .foregroundStyle(.white.opacity(0.85))
             UpdateStatusLine()
-            // 3.5: challenge-mode scenarios
-            Button { showChallenges = true } label: {
-                Label("Challenges: curated starts with a goal and a score", systemImage: "flag.checkered")
+            HStack(spacing: 10) {
+                // 3.5: challenge-mode scenarios
+                Button { showChallenges = true } label: {
+                    Label("Challenges: curated starts with a goal and a score", systemImage: "flag.checkered")
+                }
+                .sheet(isPresented: $showChallenges) { ScenarioPickerSheet() }
+                Button { store.openPhotoCredits() } label: {
+                    Label("Photo credits", systemImage: "photo.on.rectangle")
+                }
+                .help("Who took each photo in the game, its licence and what it shows")
             }
             .buttonStyle(.bordered)
             .environment(\.colorScheme, .dark)
-            .sheet(isPresented: $showChallenges) { ScenarioPickerSheet() }
         }
     }
 
@@ -99,7 +105,7 @@ struct MainMenuView: View {
                 }
             }
 
-            CountrySelectionView(country: $settings.hqCountry, city: $settings.hqCity, eraID: settings.eraID, difficulty: settings.difficulty)   // 3.5: headquarters
+            CountrySelectionView(country: $settings.hqCountry, city: $settings.hqCity, eraID: settings.eraID)   // 3.5: headquarters
 
             HStack(alignment: .top, spacing: 20) {
                 VStack(alignment: .leading, spacing: 8) {
@@ -115,12 +121,23 @@ struct MainMenuView: View {
 
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Home region").font(.subheadline.weight(.semibold))
-                    Picker("Region", selection: $settings.locationID) {
-                        ForEach(LocationCatalog.all) { l in Text("\(l.name)").tag(l.id) }
+                    if settings.hqCountry == "us" {
+                        // 3.4 overhaul: a US headquarters picks among US sites; elsewhere the garage follows the country.
+                        Picker("Region", selection: $settings.locationID) {
+                            ForEach(LocationCatalog.all.filter { Region.us.locations.contains($0.id) }) { l in Text(l.name).tag(l.id) }
+                        }
+                        .labelsHidden()
+                        .frame(maxWidth: 260)
+                        .onAppear {
+                            if !Region.us.locations.contains(settings.locationID) { settings.locationID = "nova" }
+                        }
+                        Text("Where your garage is. Datacenters can go anywhere later.").font(.caption).foregroundStyle(.secondary)
+                    } else {
+                        let home = CountryCatalog.get(settings.hqCountry).location?.name ?? CountryCatalog.get(settings.hqCountry).name
+                        Label("Garage: \(home) (follows headquarters)", systemImage: "house.fill")
+                            .font(.callout)
+                        Text("Your garage sits at your country's home datacenter site. Datacenters can go anywhere later.").font(.caption).foregroundStyle(.secondary)
                     }
-                    .labelsHidden()
-                    .frame(maxWidth: 260)
-                    Text("Where your garage is. Datacenters can go anywhere later.").font(.caption).foregroundStyle(.secondary)
                 }
             }
 

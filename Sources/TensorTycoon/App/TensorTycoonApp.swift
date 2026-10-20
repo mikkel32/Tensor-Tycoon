@@ -18,62 +18,14 @@ struct TensorTycoonApp: App {
 
     init() {
         let args = CommandLine.arguments
-        if let i = args.firstIndex(of: "--check-save"), i + 1 < args.count {
-            exit(GameStore.checkSave(URL(fileURLWithPath: args[i + 1])))
-        }
-        if let i = args.firstIndex(of: "--replay-save") {
-            exit(ReplayHarness.main(Array(args.dropFirst(i + 1))))
-        }
         if let i = args.firstIndex(of: "--verify-update"), i + 3 < args.count {
             exit(UpdateSelfTest.verifyLocal(zip: args[i + 1], version: args[i + 2], signatureFile: args[i + 3]))
         }
         if let i = args.firstIndex(of: "--update-selftest") {
             exit(UpdateSelfTest.run(pretending: i + 1 < args.count ? args[i + 1] : "0.0.1"))
         }
-        if args.contains("--forecast-check") {
-            BalanceHarness.forecastCheck()
-            exit(0)
-        }
-        if let i = args.firstIndex(of: "--strategy") {
-            BalanceHarness.strategy(era: i + 1 < args.count ? args[i + 1] : "2022")
-            exit(0)
-        }
-        if let i = args.firstIndex(of: "--industry") {
-            BalanceHarness.industry(era: i + 1 < args.count ? args[i + 1] : "2017")
-            exit(0)
-        }
-        if args.contains("--scale") {
-            BalanceHarness.scale()
-            exit(0)
-        }
-        if let i = args.firstIndex(of: "--watch") {
-            BalanceHarness.watch(era: i + 1 < args.count ? args[i + 1] : "2026")
-            exit(0)
-        }
-        if let i = args.firstIndex(of: "--research") {
-            BalanceHarness.research(era: i + 1 < args.count ? args[i + 1] : "2022")
-            exit(0)
-        }
-        if let i = args.firstIndex(of: "--playtest") {
-            PlaytestHarness.main(Array(args.dropFirst(i + 1)))
-            exit(0)
-        }
-        if let i = args.firstIndex(of: "--determinism") {
-            DeterminismHarness.main(Array(args.dropFirst(i + 1)))
-            exit(0)
-        }
-        if let i = args.firstIndex(of: "--experience") {
-            BalanceHarness.experience(era: i + 1 < args.count ? args[i + 1] : "2024")
-            exit(0)
-        }
-        if let i = args.firstIndex(of: "--ventures") {
-            BalanceHarness.ventures(era: i + 1 < args.count ? args[i + 1] : "2026")
-            exit(0)
-        }
-        if let i = args.firstIndex(of: "--simulate") {
-            BalanceHarness.run(era: i + 1 < args.count ? args[i + 1] : "2022")
-            exit(0)
-        }
+        // Headless checks (saves, balance, playtests, scenarios): see HarnessCLI.
+        if let code = HarnessCLI.run(args) { exit(code) }
     }
 
     var body: some Scene {
@@ -131,6 +83,8 @@ struct TensorTycoonApp: App {
                 Button("Tensor Tycoon Help & Glossary") { store.open(.help) }
                     .keyboardShortcut("?", modifiers: .command)
                     .disabled(store.state == nil)
+                // Works without a game: the licences travel with the app, not with a save.
+                Button("Photo Credits") { store.openPhotoCredits() }
             }
         }
     }

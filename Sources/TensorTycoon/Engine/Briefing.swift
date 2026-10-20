@@ -109,6 +109,7 @@ enum Briefing {
             ("Licensing", cur.revLicensing, prev.revLicensing, .industry),
             ("Agent labour", cur.revLabor, prev.revLabor, .swarms),
             ("Product lines", cur.revOther, prev.revOther, .products),
+            ("Government contracts", cur.revContracts, prev.revContracts, .advancedProjects),   // 3.8: milestone payments, kept apart
         ]
         let total = max(cur.revenue, prev.revenue)
         let moved = streams.map { st -> (name: String, now: Double, before: Double, screen: Screen, delta: Double) in
@@ -196,7 +197,7 @@ enum Briefing {
 
         // Risks.
         var risks: [BriefingLine] = []
-        let burn = -cur.profit
+        let burn = -cur.cashProfit   // 3.8: cash burn (depreciation isn't cash)
         let runway: Double? = burn > 0 ? max(0, s.cash) / burn : nil
         if let r = runway, r < 9 {
             risks.append(BriefingLine(text: "\(Fmt.trim(r, 1)) months of cash at last month's burn (\(Fmt.money(burn))/month).", good: false, screen: Screen.funding.rawValue))
@@ -207,6 +208,13 @@ enum Briefing {
         if cur.served < 0.9 {
             risks.append(BriefingLine(text: "You turned away \(Fmt.pct(1 - cur.served, decimals: 0)) of demand. Unserved users churn and reliability falls.",
                                       good: false, screen: Screen.models.rawValue))
+        }
+        // 3.8: demand your go-to-market couldn't book, and why; a crisis that started this month.
+        if let line = Commercial.explanation(cur), cur.revUnbooked > max(1_000, cur.commercialRevenue * 0.1) {
+            risks.append(BriefingLine(text: line, good: false, screen: Screen.finance.rawValue))
+        }
+        for c in s.corp.cycle.active where c.start >= start && c.start <= end {   // crises start at the month close
+            risks.append(BriefingLine(text: "\(c.kind.title) under way until about \(c.end.gameMonth): \(c.cause)", good: false, screen: Screen.finance.rawValue))
         }
         for r in s.rentals {
             guard let e = r.end, GameCalendar.daysBetween(end, e) <= 45 else { continue }
@@ -264,6 +272,64 @@ enum Briefing {
         if notable {
             Alerts.raise(&s, .briefing, title: "\(cur.month.gameMonth) briefing", body: headline, screen: .dashboard, cooldown: 0)
         }
+    }
+}
+
+// MARK: - 3.8: why profit moved
+
+/// One line of the profit bridge between two closed months: how much it moved profit and why.
+struct ProfitMover: Identifiable, Hashable {
+    var id: String { name }
+    let name: String
+    /// Effect on profit (+ helped, − hurt).
+    let delta: Double
+    let cause: String
+    let screen: Screen
+}
+
+extension Briefing {
+    /// Every income-statement line's change from `prev` to `cur`, signed by its effect on profit (a cost that rose is
+    /// negative), biggest first, each with the cause the month records show. The lines add up to the change in profit.
+    static func profitMovers(prev: MonthRecord, cur: MonthRecord) -> [ProfitMover] {
+        func pct(_ a: Double, _ b: Double) -> String { b > 0 ? " (\(a >= b ? "+" : "−")\(Fmt.pct(abs(a / b - 1), decimals: 0)))" : "" }
+        let heads = cur.headcount - prev.headcount
+        let chips = cur.chips - prev.chips
+        var lines: [(String, Double, String, Screen)] = []
+        func rev(_ name: String, _ a: Double, _ b: Double, _ why: String, _ sc: Screen) { lines.append((name, a - b, why, sc)) }
+        func cost(_ name: String, _ a: Double, _ b: Double, _ why: String, _ sc: Screen) { lines.append((name, -(a - b), why, sc)) }
+
+        var api = "API share \(Fmt.pct(prev.apiShare, decimals: 1)) → \(Fmt.pct(cur.apiShare, decimals: 1))"
+        if prev.apiPrice > 0 && cur.apiPrice > 0 { api += ", average price \(Fmt.price(prev.apiPrice)) → \(Fmt.price(cur.apiPrice))/M" }
+        if cur.revUnbooked > prev.revUnbooked * 1.2 && cur.revUnbooked > 1_000 { api += ", \(Fmt.money(cur.revUnbooked)) of demand unbooked" }
+        rev("API", cur.revAPI, prev.revAPI, api, .market)
+        rev("Chat subscriptions", cur.revConsumer, prev.revConsumer, "paying users \(Fmt.count(prev.paidUsers)) → \(Fmt.count(cur.paidUsers))", .market)
+        rev("Enterprise contracts", cur.revEnterprise, prev.revEnterprise, "contracts \(prev.contracts) → \(cur.contracts)", .market)
+        rev("Agent seats", cur.revAgents, prev.revAgents, "agent share \(Fmt.pct(prev.agentShare, decimals: 1)) → \(Fmt.pct(cur.agentShare, decimals: 1))", .market)
+        rev("Compute leasing", cur.revCloud, prev.revCloud, "leases you run" + pct(cur.revCloud, prev.revCloud), .chipSales)
+        rev("Chip sales", cur.revChips, prev.revChips, "chips sold" + pct(cur.revChips, prev.revChips), .chipSales)
+        rev("Licensing", cur.revLicensing, prev.revLicensing, "royalties and subsidiaries' licence fees", .corporate)
+        rev("Agent labour", cur.revLabor, prev.revLabor, "digital workforce contracts", .swarms)
+        rev("Product lines", cur.revOther, prev.revOther, "product line sales", .products)
+        rev("Government contracts", cur.revContracts, prev.revContracts, "programme milestones are paid in lumps, not every month", .advancedProjects)
+        rev("Folded-in divisions", cur.revGroup, prev.revGroup, "divisions' sales", .corporate)
+        cost("Cloud rent", cur.costRent, prev.costRent, "rented chips; your fleet is \(Fmt.int(Int(prev.chips))) → \(Fmt.int(Int(cur.chips))) chips", .compute)
+        cost("Power", cur.costPower, prev.costPower, chips != 0 ? "\(chips > 0 ? "+" : "")\(Fmt.int(Int(chips))) chips" : "utilisation and power prices", .datacenters)
+        cost("Payroll", cur.costPayroll, prev.costPayroll, heads != 0 ? "\(heads > 0 ? "+" : "")\(heads) people (\(cur.headcount) now)" : "raises, bonuses and recruiting", .team)
+        cost("Datacenters and offices", cur.costSites, prev.costSites, "leases, fees and upkeep", .datacenters)
+        cost("Data", cur.costData, prev.costData, "data licences", .data)
+        cost("Marketing", cur.costMarketing, prev.costMarketing, "marketing budget and launches", .market)
+        cost("Chips made for sale", cur.costChips, prev.costChips, "cost of the chips you sold", .chipSales)
+        cost("Other costs", cur.costOther, prev.costOther, "fines, fees, legal costs and one-off spending", .finance)
+        cost("Divisions' costs", cur.costGroup, prev.costGroup, "folded-in divisions", .corporate)
+        cost("Depreciation", cur.costDepreciation, prev.costDepreciation, "hardware written off over 4 years, datacenter shells over 20 (no cash)", .finance)
+        cost("Interest on debt", cur.costInterest, prev.costInterest, "what you owe and its rates", .finance)
+        cost("Tax", cur.taxes, prev.taxes, cur.taxes <= 0 && prev.taxes > 0 ? "no taxable profit after losses carried forward" : "taxable profit after losses carried forward and credits", .corporate)
+        rev("Interest on cash", cur.interestIncome, prev.interestIncome, "cash balance and the policy rate", .finance)
+        rev("One-off income", cur.oneOffIncome, prev.oneOffIncome, "upfront licence fees and other one-offs", .finance)
+        rev("Gains on disposals", cur.assetGains, prev.assetGains, "assets and stakes sold against what they were carried at", .finance)
+        return lines.filter { abs($0.1) >= 0.5 }
+            .sorted { abs($0.1) != abs($1.1) ? abs($0.1) > abs($1.1) : $0.0 < $1.0 }
+            .map { ProfitMover(name: $0.0, delta: $0.1, cause: $0.2, screen: $0.3) }
     }
 }
 

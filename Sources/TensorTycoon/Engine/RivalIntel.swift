@@ -464,18 +464,22 @@ enum RivalIntel {
     }
 
     /// You shipped a model: rivals whose next model now looks second-best either rush or hold back to train harder.
-    static func playerReleased(_ s: inout GameState, name: String, index: Double) {
+    /// 3.8: only if they notice — a stealth drop rarely registers, a keynote always does and makes a rush likelier
+    /// (Launches.rivalHeat).
+    static func playerReleased(_ s: inout GameState, name: String, index: Double, plan: LaunchPlan = LaunchPlan()) {
         let set = Leaderboard.indexSet(s)
         let today = s.date
+        let heat = Launches.rivalHeat(plan.strategy)
         for i in s.competitors.indices {
             guard isActive(s.competitors[i], s), var p = s.competitors[i].project, p.procedural, !p.leaked.contains("codered") else { continue }
             let left = GameCalendar.daysBetween(today, p.release)
             guard today >= p.preEnd, left > 21, let o = outlook(s, i, set: set), index > o.index + 1 else { continue }
-            p.leaked.insert("codered")
             let def = s.competitors[i].def
             let key = "\(def.id)|\(p.count)|codered"
-            let rushOdds = ["prometheus": 0.65, "xenon": 0.75, "deepgrove": 0.45, "openweights": 0.5, "dragonlake": 0.5, "sirocco": 0.4,
-                            "halcyon": 0.25, "aletheia": 0.1][def.id] ?? 0.4
+            guard unit(key + "|notice|\(dayIndex(today))") < heat.notice else { continue }
+            p.leaked.insert("codered")
+            let rushOdds = min(0.95, heat.rush * (["prometheus": 0.65, "xenon": 0.75, "deepgrove": 0.45, "openweights": 0.5, "dragonlake": 0.5, "sirocco": 0.4,
+                                                   "halcyon": 0.25, "aletheia": 0.1][def.id] ?? 0.4))
             if unit(key) < rushOdds {
                 let pull = min(28, left - 10)
                 p.release = GameCalendar.addDays(p.release, -pull)

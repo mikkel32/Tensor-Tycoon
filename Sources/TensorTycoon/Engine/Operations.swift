@@ -464,14 +464,15 @@ enum Operations {
             let have = s.employees.filter { $0.role == role }.count
             guard have < (want[role] ?? 0), s.employees.count < Economy.officeCapacity(s) else { continue }
             // A smart COO picks the best candidate; scripts take the first that fits.
-            let pool = s.candidates.filter { $0.role == role && $0.salary / 12 <= budget }
+            let pool = s.candidates.filter { $0.role == role && $0.salary / 12 <= budget && HQ.hasSeat(s, $0) }
             let pick = precision >= 0.9 ? pool.max(by: { $0.skill / $0.salary < $1.skill / $1.salary }) : pool.first
             guard let c = pick, s.hire(c.id) == nil else { continue }
             budget -= c.salary / 12
             note(&s, "hire", "Hired \(c.name), \(role.title.lowercased()) (\(Fmt.money(c.salary))/yr): the team was below the size your runs, fleet and revenue call for.", money: c.salary / 12)
         }
-        if s.employees.count >= Economy.officeCapacity(s) - 1, s.officeLevel + 1 < Economy.officeLevels.count {
-            let next = Economy.officeLevels[s.officeLevel + 1]
+        // Headquarters fills up first (satellites have their own desks); local rent, not San Francisco's (3.4 overhaul).
+        if HQ.staffCount(s, office: "") >= Economy.office(s, s.officeLevel).capacity - 1, s.officeLevel + 1 < Economy.officeLevels.count {
+            let next = Economy.office(s, s.officeLevel + 1)
             if next.monthly * 3 < s.cash * 0.05, s.upgradeOffice() == nil {
                 log(&s, "Moved into a bigger office: \(next.name).")
             }

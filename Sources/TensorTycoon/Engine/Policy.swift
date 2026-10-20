@@ -16,7 +16,10 @@ enum Policy {
         return max(0.05, f * (1 - s.politicalCapital / 300))
     }
 
-    static func buildFactor(_ s: GameState) -> Double {
+    /// How long building takes at a location under US federal law (permitting reform, a datacenter moratorium). US laws
+    /// only reach US soil: elsewhere it's 1, and local grid queues and national energy policy decide (3.4 overhaul).
+    static func buildFactor(_ s: GameState, location: String) -> Double {
+        guard Region.of(location: location) == .us else { return 1 }
         let permits = s.lawsPassed.contains("permitting") ? 0.75 : (s.lawsFailed.contains("permitting") ? 1.1 : 1)
         return permits * (s.lawsPassed.contains("dc_moratorium") ? 1.35 : 1)
     }
@@ -24,6 +27,21 @@ enum Policy {
     /// Whether you count as a frontier developer (a model trained above 10^26 FLOP).
     static func isFrontierDeveloper(_ s: GameState) -> Bool {
         s.models.contains { $0.c >= 5 }
+    }
+
+    /// Whether US federal AI law reaches you: a US headquarters, or datacenters on US soil (3.4 overhaul). The EU AI
+    /// Act is different: it applies to any model sold in the EU, wherever it was trained.
+    static func usPresence(_ s: GameState) -> Bool {
+        HQ.region(s) == .us || s.sites.contains { ($0.kind == .datacenter || $0.kind == .colo) && Region.of(location: $0.locationID) == .us }
+    }
+
+    /// Whether a training run falls under US federal rules: a US headquarters, or most of its chips in US datacenters
+    /// (rented cloud capacity counts where the provider's customer is, not where the racks are).
+    static func runUnderUSLaw(_ s: GameState, accelID: String, chips: Int) -> Bool {
+        if HQ.region(s) == .us { return true }
+        let usSites = Set(s.sites.filter { Region.of(location: $0.locationID) == .us }.map(\.id))
+        let onUSSoil = s.owned.filter { $0.accelID == accelID && usSites.contains($0.siteID) }.reduce(0) { $0 + $1.count }
+        return onUSSoil * 2 >= chips
     }
 
     static func monthly(_ s: inout GameState) {
@@ -49,8 +67,8 @@ enum Policy {
             }
         }
 
-        // On-site auditors
-        if s.lawsPassed.contains("independent_auditors") && isFrontierDeveloper(s) {
+        // On-site auditors (US federal law: labs based or building in the US)
+        if s.lawsPassed.contains("independent_auditors") && isFrontierDeveloper(s) && usPresence(s) {
             s.cash -= 1e6
             s.month.costOther += 1e6
         }
@@ -147,7 +165,7 @@ enum Policy {
         case ("nairr", true): s.market.hype += 0.05
         case ("preemption", true): s.market.hype += 0.05
         case ("independent_auditors", true): s.safetyScore = min(100, s.safetyScore + 3)
-        case ("kill_switch", true) where isFrontierDeveloper(s):
+        case ("kill_switch", true) where isFrontierDeveloper(s) && usPresence(s):
             s.cash -= 5e7
             s.month.costOther += 5e7
         default: break

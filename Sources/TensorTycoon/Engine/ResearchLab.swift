@@ -87,7 +87,7 @@ enum ResearchLab {
             return nil
         }
         let cost = Sim.researchCost(item, year: s.year)
-        let mult = max(0.1, item.category == .frontier ? 1 + s.traits.frontierRP : 1) * FoundingKit.categorySpeed(s, item)
+        let mult = max(0.1, item.category == .frontier ? 1 + s.traits.frontierRP : 1) * FoundingKit.categorySpeed(s, item) * Capabilities.researchSpeed(s, item)   // 3.8: architecture design
         return (max(0, (cost - (s.researchProgress[entry] ?? 0)) / mult), mult)
     }
 
@@ -131,7 +131,7 @@ enum ResearchLab {
         }
         guard let item = ResearchCatalog.byID[entry] else { return }
         // How well did it work in *your* lab? Better teams and more experiment compute land better results.
-        let researchers = s.employees.filter { $0.role == .researcher }
+        let researchers = s.staff(.researcher)   // 3.8: not those seconded to government programmes
         let quality = researchers.isEmpty ? 0.5 : researchers.reduce(0) { $0 + $1.skill } / Double(researchers.count) / 100
         let computeBoost = min(0.08, Double(s.researchChips.values.reduce(0, +)) / 20_000)
         let spread = item.isExotic ? 0.32 : 0.16
@@ -158,6 +158,7 @@ enum ResearchLab {
                 s.publishedTech[entry] = s.date
                 Sim.news(&s, "Your \(item.name) paper goes viral", "Open science wins you fans — and every rival lab will have reproduced it within about six months.", .research, good: true)
             }
+            Science.breakthroughFinished(&s, tech: entry)   // its report and follow-up (publish, keep, license)
         }
         checkFusions(&s)
         cascade(&s)
@@ -229,7 +230,7 @@ enum ResearchLab {
 
     static func eureka(_ s: inout GameState, _ rate: Double) {
         guard let current = s.researchQueue.first, rate > 0 else { return }
-        let researchers = s.employees.filter { $0.role == .researcher }
+        let researchers = s.staff(.researcher)   // 3.8: not those seconded to government programmes
         let skill = researchers.isEmpty ? 50 : researchers.reduce(0) { $0 + $1.skill } / Double(researchers.count)
         var p = 0.004 * (0.6 + skill / 100) * (1 + min(1, Double(researchers.count) / 40))
         if s.signatureAt(.oracle, 3) { p *= 2 }
@@ -450,7 +451,7 @@ enum ResearchLab {
             s.exoticLicenses[i].monthsLeft -= 1
         }
         // A brilliant team keeps having ideas nobody else has.
-        let researchers = s.employees.filter { $0.role == .researcher }
+        let researchers = s.staff(.researcher)   // 3.8: not those seconded to government programmes
         guard !researchers.isEmpty else { return }
         let skill = researchers.reduce(0) { $0 + $1.skill } / Double(researchers.count)
         var p = 0.03 * (0.5 + skill / 100) * (1 + min(1, Double(researchers.count) / 30))

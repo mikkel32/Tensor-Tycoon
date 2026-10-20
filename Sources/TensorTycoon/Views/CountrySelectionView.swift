@@ -6,7 +6,6 @@ struct CountrySelectionView: View {
     @Binding var country: String
     @Binding var city: String
     var eraID = "2022"
-    var difficulty: Difficulty = .normal
 
     @State private var comparing = false
     @State private var expanded: String? = nil
@@ -17,7 +16,7 @@ struct CountrySelectionView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline) {
                 Text("Headquarters").font(.subheadline.weight(.semibold))
-                Text("Where you incorporate and hire. Taxes, pay, rent, grants and home politics follow; capital, cloud and datacenters stay global.")
+                Text("Where you incorporate and hire. Taxes, pay, rent, grants and home politics follow; capital, cloud and datacenters stay global, and you can open offices abroad later.")
                     .font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 Picker("View", selection: $comparing) {
@@ -29,7 +28,7 @@ struct CountrySelectionView: View {
                 .frame(width: 200)
             }
             if comparing {
-                CountryComparison(selected: country, year: year) { pick($0, nil) }
+                CountryComparison(selected: country, selectedCity: city, year: year) { pick($0, $1) }
             } else {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 300), spacing: 12)], spacing: 12) {
                     ForEach(CountryCatalog.all) { c in
@@ -52,6 +51,46 @@ struct CountrySelectionView: View {
         let c = CountryCatalog.get(countryID)
         country = c.id
         city = cityID.flatMap { id in c.cities.first { $0.id == id }?.id } ?? (country == c.id && c.cities.contains { $0.id == city } ? city : c.cities[0].id)
+    }
+}
+
+// MARK: - Fact or estimate
+
+/// Whether a number on this screen is a real rule (a statutory rate or programme date) or a game estimate.
+private enum Provenance {
+    case fact(String)
+    case estimate
+
+    var label: String {
+        switch self {
+        case .fact(let year): "real \(year) rule"
+        case .estimate: "game estimate"
+        }
+    }
+}
+
+private struct ProvenanceBadge: View {
+    let kind: Provenance
+
+    var body: some View {
+        switch kind {
+        case .fact: Pill(kind.label, tone: .info)
+        case .estimate: Pill(text: kind.label, color: .secondary)
+        }
+    }
+}
+
+/// A spec row with its provenance badge.
+private struct SourcedRow: View {
+    let label: String
+    let value: String
+    let kind: Provenance
+
+    var body: some View {
+        HStack(spacing: 6) {
+            SpecRow(label: label, value: value)
+            ProvenanceBadge(kind: kind).frame(width: 96, alignment: .trailing)
+        }
     }
 }
 
@@ -119,11 +158,11 @@ private struct CountryCard: View {
                 // At a glance
                 Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 4) {
                     GridRow {
-                        Glance(symbol: "percent", label: "Tax", value: Fmt.pct(country.corporateTax, decimals: 1))
-                        Glance(symbol: "person.2.fill", label: "ML pay", value: "×\(Fmt.trim(country.pay(city), 2))")
+                        Glance(symbol: "percent", label: "Tax", value: CountryText.glanceTax(country))
+                        Glance(symbol: "person.2.fill", label: "Lab pay", value: "×\(Fmt.trim(country.pay(city), 2))")
                     }
                     GridRow {
-                        Glance(symbol: "building.2.fill", label: "Office", value: "×\(Fmt.trim(country.id == "us" ? 1 : city.office, 2))")
+                        Glance(symbol: "building.2.fill", label: "Office", value: CountryText.office(country, city))
                         Glance(symbol: "bolt.fill", label: "Power", value: "$\(Fmt.trim(country.location?.powerPrice ?? country.power, 3))/kWh")
                     }
                 }
@@ -174,67 +213,151 @@ private struct CountryDetails: View {
     var body: some View {
         let one = country.yearOne(city, year: year)
         let loc = country.location
+        let us = country.id == "us"
+        let grants = country.expectedGrantsAtStart(year)
+        let contracts = PowerKind.allCases.filter { k in k.locations?.contains(country.homeLocation) ?? false }
         VStack(alignment: .leading, spacing: 12) {
             Text(country.overview).font(.caption).fixedSize(horizontal: false, vertical: true)
+            CountryPhotoStrip(keys: ImagePicker.countryPhotos(country: country.id, city: city.id, skyline: city.image))
 
             Section2(title: "Economy", symbol: "chart.line.uptrend.xyaxis") {
-                SpecRow(label: "Corporate tax", value: Fmt.pct(country.corporateTax, decimals: 1))
-                SpecRow(label: "R&D tax credit", value: country.rdCredit > 0 ? "\(Fmt.pct(country.rdCredit, decimals: 0)) of R&D payroll\(country.rdRefundable ? ", refundable" : "")" : "Built into the baseline")
-                SpecRow(label: "Employer on-costs vs US", value: country.employerCost == 0 ? "Baseline" : "\(country.employerCost > 0 ? "+" : "−")\(Fmt.pct(abs(country.employerCost), decimals: 0))")
-                SpecRow(label: "Seed round", value: country.investorDepth >= 1 ? "Baseline" : "×\(Fmt.trim((1 + country.investorDepth) / 2, 2)) of the era's usual cash")
-                SpecRow(label: "Early-round pricing", value: country.investorDepth >= 1 ? "Silicon Valley" : "×\(Fmt.trim(country.investorDepth, 2)) until ≈$5B, then global")
-                SpecRow(label: "Office rent vs SF", value: "×\(Fmt.trim(country.id == "us" ? 1 : city.office, 2))")
+                SourcedRow(label: "Corporate tax", value: CountryText.tax(country), kind: .fact("2024"))
+                if country.id == "ro" {
+                    SourcedRow(label: "Minimum turnover tax", value: "1% of turnover above €50M a year, from 2024", kind: .fact("2024"))
+                }
+                if country.rdScheme == .none {
+                    SourcedRow(label: "R&D relief", value: "Built into the baseline", kind: .estimate)
+                } else {
+                    SourcedRow(label: "R&D relief", value: rdRate, kind: .fact("2024"))
+                    Text(country.rdScheme.explain).font(.caption2).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+                SourcedRow(label: "Employer on-costs vs US", value: CountryText.onCosts(country), kind: .fact("2024"))
+                SourcedRow(label: "Seed round", value: CountryText.seed(country), kind: .estimate)
+                SourcedRow(label: "Early-round pricing", value: CountryText.earlyRounds(country), kind: .estimate)
+                SourcedRow(label: "Office rent vs SF", value: CountryText.office(country, city), kind: .estimate)
             }
             Section2(title: "Talent", symbol: "person.3.fill") {
-                SpecRow(label: "ML pay vs San Francisco", value: "×\(Fmt.trim(country.pay(city), 2)) (stars ×\(Fmt.trim(country.id == "us" ? 1 : (1 + country.pay(city)) / 2, 2)))")
-                SpecRow(label: "Candidates at a time", value: "\(country.candidates(city)) (SF: 8)")
-                SpecRow(label: "Poaching pressure", value: country.brainDrain == 1 ? "Baseline" : "×\(Fmt.trim(country.brainDrain, 2))")
-                SpecRow(label: "Local specialists", value: Set(country.specialties + city.specialties).map(\.title).sorted().joined(separator: ", ").isEmpty ? "Everyone" : Set(country.specialties + city.specialties).map(\.title).sorted().joined(separator: ", "))
+                SourcedRow(label: "Frontier-lab pay vs San Francisco", value: CountryText.pay(country, city), kind: .estimate)
+                SourcedRow(label: "Candidates at a time", value: CountryText.candidates(country, city), kind: .estimate)
+                SourcedRow(label: "Poaching pressure", value: CountryText.poaching(country), kind: .estimate)
+                SpecRow(label: "Local specialists", value: CountryText.specialists(country, city))
                 SpecRow(label: "Cluster", value: city.cluster)
+                Text("Pay is what a lab competing for global ML talent pays here (local market rates are lower). Outgrow the pool and you can open satellite offices in other cities, at their pay and rent.")
+                    .font(.caption2).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             Section2(title: "Infrastructure & electricity", symbol: "bolt.horizontal.fill") {
                 if let loc {
                     SpecRow(label: "Home datacenter site", value: loc.name)
-                    SpecRow(label: "Power", value: "$\(Fmt.trim(loc.powerPrice, 3))/kWh · PUE \(loc.pueDelta <= 0 ? "−" : "+")\(Fmt.trim(abs(loc.pueDelta), 2))")
-                    SpecRow(label: "Build cost at home", value: country.buildCost == 1 ? "Baseline" : "×\(Fmt.trim(country.buildCost, 2)) (incentive refunded monthly)")
+                    SourcedRow(label: "Grid power", value: CountryText.gridPower(loc), kind: .fact("2024 price"))
+                    if !contracts.isEmpty {
+                        SourcedRow(label: "Power contracts there", value: CountryText.contracts(contracts, country, year), kind: .estimate)
+                    }
+                    SourcedRow(label: "Grid queue at home", value: "\(Int(Power.queueBase(country.homeLocation))) months before era and congestion", kind: .estimate)
+                    SourcedRow(label: "Build cost at home", value: CountryText.buildCost(country), kind: .estimate)
                     Text(loc.blurb).font(.caption2).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
             }
             Section2(title: "Government", symbol: "building.columns.fill") {
                 SpecRow(label: "Rules", value: country.regionLabel)
-                SpecRow(label: "Standing at home", value: country.homeStanding > 0 ? "+\(Int(country.homeStanding)) with \(country.region.title)" : "Baseline")
-                if country.usStanding != 0 { SpecRow(label: "Standing in Washington", value: "\(Int(country.usStanding))") }
+                Text(us ? "US federal rules (compute reporting, licences, permitting) apply to you and to any datacenter on US soil. The EU AI Act applies to any model you sell in the EU."
+                        : "The EU AI Act applies to any model sold in the EU, wherever it's trained. US federal rules reach you only for runs and datacenters on US soil.")
+                    .font(.caption2).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                if country.diffusionTier >= 2 {
+                    SourcedRow(label: "US chip rule (Jan–May 2025)", value: "Tier \(country.diffusionTier): chip orders rationed while it stood", kind: .fact("2025"))
+                }
+                SourcedRow(label: "Standing at home", value: CountryText.standing(country), kind: .estimate)
+                if country.usStanding != 0 { SourcedRow(label: "Standing in Washington", value: "\(Int(country.usStanding))", kind: .estimate) }
+                if !us {
+                    SourcedRow(label: "Grant and compute offers", value: CountryText.grants(grants, year), kind: .estimate)
+                    SourcedRow(label: "National contract", value: CountryText.contract(country, year), kind: .estimate)
+                }
                 ForEach(country.programmes.indices, id: \.self) { i in
                     let p = country.programmes[i]
-                    Label("\(p.name.prefix(1).uppercased() + p.name.dropFirst())", systemImage: p.kind == .compute ? "cpu" : (p.kind == .contract ? "signature" : "eurosign.circle"))
-                        .font(.caption)
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Label("\(p.name.prefix(1).uppercased() + p.name.dropFirst())", systemImage: p.kind == .compute ? "cpu" : (p.kind == .contract ? "signature" : "eurosign.circle"))
+                            .font(.caption)
+                        Spacer(minLength: 4)
+                        if !p.real.isEmpty {
+                            Text(p.real).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                        if year < p.from {
+                            Pill("from \(Int(p.from))", tone: .neutral)
+                        }
+                    }
                 }
                 ForEach(Array(Set((country.affinities + city.affinities).map(\.product))).sorted(), id: \.self) { id in
-                    Label("Partners give \(ProductLines.name(id)) a head start", systemImage: "gearshape.2.fill").font(.caption).foregroundStyle(.purple)
+                    Label("Partners give \(ProductLines.name(id)) a head start", systemImage: "gearshape.2.fill").font(.caption)
                 }
             }
             HStack(alignment: .top, spacing: 14) {
                 VStack(alignment: .leading, spacing: 3) {
-                    ForEach(country.pros, id: \.self) { Label($0, systemImage: "plus.circle.fill").font(.caption).foregroundStyle(.green) }
+                    ForEach(country.pros, id: \.self) { p in
+                        Label { Text(p) } icon: { Image(systemName: "plus.circle.fill").foregroundStyle(Theme.good) }.font(.caption)
+                    }
                 }
                 VStack(alignment: .leading, spacing: 3) {
-                    ForEach(country.cons, id: \.self) { Label($0, systemImage: "minus.circle.fill").font(.caption).foregroundStyle(.orange) }
+                    ForEach(country.cons, id: \.self) { c in
+                        Label { Text(c) } icon: { Image(systemName: "minus.circle.fill").foregroundStyle(Theme.warning) }.font(.caption)
+                    }
                 }
             }
             Section2(title: "Estimated startup costs (first year)", symbol: "banknote.fill") {
-                SpecRow(label: "Payroll: founders + 6 hires", value: Fmt.money(one.payroll), estimated: true)
+                SpecRow(label: "Payroll: founders + 6 hires, with on-costs", value: Fmt.money(one.payroll), estimated: true)
                 SpecRow(label: "Startup office", value: Fmt.money(one.office), estimated: true)
                 SpecRow(label: "Total", value: Fmt.money(one.payroll + one.office), estimated: true)
+                if one.rdRelief > 0 {
+                    SpecRow(label: "R&D relief paid while loss-making", value: "up to \(Fmt.money(one.rdRelief))", estimated: true)
+                } else if country.rdScheme == .againstProfit {
+                    SpecRow(label: "R&D relief", value: "none until you make a profit (carried forward)", estimated: true)
+                }
             }
             Section2(title: "Suggested strategies", symbol: "lightbulb.fill") {
                 ForEach(country.strategies, id: \.self) { Label($0, systemImage: "arrow.right.circle").font(.caption) }
             }
-            Text("Sources: \(country.sources) Values are rounded, game-simplified approximations.")
+            Text("Sources: \(country.sources) Statutory rates are real 2024 rules; values marked \"game estimate\" are rounded simplifications.")
                 .font(.caption2).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
             ImageCreditLabel(key: city.image)
         }
         .padding(10)
         .background(Theme.insetFill, in: .rect(cornerRadius: 10))
+    }
+
+    private var rdRate: String {
+        var t = "\(Fmt.pct(country.rdCredit, decimals: 0)) of R&D spend"
+        if country.rdCapYear > 0 { t += " up to \(Fmt.money(country.rdCapYear))/yr, \(Fmt.pct(country.rdAbove, decimals: 0)) above" }
+        if country.rdCreditCapYear > 0 { t += ", at most \(Fmt.money(country.rdCreditCapYear))/yr" }
+        if country.rdRefundCapYear > 0 { t += "; loss refund up to \(Fmt.money(country.rdRefundCapYear))/yr" }
+        return t
+    }
+}
+
+/// The HQ city's other sites and the country's universities, national supercomputer and parliament, each captioned
+/// with what it shows (they are photos of those places, not stand-ins). Nothing for a country without extra photos.
+private struct CountryPhotoStrip: View {
+    let keys: [String]
+
+    var body: some View {
+        if !keys.isEmpty {
+            Section2(title: "Around here", symbol: "photo.on.rectangle") {
+                HStack(alignment: .top, spacing: 8) {
+                    ForEach(keys, id: \.self) { key in
+                        let credit = ImageLibrary.credit(key)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Photo(key: key)
+                                .frame(height: 64)
+                                .frame(maxWidth: .infinity)
+                                .clipShape(.rect(cornerRadius: 6))
+                            Text(credit?.subject ?? "")
+                                .font(.caption2).foregroundStyle(.secondary)
+                                .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                        .help(ImageLibrary.tooltip(key))
+                        .accessibilityElement(children: .combine)
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -252,10 +375,13 @@ private struct Section2<Content: View>: View {
 
 // MARK: - Comparison
 
+/// Every headquarters city side by side, one row each; your pick is highlighted and the best value in each column is
+/// bold with a check.
 private struct CountryComparison: View {
     let selected: String
+    let selectedCity: String
     let year: Double
-    let choose: (String) -> Void
+    let choose: (String, String) -> Void
 
     private struct Metric {
         let label: String
@@ -267,54 +393,58 @@ private struct CountryComparison: View {
 
     private var metrics: [Metric] {
         [
-            Metric(label: "Corporate tax", value: { c, _ in c.corporateTax }, text: { c, _ in Fmt.pct(c.corporateTax, decimals: 1) }, lower: true),
-            Metric(label: "R&D tax credit", value: { c, _ in c.rdCredit }, text: { c, _ in c.rdCredit > 0 ? Fmt.pct(c.rdCredit, decimals: 0) : "—" }, lower: false),
-            Metric(label: "ML pay vs SF", value: { c, city in c.pay(city) }, text: { c, city in "×\(Fmt.trim(c.pay(city), 2))" }, lower: true),
-            Metric(label: "Net cost per research hire", value: { c, city in c.netPayrollFactor(city) }, text: { c, city in "×\(Fmt.trim(c.netPayrollFactor(city), 2))" }, lower: true),
-            Metric(label: "Office rent vs SF", value: { c, city in c.id == "us" ? 1 : city.office }, text: { c, city in "×\(Fmt.trim(c.id == "us" ? 1 : city.office, 2))" }, lower: true),
-            Metric(label: "Candidates at a time", value: { c, city in Double(c.candidates(city)) }, text: { c, city in "\(c.candidates(city))" }, lower: false),
-            Metric(label: "Poaching pressure", value: { c, _ in c.brainDrain }, text: { c, _ in "×\(Fmt.trim(c.brainDrain, 2))" }, lower: true),
-            Metric(label: "Datacenter power", value: { c, _ in c.location?.powerPrice ?? c.power }, text: { c, _ in "$\(Fmt.trim(c.location?.powerPrice ?? c.power, 3))" }, lower: true),
-            Metric(label: "Cooling (PUE)", value: { c, _ in c.location?.pueDelta ?? 0 }, text: { c, _ in Fmt.trim(c.location?.pueDelta ?? 0, 2) }, lower: true),
-            Metric(label: "Early-round pricing", value: { c, _ in c.investorDepth }, text: { c, _ in "×\(Fmt.trim(c.investorDepth, 2))" }, lower: false),
-            Metric(label: "Grants & public compute", value: { c, _ in c.grantRate }, text: { c, _ in c.grantRate == 0 ? "—" : "≈\(Fmt.trim(c.grantRate * 12, 1))/yr" }, lower: false),
-            Metric(label: "Standing at home", value: { c, _ in c.homeStanding }, text: { c, _ in c.homeStanding > 0 ? "+\(Int(c.homeStanding))" : "—" }, lower: false),
-            Metric(label: "Year-one burn (8 people)", value: { c, city in let o = c.yearOne(city, year: year); return o.payroll + o.office },
+            Metric(label: "Tax", value: { c, _ in c.corporateTax }, text: { c, _ in Fmt.pct(c.corporateTax, decimals: 1) }, lower: true),
+            Metric(label: "Lab pay", value: { c, city in c.pay(city) }, text: { c, city in "×\(Fmt.trim(c.pay(city), 2))" }, lower: true),
+            Metric(label: "Cost per hire", value: { c, city in c.netPayrollFactor(city) }, text: { c, city in "×\(Fmt.trim(c.netPayrollFactor(city), 2))" }, lower: true),
+            Metric(label: "Office", value: { c, city in c.id == "us" ? 1 : city.office }, text: { c, city in "×\(Fmt.trim(c.id == "us" ? 1 : city.office, 2))" }, lower: true),
+            Metric(label: "Candidates", value: { c, city in Double(c.candidates(city)) }, text: { c, city in "\(c.candidates(city))" }, lower: false),
+            Metric(label: "Poaching", value: { c, _ in c.brainDrain }, text: { c, _ in "×\(Fmt.trim(c.brainDrain, 2))" }, lower: true),
+            Metric(label: "DC power", value: { c, _ in c.location?.powerPrice ?? c.power }, text: { c, _ in "$\(Fmt.trim(c.location?.powerPrice ?? c.power, 3))" }, lower: true),
+            Metric(label: "Early rounds", value: { c, _ in c.investorDepth }, text: { c, _ in "×\(Fmt.trim(c.investorDepth, 2))" }, lower: false),
+            Metric(label: "Grants/yr", value: { c, _ in c.expectedGrantsAtStart(year) }, text: { c, _ in c.expectedGrantsAtStart(year) == 0 ? "—" : "≈\(Fmt.trim(c.expectedGrantsAtStart(year), 1))" }, lower: false),
+            Metric(label: "Year one", value: { c, city in let o = c.yearOne(city, year: year); return o.payroll + o.office },
                    text: { c, city in let o = c.yearOne(city, year: year); return Fmt.money(o.payroll + o.office) }, lower: true),
         ]
     }
 
     var body: some View {
-        let cols = CountryCatalog.all
+        let rows: [(HQCountry, HQCity)] = CountryCatalog.all.flatMap { c in c.cities.map { (c, $0) } }
+        let ms = metrics
         ScrollView(.horizontal) {
-            Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 6) {
+            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 4) {
                 GridRow {
-                    Text("").frame(width: 170, alignment: .leading)
-                    ForEach(cols) { c in
-                        Button { choose(c.id) } label: {
-                            VStack(spacing: 4) {
-                                FlagView(id: c.id).frame(width: 36, height: 24)
-                                Text(c.name).font(.caption.weight(.bold)).lineLimit(1)
-                            }
-                            .frame(width: 104)
-                            .padding(.vertical, 4)
-                            .background(c.id == selected ? Color.accentColor.opacity(0.25) : .clear, in: .rect(cornerRadius: 8))
-                        }
-                        .buttonStyle(.plain)
+                    Text("City").font(.caption.weight(.semibold)).foregroundStyle(.secondary).frame(width: 170, alignment: .leading)
+                    ForEach(ms.indices, id: \.self) { i in
+                        Text(ms[i].label).font(.caption.weight(.semibold)).foregroundStyle(.secondary).frame(width: 78, alignment: .trailing)
                     }
                 }
                 Divider()
-                ForEach(metrics.indices, id: \.self) { i in
-                    let metric = metrics[i]
-                    let values = cols.map { metric.value($0, $0.cities[0]) }
-                    let best = metric.lower ? values.min() : values.max()
+                ForEach(rows.indices, id: \.self) { r in
+                    let c = rows[r].0
+                    let city = rows[r].1
+                    let picked = c.id == selected && city.id == selectedCity
                     GridRow {
-                        Text(metric.label).font(.caption).foregroundStyle(.secondary).frame(width: 170, alignment: .leading)
-                        ForEach(cols.indices, id: \.self) { k in
-                            Text(metric.text(cols[k], cols[k].cities[0]))
-                                .font(.caption.monospacedDigit().weight(values[k] == best ? .bold : .regular))
-                                .foregroundStyle(values[k] == best ? Color.green : Color.primary)
-                                .frame(width: 104)
+                        Button { choose(c.id, city.id) } label: {
+                            HStack(spacing: 6) {
+                                FlagView(id: c.id).frame(width: 21, height: 14)
+                                Text(city.name).font(.caption.weight(picked ? .bold : .regular)).lineLimit(1)
+                                if picked { Image(systemName: "checkmark.circle.fill").font(.caption2).foregroundStyle(Color.accentColor).accessibilityLabel("Selected") }
+                            }
+                            .padding(.horizontal, 4).padding(.vertical, 2)
+                            .frame(width: 170, alignment: .leading)
+                            .background(picked ? Color.accentColor.opacity(0.12) : Color.clear, in: .rect(cornerRadius: 6))
+                        }
+                        .buttonStyle(.plain)
+                        ForEach(ms.indices, id: \.self) { i in
+                            let m = ms[i]
+                            let values = rows.map { m.value($0.0, $0.1) }
+                            let best = m.lower ? values.min() : values.max()
+                            let isBest = m.value(c, city) == best
+                            HStack(spacing: 2) {
+                                if isBest { Image(systemName: Tone.good.symbol).font(.caption2).foregroundStyle(Theme.good).accessibilityLabel("Best") }
+                                Text(m.text(c, city)).font(.caption.monospacedDigit().weight(isBest ? .bold : .regular))
+                            }
+                            .frame(width: 78, alignment: .trailing)
                         }
                     }
                 }
@@ -322,8 +452,148 @@ private struct CountryComparison: View {
             .padding(10)
         }
         .background(Theme.insetFill, in: .rect(cornerRadius: 12))
-        Text("Each country's first city shown; city choices change pay, rent and the talent pool. Best value in green.")
+        Text("Every city, one row each; click a row to choose it. Best value in each column marked with a check. Pay, pools, office costs and grant odds are game estimates; taxes are real 2024 rates (US: federal only).")
             .font(.caption2).foregroundStyle(.tertiary)
+    }
+}
+
+// MARK: - Text
+
+/// The longer strings of this file, built outside view expressions (long interpolated strings with conditions can be
+/// too slow for the compiler to type-check inside a view).
+private enum CountryText {
+    static func glanceTax(_ c: HQCountry) -> String {
+        var t = Fmt.pct(c.corporateTax, decimals: 1)
+        if c.id == "us" { t += " fed." }
+        return t
+    }
+
+    static func tax(_ c: HQCountry) -> String {
+        c.id == "us" ? "21% federal (state tax not modelled)" : Fmt.pct(c.corporateTax, decimals: 1)
+    }
+
+    static func office(_ c: HQCountry, _ city: HQCity) -> String {
+        let f = c.id == "us" ? 1 : city.office
+        return "×" + Fmt.trim(f, 2)
+    }
+
+    static func onCosts(_ c: HQCountry) -> String {
+        guard c.employerCost != 0 else { return "Baseline" }
+        let sign = c.employerCost > 0 ? "+" : "−"
+        return sign + Fmt.pct(abs(c.employerCost), decimals: 0)
+    }
+
+    static func seed(_ c: HQCountry) -> String {
+        guard c.investorDepth < 1 else { return "Baseline" }
+        return "×" + Fmt.trim((1 + c.investorDepth) / 2, 2) + " of the era's usual cash"
+    }
+
+    static func earlyRounds(_ c: HQCountry) -> String {
+        guard c.investorDepth < 1 else { return "Silicon Valley" }
+        return "×" + Fmt.trim(c.investorDepth, 2) + " until ≈$5B, then global"
+    }
+
+    static func pay(_ c: HQCountry, _ city: HQCity) -> String {
+        var t = "×" + Fmt.trim(c.pay(city), 2)
+        t += " (stars and relocating hires ×" + Fmt.trim(c.relocationPay(city), 2) + ")"
+        return t
+    }
+
+    static func candidates(_ c: HQCountry, _ city: HQCity) -> String {
+        guard c.id != "us" else { return "8 (16 once you're big)" }
+        return "\(c.candidates(city)) while unknown; up to 8 once you're well known, the rest relocating from abroad"
+    }
+
+    static func poaching(_ c: HQCountry) -> String {
+        guard c.brainDrain != 1 else { return "Baseline" }
+        var t = "×" + Fmt.trim(c.brainDrain, 2)
+        if c.brainDrain < 1 { t += " (less than SF)" }
+        return t
+    }
+
+    static func specialists(_ c: HQCountry, _ city: HQCity) -> String {
+        let roles = Set(c.specialties + city.specialties).map(\.title).sorted()
+        return roles.isEmpty ? "Everyone" : roles.joined(separator: ", ")
+    }
+
+    static func gridPower(_ loc: Location) -> String {
+        let sign = loc.pueDelta <= 0 ? "−" : "+"
+        return "$" + Fmt.trim(loc.powerPrice, 3) + "/kWh · PUE " + sign + Fmt.trim(abs(loc.pueDelta), 2)
+    }
+
+    static func contracts(_ kinds: [PowerKind], _ c: HQCountry, _ year: Double) -> String {
+        kinds.map { k in
+            let price = Int((k.priceMWh(year) * k.localPriceFactor(c.homeLocation)).rounded())
+            return "\(k.rawValue) ≈$\(price)/MWh"
+        }.joined(separator: ", ")
+    }
+
+    static func buildCost(_ c: HQCountry) -> String {
+        guard c.buildCost != 1 else { return "Baseline" }
+        return "×" + Fmt.trim(c.buildCost, 2) + ", taken off each phase you build (not campuses you buy)"
+    }
+
+    static func standing(_ c: HQCountry) -> String {
+        guard c.homeStanding > 0 else { return "Baseline" }
+        return "+\(Int(c.homeStanding)) with " + c.region.title
+    }
+
+    static func grants(_ perYear: Double, _ year: Double) -> String {
+        guard perYear > 0 else { return "None until a programme opens" }
+        return "≈" + Fmt.trim(perYear, 1) + " a year expected in \(Int(year)) (spaced at least three months apart)"
+    }
+
+    static func contract(_ c: HQCountry, _ year: Double) -> String {
+        let monthly = 3e6 * HQ.scale(year) * pow(c.homeMarket / 0.03, 0.75)
+        return "≈" + Fmt.money(monthly) + "/month at the start, sized to the home market (from mid-2023)"
+    }
+
+    static func summary(_ s: GameState, _ c: HQCountry, _ city: HQCity) -> String {
+        let won = s.hq.grants + s.hq.computeGrants + s.hq.rdCredits + s.hq.rebates
+        let years = max(0.25, Double(GameCalendar.daysBetween(s.startDate, s.date)) / 365)
+        var t = city.name + " · tax " + Fmt.pct(c.corporateTax, decimals: 1) + " · pay ×" + Fmt.trim(c.pay(city), 2)
+        if won > 0 { t += " · " + Fmt.money(won) + " from grants, R&D relief and build incentives" }
+        t += " · \(s.hq.grantOffers) grant offers in " + Fmt.trim(years, 1) + " years"
+        return t
+    }
+
+    static func summaryHelp(_ s: GameState, _ c: HQCountry) -> String {
+        var t = "Headquarters: " + c.name + ". " + c.tagline + " R&D relief: " + c.rdScheme.explain
+        if s.hq.rdCarry > 1 { t += " " + Fmt.money(s.hq.rdCarry) + " carried forward." }
+        return t
+    }
+
+    static func satellite(_ s: GameState, _ o: SatelliteOffice, staff: Int) -> String {
+        let c = CountryCatalog.get(o.country)
+        let key = o.id.uuidString
+        let rent = Double(o.seats) * HQ.seatRent(country: o.country, city: o.city)
+        var t = "\(staff)/\(o.seats) desks · pay ×" + Fmt.trim(c.pay(c.city(o.city)), 2) + " · rent " + Fmt.money(rent) + "/mo"
+        t += " · \(s.candidates.filter { $0.office == key }.count) candidates"
+        if o.country != s.hqCountry { t += " · outside the home R&D relief" }
+        return t
+    }
+
+    static func satelliteOffer(_ c: HQCountry, _ city: HQCity) -> String {
+        let pool = c.id == "us" ? 1 : c.talentPool * city.talent
+        let onCosts = c.employerCost == 0 ? "as in the US" : Fmt.signedPct(c.employerCost) + " vs the US"
+        var t = city.name + ": pay ×" + Fmt.trim(c.pay(city), 2) + " of San Francisco, on-costs " + onCosts
+        t += ", \(HQ.satelliteStartSeats) desks at " + Fmt.money(HQ.seatRent(country: c.id, city: city.id)) + "/desk-month"
+        t += ", a talent pool ×" + Fmt.trim(pool, 2) + " of San Francisco's. " + city.cluster + "."
+        return t
+    }
+
+    static func partnershipTitle(_ p: NationalPartnership) -> String {
+        let c = CountryCatalog.get(p.country)
+        let kind = p.kind == .computeCentre ? "Compute centre" : "University chair"
+        return kind + ", " + c.city(p.city).name + ", " + c.name
+    }
+
+    static func partnershipLine(_ p: NationalPartnership, _ s: GameState) -> String {
+        let c = CountryCatalog.get(p.country)
+        var t = Fmt.money(p.cost) + " · "
+        t += p.active(s.date) ? "until " + p.until.gameMonth : "ended " + p.until.gameMonth
+        t += p.counted ? " · counted at a January review" : " · pushes " + c.name + "'s dials next January"
+        return t
     }
 }
 
@@ -344,7 +614,7 @@ struct FlagView: View {
             }
         }
         .clipShape(.rect(cornerRadius: 3))
-        .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(.black.opacity(0.25), lineWidth: 0.5))
+        .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(Theme.hairline, lineWidth: 0.5))
         .accessibilityHidden(true)
     }
 
@@ -389,13 +659,135 @@ struct HQSummaryLine: View {
         let c = HQ.country(state)
         let city = HQ.city(state)
         if !HQ.isDefault(state) {
-            let won = state.hq.grants + state.hq.computeGrants + state.hq.rdCredits + state.hq.rebates
             HStack(spacing: 6) {
                 FlagView(id: c.id).frame(width: 18, height: 12)
-                Text("\(city.name) · tax \(Fmt.pct(c.corporateTax, decimals: 1)) · pay ×\(Fmt.trim(c.pay(city), 2))\(won > 0 ? " · \(Fmt.money(won)) from grants, credits and incentives" : "")")
+                Text(CountryText.summary(state, c, city))
                     .font(.caption).foregroundStyle(.secondary).lineLimit(2)
             }
-            .help("Headquarters: \(c.name). \(c.tagline)")
+            .help(CountryText.summaryHelp(state, c))
+        }
+    }
+}
+
+/// 3.4 overhaul: satellite offices on the Team page — open one in another city (at home or abroad) to hire from its
+/// pool at its pay and rent; add desks; close it.
+struct SatelliteOfficesCard: View {
+    @Environment(GameStore.self) private var store
+    let state: GameState
+    @State private var pick = "fr|paris"
+
+    var body: some View {
+        let s = state
+        let choices: [(HQCountry, HQCity)] = CountryCatalog.all.flatMap { c in c.cities.map { (c, $0) } }
+            .filter { pair in !(pair.0.id == s.hqCountry && pair.1.id == s.hqCity) && !s.hq.satellites.contains { $0.country == pair.0.id && $0.city == pair.1.id } }
+        let keys = choices.map { "\($0.0.id)|\($0.1.id)" }
+        let selection = keys.contains(pick) ? pick : (keys.first ?? "")
+        let chosen = choices.first { "\($0.0.id)|\($0.1.id)" == selection }
+        Card {
+            CardHeader("Offices", symbol: "building.2.crop.circle",
+                       subtitle: "Headquarters in \(HQ.place(s)) with \(HQ.staffCount(s, office: "")) people. A satellite office hires from its own city's pool at local pay, that country's employer on-costs and local rent.")
+            if s.hq.satellites.isEmpty {
+                Text("No satellite offices yet.").font(.callout).foregroundStyle(.secondary)
+            }
+            ForEach(s.hq.satellites) { o in
+                let key = o.id.uuidString
+                let c = CountryCatalog.get(o.country)
+                let staff = HQ.staffCount(s, office: key)
+                HStack(spacing: 8) {
+                    FlagView(id: c.id).frame(width: 21, height: 14)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("\(c.city(o.city).name), \(c.name)").font(.callout.weight(.semibold))
+                        Text(CountryText.satellite(s, o, staff: staff))
+                            .font(.caption).foregroundStyle(.secondary)
+                        Meter(value: Double(staff) / Double(max(1, o.seats)), tint: staff >= o.seats ? Theme.warning : Theme.good, height: 4)
+                    }
+                    Spacer()
+                    Button("+\(HQ.satelliteStep) desks (\(Fmt.money(HQ.satelliteExpandCost(o))))") {
+                        store.act("Office expanded") { $0.expandSatellite(o.id) }
+                    }
+                    .font(.caption)
+                    .disabled(o.seats >= HQ.satelliteMaxSeats)
+                    Button("Close…") { store.act("Office closed") { $0.closeSatellite(o.id) } }
+                        .buttonStyle(.borderless).font(.caption)
+                        .help(staff > 0 ? "Lets the \(staff) people there go with severance." : "Hands the desks back.")
+                }
+            }
+            if let chosen {
+                let c = chosen.0
+                let city = chosen.1
+                Divider()
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Picker("Open an office in", selection: Binding(get: { selection }, set: { pick = $0 })) {
+                        ForEach(choices.indices, id: \.self) { i in
+                            Text("\(choices[i].1.name), \(choices[i].0.name)").tag("\(choices[i].0.id)|\(choices[i].1.id)")
+                        }
+                    }
+                    .frame(maxWidth: 320)
+                    Spacer()
+                    Button("Open (\(Fmt.money(HQ.satelliteOpenCost(s, country: c.id, city: city.id))))") {
+                        store.act("Office opened") { $0.openSatellite(country: c.id, city: city.id) }
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+                Text(CountryText.satelliteOffer(c, city))
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+}
+
+/// 3.4 overhaul: national partnerships on the Nations page — co-fund a compute centre or endow a chair in a country, see
+/// what you fund and what each does.
+struct NationalPartnershipsCard: View {
+    @Environment(GameStore.self) private var store
+    let state: GameState
+    @State private var kind: PartnershipKind = .computeCentre
+    @State private var place = ""
+
+    var body: some View {
+        let s = state
+        let cities: [(HQCountry, HQCity)] = CountryCatalog.all.flatMap { c in c.cities.map { (c, $0) } }
+        let key = place.isEmpty ? "\(s.hqCountry)|\(s.hqCity)" : place
+        let parts = key.split(separator: "|").map(String.init)
+        let chosen = cities.first { $0.0.id == parts.first && $0.1.id == parts.last } ?? cities[0]
+        let cost = Nations.partnershipCost(kind, s)
+        Card {
+            CardHeader("National partnerships", symbol: "hands.and.sparkles.fill",
+                       subtitle: "Co-fund public compute or a university chair. It costs money, earns standing and pushes that country's dials at its next January review.")
+            let mine = s.hq.partners.sorted { $0.signed > $1.signed }
+            if mine.isEmpty { Text("None yet.").font(.callout).foregroundStyle(.secondary) }
+            ForEach(mine) { p in
+                let c = CountryCatalog.get(p.country)
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Image(systemName: p.kind.symbol).foregroundStyle(.secondary).frame(width: 18)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(CountryText.partnershipTitle(p)).font(.callout)
+                        Text(CountryText.partnershipLine(p, s))
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Pill(p.active(s.date) ? "Active" : "Ended", tone: p.active(s.date) ? .good : .neutral)
+                }
+            }
+            Divider()
+            Picker("Kind", selection: $kind) {
+                ForEach(PartnershipKind.allCases) { k in Text(k.title).tag(k) }
+            }
+            .pickerStyle(.segmented)
+            Picker("Where", selection: Binding(get: { key }, set: { place = $0 })) {
+                ForEach(cities.indices, id: \.self) { i in Text("\(cities[i].1.name), \(cities[i].0.name)").tag("\(cities[i].0.id)|\(cities[i].1.id)") }
+            }
+            .frame(maxWidth: 340)
+            Text(kind.effect).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Text("Costs \(Fmt.money(cost)) now.").font(.caption.weight(.semibold))
+                Spacer()
+                Button("Sign in \(chosen.1.name)") {
+                    store.act("Partnership signed") { $0.signNationalPartnership(kind, country: chosen.0.id, city: chosen.1.id) }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(cost > s.cash)
+            }
         }
     }
 }
