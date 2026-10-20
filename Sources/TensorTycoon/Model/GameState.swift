@@ -183,6 +183,12 @@ struct Site: Codable, Identifiable, Hashable {
     @D var rampKW: Double = 0
     @D var rampStepKW: Double = 0
     @D var nextRamp: Date? = nil
+    /// 3.8: security deposit held by the landlord (a month of the full block); handed back when the lease ends.
+    @D var deposit: Double = 0
+    /// 3.8: the original term is over and the lease runs year to year: leaving costs one month's rent.
+    @D var rolledOver: Bool = false
+    /// 3.8: times the player pushed back a tranche.
+    @D var rampDeferrals: Int = 0
     /// Capacity you rent to someone else, and on what terms.
     @D var subleasedKW: Double = 0
     @D var subleaseRate: Double = 0

@@ -203,14 +203,15 @@ enum Economy {
     }
 
     /// Your share of the world's rentable supply of this chip.
-    static func rentedShare(_ a: Accelerator, _ s: GameState) -> Double {
-        let mine = Double(s.rentals.filter { $0.accelID == a.id }.reduce(0) { $0 + $1.count })
+    static func rentedShare(_ a: Accelerator, _ s: GameState, excluding: Int = 0) -> Double {
+        let mine = max(0, Double(s.rentals.filter { $0.accelID == a.id }.reduce(0) { $0 + $1.count } - excluding))
         return mine / max(1, cloudSupply(a, s))
     }
 
     /// What a new rental costs: the market rate, plus 2% for every 1% of the world's supply you already hold.
-    static func rentQuote(_ a: Accelerator, _ s: GameState) -> Double? {
-        rent(a, s).map { $0 * (1 + 2 * rentedShare(a, s)) }
+    /// 3.8: a renewal (`renewing` = the chips being renewed) isn't new demand, so it isn't surcharged for your own holding.
+    static func rentQuote(_ a: Accelerator, _ s: GameState, renewing: Int = 0) -> Double? {
+        rent(a, s).map { $0 * (1 + 2 * rentedShare(a, s, excluding: renewing)) }
     }
 
     /// Server overhead included (CPU, NICs, fans).

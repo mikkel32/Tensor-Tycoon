@@ -69,6 +69,8 @@ enum SaveMigration {
         Nations.bootstrap(&s)
         // 3.7: the company stage the record earns, credited silently (no news, no rewards).
         Progression.bootstrap(&s)
+        Corporate.migrate(&s)   // 3.8: covenant cycle
+        DCMarket.migrateDeposits(&s)   // 3.8: refundable lease deposits
     }
 
     /// Decodes a save, migrates it and plays 90 days on a copy, resolving decisions with their first option.

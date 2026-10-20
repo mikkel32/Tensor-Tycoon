@@ -380,6 +380,7 @@ private struct SiteCard: View {
 }
 
 private struct LeaseInfo: View {
+    @Environment(GameStore.self) private var store
     let site: Site
     let state: GameState
 
@@ -393,6 +394,18 @@ private struct LeaseInfo: View {
             if site.rampKW > 0, let next = site.nextRamp {
                 Label("\(Fmt.watts(site.rampKW * 1000)) still to come · next +\(Fmt.watts(min(site.rampKW, site.rampStepKW) * 1000)) \(next.gameShort)", systemImage: "calendar")
                     .font(.caption).foregroundStyle(.orange)
+                Text("That tranche adds \(Fmt.money(DCMarket.trancheRent(site)))/month of rent when it's handed over. Defer it a quarter or decline what's left; the exit fee only counts space you have.")
+                    .font(.caption2).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                HStack {
+                    Button("Defer a quarter") { store.act("Tranche deferred") { $0.deferTranche(site.id) } }
+                        .disabled(site.rampDeferrals >= 4)
+                    Button("Decline the rest") { store.act("Tranches declined") { $0.declineTranches(site.id) } }
+                }
+                .buttonStyle(.borderless).font(.caption)
+            }
+            if site.deposit > 0 {
+                Label("\(Fmt.money(site.deposit)) refundable deposit, returned when the lease ends\(site.rolledOver ? ". Rolled over: leaving costs one month's rent" : "")", systemImage: "banknote")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             if site.leaseToOwn { Label("Yours at the end of the term", systemImage: "key.fill").font(.caption).foregroundStyle(.secondary) }
         }
@@ -726,7 +739,7 @@ private struct LeaseCard: View {
                 VStack(alignment: .leading, spacing: 6) {
                     SpecRow(label: "Rent", value: "\(Fmt.money(rate))/kW-month")
                     SpecRow(label: "At full size", value: "\(Fmt.money(rate * mw * 1000))/mo")
-                    SpecRow(label: "Deposit now", value: Fmt.money(rate * mw * 1000))
+                    SpecRow(label: "Refundable deposit", value: "\(Fmt.money(rate * mw * 1000)) (returned at the end)")
                     SpecRow(label: ramped ? "First 25%" : "Handed over", value: GameCalendar.addDays(s.date, ramped ? Int(Double(days) * 0.6) : days).gameShort)
                     if ramped { SpecRow(label: "Fully handed over", value: "~\(GameCalendar.addDays(s.date, Int(Double(days) * 0.6) + 273).gameShort)") }
                     SpecRow(label: "PUE · power", value: "\(Fmt.trim(cooling.basePUE + 0.07 + loc.pueDelta * 0.5, 2)) · \(Fmt.price(loc.powerPrice * 1.1))/kWh")

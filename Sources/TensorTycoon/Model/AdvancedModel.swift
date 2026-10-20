@@ -351,6 +351,8 @@ struct Programme: Codable, Identifiable, Hashable, Sendable {
     var audits: Int = 0
     var findings: Int = 0
     var mobilisingMonths: Int = 0
+    /// 3.8: months under a stop-work order; the schedule clock doesn't run in them.
+    @D var stoppedMonths: Int = 0
     var history: [ProgrammeEvent] = []
     var books: [ProgrammeMonth] = []
     var ended: Date? = nil

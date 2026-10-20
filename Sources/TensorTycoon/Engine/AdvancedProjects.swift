@@ -656,6 +656,14 @@ enum AdvancedProjects {
         }
         // Work.
         if p.stage >= .feasibility && p.stage <= .completion {
+            // 3.8: a stop-work order pauses the schedule (see `stoppedMonths`); say why, once per order.
+            if !f.security {
+                p.stoppedMonths += 1
+                if !p.stopWork {
+                    alert(&s, "stopwork|\(p.id)", "Stop-work order on \(sol.title)",
+                          "Your weight security is below what \(agency) requires (SL\(sol.level.requiredSL), you have SL\(s.security.rawValue)). The schedule clock and most spending pause until you raise it.", critical: true)
+                }
+            }
             p.stopWork = !f.security
             let rate = f.total
             workRate = rate
@@ -675,7 +683,7 @@ enum AdvancedProjects {
         // Direct spending: a quarter is the standing team's overhead (it runs every month, so slips cost money), three
         // quarters follow the work actually done — rework included — at the stage it started in.
         let workDone = startStage >= .feasibility && startStage <= .completion ? workRate * startStage.intensity : 0
-        let overhead = startStage == .award ? 0.05 : 0.25
+        let overhead = startStage == .award || p.stopWork ? 0.05 : 0.25   // 3.8: idle under a stop-work order
         let direct = est.cash / Double(sol.months) * (overhead + 0.75 * workDone) * p.costGrowth
         let team = s.employees.filter { p.staff.contains($0.id) }
         let salaries = team.reduce(0) { $0 + $1.salary } / 12
@@ -728,7 +736,7 @@ enum AdvancedProjects {
         p = s.advanced.programmes[i]
         if p.status == .active {
             // The schedule runs from mobilisation; classified work gets longer to mobilise (clearances, accreditation).
-            let ratio = Double(p.months - p.mobilisingMonths) / Double(max(1, sol.months))
+            let ratio = Double(p.months - p.mobilisingMonths - p.stoppedMonths) / Double(max(1, sol.months))
             let grace = mobilisationGrace(sol)
             switch sol.type {
             case .fixedPrice, .costPlus:
@@ -804,7 +812,7 @@ enum AdvancedProjects {
         p.status = .completed
         p.ended = s.date
         p.progress = 1
-        let onTime = p.months - p.mobilisingMonths <= Int(Double(sol.months) * 1.1)
+        let onTime = p.months - p.mobilisingMonths - p.stoppedMonths <= Int(Double(sol.months) * 1.1)
         s.advanced.ratings[sol.agency] = clamp(rating(s, sol.agency) + (onTime ? 2.5 : 1.2), -10, 10)
         if let a { Stakeholders.move(&s, [a.region.rawValue: 1.5 + Double(sol.classification)], "Delivered \(sol.title) for \(a.short)") }
         s.politicalCapital = min(100, s.politicalCapital + 1 + Double(sol.classification))

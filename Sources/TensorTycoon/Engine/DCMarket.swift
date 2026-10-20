@@ -220,12 +220,26 @@ enum DCMarket {
         return (site.capacityKW + site.rampKW) / 1000 * Campus.capexPerMW(site.cooling, s) * (0.15 + 0.75 * left)
     }
 
-    /// What the rest of a term lease would cost to walk away from (half the rent left).
+    /// What the rest of a term lease would cost to walk away from (half the rent left). 3.8: only space already handed
+    /// over is committed (tranches still to come can be declined), and a rolled-over lease costs one month.
     static func exitFee(_ site: Site, _ s: GameState) -> Double {
         guard site.isTermLease, let end = site.leaseEnd else { return site.monthlyFee }
+        if site.rolledOver { return site.leaseRate * site.capacityKW }
         let months = max(0, Double(GameCalendar.daysBetween(s.date, end)) / 30.4)
-        return site.leaseRate * (site.capacityKW + site.rampKW) * months * 0.5
+        return site.leaseRate * site.capacityKW * months * 0.5
     }
+
+    /// 3.8: leases signed before deposits were tracked: record what they paid (a month of the full block) so it comes back.
+    static func migrateDeposits(_ s: inout GameState) {
+        guard !s.corp.fixes.contains("deposits38") else { return }
+        s.corp.fixes.insert("deposits38")
+        for i in s.sites.indices where s.sites[i].isTermLease && s.sites[i].deposit == 0 {
+            s.sites[i].deposit = s.sites[i].leaseRate * (s.sites[i].capacityKW + s.sites[i].rampKW)
+        }
+    }
+
+    /// Rent step the next tranche adds, a month.
+    static func trancheRent(_ site: Site) -> Double { site.leaseRate * min(site.rampKW, site.rampStepKW) }
 
     /// Rent a tenant pays for `kw` of your space.
     static func subleaseRate(_ site: Site, kw: Double, years: Int, _ s: GameState) -> Double {
@@ -317,7 +331,10 @@ enum DCMarket {
             s.sites[i].monthlyFee = 0
             s.sites[i].leaseEnd = nil
             s.sites[i].leaseToOwn = false
-            Sim.news(&s, "\(site.name) is yours", "The lease-to-own term is over: \(Fmt.watts(site.capacityKW * 1000)) in \(site.location.name) now belongs to you.",
+            let back = s.sites[i].deposit
+            s.cash += back
+            s.sites[i].deposit = 0
+            Sim.news(&s, "\(site.name) is yours", "The lease-to-own term is over: \(Fmt.watts(site.capacityKW * 1000)) in \(site.location.name) now belongs to you.\(back > 0 ? " Your \(Fmt.money(back)) deposit is back." : "")",
                      .company, image: "hyperscale_campus", important: true, good: true)
             return
         }
@@ -325,8 +342,9 @@ enum DCMarket {
         s.sites[i].leaseRate = rate
         s.sites[i].leaseStart = s.date
         s.sites[i].leaseEnd = GameCalendar.addMonths(s.date, 12)
-        Sim.news(&s, "\(site.name): lease rolled over", "The term ended; it renews for a year at \(Fmt.money(rate))/kW-month (\(Fmt.money(rate * site.capacityKW))/month). End it from the Datacenters page.",
-                 .company)
+        s.sites[i].rolledOver = true
+        Sim.news(&s, "\(site.name): lease rolled over", "The term ended; it renews for a year at \(Fmt.money(rate))/kW-month (\(Fmt.money(rate * site.capacityKW))/month, was \(Fmt.money(site.leaseRate * site.capacityKW))). Leaving now costs one month's rent, and your \(Fmt.money(site.deposit)) deposit comes back when you do. End it from the Datacenters page.",
+                 .company, important: true)
     }
 
     /// The quickest sensible lease for `mw` (the Chief of Staff's suggestion): cheapest rent plus waiting, 3-year term.
@@ -444,10 +462,9 @@ extension GameState {
         let maxMW = DCMarket.maxLeaseMW(loc, self)
         if mw > maxMW + 0.01 { return "Providers in \(loc.name) can deliver at most \(Fmt.watts(maxMW * 1e6)) in one lease this year. Lease in another region too." }
         let rate = DCMarket.leaseRate(loc, mw: mw, years: years, cooling: cooling, toOwn: toOwn, self)
-        let deposit = rate * mw * 1000   // a month's rent as security
-        if deposit > cash { return "The deposit is a month's rent, \(Fmt.money(deposit)); you have \(Fmt.money(cash))." }
-        cash -= deposit
-        month.costSites += deposit
+        let deposit = rate * mw * 1000   // a month's rent on the full block, held as security and returned when the lease ends
+        if deposit > cash { return "The refundable deposit is a month's rent on the whole block, \(Fmt.money(deposit)); you have \(Fmt.money(cash))." }
+        cash -= deposit   // 3.8: not an expense: it's the landlord's to hold and yours to get back
         let lead = DCMarket.leaseLeadDays(mw: mw, loc, self)
         let ramped = ramp && mw > 100
         let first = ramped ? mw * 0.25 : mw
@@ -459,6 +476,7 @@ extension GameState {
         site.leaseStart = ready
         site.leaseEnd = GameCalendar.addMonths(ready, years * 12)
         site.leaseToOwn = toOwn
+        site.deposit = deposit
         if ramped {
             site.rampKW = (mw - first) * 1000
             site.rampStepKW = mw * 0.25 * 1000
@@ -466,8 +484,29 @@ extension GameState {
         }
         sites.append(site)
         Sim.news(&self, "Leased \(Fmt.watts(mw * 1e6)) in \(loc.name)",
-                 "\(years)-year \(toOwn ? "lease-to-own" : "wholesale lease") at \(Fmt.money(rate))/kW-month (\(Fmt.money(rate * mw * 1000))/month at full size). First \(Fmt.watts(first * 1e6)) \(ready.gameMonth)\(ramped ? ", the rest in quarterly tranches" : "").",
+                 "\(years)-year \(toOwn ? "lease-to-own" : "wholesale lease") at \(Fmt.money(rate))/kW-month (\(Fmt.money(rate * mw * 1000))/month at full size). First \(Fmt.watts(first * 1e6)) \(ready.gameMonth)\(ramped ? ", the rest in quarterly tranches you can defer or decline from the Datacenters page" : ""). \(Fmt.money(deposit)) refundable deposit held until the lease ends.",
                  .company, image: loc.image)
+        return nil
+    }
+
+    /// 3.8: push the next tranche of a leased block back a quarter (up to four times). Rent for it starts when it's handed over.
+    mutating func deferTranche(_ id: UUID) -> String? {
+        guard let i = sites.firstIndex(where: { $0.id == id }), sites[i].rampKW > 0, let next = sites[i].nextRamp else { return "No tranche is waiting." }
+        if sites[i].rampDeferrals >= 4 { return "The provider won't hold the space any longer: take it or decline it." }
+        sites[i].nextRamp = GameCalendar.addDays(next, 91)
+        sites[i].rampDeferrals += 1
+        Sim.news(&self, "\(sites[i].name): next tranche deferred", "The next \(Fmt.watts(min(sites[i].rampKW, sites[i].rampStepKW) * 1000)) now arrives \(sites[i].nextRamp?.gameShort ?? "later").", .company)
+        return nil
+    }
+
+    /// 3.8: give up the tranches still to come. The lease stays at what's been handed over (and so does its exit fee).
+    mutating func declineTranches(_ id: UUID) -> String? {
+        guard let i = sites.firstIndex(where: { $0.id == id }), sites[i].rampKW > 0 else { return "No tranche is waiting." }
+        let kw = sites[i].rampKW
+        sites[i].rampKW = 0
+        sites[i].rampStepKW = 0
+        sites[i].nextRamp = nil
+        Sim.news(&self, "\(sites[i].name): remaining tranches declined", "\(Fmt.watts(kw * 1000)) won't be handed over; rent stays on the \(Fmt.watts(sites[i].capacityKW * 1000)) you have.", .company)
         return nil
     }
 
@@ -479,6 +518,8 @@ extension GameState {
         if price > cash { return "The buyout costs \(Fmt.money(price))." }
         cash -= price
         month.capex += price
+        cash += sites[i].deposit   // 3.8: the deposit is handed back at the buyout
+        sites[i].deposit = 0
         sites[i].capacityKW += sites[i].rampKW
         sites[i].rampKW = 0
         sites[i].nextRamp = nil
