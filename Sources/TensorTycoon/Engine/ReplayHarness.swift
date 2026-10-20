@@ -37,6 +37,15 @@ enum ReplayHarness {
                 print(why.map { "could not order: \($0)" } ?? "ordered \(parts[2])× \(parts[1])")
                 continue
             }
+            // move-waiting: truck chips stuck at unopened sites to open ones. redirect:<chip>:<site name>: point that chip's orders elsewhere.
+            if t == "move-waiting" { let r = s.relocateWaitingChips(); print("moved \(Fmt.int(r.moved)) waiting chips for \(Fmt.money(r.cost))\(r.why.map { " (\($0))" } ?? "")"); continue }
+            if t.hasPrefix("redirect:") {
+                let parts = t.split(separator: ":").map(String.init)
+                if parts.count == 3, let site = s.sites.first(where: { $0.name == parts[2] }) {
+                    for o in s.orders where o.accelID == parts[1] { print("redirect \(o.count)×: \(s.redirectOrder(o.id, to: site.id) ?? "ok")") }
+                }
+                continue
+            }
             if t == "ops:autoscale" { s.ops.autoscale = true; continue }
             if t.hasPrefix("unretire:") {
                 let name = String(t.dropFirst("unretire:".count))
@@ -91,6 +100,12 @@ enum ReplayHarness {
         let debts = s.corp.debts.map { "\($0.kind.rawValue) \(Fmt.money($0.balance)) (+\(Fmt.trim($0.penalty, 1)) pts, \($0.breaches) breaches)" }.joined(separator: ", ")
         let leases = s.sites.filter(\.isTermLease).map { "\($0.name): \(Fmt.money($0.monthlyFee))/mo, +\(Fmt.watts($0.rampKW * 1000)) to come, deposit \(Fmt.money($0.deposit))" }.joined(separator: "; ")
         print("    cash \(Fmt.money(s.cash)) · debt \(Fmt.money(Economy.debt(s))) [\(debts)] · board \(Int(s.boardConfidence)) · rating \(s.corp.rating) · leases: \(leases)")
+        if ProcessInfo.processInfo.environment["REPLAY_SITES"] != nil {
+            for r in Campus.overview(s) {
+                print("    site \(r.site.name): \(r.ready ? "open" : "opens \(r.site.ready.gameShort)") free \(Fmt.watts(r.freeKW * 1000)) of \(Fmt.watts(r.site.capacityKW * 1000)) · chips \(r.chips.map { "\($0.count)× \($0.accelID)" }.joined(separator: ", ")) · waiting \(r.waiting) · arriving \(r.arrivals.prefix(3).map { "\($0.label) \($0.date.gameShort)" }.joined(separator: "; "))")
+            }
+            for i in Campus.idleOrders(s) { print("    IDLE ORDER: \(i.order.count)× \(i.order.accelID) arrives \(i.order.arrives.gameShort), \(i.site.name) opens \(i.site.ready.gameShort)") }
+        }
         let q = Corporate.quotes(s).map { "\($0.kind.rawValue) max \(Fmt.money($0.max))" }.joined(separator: ", ")
         print("    borrowing: \(q) · safe EBITDA \(Fmt.money(Corporate.safeEbitda(s))) · LTM \(Fmt.money(Corporate.ebitdaAnnual(s)))")
         for a in s.alerts where a.date == s.date { print("    ALERT\(a.critical ? "!" : ""): \(a.title) — \(a.body)") }

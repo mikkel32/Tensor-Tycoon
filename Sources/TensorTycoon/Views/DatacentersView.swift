@@ -25,6 +25,7 @@ struct DatacentersView: View {
             switch tab {
             case .overview:
                 AddCapacityCard(state: s)
+                SiteOverviewCard(state: s)
                 SitesTable(state: s) { tab = .sites }
                 DatacenterDiagramSection(state: s)
             case .sites:
@@ -1119,5 +1120,56 @@ struct BuildSiteSheet: View {
         }
         .padding(22)
         .frame(width: 920)
+    }
+}
+
+
+// MARK: - Site overview
+
+/// Per site: room, what's housed, what's arriving; warnings for chips that will sit idle, with one-click fixes.
+private struct SiteOverviewCard: View {
+    @Environment(GameStore.self) private var store
+    let state: GameState
+
+    var body: some View {
+        let s = state
+        let rows = Campus.overview(s).filter { $0.site.kind != .garage || $0.chipsKW > 0 }
+        let waiting = rows.reduce(0) { $0 + $1.waiting }
+        let idle = Campus.idleOrders(s)
+        Card {
+            CardHeader("Site overview", symbol: "list.bullet.rectangle.fill",
+                       subtitle: "Power, chips, rent and what's arriving at each site.")
+            if waiting > 0 {
+                HStack {
+                    Label("\(Fmt.int(waiting)) chips sit at sites that aren't open yet and do no work.", systemImage: "exclamationmark.triangle.fill")
+                        .font(.callout.weight(.semibold)).foregroundStyle(.orange)
+                    Spacer()
+                    Button("Move them to open sites", systemImage: "box.truck.fill") {
+                        var r: (moved: Int, cost: Double, why: String?) = (0, 0, nil)
+                        store.act("Chips moved") { r = $0.relocateWaitingChips(); return r.moved == 0 ? (r.why ?? "No open site has room.") : nil }
+                        if r.moved > 0, let why = r.why { store.show("Moved \(Fmt.int(r.moved)); \(why)", error: false) }
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+            }
+            ForEach(idle, id: \.order.id) { i in
+                Label("\(Fmt.int(i.order.count))× \(HardwareCatalog.get(i.order.accelID)?.name ?? i.order.accelID) arrive \(i.order.arrives.gameShort) at \(i.site.name), which opens \(i.site.ready.gameShort): \(i.idleDays) idle days.",
+                      systemImage: "clock.badge.exclamationmark").font(.caption).foregroundStyle(.orange)
+            }
+            Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 8) {
+                GridRow {
+                    ForEach(["Site", "Free / capacity", "Chips", "Rent · power", "Arriving"], id: \.self) { Text($0).font(.caption.weight(.semibold)) }
+                }.foregroundStyle(.secondary)
+                ForEach(rows) { r in
+                    GridRow(alignment: .top) {
+                        Text(r.site.name + (r.ready ? "" : " (opens \(r.site.ready.gameShort))")).font(.callout)
+                        Text("\(Fmt.watts(r.freeKW * 1000)) / \(Fmt.watts(r.site.capacityKW * 1000))").font(.caption.monospacedDigit())
+                        Text(r.chips.isEmpty ? "none" : r.chips.map { "\(Fmt.int($0.count))× \(HardwareCatalog.get($0.accelID)?.name ?? $0.accelID)" }.joined(separator: ", ")).font(.caption)
+                        Text("\(Fmt.money(r.monthlyRent))/mo · \(Fmt.money(r.site.powerPrice))/kWh").font(.caption.monospacedDigit())
+                        Text(r.arrivals.isEmpty ? "nothing" : r.arrivals.prefix(3).map { "\($0.label) \($0.date.gameShort)" }.joined(separator: "; ")).font(.caption)
+                    }
+                }
+            }
+        }
     }
 }

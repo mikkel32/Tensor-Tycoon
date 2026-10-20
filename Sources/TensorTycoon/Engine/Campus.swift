@@ -208,3 +208,93 @@ extension GameState {
         return nil
     }
 }
+
+// MARK: - Site overview and relocation
+
+extension Campus {
+    /// One line per site for the overview: room, what's housed, what's arriving and what it costs.
+    struct SiteRow: Identifiable {
+        var id: UUID { site.id }
+        let site: Site
+        let ready: Bool
+        let chipsKW: Double
+        let orderedKW: Double
+        let freeKW: Double
+        let chips: [(accelID: String, count: Int)]
+        let waiting: Int
+        let arrivals: [(date: Date, kw: Double, label: String)]
+        let monthlyRent: Double
+    }
+
+    static func overview(_ s: GameState) -> [SiteRow] {
+        s.sites.map { site in
+            var by: [String: Int] = [:]
+            for b in s.owned where b.siteID == site.id { by[b.accelID, default: 0] += b.count }
+            let chipsKW = by.reduce(0.0) { $0 + (HardwareCatalog.get($1.key).map(Economy.chipKW) ?? 0) * Double($1.value) }
+            let orders = s.orders.filter { $0.siteID == site.id }
+            let orderedKW = orders.reduce(0.0) { $0 + (HardwareCatalog.get($1.accelID).map(Economy.chipKW) ?? 0) * Double($1.count) }
+            var arr: [(date: Date, kw: Double, label: String)] = orders.map {
+                ($0.arrives, (HardwareCatalog.get($0.accelID).map(Economy.chipKW) ?? 0) * Double($0.count), "\(Fmt.int($0.count))× \(HardwareCatalog.get($0.accelID)?.name ?? $0.accelID)")
+            }
+            if site.rampKW > 0, let r = site.nextRamp { arr.append((r, min(site.rampKW, site.rampStepKW), "next lease tranche")) }
+            if site.expanding > 0, let r = site.expansionReady { arr.append((r, site.expanding, "new phase")) }
+            return SiteRow(site: site, ready: site.isReady(s.date), chipsKW: chipsKW, orderedKW: orderedKW,
+                           freeKW: max(0, site.capacityKW - Economy.siteLoadKW(s, site.id)),
+                           chips: by.sorted { $0.key < $1.key }.map { ($0.key, $0.value) },
+                           waiting: site.isReady(s.date) ? 0 : by.values.reduce(0, +),
+                           arrivals: arr.sorted { $0.date < $1.date }, monthlyRent: site.monthlyFee)
+        }
+    }
+
+    /// Orders heading for a site that isn't open when they arrive: they would sit idle. (order, site, days idle)
+    static func idleOrders(_ s: GameState) -> [(order: HardwareOrder, site: Site, idleDays: Int)] {
+        s.orders.compactMap { o in
+            guard let site = s.sites.first(where: { $0.id == o.siteID }), site.ready > o.arrives else { return nil }
+            return (o, site, Int(site.ready.timeIntervalSince(o.arrives) / 86_400))
+        }
+    }
+
+    /// The best open site for a purchase: most room first. Used as the default in the store.
+    static func defaultSite(for a: Accelerator, count: Int, _ s: GameState) -> Site? { s.bestSite(for: a, count: count).site }
+}
+
+extension GameState {
+    /// 3.9: point an order that hasn't arrived at another site (free: nothing has shipped). Same power and cooling rules as buying.
+    mutating func redirectOrder(_ id: UUID, to siteID: UUID) -> String? {
+        guard let i = orders.firstIndex(where: { $0.id == id }), let a = HardwareCatalog.get(orders[i].accelID) else { return "Not found." }
+        guard let dest = sites.first(where: { $0.id == siteID }) else { return "Pick a site." }
+        if orders[i].siteID == siteID { return "That order is already going there." }
+        if a.tdpW > dest.maxChipTDP { return "\(dest.name) can't power or cool \(Int(a.tdpW)) W parts." }
+        if a.liquid && !dest.cooling.supportsLiquidChips { return "\(a.name) needs liquid cooling; \(dest.name) is air-cooled." }
+        let needKW = Economy.chipKW(a) * Double(orders[i].count)
+        let freeKW = dest.capacityKW - Economy.siteLoadKW(self, siteID)
+        if needKW > freeKW + 0.01 { return "Not enough power at \(dest.name): needs \(Fmt.watts(needKW * 1000)), \(Fmt.watts(max(0, freeKW) * 1000)) free." }
+        let from = sites.first { $0.id == orders[i].siteID }?.name ?? "its old site"
+        orders[i].siteID = siteID
+        Sim.news(&self, "Order redirected", "\(Fmt.int(orders[i].count))× \(a.name) now go to \(dest.name) instead of \(from).", .company)
+        return nil
+    }
+
+    /// 3.9: truck every chip sitting at a site that isn't open yet to open sites with room (most room first). Returns what moved.
+    mutating func relocateWaitingChips() -> (moved: Int, cost: Double, why: String?) {
+        var moved = 0, cost = 0.0
+        var why: String? = nil
+        let waitingSites = sites.filter { !$0.isReady(date) }.map(\.id)
+        for b in owned where waitingSites.contains(b.siteID) {
+            guard let a = HardwareCatalog.get(b.accelID) else { continue }
+            var left = b.count
+            while left > 0 {
+                let dests = sites.filter { $0.isReady(date) && $0.kind != .garage }.map { d in
+                    (d, Int(max(0, d.capacityKW - Economy.siteLoadKW(self, d.id)) / max(0.001, Economy.chipKW(a))))
+                }.filter { $0.1 > 0 && a.tdpW <= $0.0.maxChipTDP && (!a.liquid || $0.0.cooling.supportsLiquidChips) }
+                guard let best = dests.max(by: { $0.1 < $1.1 }) else { why = "No open site has room for \(a.name)."; break }
+                let n = min(left, best.1)
+                let c = Double(n) * Campus.moveCostPerChip(a)
+                if c > cash { why = "Moving them costs \(Fmt.money(c))."; break }
+                if let e = moveHardware(batchID: b.id, count: n, to: best.0.id) { why = e; break }
+                moved += n; cost += c; left -= n
+            }
+        }
+        return (moved, cost, why)
+    }
+}

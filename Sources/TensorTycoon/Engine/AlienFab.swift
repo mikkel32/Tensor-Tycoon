@@ -571,16 +571,21 @@ extension GameState {
         return nil
     }
 
-    /// Where `count` chips of this type could go today: the ready (or building) site with the most free power that takes them.
+    /// Where `count` chips of this type could go today. 3.9: a site that is open and has room for all of them beats one
+    /// still being built (chips bought for a site that isn't open yet sit idle); otherwise the one with the most room.
     func bestSite(for a: Accelerator, count: Int) -> (site: Site?, fits: Int) {
-        var best: (Site, Int)? = nil
+        var best: (site: Site, fits: Int)? = nil
+        func rank(_ c: (site: Site, fits: Int)) -> (Int, Int) { (c.site.isReady(date) && c.fits >= count ? 2 : (c.fits >= count ? 1 : 0), c.fits) }
         for site in sites where (site.isReady(date) || site.kind == .datacenter || site.kind == .colo)
             && a.tdpW <= site.maxChipTDP && (!a.liquid || site.cooling.supportsLiquidChips) {
             let freeKW = site.capacityKW - Economy.siteLoadKW(self, site.id)
-            let fits = Int(max(0, freeKW) / max(0.001, Economy.chipKW(a)))
-            if best == nil || fits > best!.1 || (fits == best!.1 && site.isReady(date) && !best!.0.isReady(date)) { best = (site, fits) }
+            let c = (site: site, fits: Int(max(0, freeKW) / max(0.001, Economy.chipKW(a))))
+            if let b = best {
+                let (rc, rb) = (rank(c), rank(b))
+                if rc.0 > rb.0 || (rc.0 == rb.0 && rc.1 > rb.1) { best = c }
+            } else { best = c }
         }
-        return (best?.0, best?.1 ?? 0)
+        return (best?.site, best?.fits ?? 0)
     }
 
     /// Order alien (or other own) chips to whichever site has room.
