@@ -258,6 +258,10 @@ private struct QueueCard: View {
                     .frame(maxWidth: 240)
                     Text(s.focus.blurb).font(.caption).foregroundStyle(.secondary).lineLimit(2)
                 }
+                if !ResearchLab.focusHasOptions(s) {
+                    Text("Nothing in \(s.focus.title.lowercased()) is open to research right now, so the director refines breakthroughs and picks general work instead.")
+                        .font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+                }
             }
             if s.researchQueue.isEmpty {
                 Text(s.autoResearch ? "Nothing worth starting yet — idle research goes to your signature programme." : "Idle! Pick something below, or turn on the research director.")

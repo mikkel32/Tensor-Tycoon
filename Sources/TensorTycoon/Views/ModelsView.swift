@@ -245,19 +245,30 @@ private struct ModelCard: View {
                 }
                 let options = pools.filter { p in !m.deployments.contains { $0.accelID == p.accel.id } && p.free > 0 }
                 if !options.isEmpty {
+                    // 3.9: one copy of the model needs `k` chips of a type; a pool with fewer can't serve it at all, so say
+                    // so up front instead of asking for a full replica and failing with "only N chips available".
+                    let perReplica = { (p: ComputePool) in Physics.chipsPerReplica(m, accel: p.accel, precision: m.servingPrecision, bonuses: b) }
+                    let chosen = options.first { $0.accel.id == addAccel }
                     HStack {
                         Picker("Add accelerators", selection: $addAccel) {
                             Text("Choose hardware…").tag("")
-                            ForEach(options) { p in Text("\(p.accel.name) (\(p.free) free)").tag(p.accel.id) }
+                            ForEach(options) { p in
+                                let k = perReplica(p)
+                                Text(p.free >= k ? "\(p.accel.name) (\(p.free) free, \(p.free / k) replica\(p.free / k == 1 ? "" : "s"))"
+                                                 : "\(p.accel.name) (\(p.free) free — one replica needs \(k))").tag(p.accel.id)
+                            }
                         }
                         Button("Deploy") {
-                            guard let p = options.first(where: { $0.accel.id == addAccel }) else { return }
-                            let k = Physics.chipsPerReplica(m, accel: p.accel, precision: m.servingPrecision, bonuses: b)
-                            let n = max(k, (p.free / k) * k)
+                            guard let p = chosen else { return }
+                            let n = (p.free / perReplica(p)) * perReplica(p)
                             store.act("Deployed \(n) chips") { $0.deploy(m.id, accelID: p.accel.id, chips: n) }
                             addAccel = ""
                         }
-                        .disabled(addAccel.isEmpty)
+                        .disabled(chosen.map { $0.free < perReplica($0) } ?? true)
+                    }
+                    if let p = chosen, p.free < perReplica(p) {
+                        Text("\(m.name) needs \(perReplica(p)) \(p.accel.name) chips for one copy of itself at \(m.servingPrecision.short); you have \(p.free) free. Free more, serve at a lower precision, or pick other chips.")
+                            .font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
                     }
                 } else if m.deployments.isEmpty {
                     Text("No free accelerators. Rent or buy more, or free some from training/research.").font(.caption).foregroundStyle(.orange)

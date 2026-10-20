@@ -453,7 +453,13 @@ extension GameState {
         guard let i = models.firstIndex(where: { $0.id == id }) else { return "Not found." }
         let current = models[i].deployments.first { $0.accelID == accelID }?.chips ?? 0
         let free = recallLeased(accelID, needing: chips - current) + current
-        if chips > free { return "Only \(free) chips available.\(leasedNote(accelID))" }
+        if chips > free {
+            // 3.9: say what the number is for: usually one replica needs more chips than you have.
+            let k = HardwareCatalog.get(accelID).map { Physics.chipsPerReplica(models[i], accel: $0, precision: models[i].servingPrecision, bonuses: bonuses) } ?? 1
+            let name = HardwareCatalog.get(accelID)?.name ?? "chips"
+            return free < k ? "\(models[i].name) needs \(k) \(name) for one replica; you have \(free).\(leasedNote(accelID))"
+                            : "You asked for \(chips) \(name) but have \(free) (\(free / k) replica\(free / k == 1 ? "" : "s") of \(k)).\(leasedNote(accelID))"
+        }
         models[i].deployments.removeAll { $0.accelID == accelID }
         if chips > 0 { models[i].deployments.append(Deployment(accelID: accelID, chips: chips)) }
         return nil

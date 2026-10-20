@@ -315,18 +315,31 @@ enum ResearchLab {
     /// How the director values one more level of a frontier programme (a new technique is worth 1–3).
     static let programValue = 0.6
 
+    /// 3.9: whether anything the director could research now sits in the focus's own areas (weight above 1). False tells
+    /// the player why the queue fills with refines and other general work.
+    static func focusHasOptions(_ s: GameState) -> Bool {
+        let focus = s.focus
+        guard focus != .balanced && focus != .cheapest else { return true }
+        let open = ResearchCatalog.all.contains { item in
+            !s.researched.contains(item.id) && !(item.isExotic && !s.exoticOwned.contains(item.id)) && XenoScience.researchUnlocked(item.id, s)
+                && item.prereqs.allSatisfy { s.researched.contains($0) } && item.year - s.year <= (focus == .capability ? 3 : 1.5)
+                && focus.weight(item.category) > 1
+        }
+        return open || (s.year >= lateDirectorYear && FrontierProgram.all.contains { $0.isOpen(s) && focus.weight($0.category) > 1 })
+    }
+
     /// The director's next pick: the best value for money under your focus.
     static func pick(_ s: GameState) -> String? {
         let focus = s.focus
         let queued = Set(s.researchQueue)
         var best: (String, Double)? = nil
-        // 3.8: something that would take more than ~90 days at today's rate only gets picked when nothing quicker is left.
-        var bestLong: (String, Double)? = nil
+        // 3.8: something that would take more than ~90 days at today's rate scores lower. 3.9: a penalty, not a gate, so
+        // your focus (×2.5 on its categories) can still pick a long project in its area over a quick one outside it.
         let qRate = queueRate(s, total: s.rpToday)
         func offer(_ id: String, _ score: Double, need: Double) {
             let long = qRate > 0 && need / qRate > 90
-            if long { if bestLong == nil || score > bestLong!.1 { bestLong = (id, score) } }
-            else if best == nil || score > best!.1 { best = (id, score) }
+            let scored = long && focus != .cheapest ? score * 0.4 : score
+            if best == nil || scored > best!.1 { best = (id, scored) }
         }
         for item in ResearchCatalog.all where !s.researched.contains(item.id) && !queued.contains(item.id) {
             if item.isExotic && !s.exoticOwned.contains(item.id) { continue }
@@ -361,11 +374,13 @@ enum ResearchLab {
                 guard let item = ResearchCatalog.byID[id] else { continue }
                 let cost = max(50, Breakthroughs.refineCost(item, toLevel: (s.exoticMastery[id] ?? 1) + 1))
                 let value = 1.2 + (Breakthroughs.rarity(id) == .legendary ? 1 : 0)
-                let score = focus == .cheapest ? 1 / cost : focus.weight(.exotic) * value / pow(cost, 0.75)
+                // 3.9: refining is general work: under a chosen focus it ranks below that focus's own research, so
+                // picking a focus visibly changes the queue (it used to lose to cheap refines every time).
+                let general = focus == .balanced ? 1.0 : 0.5
+                let score = focus == .cheapest ? 1 / cost : focus.weight(.exotic) * general * value / pow(cost, 0.75)
                 offer(Breakthroughs.refineID(id), score, need: cost)
             }
         }
-        if best == nil { best = bestLong }
         // Nothing left to learn: refine your best unique breakthrough.
         if best == nil {
             let refinable = s.exoticOwned.filter { s.researched.contains($0) && (s.exoticMastery[$0] ?? 1) < Breakthroughs.maxMastery }
@@ -586,7 +601,13 @@ extension GameState {
 
     mutating func setResearchFocus(_ f: ResearchFocus) {
         researchFocus = f.rawValue
-        if autoResearch { ResearchLab.fillQueue(&self) }
+        // 3.9: a new focus re-picks the director's queue at once (it only topped up an emptying queue before, so changing
+        // focus looked like it did nothing). Your own picks stay; progress on a dropped pick is kept for later.
+        guard autoResearch else { return }
+        let picks = directorQueued
+        researchQueue.removeAll { picks.contains($0) }
+        directorQueued.removeAll()
+        ResearchLab.fillQueue(&self)
     }
 
     /// Move a queued project up (negative) or down (positive).

@@ -32,6 +32,10 @@ enum ReplayHarness {
                 for id in s.sites.map(\.id) { for _ in 0..<(Int(t.dropFirst(6)) ?? 1) { _ = s.deferTranche(id) } }
                 continue
             }
+            if t.hasPrefix("focus:"), let f = ResearchFocus(rawValue: String(t.dropFirst(6))) {
+                print("queue before: \(s.researchQueue)"); s.setResearchFocus(f); print("focus \(f.rawValue) → queue: \(s.researchQueue)")
+                continue
+            }
             if t.hasPrefix("order:") {
                 let parts = t.split(separator: ":").map(String.init)
                 let why = parts.count == 3 ? s.orderOwnChips(parts[1], count: Int(parts[2]) ?? 0) : "use order:<chip>:<count>"
