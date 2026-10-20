@@ -68,10 +68,10 @@ enum Physics {
         let group: Int
         let note: String
         if b.has(.sharding) {
-            group = d.chips
-            note = "Sharded across all \(d.chips) chips (ZeRO/FSDP)."
+            group = d.allChips
+            note = "Sharded across all \(d.allChips) chips (ZeRO/FSDP)."
         } else if b.has(.modelParallel) {
-            group = min(d.chips, max(1, accel.scaleUp))
+            group = min(d.allChips, max(1, accel.scaleUp))
             note = "Model-parallel within a \(group)-chip node. Research ZeRO/FSDP to shard across everything."
         } else {
             group = 1
@@ -79,6 +79,39 @@ enum Physics {
         }
         let have = Double(group) * accel.memoryGB
         return MemoryCheck(ok: have >= need, needGB: need, haveGB: have, note: note)
+    }
+
+    /// 3.9: every chip group must hold its shard. With helpers the weakest group decides; its note names it.
+    static func trainingMemoryAll(_ d: ModelDesign, bonuses b: ResearchBonuses) -> MemoryCheck? {
+        guard let lead = HardwareCatalog.get(d.accelID) else { return nil }
+        var worst = trainingMemory(d, accel: lead, bonuses: b)
+        for h in d.helpers {
+            guard let a = HardwareCatalog.get(h.accelID) else { continue }
+            let m = trainingMemory(d, accel: a, bonuses: b)
+            if !m.ok && worst.ok { worst = MemoryCheck(ok: false, needGB: m.needGB, haveGB: m.haveGB, note: "\(a.name): \(m.note)") }
+        }
+        return worst
+    }
+
+    /// Share of throughput a mixed cluster keeps: the groups step together, so the slower one sets the pace, and they
+    /// talk over the datacenter network rather than one fabric.
+    static let mixedEfficiency = 0.85
+
+    /// 3.9: the run's size in lead-type chips for throughput: the lead chips plus each helper group converted by its
+    /// training speed (TFLOPS × base MFU) at `mixedEfficiency`. Equals `chips` for a single-type run.
+    static func throughputChips(_ d: ModelDesign) -> Double {
+        guard !d.helpers.isEmpty, let lead = HardwareCatalog.get(d.accelID) else { return Double(d.chips) }
+        let leadSpeed = max(1e-9, lead.trainTFLOPS(d.precision) * lead.baseMFU)
+        let extra = d.helpers.reduce(0.0) { acc, h in
+            guard let a = HardwareCatalog.get(h.accelID), a.supportsTraining(d.precision) else { return acc }
+            return acc + Double(h.chips) * a.trainTFLOPS(d.precision) * a.baseMFU / leadSpeed
+        }
+        return Double(d.chips) + extra * mixedEfficiency
+    }
+
+    /// What the run's chips cost a day: each group at its own rate (rent, or amortisation plus power).
+    static func dailyChipCost(_ d: ModelDesign, state s: GameState) -> Double {
+        d.parts.reduce(0.0) { acc, p in acc + (HardwareCatalog.get(p.accelID).map { Economy.chipDailyCost($0, count: p.chips, state: s) } ?? 0) }
     }
 
     static func mfu(accel: Accelerator, chips: Int, state s: GameState, bonuses b: ResearchBonuses) -> Double {
@@ -108,7 +141,7 @@ enum Physics {
 
     /// Chips of the biggest run going (or about to go: `planned`), which the infra team is staffed against.
     static func staffedChips(_ s: GameState, planned: Int = 0) -> Int {
-        max(1, planned, s.runs.filter { $0.status == .running || $0.status == .postTraining }.map(\.design.chips).max() ?? 1)
+        max(1, planned, s.runs.filter { $0.status == .running || $0.status == .postTraining }.map(\.design.allChips).max() ?? 1)
     }
 
     /// Hours of progress lost per hardware interruption (restart + work since the last save). The infra team is
@@ -136,7 +169,7 @@ enum Physics {
 
     /// MFU the daily simulation will use for this design (ops agents tune kernels too).
     static func runMFU(_ d: ModelDesign, accel: Accelerator, coverage cov: Double, state s: GameState, bonuses b: ResearchBonuses) -> Double {
-        var m = mfu(accel: accel, chips: d.chips, state: s, bonuses: b) + 0.02 * cov
+        var m = mfu(accel: accel, chips: d.allChips, state: s, bonuses: b) + 0.02 * cov
         if d.optimizer == .shampoo { m -= 0.02 }
         // 3.4: what the design itself costs: sparse experts' all-to-all traffic and router imbalance, the memory plan,
         // and chips held back as hot spares.
@@ -168,9 +201,9 @@ enum Physics {
     static func flopsPerDay(_ d: ModelDesign, state s: GameState, lr: LRSchedule = .standard, interval: Double = 0.1) -> Double {
         guard let a = HardwareCatalog.get(d.accelID) else { return 0 }
         let b = s.bonuses
-        let cov = Training.plannedCoverage(s, chips: d.chips)
-        return Double(d.chips) * a.trainTFLOPS(d.precision) * 1e12 * runMFU(d, accel: a, coverage: cov, state: s, bonuses: b)
-            * Training.goodput(chips: d.chips, coverage: cov, state: s, bonuses: b, spares: d.spares) * 86_400 * lr.speed * Sim.checkpointOverhead(interval)
+        let cov = Training.plannedCoverage(s, chips: d.allChips)
+        return throughputChips(d) * a.trainTFLOPS(d.precision) * 1e12 * runMFU(d, accel: a, coverage: cov, state: s, bonuses: b)
+            * Training.goodput(chips: d.allChips, coverage: cov, state: s, bonuses: b, spares: d.spares) * 86_400 * lr.speed * Sim.checkpointOverhead(interval)
     }
 
     static func pretrainFLOPs(_ d: ModelDesign) -> Double {
@@ -183,7 +216,7 @@ enum Physics {
     }
 
     static func clusterFLOPS(_ d: ModelDesign, accel: Accelerator, state s: GameState, bonuses b: ResearchBonuses) -> Double {
-        Double(d.chips) * accel.trainTFLOPS(d.precision) * 1e12 * mfu(accel: accel, chips: d.chips, state: s, bonuses: b)
+        throughputChips(d) * accel.trainTFLOPS(d.precision) * 1e12 * mfu(accel: accel, chips: d.allChips, state: s, bonuses: b)
     }
 
     struct Estimate {
@@ -215,11 +248,11 @@ enum Physics {
         let b = s.bonuses
         let pre = pretrainFLOPs(d)
         let post = postTrainFLOPs(d, pretrain: pre, bonuses: b)
-        let cov = Training.plannedCoverage(s, chips: d.chips)
+        let cov = Training.plannedCoverage(s, chips: d.allChips)
         let m = runMFU(d, accel: accel, coverage: cov, state: s, bonuses: b)
-        let g = Training.goodput(chips: d.chips, coverage: cov, state: s, bonuses: b, spares: d.spares)
+        let g = Training.goodput(chips: d.allChips, coverage: cov, state: s, bonuses: b, spares: d.spares)
         let perDay = flopsPerDay(d, state: s, lr: lr, interval: interval)
-        let daily = Economy.chipDailyCost(accel, count: d.chips, state: s)
+        let daily = dailyChipCost(d, state: s)
         var days = Double.infinity, incidents = 0.0, toy = false
         // Below 1% goodput progress comes from the odd lucky day, if ever: the run doesn't finish.
         if perDay > 0 && g >= Training.stallGoodput {
@@ -230,7 +263,7 @@ enum Physics {
             days = base + incidents
         }
         return Estimate(flops: pre, postFlops: post, days: days, dailyCost: daily, totalCost: days.isFinite ? daily * days : .infinity,
-                        mfu: m, goodput: g, memory: trainingMemory(d, accel: accel, bonuses: b),
+                        mfu: m, goodput: g, memory: trainingMemoryAll(d, bonuses: b) ?? trainingMemory(d, accel: accel, bonuses: b),
                         forecast: ForecastEngine.forecast(d, state: s, dataSources: s.dataSources.sorted()),
                         coverage: cov, incidentDays: incidents, toy: toy)
     }
@@ -517,7 +550,8 @@ enum LabMath {
             active = sqrt(flops / (6 * 2 * overtrain)) / 1e9
         }
         let perParam = Physics.trainingBytes(design, bonuses: b)
-        let memCap = a.weightStreaming ? 1e9 : (b.has(.sharding) ? Double(design.chips) * a.memoryGB / perParam
+        let sharded = design.parts.reduce(0.0) { $0 + Double($1.chips) * (HardwareCatalog.get($1.accelID)?.memoryGB ?? a.memoryGB) }
+        let memCap = a.weightStreaming ? 1e9 : (b.has(.sharding) ? sharded / perParam
             : (b.has(.modelParallel) ? Double(min(design.chips, a.scaleUp)) * a.memoryGB / perParam : a.memoryGB / perParam))
         let paramCap = Physics.maxParamsB(s)
         let tokenCap = Physics.maxTokensT(design, state: s)
@@ -566,11 +600,20 @@ enum LabMath {
         guard let a = HardwareCatalog.get(design.accelID) else { return nil }
         let b = s.bonuses
         var notes: [String] = []
-        let healthy = Training.healthyChips(design.chips, target: Training.goodputTarget, state: s, bonuses: b)
-        if healthy < design.chips {
-            notes.append("Sized for \(Fmt.int(healthy)) of your \(Fmt.int(design.chips)) chips: beyond that, hardware failures would eat more than "
+        let all = design.allChips
+        let healthy = Training.healthyChips(all, target: Training.goodputTarget, state: s, bonuses: b)
+        if healthy < all {
+            notes.append("Sized for \(Fmt.int(healthy)) of your \(Fmt.int(all)) chips: beyond that, hardware failures would eat more than "
                          + "\(Int(((1 - Training.goodputTarget) * 100).rounded()))% of the time. Ops agents, infra engineers and fault-tolerance research let a run use more.")
-            design.chips = healthy
+            // Helpers go first (the last added first), then the lead group.
+            var excess = all - healthy
+            while excess > 0, let last = design.helpers.indices.last {
+                let cut = min(excess, design.helpers[last].chips)
+                design.helpers[last].chips -= cut
+                excess -= cut
+                if design.helpers[last].chips <= 0 { design.helpers.removeLast() }
+            }
+            design.chips = max(1, design.chips - excess)
         }
         let post = Physics.postTrainFLOPs(design, pretrain: 1e24, bonuses: b) / 1e24
         let perDay = Physics.flopsPerDay(design, state: s, lr: lr, interval: interval)

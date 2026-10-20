@@ -66,7 +66,7 @@ extension TrainingView {
             Image(systemName: run.kind == .proxy ? "chart.line.uptrend.xyaxis" : (run.status == .done ? "checkmark.circle.fill" : "xmark.circle.fill"))
                 .foregroundStyle(run.status == .done ? (run.kind == .proxy ? .indigo : .green) : .secondary)
             Text(run.design.name).font(.callout.weight(.semibold))
-            Text(run.kind == .proxy ? "scaling ladder · \(Fmt.flops(run.flopsTotal))" : "\(Fmt.params(run.design.paramsB)) · \(Fmt.tokens(run.design.tokensT)) tokens · \(Fmt.int(run.design.chips))× \(HardwareCatalog.get(run.design.accelID)?.name ?? "")")
+            Text(run.kind == .proxy ? "scaling ladder · \(Fmt.flops(run.flopsTotal))" : "\(Fmt.params(run.design.paramsB)) · \(Fmt.tokens(run.design.tokensT)) tokens · \(TrainingExperience.chipsLabel(run.design))")
                 .font(.caption).foregroundStyle(.secondary)
             if run.spikes > 0 { Pill(text: "\(run.spikes) spikes", color: .orange) }
             if run.endedEarlyAt > 0 { Pill("ended at \(Int(run.endedEarlyAt * 100))%", tone: .info) }
@@ -445,8 +445,8 @@ private struct CommandCentre: View {
         let a = HardwareCatalog.get(run.design.accelID)
         // The same MFU and goodput the daily simulation uses for this run (its design, ops coverage and hot spares).
         let mfu = a.map { Physics.runMFU(run.design, accel: $0, coverage: run.opsCoverage, state: s, bonuses: b) } ?? 0
-        let good = Training.goodput(chips: run.design.chips, coverage: run.opsCoverage, state: s, bonuses: b, spares: run.design.spares) * Sim.checkpointOverhead(run.interval)
-        let flopsPerSec = Double(run.design.chips) * (a?.trainTFLOPS(run.design.precision) ?? 0) * 1e12 * mfu * good * run.schedule.speed
+        let good = Training.goodput(chips: run.design.allChips, coverage: run.opsCoverage, state: s, bonuses: b, spares: run.design.spares) * Sim.checkpointOverhead(run.interval)
+        let flopsPerSec = Physics.throughputChips(run.design) * (a?.trainTFLOPS(run.design.precision) ?? 0) * 1e12 * mfu * good * run.schedule.speed
         let perDay = flopsPerSec * 86_400
         let postTotal = run.postTrainFlops
         let total = run.flopsTotal + postTotal
@@ -455,8 +455,8 @@ private struct CommandCentre: View {
         let eta = perDay > 0 ? remaining / perDay : .infinity
         let inPost = run.status == .postTraining
         let tokensPerSec = flopsPerSec / (6 * max(run.design.activeParamsB, 0.001) * 1e9)
-        let daily = a.map { Economy.chipDailyCost($0, count: run.design.chips, state: s) } ?? 0
-        let power = a.map { TrainingExperience.powerMW(chips: run.design.chips, accel: $0, state: s) } ?? 0
+        let daily = Physics.dailyChipCost(run.design, state: s)
+        let power = run.design.parts.reduce(0.0) { acc, p in acc + (HardwareCatalog.get(p.accelID).map { TrainingExperience.powerMW(chips: p.chips, accel: $0, state: s) } ?? 0) }
         let decisions = s.decisions.filter { $0.ref == run.id.uuidString }
         let actual = TrainingExperience.actualSlices(run.ledger)
         let incidentShare = run.plan.map { $0.days > 0 ? $0.incidentDays / $0.days : 0 } ?? 0
@@ -464,7 +464,7 @@ private struct CommandCentre: View {
         let basis = (run.ledger.days >= 3 ? actual : nil) ?? expected
         let bottleneck = TrainingExperience.bottleneck(basis, design: run.design, coverage: run.opsCoverage, interval: run.interval, running: true, state: s)
         let scale = TrainingExperience.RunScale(rawValue: run.plan?.scale ?? 1) ?? .standard
-        let lambda = Double(run.design.chips) * Training.failuresPerChipDay * (1 - Training.opsEffect(run.opsCoverage, s).prevented)
+        let lambda = Double(run.design.allChips) * Training.failuresPerChipDay * (1 - Training.opsEffect(run.opsCoverage, s).prevented)
         let progress = total > 0 ? doneFlops / total : 0
         let projected = run.cost + daily * (eta.isFinite ? eta : 0)
         let plannedCost = run.plan?.cost ?? 0
@@ -526,7 +526,7 @@ private struct CommandCentre: View {
                 }
                 .frame(maxWidth: .infinity)
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Cluster (\(Fmt.int(run.design.chips)) chips)").font(.caption.weight(.semibold))
+                    Text("Cluster (\(Fmt.int(run.design.allChips)) chips)").font(.caption.weight(.semibold))
                     ClusterHeatmap(run: run, mfu: mfu, scaleUp: a?.scaleUp ?? 8, active: run.status != .paused)
                         .frame(height: 130)
                         .clipShape(.rect(cornerRadius: 8))
@@ -619,6 +619,7 @@ private struct CommandCentre: View {
                         Text("\(Fmt.money(run.cost)) spent so far. The chips go back to your pool; the compute already used is lost unless you keep a checkpoint.")
                     }
                 Spacer()
+                if resize != run.design.chips, let note = resizeNote(run) { Text(note).font(.caption).foregroundStyle(.secondary) }
                 Text("Resize cluster").font(.caption).foregroundStyle(.secondary)
                 QuantityPicker(value: $resize, range: 1...max(1, free + (run.status == .paused ? 0 : run.design.chips)))
                 Button("Apply") { store.act("Cluster resized") { $0.resizeRun(run.id, chips: resize) } }
@@ -756,6 +757,21 @@ private struct CommandCentre: View {
         case .open(let screen): store.open(screen)
         default: break
         }
+    }
+
+    /// 3.9: what the chosen cluster size would do to the finish date, from the same flops-per-day model the estimate uses.
+    private func resizeNote(_ run: TrainingRun) -> String? {
+        var now = run.design, then = run.design
+        then.chips = max(1, resize)
+        let s = store.game
+        let a = Physics.flopsPerDay(now, state: s, lr: run.schedule, interval: run.interval)
+        let b = Physics.flopsPerDay(then, state: s, lr: run.schedule, interval: run.interval)
+        guard a > 0, b > 0 else { return nil }
+        now.chips = run.design.chips
+        let postTotal = run.stages.filter { !$0.isPre }.reduce(0.0) { $0 + $1.flops }
+        let left = max(0, run.flopsTotal - run.flopsDone) + max(0, postTotal - run.postTrainDone)
+        let was = left / a, will = left / b
+        return "\(resize > run.design.chips ? "Adding" : "Removing") \(Fmt.int(abs(resize - run.design.chips))) chips: about \(Fmt.days(was)) left becomes \(Fmt.days(will))"
     }
 
     private func confidence(_ run: TrainingRun) -> String {
@@ -934,7 +950,7 @@ private struct OpsPanel: View {
     var body: some View {
         let s = state
         let b = store.derived.bonuses
-        let chips = run.design.chips
+        let chips = run.design.allChips
         let cov = run.opsCoverage
         let now = Training.goodput(chips: chips, coverage: cov, state: s, bonuses: b)
         let full = Training.goodput(chips: chips, coverage: 1, state: s, bonuses: b)
@@ -1049,14 +1065,14 @@ private struct OpsAssignSheet: View {
                     Text(Fmt.pct(target, decimals: 0)).monospacedDigit().frame(width: 50)
                 }
                 if let m = models.first(where: { $0.id == modelID }), !accelID.isEmpty {
-                    let base = Training.agentsForCoverage(m, chips: max(1, Int(Double(run.design.chips) * target)), s, b)
+                    let base = Training.agentsForCoverage(m, chips: max(1, Int(Double(run.design.allChips) * target)), s, b)
                     let need = Int((Double(base) / 0.95).rounded(.up))
                     let chips = Swarms.chipsNeeded(m, accelID: accelID, agents: need, s, b)
                     let free = d.free(accelID)
                     let after = min(1, run.opsCoverage + target)
                     SpecRow(label: "Agents needed", value: Fmt.int(need))
                     SpecRow(label: "Inference chips", value: "\(Fmt.int(chips)) of \(Fmt.int(free)) free")
-                    SpecRow(label: "Goodput", value: "\(Fmt.pct(Training.goodput(chips: run.design.chips, coverage: run.opsCoverage, state: s, bonuses: b), decimals: 0)) → \(Fmt.pct(Training.goodput(chips: run.design.chips, coverage: after, state: s, bonuses: b), decimals: 0))")
+                    SpecRow(label: "Goodput", value: "\(Fmt.pct(Training.goodput(chips: run.design.allChips, coverage: run.opsCoverage, state: s, bonuses: b), decimals: 0)) → \(Fmt.pct(Training.goodput(chips: run.design.allChips, coverage: after, state: s, bonuses: b), decimals: 0))")
                     Button {
                         let ok = store.act("Ops agents deployed") {
                             $0.startSwarm(name: "\(run.design.name) Ops", modelID: m.id, agents: need, mission: .trainingOps, accelID: accelID,
@@ -1380,8 +1396,8 @@ struct ClusterHeatmap: View {
     @State private var selected: Int?
 
     /// Cells drawn: one per scale-up domain up to 384, then groups of domains.
-    var cells: Int { max(1, min(384, run.design.chips / max(1, min(scaleUp, run.design.chips)))) }
-    var chipsPerCell: Int { max(1, run.design.chips / cells) }
+    var cells: Int { max(1, min(384, run.design.allChips / max(1, min(scaleUp, run.design.allChips)))) }
+    var chipsPerCell: Int { max(1, run.design.allChips / cells) }
 
     struct CellState {
         var lastFault: Int?      // days since the most recent fault in this cell
@@ -1394,7 +1410,7 @@ struct ClusterHeatmap: View {
     func states(window: Int = 14) -> [CellState] {
         var out = Array(repeating: CellState(), count: cells)
         let days = Array(run.telemetry.suffix(window))
-        let seed = Self.mix((UInt64(run.id.uuidString.prefix(8), radix: 16) ?? 0) &+ UInt64(run.design.chips))
+        let seed = Self.mix((UInt64(run.id.uuidString.prefix(8), radix: 16) ?? 0) &+ UInt64(run.design.allChips))
         for (k, day) in days.enumerated() {
             let age = days.count - 1 - k
             let stamp = UInt64(day.date.timeIntervalSince1970 / 86_400)

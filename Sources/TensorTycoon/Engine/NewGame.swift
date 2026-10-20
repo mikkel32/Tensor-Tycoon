@@ -57,6 +57,9 @@ enum NewGame {
         s.signatureLevel = 1
         s.signatureShare = SignatureSecret.defaultShare
         s.autoResearch = true
+        // 3.9: the chores that can't cost you anything start handed over (capacity, rental renewals, pay, leads); the rest is one click on Operations.
+        s.ops.autoscale = true; s.ops.autoRenew = true; s.ops.autoRaises = true; s.ops.autoLeads = true
+        s.directorQueueTracked = true
         s.researchFocus = ResearchFocus.balanced.rawValue
         s.pauseConfigured = true
         s.pauseKinds = Alerts.defaultPauseKinds

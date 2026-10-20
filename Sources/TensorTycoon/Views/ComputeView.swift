@@ -11,14 +11,42 @@ struct ComputeView: View {
         let peakPF = pools.reduce(0.0) { $0 + Double($1.total) * $1.accel.best } / 1000
         let rentMonth = s.rentals.reduce(0.0) { $0 + $1.hourly * 24 * 30.4 * Double($1.count) }
         let powerKW = s.owned.reduce(0.0) { acc, b in acc + (HardwareCatalog.get(b.accelID).map(Economy.chipKW) ?? 0) * Double(b.count) }
+        let waiting = Economy.waitingChips(s)
+        let waitingCount = waiting.reduce(0) { $0 + $1.count }
         Page(title: "Compute Fleet", subtitle: "Every accelerator you own or rent, and what it's doing right now.", screen: .compute) {
             ScreenHint(.compute)
             KPIRow(minWidth: 200) {
-                StatTile(title: "Accelerators", value: Fmt.int(d.totalChips), detail: "\(Fmt.int(s.owned.reduce(0) { $0 + $1.count })) owned · \(Fmt.int(s.rentals.reduce(0) { $0 + $1.count })) rented", symbol: "cpu.fill", tint: .green)
+                StatTile(title: "Accelerators", value: Fmt.int(d.totalChips), detail: "\(Fmt.int(s.owned.reduce(0) { $0 + $1.count })) owned · \(Fmt.int(s.rentals.reduce(0) { $0 + $1.count })) rented"
+                         + (waitingCount > 0 ? " · \(Fmt.int(waitingCount)) waiting for a site" : ""), symbol: "cpu.fill", tint: .green)
                 StatTile(title: "H100-equivalents", value: Fmt.count(d.h100e), detail: "BF16 dense", symbol: "equal.square.fill", tint: .blue, help: .h100e)
                 StatTile(title: "Peak low-precision", value: Fmt.tflops(peakPF * 1000), detail: "Best format per chip", symbol: "bolt.fill", tint: .orange)
                 StatTile(title: "Rental bill", value: "\(Fmt.money(rentMonth))/mo", detail: s.cloudCredits > 0 ? "\(Fmt.money(s.cloudCredits)) credits left" : "Billed daily", symbol: "cloud.fill", tint: .teal)
                 StatTile(title: "Owned IT load", value: Fmt.watts(powerKW * 1000), detail: "Before PUE overhead", symbol: "powerplug.fill", tint: .yellow)
+            }
+
+            if !waiting.isEmpty {
+                // Chips at a site still being built count for nothing; say so plainly instead of leaving them
+                // out of the pools without a word.
+                Card {
+                    CardHeader("Waiting for a site", symbol: "hourglass", subtitle: "Owned, but they can't train, serve or research until their site opens")
+                    // Soonest site first (waitingChips is already in that order).
+                    let siteIDs = waiting.map(\.site.id).reduce(into: [UUID]()) { if !$0.contains($1) { $0.append($1) } }
+                    ForEach(siteIDs, id: \.self) { siteID in
+                        let rows = waiting.filter { $0.site.id == siteID }
+                        if let site = rows.first?.site {
+                            Label {
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text("\(site.name) opens \(site.ready.gameShort) (in \(Fmt.days(site.ready.timeIntervalSince(s.date) / 86_400)))")
+                                        .font(.callout.weight(.semibold))
+                                    Text(rows.map { "\(Fmt.int($0.count))× \(HardwareCatalog.get($0.accelID)?.name ?? $0.accelID)" }.joined(separator: " · "))
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
+                            } icon: {
+                                Image(systemName: "hourglass").foregroundStyle(.orange)
+                            }
+                        }
+                    }
+                }
             }
 
             if pools.isEmpty {
@@ -74,9 +102,18 @@ struct ComputeView: View {
                                 Image(systemName: "shippingbox.and.arrow.backward").foregroundStyle(.orange).frame(width: 44)
                                 VStack(alignment: .leading, spacing: 1) {
                                     Text("\(Fmt.int(o.count))× \(a.name)").font(.callout.weight(.semibold))
-                                    Text("In transit · arrives \(o.arrives.gameShort)").font(.caption).foregroundStyle(.orange)
+                                    if o.made != nil {
+                                        Text("From your fab line · \(Fmt.int(o.delivered ?? 0)) delivered so far, next chips \(AlienFab.nextShipment(o, s).gameShort), the rest by \(o.arrives.gameShort)")
+                                            .font(.caption).foregroundStyle(.orange)
+                                    } else {
+                                        Text("In transit · arrives \(o.arrives.gameShort)").font(.caption).foregroundStyle(.orange)
+                                    }
                                 }
                                 Spacer()
+                                if o.made != nil {
+                                    Button("Cancel rest…") { store.act("Order cut short") { $0.cancelOwnChipOrder(o.id) } }
+                                        .help("Ship what's already made and refund \(Fmt.money(AlienFab.toMake(o) * o.unitCost)) for the chips not made yet.")
+                                }
                             }
                         }
                     }
@@ -144,6 +181,10 @@ private struct OwnedRow: View {
                     Text("\(Fmt.int(batch.count))× \(a.name)").font(.callout.weight(.semibold))
                     Text("\(site?.name ?? "?") · bought \(batch.purchased.gameShort) at \(Fmt.money(batch.unitCost)) · resale \(Fmt.money(unit))")
                         .font(.caption).foregroundStyle(.secondary)
+                    if let site, !site.isReady(state.date) {
+                        Text("Not in use: waiting for \(site.name) to open \(site.ready.gameShort)")
+                            .font(.caption.weight(.semibold)).foregroundStyle(.orange)
+                    }
                 }
                 Spacer()
                 Button("Sell…") { confirming = true }

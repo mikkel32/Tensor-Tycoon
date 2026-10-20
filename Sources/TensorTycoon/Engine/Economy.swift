@@ -185,7 +185,8 @@ enum Economy {
     static func allocationLimit(_ a: Accelerator, _ s: GameState) -> Int {
         if a.cls == .consumer || a.cls == .workstation { return 2_000 }
         if a.vendor == .custom { return Semis.isSemiChip(a.id) ? Semis.available(a.id, s) : 20_000_000 }
-        let cutoff = GameCalendar.addDays(s.date, -90)
+        // 3.8: the window is at least the chip's lead time, so chips still in transit count against the allowance.
+        let cutoff = GameCalendar.addDays(s.date, -max(90, leadTimeDays(a, s)))
         let recent = s.orders.filter { $0.accelID == a.id && $0.ordered > cutoff }.reduce(0) { $0 + $1.count }
             + s.orderLog.filter { $0.accelID == a.id && $0.ordered > cutoff }.reduce(0) { $0 + $1.count }
         let cap = quarterlyProduction(a, s) * allocationShare(a, s) * Nations.exportCapFactor(s)   // 3.4 overhaul: the 2025 diffusion rule's Tier 2
@@ -204,14 +205,15 @@ enum Economy {
     }
 
     /// Your share of the world's rentable supply of this chip.
-    static func rentedShare(_ a: Accelerator, _ s: GameState) -> Double {
-        let mine = Double(s.rentals.filter { $0.accelID == a.id }.reduce(0) { $0 + $1.count })
+    static func rentedShare(_ a: Accelerator, _ s: GameState, excluding: Int = 0) -> Double {
+        let mine = max(0, Double(s.rentals.filter { $0.accelID == a.id }.reduce(0) { $0 + $1.count } - excluding))
         return mine / max(1, cloudSupply(a, s))
     }
 
     /// What a new rental costs: the market rate, plus 2% for every 1% of the world's supply you already hold.
-    static func rentQuote(_ a: Accelerator, _ s: GameState) -> Double? {
-        rent(a, s).map { $0 * (1 + 2 * rentedShare(a, s)) }
+    /// 3.8: a renewal (`renewing` = the chips being renewed) isn't new demand, so it isn't surcharged for your own holding.
+    static func rentQuote(_ a: Accelerator, _ s: GameState, renewing: Int = 0) -> Double? {
+        rent(a, s).map { $0 * (1 + 2 * rentedShare(a, s, excluding: renewing)) }
     }
 
     /// Server overhead included (CPU, NICs, fans).
@@ -229,6 +231,7 @@ enum Economy {
         for r in s.rentals { rented[r.accelID, default: 0] += r.count }
         for i in s.runs.indices where s.runs[i].status == .running || s.runs[i].status == .postTraining {
             training[s.runs[i].design.accelID, default: 0] += s.runs[i].design.chips
+            for h in s.runs[i].design.helpers { training[h.accelID, default: 0] += h.chips }   // 3.9: mixed-chip runs
         }
         for i in s.models.indices where !s.models[i].retired {
             for d in s.models[i].deployments { inference[d.accelID, default: 0] += d.chips }
@@ -253,6 +256,18 @@ enum Economy {
             let x = a.accel.best * Double(a.total), y = b.accel.best * Double(b.total)
             return x != y ? x > y : a.accel.id < b.accel.id
         }
+    }
+
+    /// Chips you own that sit at a site still under construction: they count for nothing until it opens.
+    /// One entry per site and chip, soonest site first.
+    static func waitingChips(_ s: GameState) -> [(site: Site, accelID: String, count: Int)] {
+        var out: [(site: Site, accelID: String, count: Int)] = []
+        for site in s.sites where !site.isReady(s.date) {
+            var byChip: [String: Int] = [:]
+            for b in s.owned where b.siteID == site.id { byChip[b.accelID, default: 0] += b.count }
+            for (id, n) in byChip.sorted(by: { $0.key < $1.key }) where n > 0 { out.append((site, id, n)) }
+        }
+        return out.sorted { $0.site.ready < $1.site.ready }
     }
 
     static func pool(_ s: GameState, _ accelID: String) -> ComputePool? {

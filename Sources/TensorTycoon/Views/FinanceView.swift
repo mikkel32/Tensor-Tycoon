@@ -55,6 +55,7 @@ struct FinanceView: View {
                 ProfitMoversCard(state: s)
                 BookingCard(state: s)
             }
+            MoneyFlowCard(state: s)
 
             Card {
                 CardHeader("This month so far", symbol: "calendar", subtitle: "Depreciation and taxes are booked when the month closes.")
@@ -68,9 +69,10 @@ struct FinanceView: View {
                     GridRow { Text("  Compute leasing").foregroundStyle(.secondary); Text(Fmt.money(m.revCloud)).monospacedDigit(); Text("  Data & marketing").foregroundStyle(.secondary); Text(Fmt.money(m.costData + m.costMarketing)).monospacedDigit() }
                     GridRow { Text("  Chip sales").foregroundStyle(.secondary); Text(Fmt.money(m.revChips)).monospacedDigit(); Text("  Chips made for sale").foregroundStyle(.secondary); Text(Fmt.money(m.costChips)).monospacedDigit() }
                     GridRow { Text("  Agent labor").foregroundStyle(.secondary); Text(Fmt.money(m.revLabor)).monospacedDigit(); Text("  Other / fines").foregroundStyle(.secondary); Text(Fmt.money(m.costOther)).monospacedDigit() }
-                    GridRow { Text("  License royalties").foregroundStyle(.secondary); Text(Fmt.money(m.revLicensing)).monospacedDigit(); Text("  Interest on debt").foregroundStyle(.secondary); Text(Fmt.money(m.costInterest)).monospacedDigit() }
+                    GridRow { Text("  License royalties").foregroundStyle(.secondary); Text(Fmt.money(m.revLicensing)).monospacedDigit(); Text("  Chip design & agent orgs").foregroundStyle(.secondary); Text(Fmt.money(m.costChipDesign + m.costAgentOrgs)).monospacedDigit() }
                     GridRow { Text("  Product lines").foregroundStyle(.secondary); Text(Fmt.money(m.revOther)).monospacedDigit(); Text("  Folded-in divisions").foregroundStyle(.secondary); Text(Fmt.money(m.costGroup)).monospacedDigit() }
-                    GridRow { Text("  Government contracts").foregroundStyle(.secondary); Text(Fmt.money(m.revContracts)).monospacedDigit(); Text("  Divisions' revenue").foregroundStyle(.secondary); Text(Fmt.money(m.revGroup)).monospacedDigit() }
+                    GridRow { Text("  Government contracts").foregroundStyle(.secondary); Text(Fmt.money(m.revContracts)).monospacedDigit(); Text("  Interest on debt").foregroundStyle(.secondary); Text(Fmt.money(m.costInterest)).monospacedDigit() }
+                    GridRow { Text("  Divisions' revenue").foregroundStyle(.secondary); Text(Fmt.money(m.revGroup)).monospacedDigit(); Text(""); Text("") }
                     GridRow { Text("Interest on cash").foregroundStyle(.secondary); Text(Fmt.money(m.interestIncome)).monospacedDigit().foregroundStyle(Theme.good); Text("One-off income (license fees)").foregroundStyle(.secondary); Text(Fmt.money(m.oneOffIncome)).monospacedDigit().foregroundStyle(Theme.good) }
                     GridRow { Text("Capex (hardware, construction)").foregroundStyle(.secondary); Text(Fmt.money(m.capex)).monospacedDigit(); Text("Gains on disposals").foregroundStyle(.secondary); Text(Fmt.signedMoney(m.assetGains)).monospacedDigit() }
                 }
@@ -85,7 +87,7 @@ struct FinanceView: View {
                     TableColumn("Revenue") { m in Text(Fmt.money(m.revenue)).monospacedDigit().foregroundStyle(Theme.good) }
                     TableColumn("Compute") { m in Text(Fmt.money(m.costRent + m.costPower)).monospacedDigit() }
                     TableColumn("People") { m in Text(Fmt.money(m.costPayroll)).monospacedDigit() }
-                    TableColumn("Other opex") { m in Text(Fmt.money(m.costSites + m.costData + m.costMarketing + m.costOther + m.costChips + m.costGroup)).monospacedDigit() }
+                    TableColumn("Other opex") { m in Text(Fmt.money(m.costSites + m.costData + m.costMarketing + m.costOther + m.costChipDesign + m.costAgentOrgs + m.costChips + m.costGroup)).monospacedDigit() }
                     TableColumn("Depreciation") { m in Text(Fmt.money(m.costDepreciation)).monospacedDigit().foregroundStyle(.secondary) }
                     TableColumn("Interest + tax") { m in Text(Fmt.money(m.costInterest + m.taxes)).monospacedDigit() }
                     TableColumn("Capex") { m in Text(Fmt.money(m.capex)).monospacedDigit().foregroundStyle(.secondary) }

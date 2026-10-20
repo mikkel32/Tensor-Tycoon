@@ -349,14 +349,24 @@ enum TrainingExperience {
         Double(chips) * Economy.chipKW(a) * pue(s) / 1000
     }
 
+    /// 3.9: what every chip group of a design draws.
+    static func powerMW(_ d: ModelDesign, state s: GameState) -> Double {
+        d.parts.reduce(0.0) { acc, p in acc + (HardwareCatalog.get(p.accelID).map { powerMW(chips: p.chips, accel: $0, state: s) } ?? 0) }
+    }
+
+    /// The run's chips, group by group ("4,096× H100 SXM + 1,024× A100").
+    static func chipsLabel(_ d: ModelDesign) -> String {
+        d.parts.map { "\(Fmt.int($0.chips))× \(HardwareCatalog.get($0.accelID)?.name ?? $0.accelID)" }.joined(separator: " + ")
+    }
+
     // MARK: Ledger (called from the daily training step; arithmetic only, no dice)
 
     static func ledgerDay(_ s: inout GameState, _ i: Int, accel a: Accelerator, coverage cov: Double, raw: Double, ckpt: Double, straggle: Double) {
         let d = s.runs[i].design
         let b = s.bonuses
-        let peak = Double(d.chips) * a.trainTFLOPS(d.precision) * 1e12 * 86_400
+        let peak = Physics.throughputChips(d) * a.trainTFLOPS(d.precision) * 1e12 * 86_400   // every chip group, in lead-type chips
         let m = Physics.runMFU(d, accel: a, coverage: cov, state: s, bonuses: b)
-        let mult = Physics.scaleOutFactor(accel: a, chips: d.chips, bonuses: b)
+        let mult = Physics.scaleOutFactor(accel: a, chips: d.allChips, bonuses: b)
         let comm = min(max(0, peak - raw), mult < 1 ? peak * m * (1 / mult - 1) : 0)
         if s.runs[i].ledger.days == 0 { s.runs[i].ledger.since = s.runs[i].status == .postTraining ? 1 : s.runs[i].progress }
         s.runs[i].ledger.days += 1
@@ -365,7 +375,7 @@ enum TrainingExperience {
         s.runs[i].ledger.kernel += max(0, peak - raw - comm)
         s.runs[i].ledger.checkpoint += raw * (1 - ckpt)
         s.runs[i].ledger.stragglers += raw * ckpt * (1 - straggle)
-        s.runs[i].ledger.energyMWh += powerMW(chips: d.chips, accel: a, state: s) * 24
+        s.runs[i].ledger.energyMWh += powerMW(d, state: s) * 24
     }
 
     static func rewound(_ s: inout GameState, _ i: Int, _ flops: Double) {
@@ -413,13 +423,13 @@ enum TrainingExperience {
         guard let a = HardwareCatalog.get(d.accelID) else { return [] }
         let b = s.bonuses
         let m = Physics.runMFU(d, accel: a, coverage: cov, state: s, bonuses: b)
-        let mult = Physics.scaleOutFactor(accel: a, chips: d.chips, bonuses: b)
+        let mult = Physics.scaleOutFactor(accel: a, chips: d.allChips, bonuses: b)
         let comm = min(1 - m, mult < 1 ? m * (1 / mult - 1) : 0)
         let e = Training.opsEffect(cov, s)
         let ckpt = Sim.checkpointOverhead(interval)
-        let strag = 1 - (1 - Physics.stragglerFactor(chips: d.chips, bonuses: b)) * (1 - e.stragglers)
-        let lambda = Double(d.chips) * Training.failuresPerChipDay * (1 - e.prevented)
-        let hours = Physics.hoursLostPerFailure(state: s, bonuses: b, chips: d.chips) * (1 - e.recovery)
+        let strag = 1 - (1 - Physics.stragglerFactor(chips: d.allChips, bonuses: b)) * (1 - e.stragglers)
+        let lambda = Double(d.allChips) * Training.failuresPerChipDay * (1 - e.prevented)
+        let hours = Physics.hoursLostPerFailure(state: s, bonuses: b, chips: d.allChips) * (1 - e.recovery)
         let up = Training.expectedUptime(lambda: lambda, hours: hours)
         let afterOverheads = m * ckpt * strag
         let running = afterOverheads * up
@@ -501,28 +511,28 @@ enum TrainingExperience {
         case .kernel:
             let m = Physics.runMFU(d, accel: a, coverage: cov, state: s, bonuses: b)
             let engineers = s.workforce(.mlEngineer)
-            let needed = 0.5 + Double(d.chips) / 1_500
+            let needed = 0.5 + Double(d.allChips) / 1_500
             detail = "MFU is \(Fmt.pct(m, decimals: 0)) on \(a.name) (base \(Fmt.pct(a.baseMFU, decimals: 0))). Every frontier lab loses most of peak here; "
                 + (engineers < needed * 0.95 ? "your ML engineers (\(Fmt.trim(engineers, 1)) of ~\(Fmt.trim(needed, 1)) needed for this size) add up to +4 points when fully staffed, " : "")
                 + "MFU research and training-ops agents add a few more."
             if engineers < needed * 0.95 { fixes.append(Fix(label: "Hire ML engineers", action: .open(.team))) }
             fixes.append(Fix(label: "MFU research", action: .open(.research)))
         case .comm:
-            let domains = Int((Double(d.chips) / Double(max(1, a.scaleUp))).rounded(.up))
-            detail = "\(Fmt.int(d.chips)) chips span \(Fmt.int(domains)) scale-up domains of \(a.scaleUp) (\(a.interconnect)); every tenfold beyond one domain costs \(Fmt.pct((a.scaleUp <= 2 ? 0.13 : 0.06) * (1 - b.scaleOut), decimals: 0)) of MFU. Chips with bigger scale-up domains and scale-out research cut it."
+            let domains = Int((Double(d.allChips) / Double(max(1, a.scaleUp))).rounded(.up))
+            detail = "\(Fmt.int(d.allChips)) chips span \(Fmt.int(domains)) scale-up domains of \(a.scaleUp) (\(a.interconnect)); every tenfold beyond one domain costs \(Fmt.pct((a.scaleUp <= 2 ? 0.13 : 0.06) * (1 - b.scaleOut), decimals: 0)) of MFU. Chips with bigger scale-up domains and scale-out research cut it."
             fixes.append(Fix(label: "Scale-out research", action: .open(.research)))
             fixes.append(Fix(label: "Hardware with bigger NVLink domains", action: .open(.hardware)))
         case .checkpoint:
             detail = "Saving every \(Int(interval * 100))% of pre-training pauses the job often. Every 10% costs a fraction as much; the trade-off is more lost on a loss-spike rollback."
             fixes.append(Fix(label: "Checkpoint every 10%", action: running ? .runCheckpoint(0.1) : .designCheckpoint(0.1)))
         case .stragglers:
-            detail = "At \(Fmt.int(d.chips)) chips the synchronous job waits for its slowest nodes. Ops agents evict stragglers (70% of the loss at full coverage)."
+            detail = "At \(Fmt.int(d.allChips)) chips the synchronous job waits for its slowest nodes. Ops agents evict stragglers (70% of the loss at full coverage)."
             fixes.append(Fix(label: running ? "Assign ops agents" : "Start a training-ops swarm", action: running ? .assignOps : .open(.swarms)))
         case .failures:
-            let adv = Training.goodputAdvice(chips: d.chips, coverage: cov, running: running, state: s, bonuses: b)
+            let adv = Training.goodputAdvice(chips: d.allChips, coverage: cov, running: running, state: s, bonuses: b)
             detail = adv?.headline ?? "A fault every few hours at this size; each restart loses the work since the last save."
             if cov < 0.95 { fixes.append(Fix(label: running ? "Assign ops agents" : "Start a training-ops swarm", action: running ? .assignOps : .open(.swarms))) }
-            if let adv, adv.healthyChips < d.chips {
+            if let adv, adv.healthyChips < d.allChips {
                 fixes.append(Fix(label: "Use \(Fmt.int(adv.healthyChips)) chips", action: running ? .resizeRun(adv.healthyChips) : .designChips(adv.healthyChips)))
             }
             fixes.append(Fix(label: "Infra engineers", action: .open(.team)))
@@ -589,10 +599,10 @@ enum TrainingExperience {
         let total = est.flops
         let scale = self.scale(flops: total, toy: est.toy, state: s)
         let mem = est.memory
-        let group = mem.haveGB.isFinite ? max(1, Int((mem.haveGB / max(a.memoryGB, 1)).rounded())) : d.chips
+        let group = mem.haveGB.isFinite ? max(1, Int((mem.haveGB / max(a.memoryGB, 1)).rounded())) : d.allChips
         let perChip = mem.needGB / Double(group)
-        let mult = Physics.scaleOutFactor(accel: a, chips: d.chips, bonuses: b)
-        let mw = powerMW(chips: d.chips, accel: a, state: s)
+        let mult = Physics.scaleOutFactor(accel: a, chips: d.allChips, bonuses: b)
+        let mw = powerMW(d, state: s)
         let finish = est.finishes ? GameCalendar.addDays(s.date, Int(est.days.rounded(.up))) : nil
         let rankNow = Leaderboard.labRank(index: band.mean, board: released, gone: gone)
         var ahead: [(lab: String, model: String, index: Double, date: Date)] = []
@@ -612,7 +622,7 @@ enum TrainingExperience {
         if !est.toy {
             risks.append("\(Int((f.bugRisk * 100).rounded()))% chance of a silent bug that drags the loss above forecast until someone finds it.")
             if spikes >= 0.3 { risks.append("About \(Fmt.trim(spikes, 1)) loss spikes expected\(cov >= 0.5 ? " (ops agents rewind them in minutes)" : ""). Each one waits for your call unless auto-rollback is on.") }
-            if d.chips >= 4_000 { risks.append("Big enough for a hardware fault storm (a bad batch of chips) — two days of node swaps, or weeks degraded.") }
+            if d.allChips >= 4_000 { risks.append("Big enough for a hardware fault storm (a bad batch of chips) — two days of node swaps, or weeks degraded.") }
             risks += Training.postTrainingRisks(d, toy: false, state: s)
         }
         let incidentShare = est.finishes && est.days > 0 ? est.incidentDays / est.days : 0
@@ -655,13 +665,13 @@ enum TrainingExperience {
         // Scale-out
         if mult < 0.85 {
             warnings.append(Warning(level: .info, title: "Scale-out costs \(Fmt.pct(1 - mult, decimals: 0)) of MFU",
-                                    detail: "\(Fmt.int(d.chips)) chips across \(Fmt.int(Int((Double(d.chips) / Double(max(1, a.scaleUp))).rounded(.up)))) domains of \(a.scaleUp) over \(a.interconnect).",
+                                    detail: "\(Fmt.int(d.allChips)) chips across \(Fmt.int(Int((Double(d.allChips) / Double(max(1, a.scaleUp))).rounded(.up)))) domains of \(a.scaleUp) over \(a.interconnect).",
                                     fixes: [Fix(label: "Scale-out research", action: .open(.research))]))
         }
         // Goodput
-        if let adv = Training.goodputAdvice(chips: d.chips, coverage: cov, running: false, state: s, bonuses: b) {
+        if let adv = Training.goodputAdvice(chips: d.allChips, coverage: cov, running: false, state: s, bonuses: b) {
             var fixes: [Fix] = []
-            if adv.healthyChips < d.chips { fixes.append(Fix(label: "Use \(Fmt.int(adv.healthyChips)) chips", action: .designChips(adv.healthyChips))) }
+            if adv.healthyChips < d.allChips { fixes.append(Fix(label: "Use \(Fmt.int(adv.healthyChips)) chips", action: .designChips(adv.healthyChips))) }
             if cov < 0.95 { fixes.append(Fix(label: "Start a training-ops swarm", action: .open(.swarms))) }
             fixes.append(Fix(label: "Infra engineers", action: .open(.team)))
             warnings.append(Warning(level: adv.blocked ? .block : .warn,
@@ -694,11 +704,11 @@ enum TrainingExperience {
                       tier: ForecastEngine.tier(index: band.mean, top: top),
                       comparable: RealModels.closest(index: band.mean, set: set).map { "\($0.name) (\($0.lab), \($0.date.label))" } ?? "—",
                       domains: Capabilities.forecast(ForecastEngine.profile(f, design: d, key: "review"), design: d, state: s),
-                      memPerChipGB: perChip, memGroup: group, scaleUpDomains: Int((Double(d.chips) / Double(max(1, a.scaleUp))).rounded(.up)),
+                      memPerChipGB: perChip, memGroup: group, scaleUpDomains: Int((Double(d.allChips) / Double(max(1, a.scaleUp))).rounded(.up)),
                       scaleOutLoss: 1 - mult, powerMW: mw, energyMWh: est.finishes ? mw * 24 * est.days : 0, finish: finish,
                       servingPerM: Economy.servingCostPerM(design: d, s), rankNow: rankNow, rankAtFinish: rankAtFinish,
                       rivalsAhead: ahead.sorted { $0.date < $1.date },
-                      expectedFailures: Double(d.chips) * Training.failuresPerChipDay * (1 - Training.opsEffect(cov, s).prevented) * (est.finishes ? est.days : 1),
+                      expectedFailures: Double(d.allChips) * Training.failuresPerChipDay * (1 - Training.opsEffect(cov, s).prevented) * (est.finishes ? est.days : 1),
                       expectedSpikes: spikes, risks: risks, warnings: warnings, slices: slices,
                       bottleneck: bottleneck(slices, design: d, coverage: cov, interval: interval, running: false, state: s),
                       arch: sketch(d, state: s))
@@ -708,7 +718,7 @@ enum TrainingExperience {
     @discardableResult
     static func applyDesignFix(_ a: FixAction, to d: inout ModelDesign, state s: GameState) -> String? {
         switch a {
-        case .designChips(let n): d.chips = max(1, n); return nil
+        case .designChips(let n): d.chips = max(1, n - (d.allChips - d.chips)); return nil   // the advice counts helper groups too
         case .designTokens(let t): d.tokensT = max(0.0005, t); return nil
         case .designParams(let p): d.paramsB = max(0.05, p); return nil
         case .reshape:
@@ -727,7 +737,7 @@ enum TrainingExperience {
         return RunPlan(days: finite ? est.days : 0, cost: finite ? est.totalCost : 0, flops: est.flops + est.postFlops, mfu: est.mfu,
                        goodput: est.goodput, coverage: est.coverage, incidentDays: est.incidentDays,
                        finish: finite ? GameCalendar.addDays(s.date, Int(est.days.rounded(.up))) : s.date,
-                       powerMW: a.map { powerMW(chips: run.design.chips, accel: $0, state: s) } ?? 0,
+                       powerMW: powerMW(run.design, state: s),
                        scale: scale(flops: est.flops, toy: est.toy, state: s).rawValue,
                        frontierShare: est.flops / ref.flops, expectedRank: expectedRank)
     }
@@ -801,14 +811,14 @@ enum TrainingExperience {
         let run = s.runs[i]
         guard run.kind == .full, !run.toy, run.progress >= 0.25, !run.decided.contains("firsts_chips") else { return }
         s.runs[i].decided.insert("firsts_chips")
-        let chips = run.design.chips
+        let chips = run.design.allChips
         let ladder = chipFirsts.filter { chips >= $0.n }.map { (id: $0.id, title: $0.title) }
         let a = HardwareCatalog.get(run.design.accelID)?.name ?? "accelerators"
         let earlier = s.runs.filter { $0.kind == .full && !$0.toy && $0.id != run.id }
         award(&s, ladder: ladder, detail: "\(Fmt.int(chips)) \(a) training one model, drawing \(Fmt.trim(run.plan?.powerMW ?? 0, 0)) MW of facility power.",
               model: run.design.name, runID: run.id, symbol: "cpu.fill") { id in
             guard let n = chipFirsts.first(where: { $0.id == id })?.n,
-                  let r = earlier.filter({ $0.design.chips >= n }).min(by: { $0.started < $1.started }) else { return nil }
+                  let r = earlier.filter({ $0.design.allChips >= n }).min(by: { $0.started < $1.started }) else { return nil }
             return (r.design.name, r.started)
         }
     }

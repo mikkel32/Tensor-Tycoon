@@ -961,6 +961,7 @@ private struct SwarmCard: View {
     @State private var mission: SwarmMission = .research
     @State private var autonomy = 1
     @State private var oversight = 0.1
+    @State private var modelChoice: UUID?
     @State private var confirmDisband = false
 
     var body: some View {
@@ -985,6 +986,10 @@ private struct SwarmCard: View {
                         }
                         if sw.incidents > 0 { Pill(text: "\(sw.incidents) incident\(sw.incidents == 1 ? "" : "s")", color: .red, symbol: "exclamationmark.triangle.fill") }
                     }
+                    if model?.retired ?? true {
+                        Text("\(model?.name ?? "Its model") is retired, so this swarm can't run. It moves to a live model on its own when one fits; or retune it onto one, or bring \(model?.name ?? "the model") back on Models.")
+                            .font(.caption).foregroundStyle(.orange)
+                    }
                     Text("\(model?.name ?? "?") · \(Fmt.int(sw.chips))× \(accel?.name ?? "?") · oversight \(Int(sw.oversight * 100))% · since \(sw.started.gameShort)")
                         .font(.callout).foregroundStyle(.secondary)
                 }
@@ -1006,6 +1011,7 @@ private struct SwarmCard: View {
                             mission = sw.mission
                             autonomy = sw.autonomy
                             oversight = sw.oversight
+                            modelChoice = sw.modelID
                         }
                         editing.toggle()
                     }
@@ -1045,12 +1051,19 @@ private struct SwarmCard: View {
                         Spacer()
                         Button("Apply") {
                             store.act("Swarm retuned") {
-                                $0.tuneSwarm(sw.id, agents: Int(pow(10, agentsLog).rounded()), chips: chips, mission: mission, autonomy: autonomy, oversight: oversight)
+                                $0.tuneSwarm(sw.id, agents: Int(pow(10, agentsLog).rounded()), chips: chips, mission: mission, autonomy: autonomy, oversight: oversight,
+                                             modelID: modelChoice)
                             }
                             editing = false
                         }
                         .buttonStyle(.borderedProminent)
                     }
+                    Picker("Model", selection: $modelChoice) {
+                        ForEach(s.models.filter { !$0.retired && ($0.released || $0.id == sw.modelID) }.sorted { Swarms.agenticX($0) > Swarms.agenticX($1) }) { m in
+                            Text("\(m.name) · \(Swarms.tier(Swarms.quality(m, s)))").tag(UUID?.some(m.id))
+                        }
+                    }
+                    .frame(width: 420)
                     if sw.mission == .trainingOps {
                         Picker("Watch", selection: Binding(get: { sw.targetRunID }, set: { v in store.act("Swarm reassigned") { $0.setSwarmTarget(sw.id, runID: v) } })) {
                             Text("Every running job").tag(UUID?.none)

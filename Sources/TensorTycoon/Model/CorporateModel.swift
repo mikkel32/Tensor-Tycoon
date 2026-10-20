@@ -402,6 +402,8 @@ struct CorpDebt: Codable, Identifiable, Hashable {
     @D var penalty: Double = 0
     /// Covenant breaches so far (shown with the debt; lenders remember).
     @D var breaches: Int = 0
+    /// 3.8: months in a row the covenants held; six clean ones lift a penalty rate.
+    @D var cleanMonths: Int = 0
     /// The rating notch its coupon is priced at: the notch when it was taken, moved each time a term loan re-prices.
     @D var notch: Int = 0
 
@@ -468,6 +470,8 @@ struct CorporateState: Codable, DefaultValue {
     static var defaultValue: CorporateState { CorporateState() }
     @D var subs: [Subsidiary] = []
     @D var debts: [CorpDebt] = []
+    /// 3.8: one-time save fixes already applied (covenant cycle, lease deposits).
+    @D var fixes: Set<String> = []
     /// Rating notch (Corporate.ratings index; nil, or −1 in older saves, = not rated yet). Read and write `notch`.
     @D var rating: Int? = nil
     /// Quarterly dividend, in total.

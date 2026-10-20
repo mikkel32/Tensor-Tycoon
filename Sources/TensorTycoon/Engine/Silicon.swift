@@ -48,7 +48,7 @@ enum Silicon {
             let perDay = p.budget / max(1, totalDays(p, s))
             if p.spent < p.budget * (1 + 0.25 * Double(p.respins)) {
                 s.cash -= perDay
-                s.month.costOther += perDay
+                s.month.costChipDesign += perDay
                 s.chipProjects[i].spent += perDay
             }
             s.chipProjects[i].phaseDaysLeft -= 1

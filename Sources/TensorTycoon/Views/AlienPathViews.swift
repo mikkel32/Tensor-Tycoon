@@ -104,7 +104,7 @@ private struct AlienStageRow: View {
             Button(n > 0 ? "\(title) \(Fmt.count(Double(n)))" : title) { store.act("Order queued on your fab line") { $0.orderOwnChips(id, count: n) } }
                 .buttonStyle(.borderedProminent)
                 .disabled(n < 1)
-                .help(n > 0 ? "Arrives in about \(AlienFab.leadDays(s, count: n)) days from your fab line." : "No room or cash for more right now.")
+                .help(n > 0 ? "From your fab line: the first chips in about \(AlienFab.shipDays) days, all \(Fmt.int(n)) in about \(AlienFab.leadDays(s, count: n)) days." : "No room or cash for more right now.")
         case .modelLab:
             Button(title) { store.open(title == "Training" ? .training : .lab) }
         case .chipSales:
@@ -146,7 +146,7 @@ struct AlienFabCard: View {
         let chips = s.customChips.filter(\.alien).sorted { $0.bf16 > $1.bf16 }
         Card {
             CardHeader(title: "Your alien fab line", symbol: "building.2.crop.circle",
-                       subtitle: "One line makes every alien chip you own. Your orders queue on it — no world allocation caps — and merchant customers get what's left (a quarter while you're ordering).") {
+                       subtitle: "One line makes every alien chip you own. Your open orders share it and ship weekly as they're made — no world allocation caps — and merchant customers get what's left (a quarter while you're ordering).") {
                 if f.yieldLevel > 0 { Pill(text: "Yield level \(f.yieldLevel)", color: .green, symbol: "sparkles") }
             }
             KPIRow(minWidth: 170) {

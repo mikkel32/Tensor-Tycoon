@@ -335,7 +335,15 @@ private struct DesignCard: View {
                 HStack {
                     Text(productLine(d)).font(.caption).foregroundStyle(.secondary)
                     Spacer()
-                    if d.inProduction { Button("Retire") { store.act("Product retired") { $0.retireChipDesign(d.id) } } }
+                    if d.inProduction {
+                        let tied = s.designContracts(d.id)
+                        if tied.bookings.isEmpty {
+                            Button("Retire") { store.act("Product retired") { $0.retireChipDesign(d.id) } }
+                        } else {
+                            Button("Retire, keep wafer bookings") { store.act("Product retired") { $0.retireChipDesign(d.id, cancelContracts: false) } }
+                            Button("Retire and cancel bookings (\(Fmt.money(tied.fee)))") { store.act("Product retired") { $0.retireChipDesign(d.id, cancelContracts: true) } }
+                        }
+                    }
                 }
             }
             DisclosureGroup("Timeline (\(d.timeline.count))", isExpanded: $showTimeline) {
@@ -478,7 +486,7 @@ private struct FoundryBookingCard: View {
             }
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("\(Fmt.money(price)) a wafer · \(Fmt.money(price * wafers))/month · deposit \(Fmt.money(price * wafers))").font(.callout)
+                    Text("\(Fmt.money(price)) a wafer · \(Fmt.money(price * wafers))/month · deposit \(Fmt.money(price * wafers)), returned when the booking ends · 6-month minimum").font(.callout)
                     if let t = target {
                         let y = t.inProduction ? Semis.productYield(t, foundry: f, s) : Semis.previewYield(node: t.node, die: t.die, foundry: f, s)
                         let chips = wafers * y.diesPerWafer * y.good / Double(SemiCatalog.die(t.die).dies)
@@ -846,7 +854,7 @@ private struct SupplyContractsCard: View {
                     Spacer()
                     Button("Sign") { store.act("Contract signed") { $0.signSupply(supplier: sup.id, units: units, months: months) } }.buttonStyle(.borderedProminent)
                 }
-                Text("\(sup.blurb) \(Fmt.money(price)) each → \(Fmt.money(price * units))/month · up to \(Fmt.count(max(0, cap))) more a month · \(Semis.leadDays(sup.leadDays, kind, s)) days lead · \(pack ? "assembly" : "stack") yield \(Fmt.pct(sup.yield, decimals: 0))")
+                Text("\(sup.blurb) \(Fmt.money(price)) each → \(Fmt.money(price * units))/month · up to \(Fmt.count(max(0, cap))) more a month · \(Semis.leadDays(sup.leadDays, kind, s)) days lead · \(pack ? "assembly" : "stack") yield \(Fmt.pct(sup.yield, decimals: 0)) · 6-month minimum; the first month is a deposit returned when it ends, and billing waits until a product is in production")
                     .font(.caption).foregroundStyle(.secondary)
                 Why(pack ? "Price: \(Fmt.money(Semis.packPrice(s.year))) a slot in \(Int(s.year)) × \(sup.name) \(Fmt.trim(sup.priceFactor, 2)) × shortage premium \(Fmt.trim(1 + 0.6 * Semis.tightness(kind, s.year), 2))."
                          : "Price: \(Fmt.memory(Semis.stackGB(s.year))) \(Semis.hbmGeneration(s.year)) stack × \(Fmt.money(Semis.hbmPerGB(s.year)))/GB × \(sup.name) \(Fmt.trim(sup.priceFactor, 2)) × shortage premium \(Fmt.trim(1 + 0.6 * Semis.tightness(kind, s.year), 2)).")

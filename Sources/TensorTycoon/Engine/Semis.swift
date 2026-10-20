@@ -760,8 +760,10 @@ enum Semis {
                     s.semi.designs[i].waiting = "\(t.name) is busy with \(other.name)."
                     continue
                 }
-                s.semi.designs[i].waiting = ""
-                let ip = SemiCatalog.node(d.node).ipMonth * link(d).ipFactor / 30.4
+                // 3.8: a finished design waiting for a foundry stops paying for IP licences (advance clears the note).
+                let idle = d.phase == .physical && d.waiting.hasPrefix("Ready to tape out")
+                if !idle { s.semi.designs[i].waiting = "" }
+                let ip = idle ? 0 : SemiCatalog.node(d.node).ipMonth * link(d).ipFactor / 30.4
                 spend(&s, ip)
                 s.semi.month.designCost += ip
                 s.semi.designs[i].spent += ip + Double(t.engineers) * engineerCost(s.year) / 365
@@ -802,6 +804,7 @@ enum Semis {
                 s.semi.designs[i].phaseDaysLeft = 7
                 return
             }
+            s.semi.designs[i].waiting = ""
             let masks = n.maskCost * (isPort(d) ? 0.8 : 1)
             spend(&s, masks, capex: true)
             s.semi.month.designCost += masks
@@ -902,6 +905,7 @@ enum Semis {
         d.phaseDaysLeft = 0
         d.qualified = s.date
         d.waiting = ""
+        d.onSale = [true, true, true]   // 3.8: was off, so customer stock piled up unsold until the player found the toggle
         for b in 0..<3 {
             if let a = HardwareCatalog.get(chips[b].id) { d.prices[b] = defaultPrice(a, s) }
         }
@@ -982,8 +986,22 @@ enum Semis {
 
     static func produce(_ s: inout GameState) {
         // Take-or-pay: every active booking and supply contract is paid whether or not you use it.
+        // 3.8: a booking made for a design that's still in development isn't billed: its start (and end) slide a day
+        // until the design is in production. Supply with no product in production at all waits the same way.
+        for i in s.semi.bookings.indices where s.semi.bookings[i].active(s.date) {
+            guard let did = s.semi.bookings[i].designID, let d = s.semi.designs.first(where: { $0.id == did }), !d.inProduction, d.phase != .retired else { continue }
+            s.semi.bookings[i].start = GameCalendar.addDays(s.semi.bookings[i].start, 1)
+            s.semi.bookings[i].end = GameCalendar.addDays(s.semi.bookings[i].end, 1)
+        }
+        let anyProduct = s.semi.designs.contains { $0.inProduction }
+        if !anyProduct {
+            for i in s.semi.supply.indices where !s.semi.supply[i].own && s.semi.supply[i].active(s.date) {
+                s.semi.supply[i].start = GameCalendar.addDays(s.semi.supply[i].start, 1)
+                s.semi.supply[i].end = GameCalendar.addDays(s.semi.supply[i].end, 1)
+            }
+        }
         for bk in s.semi.bookings where bk.active(s.date) {
-            let c = bk.wafersMonth / 30.4 * bk.price
+            let c = bk.wafersMonth / 30.4 * bk.price   // the deposit comes back when the booking ends (expire)
             spend(&s, c, chips: true)
             s.semi.month.wafersCost += c
             if let di = s.semi.designs.firstIndex(where: { $0.id == bk.designID }) { s.semi.designs[di].cost += c }
@@ -995,9 +1013,7 @@ enum Semis {
         }
         s.semi.hbmStock += hbmStacksDay(s)
         // Wafers → good dies into each product's die bank.
-        var anyProduct = false
         for i in s.semi.designs.indices where s.semi.designs[i].inProduction {
-            anyProduct = true
             let d = s.semi.designs[i]
             for src in sources(d, s) where src.wafersDay > 0 {
                 for b in 0..<3 { s.semi.designs[i].dieBank[b] += src.wafersDay * src.yield.diesPerWafer * src.yield.bins[b] }

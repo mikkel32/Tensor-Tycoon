@@ -363,15 +363,20 @@ private struct CorpDebtCard: View {
             if !s.corp.debts.isEmpty { Divider() }
             Text("Borrow").font(.caption.weight(.semibold))
             ForEach(Corporate.quotes(s), id: \.kind) { q in
+                let amount = min(amounts[q.kind] ?? q.max / 2, q.max)
                 HStack(alignment: .center, spacing: 12) {
                     VStack(alignment: .leading, spacing: 1) {
                         Text(q.kind.title).font(.callout.weight(.semibold))
                         Text(q.reason).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                         Text("Covenants: \(q.covenants)").font(.caption2).foregroundStyle(.tertiary)
+                        // 3.8: what this loan does to the covenant, before you sign.
+                        if q.available && q.max > 0 && (q.kind == .termLoan || s.corp.debts.contains(where: \.covenanted)) {
+                            let note = Corporate.covenantNote(s, adding: amount)
+                            Text(note.text).font(.caption2).foregroundStyle(note.breach ? .red : .secondary).fixedSize(horizontal: false, vertical: true)
+                        }
                     }
                     .frame(width: 380, alignment: .leading)
                     if q.available && q.max > 0 {
-                        let amount = min(amounts[q.kind] ?? q.max / 2, q.max)
                         Slider(value: Binding(get: { amount }, set: { amounts[q.kind] = $0 }), in: min(q.max, 1e6)...q.max)
                             .accessibilityValue(Fmt.money(amount))
                         Text(Fmt.money(amount)).font(.callout.monospacedDigit()).frame(width: 80)

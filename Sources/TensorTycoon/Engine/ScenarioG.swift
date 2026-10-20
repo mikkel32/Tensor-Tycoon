@@ -102,6 +102,9 @@ extension ScenarioHarness {
             return r
         }
         let qualifiedA = s.date
+        // A qualified chip goes on sale at once; this lab holds its first chips for its own fleet and opens sales later.
+        r.expect("a qualified chip goes on sale by default", qA.onSale.allSatisfy { $0 })
+        for b in 0..<3 { _ = s.setChipPrice(idA, bin: b, onSale: false) }
         r.expect("A qualified with three bins registered in the hardware catalogue", true, "\(qualifiedA.gameShort), \(qA.respins) respins, \(qA.metalFixes) metal fixes, roll \(Fmt.trim(qA.lastRoll, 2)) vs odds \(Fmt.pct(qA.respinOdds, decimals: 0))")
         if respinsSeen > 0 { r.note("bring-up found: \(bugs.joined(separator: "; ")) — a full respin each time") }
         r.expect("Ultra compute is the silicon's, not the date's", abs(ultraA.bf16 - peakA * (qA.erratum ? 0.88 : 1)) < 1, "\(Fmt.count(ultraA.bf16)) TF vs \(Fmt.count(peakA)) at tape-out")
@@ -247,9 +250,10 @@ extension ScenarioHarness {
             var y = s
             let owed = y.semi.designs.first { $0.id == idA }!.stockSale[0] + 1_000
             y.semi.contracts.append(ChipContract(customer: "nimbus", designID: idA, bin: 0, units: owed, price: 20_000, signed: y.date, deadline: GameCalendar.addDays(y.date, 90)))
-            r.expect("retiring with more promised than in stock is refused", y.retireChipDesign(idA) != nil)
+            r.expect("retiring with more promised than in stock is refused", y.retireChipDesign(idA, cancelContracts: false)?.contains("open orders") == true)
             y.semi.contracts[y.semi.contracts.count - 1].units = max(1, y.semi.designs.first { $0.id == idA }!.stockSale[0] * 0.5)
-            r.expect("retiring with the orders covered works", y.retireChipDesign(idA) == nil)
+            r.expect("retiring with wafer bookings asks whether to cancel them", y.retireChipDesign(idA)?.contains("wafer booking") == true)
+            r.expect("retiring with the orders covered works (bookings kept for another product)", y.retireChipDesign(idA, cancelContracts: false) == nil)
             let delivered0 = y.semi.contracts.last!.delivered
             Semis.sell(&y)
             r.expect("a retired product still delivers its orders", y.semi.contracts.last!.delivered > delivered0)

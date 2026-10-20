@@ -1049,7 +1049,8 @@ enum AdvancedProjects {
     }
 
     /// Months of schedule used against the plan (the schedule runs from mobilisation), as a share of the planned length.
-    static func scheduleRatio(_ p: Programme) -> Double { Double(p.months - p.mobilisingMonths) / Double(max(1, p.sol.months)) }
+    /// Schedule used: months since mobilisation, less months under a stop-work order, over the contract's length.
+    static func scheduleRatio(_ p: Programme) -> Double { Double(p.months - p.mobilisingMonths - p.stoppedMonths) / Double(max(1, p.sol.months)) }
 
     /// How far behind plan the work is: schedule used minus work done (positive = behind). The engine's cure notices and
     /// the programme card both read this.
@@ -1133,6 +1134,14 @@ enum AdvancedProjects {
         }
         // Work.
         if p.stage >= .feasibility && p.stage <= .completion {
+            // 3.8: a stop-work order pauses the schedule (see `stoppedMonths`); say why, once per order.
+            if !f.security {
+                p.stoppedMonths += 1
+                if !p.stopWork {
+                    alert(&s, "stopwork|\(p.id)", "Stop-work order on \(sol.title)",
+                          "Your weight security is below what \(agency) requires (SL\(sol.level.requiredSL), you have SL\(s.security.rawValue)). The schedule clock and most spending pause until you raise it.", critical: true)
+                }
+            }
             p.stopWork = !f.security
             let rate = f.total
             workRate = rate
@@ -1152,7 +1161,7 @@ enum AdvancedProjects {
         // the contract). A quarter of direct spending is the standing team's overhead (it runs every month, so slips cost
         // money), three quarters follow the work actually done — rework included — at the stage it started in.
         let workDone = startStage >= .feasibility && startStage <= .completion ? workRate * startStage.intensity : 0
-        let overhead = startStage == .award ? 0.05 : 0.25
+        let overhead = startStage == .award || p.stopWork ? 0.05 : 0.25   // 3.8: idle under a stop-work order
         let direct = est.cash / Double(sol.months) * (overhead + 0.75 * workDone) * p.growth
         let team = s.employees.filter { p.staff.contains($0.id) }
         let salaries = team.reduce(0) { $0 + $1.salary * (1 + premiumRate(clearanceLevel(s, $1.id))) } / 12
@@ -1302,7 +1311,7 @@ enum AdvancedProjects {
         p.status = .completed
         p.ended = s.date
         p.progress = 1
-        let onTime = p.months - p.mobilisingMonths <= Int(Double(sol.months) * 1.1)
+        let onTime = p.months - p.mobilisingMonths - p.stoppedMonths <= Int(Double(sol.months) * 1.1)
         s.advanced.ratings[sol.agency] = clamp(rating(s, sol.agency) + (onTime ? 2.5 : 1.2), -10, 10)
         if sol.level >= .controlled { addTrust(&s, sol.agency, sol.level >= .secret ? (onTime ? 2 : 1.5) : 0.5) }
         if let a { Stakeholders.move(&s, [a.region.rawValue: 1.5 + Double(sol.classification)], "Delivered \(sol.title) for \(a.short)") }

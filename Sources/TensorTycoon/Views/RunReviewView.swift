@@ -107,7 +107,7 @@ struct RunReviewSheet: View {
         return Card {
             CardHeader("Compute", symbol: "cpu")
             SpecRow(label: "Pre-training + post-training", value: "\(Fmt.flops(e.flops)) + \(Fmt.flops(e.postFlops)) FLOPs")
-            SpecRow(label: "Accelerators", value: "\(Fmt.int(design.chips))× \(r.accel.name)")
+            SpecRow(label: "Accelerators", value: TrainingExperience.chipsLabel(design))
             SpecRow(label: "Precision", value: design.precision.short)
             VStack(alignment: .leading, spacing: 3) {
                 HStack {
@@ -131,7 +131,7 @@ struct RunReviewSheet: View {
                 SpecRow(label: "Expert routing", value: "\(TrainingExperience.layout(design).label) · keeps \(Fmt.pct(Physics.moeEfficiency(design, accel: r.accel, bonuses: store.derived.bonuses), decimals: 0)) of throughput")
             }
             if design.spares > 0 {
-                SpecRow(label: "Hot spares", value: "\(Fmt.int(Int(Double(design.chips) * design.spares))) chips · \(Fmt.pct(1 - Physics.spareRecovery(design.spares), decimals: 0)) less time lost per failure")
+                SpecRow(label: "Hot spares", value: "\(Fmt.int(Int(Double(design.allChips) * design.spares))) chips · \(Fmt.pct(1 - Physics.spareRecovery(design.spares), decimals: 0)) less time lost per failure")
             }
             SpecRow(label: "Ops-agent coverage", value: Fmt.pct(e.coverage, decimals: 0))
             SpecRow(label: "Useful compute per day", value: "\(Fmt.flops(Physics.flopsPerDay(design, state: store.game, lr: lr, interval: interval))) FLOPs")

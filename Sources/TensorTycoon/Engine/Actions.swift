@@ -14,6 +14,14 @@ extension GameState {
         if a.minOrder > 1 && count % a.minOrder != 0 { return "\(a.name) ships in racks of \(a.minOrder). Order a multiple of \(a.minOrder)." }
         let limit = Economy.allocationLimit(a, self)
         if count > limit && Semis.isSemiChip(a.id) { return "Only \(Fmt.int(limit)) finished \(a.name) in stock. Make more on the Semiconductors page." }
+        if AlienFab.isAlienChip(a.id) && count > AlienFab.maxOrder(self) {
+            return "Your fab line makes \(Fmt.count(max(alienFab.capacityMonth, AlienFab.pilotCapacity))) chips a month: order up to \(Fmt.int(AlienFab.maxOrder(self))) (six months) at a time, or expand the line."
+        }
+        if AlienFab.isAlienChip(a.id) && count > AlienFab.backlogRoom(self) {
+            let room = AlienFab.backlogRoom(self)
+            return "Your fab line already has \(Fmt.int(AlienFab.openBacklog(self))) chips queued, and it holds twelve months of output (\(Fmt.int(AlienFab.maxBacklog(self)))). More orders would push every delivery back. "
+                + (room > 0 ? "Order up to \(Fmt.int(room)), wait for deliveries, or expand the line." : "Wait for deliveries or expand the line.")
+        }
         if count > limit { return "\(a.vendor.rawValue) will only allocate \(Fmt.int(limit)) units to a company your size right now. A supply agreement raises this." }
         let needKW = Economy.chipKW(a) * Double(count)
         let freeKW = site.capacityKW - Economy.siteLoadKW(self, siteID)
@@ -31,15 +39,24 @@ extension GameState {
         // 3.9: your own chips are booked at the server you pay for now plus the silicon the chip business already paid for.
         orders.append(HardwareOrder(accelID: accelID, count: count, siteID: siteID, unitCost: unit + Semis.siliconCost(a.id, self) - rebate / Double(count), ordered: date,
                                     arrives: GameCalendar.addDays(date, days)))
-        Sim.news(&self, "Ordered \(Fmt.int(count))× \(a.name)", "\(Fmt.money(total)) paid. Delivery in about \(days) days to \(site.name).", .company, image: a.image,
-                 illustrative: a.photoIsStandIn)
+        if AlienFab.isAlienChip(a.id) {
+            orders[orders.count - 1].made = 0
+            orders[orders.count - 1].delivered = 0
+            Sim.news(&self, "Ordered \(Fmt.int(count))× \(a.name)", "\(Fmt.money(total)) paid. Your fab line ships them as they're made: the first in about \(AlienFab.shipDays) days, all of them in about \(days) days, to \(site.name).", .company, image: a.image,
+                     illustrative: a.photoIsStandIn)
+        } else {
+            Sim.news(&self, "Ordered \(Fmt.int(count))× \(a.name)", "\(Fmt.money(total)) paid. Delivery in about \(days) days to \(site.name).", .company, image: a.image,
+                     illustrative: a.photoIsStandIn)
+        }
         return nil
     }
 
     mutating func sellHardware(batchID: UUID, count: Int) -> String? {
         guard let i = owned.firstIndex(where: { $0.id == batchID }), let a = HardwareCatalog.get(owned[i].accelID) else { return "Not found." }
         let n = min(count, owned[i].count)
-        let free = Economy.pool(self, a.id)?.free ?? 0
+        // 3.8: chips at a site still under construction aren't in any pool, so none of them is allocated.
+        let waiting = !(sites.first { $0.id == owned[i].siteID }?.isReady(date) ?? true)
+        let free = waiting ? owned[i].count : (Economy.pool(self, a.id)?.free ?? 0)
         if n > free { return "Only \(free) of these chips are unallocated. Free some up first." }
         let unit = Economy.resaleValue(a, self, unitCost: owned[i].unitCost, purchased: owned[i].purchased)
         cash += unit * Double(n)
@@ -108,7 +125,7 @@ extension GameState {
             let ready = GameCalendar.addDays(date, 30)
             sites.append(Site(name: name, kind: .colo, locationID: locationID, capacityKW: capacityKW, cooling: cooling, powerDeal: power,
                               opened: date, ready: ready, capex: 0, monthlyFee: setup))
-            Sim.news(&self, "Signed colocation lease: \(name)", "\(Fmt.watts(capacityKW * 1000)) in \(loc.name), ready in 30 days. \(Fmt.money(setup))/month.",
+            Sim.news(&self, "Signed colocation lease: \(name)", "\(Fmt.watts(capacityKW * 1000)) in \(loc.name), ready in 30 days. The first month (\(Fmt.money(setup))) is paid now; \(Fmt.money(setup))/month from then on.",
                      .company, image: loc.image, illustrative: true)
         case .datacenter:
             let mw = capacityKW / 1000
@@ -203,11 +220,18 @@ extension GameState {
         let b = bonuses
         if d.name.trimmingCharacters(in: .whitespaces).isEmpty { return "Name your model." }
         if d.chips <= 0 { return "Allocate some chips." }
-        let free = Economy.freeChips(self, d.accelID)
-        if d.chips > free { return "Only \(free) free \(a.name) chips. Buy, rent, or free some up." }
+        let free = recallLeased(d.accelID, needing: d.chips)
+        if d.chips > free { return "Only \(free) free \(a.name) chips.\(leasedNote(d.accelID)) Buy, rent, or free some up." }
         if d.precision == .fp8 && !b.has(.fp8Training) { return "Research FP8 Training first." }
         if d.precision == .fp4 && !b.has(.fp4Training) { return "Research FP4 Training first." }
         if !a.supportsTraining(d.precision) { return "\(a.name) has no \(d.precision.short) tensor cores." }
+        // 3.9: helper groups of other chip types.
+        for h in d.helpers {
+            guard let ha = HardwareCatalog.get(h.accelID), h.accelID != d.accelID, h.chips > 0 else { return "Each helper group needs a different chip type and at least one chip." }
+            if !ha.supportsTraining(d.precision) { return "\(ha.name) has no \(d.precision.short) tensor cores: drop it from the run or train in BF16." }
+            let hFree = recallLeased(h.accelID, needing: h.chips)
+            if h.chips > hFree { return "Only \(hFree) free \(ha.name) chips for the helper group.\(leasedNote(h.accelID))" }
+        }
         if d.isMoE && !b.has(.moe) { return "Research Mixture-of-Experts first." }
         if d.reasoning && !b.has(.reasoning) { return "Research RL for Reasoning first." }
         if d.rlhf && !b.has(.rlhf) { return "Research RLHF first." }
@@ -221,7 +245,7 @@ extension GameState {
         if d.contextK >= 32 && !b.has(.context32k) { return "Research RoPE & Context Extension first." }
         if d.mode == .distill && !b.has(.distillation) { return "Research Knowledge Distillation first." }
         if d.mode != .scratch && d.baseModelRef == nil { return "Pick a base model." }
-        let mem = Physics.trainingMemory(d, accel: a, bonuses: b)
+        let mem = Physics.trainingMemoryAll(d, bonuses: b) ?? Physics.trainingMemory(d, accel: a, bonuses: b)
         if !mem.ok { return "Out of memory: needs \(Fmt.memory(mem.needGB)), you have \(Fmt.memory(mem.haveGB)). \(mem.note)" }
         if d.optimizer == .muon && !b.has(.muon) { return "Research the Muon optimizer first." }
         if d.optimizer == .shampoo && !b.has(.shampoo) { return "Research second-order preconditioning first." }
@@ -276,13 +300,15 @@ extension GameState {
     mutating func setRunStatus(_ id: UUID, _ status: RunStatus) -> String? {
         guard let i = runs.firstIndex(where: { $0.id == id }) else { return "Not found." }
         if status == .running && runs[i].status == .paused {
-            let free = Economy.freeChips(self, runs[i].design.accelID)
-            if free < runs[i].design.chips { return "Need \(runs[i].design.chips) free chips, have \(free)." }
+            let free = recallLeased(runs[i].design.accelID, needing: runs[i].design.chips)
+            if free < runs[i].design.chips { return "Need \(runs[i].design.chips) free chips, have \(free).\(leasedNote(runs[i].design.accelID))" }
+            Training.fitHelpers(&self, i)
             runs[i].status = runs[i].flopsDone >= runs[i].flopsTotal ? .postTraining : .running
             runs[i].note = "Resumed \(date.gameShort)."
             return nil
         }
         runs[i].status = status
+        if status == .paused { runs[i].pausedSince = date; runs[i].note = "Paused by you \(date.gameShort)." }
         if status == .cancelled { runs[i].note = "Cancelled \(date.gameShort)." }
         return nil
     }
@@ -297,7 +323,7 @@ extension GameState {
         if let a = HardwareCatalog.get(runs[i].design.accelID) {
             var d = runs[i].design
             d.chips = chips
-            if !Physics.trainingMemory(d, accel: a, bonuses: bonuses).ok { return "The model no longer fits in memory on \(chips) chips." }
+            if !(Physics.trainingMemoryAll(d, bonuses: bonuses) ?? Physics.trainingMemory(d, accel: a, bonuses: bonuses)).ok { return "The model no longer fits in memory on \(chips) chips." }
         }
         runs[i].design.chips = chips
         return nil
@@ -308,8 +334,8 @@ extension GameState {
         let b = bonuses
         guard b.has(.proxyLadder) else { return "Research Predictable Scaling to run scaling ladders." }
         guard let a = HardwareCatalog.get(d.accelID) else { return "Pick hardware." }
-        let free = Economy.freeChips(self, d.accelID)
-        if d.chips > free { return "Only \(free) free \(a.name) chips." }
+        let free = recallLeased(d.accelID, needing: d.chips)
+        if d.chips > free { return "Only \(free) free \(a.name) chips.\(leasedNote(d.accelID))" }
         let target = Physics.pretrainFLOPs(d)
         var ladder = d
         ladder.name = "\(d.name) ladder"
@@ -426,8 +452,8 @@ extension GameState {
     mutating func deploy(_ id: UUID, accelID: String, chips: Int) -> String? {
         guard let i = models.firstIndex(where: { $0.id == id }) else { return "Not found." }
         let current = models[i].deployments.first { $0.accelID == accelID }?.chips ?? 0
-        let free = Economy.freeChips(self, accelID) + current
-        if chips > free { return "Only \(free) chips available." }
+        let free = recallLeased(accelID, needing: chips - current) + current
+        if chips > free { return "Only \(free) chips available.\(leasedNote(accelID))" }
         models[i].deployments.removeAll { $0.accelID == accelID }
         if chips > 0 { models[i].deployments.append(Deployment(accelID: accelID, chips: chips)) }
         return nil
@@ -464,6 +490,27 @@ extension GameState {
         Business.rehomeDeals(&self, from: id)
     }
 
+    /// 3.8: bring a retired model back. Gives it servers if it has none, moves chat, agents and contracts that have
+    /// no model (or a weaker one) onto it, and restarts swarms that stopped for lack of it.
+    mutating func unretire(_ id: UUID) {
+        guard let i = models.firstIndex(where: { $0.id == id }), models[i].retired else { return }
+        models[i].retired = false
+        let m = models[i]
+        Sim.news(&self, "\(m.name) is back", "Retirement undone.\(m.released ? " Chat, agents and contracts that had no model move onto it." : "")", .company, good: true)
+        guard m.released else { return }
+        // Swarms first (they only want the chips they had), then servers from what is left.
+        Swarms.rebindRetired(&self, bonuses)
+        Swarms.resumeForModel(&self, id)
+        if m.deployments.isEmpty { provisionServers(id) }
+        func weaker(_ other: UUID?) -> Bool {
+            guard let other, let o = models.first(where: { $0.id == other && $0.released && !$0.retired }) else { return true }
+            return m.index > o.index
+        }
+        if m.design.instruct && weaker(chatModelID) { chatModelID = id }
+        if m.design.toolUse && (agentModelID != nil || agentSeats > 0) && weaker(agentModelID) { agentModelID = id }
+        Business.rehomeDeals(&self)
+    }
+
     // MARK: Enterprise
 
     mutating func acceptDeal(_ id: UUID, modelID: UUID) -> String? {
@@ -497,7 +544,7 @@ extension GameState {
         guard !researched.contains(id), !researchQueue.contains(id), let item = ResearchCatalog.byID[id] else { return }
         if item.isExotic && !exoticOwned.contains(id) { return }
         if !XenoScience.researchUnlocked(id, self) { return }
-        researchQueue.append(id)
+        ResearchLab.enqueueByPlayer(&self, id)
     }
 
     /// Techniques a rival lab is known to be working on that you could still hire your way into.

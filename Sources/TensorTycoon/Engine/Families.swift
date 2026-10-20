@@ -575,6 +575,16 @@ enum Families {
         }
     }
 
+    /// Jobs paused for lack of chips start again when enough are free.
+    static func resumeJobs(_ s: inout GameState) {
+        for i in s.families.jobs.indices where s.families.jobs[i].paused {
+            let j = s.families.jobs[i]
+            guard Economy.freeChips(s, j.accelID) >= j.chips else { continue }
+            s.families.jobs[i].paused = false
+            Sim.news(&s, "\(j.name.isEmpty ? "Model job" : j.name) resumed", "Its \(Fmt.int(j.chips)) \(HardwareCatalog.get(j.accelID)?.name ?? "chips") are free again.", .company, good: true)
+        }
+    }
+
     // MARK: Finishing jobs
 
     static func finishDistill(_ s: inout GameState, _ j: ModelJob) {
@@ -951,7 +961,7 @@ extension GameState {
     mutating func startDistill(_ teacherID: UUID, tier: FamilyTier, data: DistillData, accelID: String, chips: Int, autoLaunch: Bool = true) -> String? {
         guard let t = models.first(where: { $0.id == teacherID }) else { return "Not found." }
         guard tier != .flagship, !tier.isSpecialist else { return "Pick a smaller tier." }
-        if chips > Economy.freeChips(self, accelID) { return "Only \(Fmt.int(Economy.freeChips(self, accelID))) chips of that type are free." }
+        if chips > recallLeased(accelID, needing: chips) { return "Only \(Fmt.int(Economy.freeChips(self, accelID))) chips of that type are free.\(leasedNote(accelID))" }
         let plan = Families.distillPlan(self, teacher: t, tier: tier, data: data, accelID: accelID, chips: chips)
         if let e = plan.blocker { return e }
         let fi = Families.ensureFamily(&self, for: t)
@@ -966,7 +976,7 @@ extension GameState {
     mutating func startPostTrain(_ modelID: UUID, pass: PostTrainPass, accelID: String, chips: Int) -> String? {
         if pass.forks { return startFork(modelID, pass: pass, accelID: accelID, chips: chips) }
         guard let m = models.first(where: { $0.id == modelID }) else { return "Not found." }
-        if chips > Economy.freeChips(self, accelID) { return "Only \(Fmt.int(Economy.freeChips(self, accelID))) chips of that type are free." }
+        if chips > recallLeased(accelID, needing: chips) { return "Only \(Fmt.int(Economy.freeChips(self, accelID))) chips of that type are free.\(leasedNote(accelID))" }
         let plan = Families.passPlan(self, model: m, pass: pass, accelID: accelID, chips: chips)
         if let e = plan.blocker { return e }
         families.jobs.append(ModelJob(kind: .postTrain, modelID: m.id, familyID: Families.family(of: m.id, self)?.id,
@@ -980,7 +990,7 @@ extension GameState {
     mutating func startFork(_ modelID: UUID, pass: PostTrainPass, accelID: String, chips: Int, autoLaunch: Bool = true) -> String? {
         guard let m = models.first(where: { $0.id == modelID }) else { return "Not found." }
         guard let tier = pass.tier else { return "That pass upgrades a model in place." }
-        if chips > Economy.freeChips(self, accelID) { return "Only \(Fmt.int(Economy.freeChips(self, accelID))) chips of that type are free." }
+        if chips > recallLeased(accelID, needing: chips) { return "Only \(Fmt.int(Economy.freeChips(self, accelID))) chips of that type are free.\(leasedNote(accelID))" }
         let plan = Families.passPlan(self, model: m, pass: pass, accelID: accelID, chips: chips)
         if let e = plan.blocker { return e }
         let fi = Families.ensureFamily(&self, for: m)
@@ -1021,7 +1031,7 @@ extension GameState {
     mutating func resumeModelJob(_ id: UUID) -> String? {
         guard let i = families.jobs.firstIndex(where: { $0.id == id }) else { return "Not found." }
         let j = families.jobs[i]
-        if Economy.freeChips(self, j.accelID) < j.chips { return "Needs \(Fmt.int(j.chips)) free chips; \(Fmt.int(Economy.freeChips(self, j.accelID))) are free." }
+        if recallLeased(j.accelID, needing: j.chips) < j.chips { return "Needs \(Fmt.int(j.chips)) free chips; \(Fmt.int(Economy.freeChips(self, j.accelID))) are free.\(leasedNote(j.accelID))" }
         families.jobs[i].paused = false
         return nil
     }

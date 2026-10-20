@@ -305,7 +305,7 @@ enum Events {
         // Low-stakes offers wait in the inbox with a deadline instead of stopping the clock.
         if !Alerts.isUrgent(d) {
             d.deadline = GameCalendar.addDays(s.date, Alerts.inboxDays(kind))
-            let fallback = options.indices.contains(Alerts.inboxDefaults[kind] ?? 0) ? options[Alerts.inboxDefaults[kind] ?? 0].label : options.last?.label ?? "nothing"
+            let fallback = options.isEmpty ? "nothing" : options[Alerts.inboxDefault(d, s)].label
             Alerts.raise(&s, .inbox, key: d.id.uuidString, title: title,
                          body: "Waiting in your inbox for \(Alerts.inboxDays(kind)) days. If you don't answer: \"\(fallback)\".",
                          screen: .dashboard, cooldown: 0)

@@ -24,6 +24,12 @@ enum SaveMigration {
             s.researchFocus = ResearchFocus.balanced.rawValue
             s.autoResearch = true
         }
+        // Saves from before the director's picks were marked: count what's queued as its picks, so anything
+        // you queue from now on goes ahead of them.
+        if !s.directorQueueTracked {
+            s.directorQueueTracked = true
+            if s.autoResearch { s.directorQueued = Set(s.researchQueue) }
+        }
         // Saves from before alerts (3.4): pause on the important ones; waiting offers get a deadline.
         if !s.pauseConfigured {
             s.pauseConfigured = true
@@ -70,6 +76,8 @@ enum SaveMigration {
         Nations.bootstrap(&s)
         // 3.7: the company stage the record earns, credited silently (no news, no rewards).
         Progression.bootstrap(&s)
+        Corporate.migrate(&s)   // 3.8: covenant cycle
+        DCMarket.migrateDeposits(&s)   // 3.8: refundable lease deposits
     }
 
     /// Decodes a save, migrates it and plays 90 days on a copy, resolving decisions with their first option

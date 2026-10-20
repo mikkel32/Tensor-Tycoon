@@ -302,6 +302,9 @@ enum Business {
             // A typical deal is a tiny slice of the enterprise market, sized by how well your best model does this
             // kind of work against the frontier (3.8: its domain mix, not one capability number).
             var monthly = size / 12 * s.rng.range(0.00002, 0.0004) * Capabilities.dealFit(s, title: title) * (1 + sales * 0.05)
+            // 3.9: a lab with a real slice of the API market gets the big accounts too: contract size grows with your share
+            // (×1 at none, ×4 at 15%, ×9 at 40%), since the enterprise pool is shared in proportion to it.
+            monthly *= 1 + 20 * min(0.4, playerAPIShare(s))
             monthly = max(monthly, 8_000)
             let months = [6, 12, 12, 24, 36][s.rng.int(0, 4)]
             // Clients size their token needs at the market rate for a near-frontier model, not at your price.
@@ -317,6 +320,11 @@ enum Business {
             Sim.news(&s, "Enterprise lead: \(deal.client)", "\(Fmt.money(monthly))/month for \(deal.title), \(months) months. Review it in Market.",
                      .market, important: false, good: true)
         }
+    }
+
+    /// Your share of API demand today (0 without a model on sale).
+    static func playerAPIShare(_ s: GameState) -> Double {
+        Market.snapshot(s).api.filter(\.isPlayer).reduce(0) { $0 + $1.share }
     }
 
     /// The Intelligence Index of the best rival flagship on the market (`fallback` if there is none).

@@ -34,6 +34,7 @@ enum Sim {
         XenoScience.daily(&s)
         Science.daily(&s)   // 3.6: science labs
         Treasury.autoPrice(&s, b)
+        MarketForecast.autoSubscriptionPrices(&s)
         dailyMarket(&s, b)
         ChipBusiness.daily(&s)
         dailyCosts(&s, Economy.pools(s))
@@ -128,11 +129,14 @@ enum Sim {
     // MARK: - Hardware logistics
 
     static func deliveries(_ s: inout GameState) {
-        let arrived = s.orders.filter { $0.arrives <= s.date }
+        // Orders on your own fab line ship as they're made (AlienFab.produce), not here.
+        let today = s.date
+        let due = { (o: HardwareOrder) in o.arrives <= today && o.made == nil }
+        let arrived = s.orders.filter(due)
         guard !arrived.isEmpty else { return }
-        s.orders.removeAll { $0.arrives <= s.date }
+        s.orders.removeAll(where: due)
         // Remember what was ordered when: vendors allocate per quarter.
-        let cutoff = GameCalendar.addDays(s.date, -120)
+        let cutoff = GameCalendar.addDays(s.date, -240)
         s.orderLog.removeAll { $0.ordered < cutoff }
         s.orderLog += arrived.map { OrderStamp(accelID: $0.accelID, count: $0.count, ordered: $0.ordered) }
         for o in arrived {
@@ -193,8 +197,9 @@ enum Sim {
         Campus.daily(&s)
     }
 
-    /// If allocations exceed what we have (rental ended, chips died), recall leases, shrink research and swarms,
-    /// then inference, then pause self-improvement and training.
+    /// If allocations exceed what we have (rental ended, chips died), take chips back in this order: recall leases, then
+    /// research chips, swarms and self-improvement, then shrink training runs to fit (pause one that no longer fits in
+    /// memory) and only then cut serving, in whole replicas. Paused runs and jobs resume by themselves when chips return.
     static func rebalance(_ s: inout GameState, _ pools: [ComputePool]) {
         for pool in pools where pool.allocated > pool.total || pool.leased > pool.owned {
             var excess = pool.allocated - pool.total
@@ -211,6 +216,9 @@ enum Sim {
                 let cut = min(r, excess)
                 s.researchChips[id] = r - cut
                 excess -= cut
+                // 3.8: say so; the research rate drops with them.
+                news(&s, "Research lost \(Fmt.int(cut)) \(pool.accel.name)", "\(Fmt.int(r - cut)) are left on research. Something took the chips (a rental ended, or hardware failed); buy or rent more to get them back.",
+                     .company, good: false)
             }
             for si in s.swarms.indices where s.swarms[si].accelID == id && !s.swarms[si].paused && excess > 0 {
                 let cut = min(s.swarms[si].chips, excess)
@@ -222,39 +230,62 @@ enum Sim {
                 }
                 Swarms.log(&s, si, "Lost \(Fmt.int(cut)) \(pool.accel.name) chips — fewer agents can run.")
             }
-            if excess > 0 {
-                for mi in s.models.indices {
-                    for di in s.models[mi].deployments.indices where s.models[mi].deployments[di].accelID == id && excess > 0 {
-                        let cut = min(s.models[mi].deployments[di].chips, excess)
-                        s.models[mi].deployments[di].chips -= cut
-                        excess -= cut
-                    }
-                    s.models[mi].deployments.removeAll { $0.chips <= 0 }
-                }
+            for ri in s.rsiRuns.indices where s.rsiRuns[ri].accelID == id && s.rsiRuns[ri].status == .running && excess > 0 {
+                s.rsiRuns[ri].status = .paused
+                excess -= s.rsiRuns[ri].chips
+                RSI.log(&s, ri, "Paused: not enough \(pool.accel.name) chips.")
             }
-            if excess > 0 {
-                for ri in s.rsiRuns.indices where s.rsiRuns[ri].accelID == id && s.rsiRuns[ri].status == .running && excess > 0 {
-                    s.rsiRuns[ri].status = .paused
-                    excess -= s.rsiRuns[ri].chips
-                    RSI.log(&s, ri, "Paused: not enough \(pool.accel.name) chips.")
-                }
-            }
-            if excess > 0 && pool.accel.vendor == .custom {
-                // 3.5: your own chips can't be rented as spares, so a run on them carries on with the chips that are left.
-                AlienFab.shrinkRuns(&s, accel: pool.accel, excess: &excess)
-            }
+            // 3.8: training shrinks to the chips that are left (whatever the vendor) before anything is paused or served less.
+            if excess > 0 { AlienFab.shrinkRuns(&s, accel: pool.accel, excess: &excess) }
             if excess > 0 {
                 for ri in s.runs.indices where s.runs[ri].design.accelID == id && (s.runs[ri].status == .running || s.runs[ri].status == .postTraining) && excess > 0 {
                     s.runs[ri].status = .paused
+                    s.runs[ri].pausedSince = s.date
                     s.runs[ri].note = "Paused: not enough \(pool.accel.name) chips."
                     excess -= s.runs[ri].design.chips
-                    news(&s, "Training paused: \(s.runs[ri].design.name)", "You no longer have enough \(pool.accel.name) chips for this run.", .company, important: true, good: false)
+                    news(&s, "Training paused: \(s.runs[ri].design.name)", "You no longer have enough \(pool.accel.name) chips for this run. It restarts by itself when enough are free.", .company, important: true, good: false)
                     Alerts.raise(&s, .runPaused, key: s.runs[ri].id.uuidString, title: "\(s.runs[ri].design.name) stalled",
-                                 body: "Not enough \(pool.accel.name) chips: something else took them, or a rental ended. Free chips up or shrink the run, then resume.",
+                                 body: "Not enough \(pool.accel.name) chips: something else took them, or a rental ended. It resumes by itself when chips are free; or free chips up or shrink the run, then resume.",
                                  screen: .training, critical: true, cooldown: 7)
                 }
             }
             if excess > 0 && !s.families.jobs.isEmpty { Families.shrink(&s, accelID: id, excess: &excess) }   // 3.5: model families
+            // Serving last, and in whole replicas: half a replica serves nothing. Weakest models first; chat and agents last.
+            if excess > 0 {
+                let b = s.bonuses
+                let protected = Set([s.chatModelID, s.agentModelID].compactMap { $0 })
+                let order = s.models.indices.filter { s.models[$0].deployments.contains { $0.accelID == id } }
+                    .sorted { x, y in
+                        let px = protected.contains(s.models[x].id), py = protected.contains(s.models[y].id)
+                        return px != py ? !px : s.models[x].index < s.models[y].index
+                    }
+                for mi in order where excess > 0 {
+                    let m = s.models[mi]
+                    let k = max(1, Physics.chipsPerReplica(m, accel: pool.accel, precision: m.servingPrecision, bonuses: b))
+                    var lost = 0
+                    for di in s.models[mi].deployments.indices where s.models[mi].deployments[di].accelID == id && excess > 0 {
+                        let have = s.models[mi].deployments[di].chips
+                        var cut = min(have, (excess + k - 1) / k * k)
+                        if have - cut < k { cut = have }
+                        s.models[mi].deployments[di].chips -= cut
+                        excess -= cut
+                        lost += cut
+                    }
+                    s.models[mi].deployments.removeAll { $0.chips <= 0 }
+                    if lost > 0 {
+                        let left = s.models[mi].deployments.reduce(0) { $0 + $1.chips }
+                        news(&s, "\(m.name) lost \(Fmt.int(lost)) serving chips",
+                             left > 0 ? "\(Fmt.int(left)) chips still serve it. Some users get turned away until you add more."
+                                      : "Nothing serves it now, so its traffic goes unanswered. Give it chips on Models.",
+                             .company, important: left == 0, good: false)
+                    }
+                }
+            }
+        }
+        // Weekly: whatever stalled for lack of chips comes back once chips are free.
+        if GameCalendar.components(s.date).day % 7 == 1 {
+            AlienFab.resumeRuns(&s)
+            Families.resumeJobs(&s)
         }
     }
 
@@ -275,14 +306,28 @@ enum Sim {
 
     // MARK: - Research
 
+    /// 3.8: compute research points where the people multiplier stops growing (computeRP / 10 caps at 3, i.e. 4x).
+    static let researchComputeCapPF = pow(7.5, 1 / 0.45)
+
+    /// 3.8: chips of one kind that alone reach the compute cap.
+    static func chipsForResearchCap(_ a: Accelerator) -> Int {
+        a.bf16 > 0 ? Int((researchComputeCapPF * 1000 / a.bf16).rounded(.up)) : 0
+    }
+
+    /// 3.8: petaflops (bf16) these research chips add up to.
+    static func researchPF(_ chips: [String: Int]) -> Double {
+        var pf = 0.0
+        for (id, n) in chips.sorted(by: { $0.key < $1.key }) where n > 0 {   // 3.7: fixed order (float sums)
+            if let a = HardwareCatalog.get(id) { pf += Double(n) * a.bf16 / 1000 }
+        }
+        return pf
+    }
+
     static func researchRate(_ s: GameState, _ b: ResearchBonuses) -> Double {
         let people = s.staff(.researcher).reduce(0.0) { $0 + pow($1.skill / 50, 1.3) * $1.traitMultiplier * (0.6 + $1.morale / 250) }
         let t = s.traits
         let founder = 0.8 * (1 + t.founderRP)
-        var computePF = 0.0
-        for (id, n) in s.researchChips.sorted(by: { $0.key < $1.key }) where n > 0 {   // 3.7: fixed order (float sums)
-            if let a = HardwareCatalog.get(id) { computePF += Double(n) * a.bf16 / 1000 }
-        }
+        let computePF = researchPF(s.researchChips)
         let computeRP = 4 * pow(computePF, 0.45)
         // Compute is a multiplier on people, plus a little on its own.
         let community = s.publication == .open ? 1.1 : 1.0
@@ -330,6 +375,8 @@ enum Sim {
 
         // Consumer
         var chatTokens = 0.0
+        /// Tokens per model that come from users who don't pay (3.9: they wait first when chips run short).
+        var freeDemand: [UUID: Double] = [:]
         var freeRoute: (id: UUID, share: Double)? = nil
         var freeServed = 1.0
         // What rival apps earn per weekly user a month (RivalEconomy's assumption).
@@ -361,7 +408,12 @@ enum Sim {
                 chatTokens = paid + freeTokens
                 demand[id, default: 0] += paid
                 demand[free.id, default: 0] += freeTokens
-            } else if let id = chat.modelID { demand[id, default: 0] += chatTokens }
+                freeDemand[free.id, default: 0] += freeTokens
+            } else if let id = chat.modelID {
+                demand[id, default: 0] += chatTokens
+                let paidFrac = s.consumerUsers > 0 ? min(1, s.paidUsers / s.consumerUsers) : 0
+                freeDemand[id, default: 0] += chatTokens * (1 - paidFrac)
+            }
             // Player can trigger the consumer boom early
             if s.chatMoment == nil, let m = s.models.first(where: { $0.id == chat.modelID }), m.c >= 4.1, m.design.instruct, m.design.rlhf {
                 s.chatMoment = y
@@ -386,10 +438,7 @@ enum Sim {
         var billedSeats = 0.0
         if let ag = snap.agents.first(where: { $0.isPlayer }) {
             // Seat budgets are fixed too (the agent pool): at a price that would outspend it you sell fewer seats.
-            let othersSpend = (snap.agents.filter { !$0.isPlayer }.reduce(0) { $0 + $1.share * $1.price }
-                               + max(0, 1 - snap.agents.reduce(0) { $0 + $1.share }) * snap.agentSeatBudget) * snap.agentSeatsPool / 30.4
-            let natural = ag.share * snap.agentSeatsPool * max(1, s.agentPrice) / 30.4
-            let target = ag.share * snap.agentSeatsPool * Market.budgetFactor(natural, pool: snap.agentRevenuePool, others: othersSpend) * reach
+            let target = Market.agentSeatTarget(snap, ag: ag, price: s.agentPrice) * reach   // 3.8: what your go-to-market can book
             s.agentSeats = max(0, s.agentSeats + (target - s.agentSeats) * 0.05)
             // Seats take weeks to sign up or wind down, but only as many as your share supports at today's price pay it.
             billedSeats = min(s.agentSeats, target)
@@ -420,9 +469,12 @@ enum Sim {
 
         // Serve
         var servedTotal = 0.0, demandTotal = 0.0
-        var revAPI = 0.0
-        var chatServed = 1.0
-        var agentServed = 1.0
+        var revAPI = 0.0, lostAPI = 0.0
+        // 3.8: no model behind chat or agents serves nobody (this used to default to fully served).
+        var chatServed = 0.0
+        var chatModelLive = false
+        var chatServedPaid = 0.0, freeStarvedTokens = 0.0, freeAsked = 0.0
+        var agentServed = 0.0
         for i in s.models.indices {
             let id = s.models[i].id
             let cap = s.models[i].deployments.reduce(0) { $0 + Physics.capacity(s.models[i], deployment: $1, bonuses: b) }
@@ -432,7 +484,13 @@ enum Sim {
             // before it breaks an SLA.
             let ent = entTokens[id] ?? 0
             let entFrac = ent > 0 ? min(1, cap / ent) : 1
-            let frac = dem > ent ? min(1, max(0, cap - ent) / (dem - ent)) : 1
+            // 3.9: free-tier tokens queue behind everyone who pays, when the player allows it (evenShortage).
+            let freeD = !s.evenShortage ? min(dem - ent, freeDemand[id] ?? 0) : 0
+            let prioD = dem - freeD
+            let frac = prioD > ent ? min(1, max(0, cap - ent) / (prioD - ent)) : 1
+            let fracFree = freeD > 0 ? min(1, max(0, cap - prioD) / freeD) : frac
+            freeAsked += freeD
+            freeStarvedTokens += freeD * (1 - fracFree)
             let load = cap > 0 ? dem / cap : 0
             s.models[i].capacityTokensDay = cap
             s.models[i].demandTokensDay = dem
@@ -442,8 +500,15 @@ enum Sim {
             let r = api / 1e6 * s.models[i].apiPrice
             s.models[i].revenueDay = r
             revAPI += r
-            if id == s.chatModelID { chatServed = frac }
-            if id == freeRoute?.id { freeServed = frac }
+            lostAPI += (apiDemand[id] ?? 0) * (1 - frac) / 1e6 * s.models[i].apiPrice
+            if id == s.chatModelID {
+                chatServedPaid = frac
+                chatModelLive = true
+                // Without a cheaper free tier, free users share the chat model: blend by their share of the traffic.
+                let fs = freeRoute == nil ? min(1, freeD / max(1, chatTokens)) : 0
+                chatServed = frac * (1 - fs) + fracFree * fs
+            }
+            if id == freeRoute?.id { freeServed = !s.evenShortage ? fracFree : frac }
             if id == agentModelID { agentServed = frac }
             if ent > 0 && entFrac < 0.95 {
                 for di in s.deals.indices where s.deals[di].active && s.deals[di].modelID == id {
@@ -454,11 +519,21 @@ enum Sim {
             demandTotal += dem
         }
         if let r = freeRoute { chatServed = chatServed * (1 - r.share) + freeServed * r.share }
+        // What a shortage costs, smoothed: the share of subscriber and seat requests dropped, and API revenue left unserved.
+        let paidServedNow = !s.evenShortage ? chatServedPaid : chatServed
+        s.lostChatFrac += ((chatModelLive ? 1 - paidServedNow : 0) - s.lostChatFrac) * 0.1
+        s.lostAgentFrac += ((agentModelID != nil ? 1 - agentServed : 0) - s.lostAgentFrac) * 0.1
+        s.lostAPIMonth += (lostAPI * 30.4 - s.lostAPIMonth) * 0.1
+        s.freeTierStarved = freeAsked > 0 ? freeStarvedTokens / freeAsked : 0
+        let liveDemand = s.models.filter { $0.released && !$0.retired }.reduce(0) { $0 + $1.demandTokensDay }
+        if liveDemand > 0 { s.lastLiveDemand = liveDemand }
         s.consumerServedFraction = chatServed
         let overall = demandTotal > 0 ? servedTotal / demandTotal : 1
         s.reliability = clamp(s.reliability * 0.93 + overall * 0.07, 0.05, 1)
 
-        let revConsumer = s.paidUsers * s.chatPrice / 30.4 * (0.5 + 0.5 * chatServed)
+        // Subscribers are served at the paying-customers rate; with evenShortage off everyone shares the shortage.
+        let paidServed = !s.evenShortage ? chatServedPaid : chatServed
+        let revConsumer = s.paidUsers * s.chatPrice / 30.4 * (0.5 + 0.5 * paidServed) * (snap.consumer.contains { $0.isPlayer } ? 1 : 0)   // 3.8: no chat model, no subscriptions billed
         // Enterprise budgets are fixed too: rivals win the enterprise pool in proportion to their API business
         // (RivalEconomy); if your contracts plus theirs would outspend it, yours are squeezed to your share.
         let contracts = s.deals.filter(\.active).reduce(0.0) { $0 + $1.monthly } / 30.4
@@ -469,7 +544,7 @@ enum Sim {
         }
         let rivalsEnterprise = billedAPI > 0 ? snap.enterprisePool / 365 * rivalsBilled / billedAPI : 0
         let revEnterprise = contracts * Market.budgetFactor(contracts, pool: snap.enterprisePool / 365, others: rivalsEnterprise)
-        let revAgents = billedSeats * max(1, s.agentPrice) / 30.4 * (0.4 + 0.6 * agentServed)
+        let revAgents = billedSeats * max(1, s.agentPrice) / 30.4 * (0.4 + 0.6 * agentServed) * (agentModelID != nil ? 1 : 0)
         let total = revAPI + revConsumer + revEnterprise + revAgents
         s.month.revAgents += revAgents
         s.month.revAPI += revAPI
@@ -512,7 +587,8 @@ enum Sim {
         }
         power += AdvancedProjects.facilityPowerDay(s)   // 3.8: classified facilities draw their site's power
         power *= Power.billFactor(s)   // traits, alien materials, infrastructure teams, energy discoveries, cooling programmes, an energy subsidiary (floored)
-        let sites = s.sites.reduce(0) { $0 + $1.monthlyFee } / 30.4
+        // 3.8: a new colo's first month is paid up front (`setup`), so it bills only once it's ready, like a term lease.
+        let sites = s.sites.reduce(0) { $0 + ($1.isReady(s.date) ? $1.monthlyFee : 0) } / 30.4
         let office = (Economy.office(s, s.officeLevel).monthly + HQ.satelliteRent(s)) / 30.4   // 3.5: local rent; 3.4 overhaul: satellite offices
         let payroll = Economy.payrollYear(s) / 365
         let data = Economy.dataMonthlyCost(s) / 30.4

@@ -27,7 +27,7 @@ struct HardwareStoreView: View {
                 HStack(alignment: .bottom) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Compute is the new oil").font(.title.weight(.bold))
-                        Text("\(forSale) chips for sale · \(rentable) rentable · lead time ~\(Int(s.market.leadTimeDays)) days · prices \(s.market.hardwarePrice >= 1 ? "+" : "")\(Int((s.market.hardwarePrice - 1) * 100))% vs list")
+                        Text("\(forSale) chips for sale · \(rentable) rentable · market lead time ~\(Int(s.market.leadTimeDays)) days (each chip below quotes its own) · prices \(s.market.hardwarePrice >= 1 ? "+" : "")\(Int((s.market.hardwarePrice - 1) * 100))% vs list")
                             .font(.callout).opacity(0.9)
                     }
                     Spacer()
@@ -419,14 +419,14 @@ struct AcceleratorDetail: View {
             if let buy {
                 let sites = s.sites.filter { $0.isReady(s.date) || $0.kind == .datacenter || $0.kind == .colo }
                 VStack(alignment: .leading, spacing: 6) {
-                    Picker("Install at", selection: $siteID) {
+                    Picker("Install at", selection: Binding(get: { siteID ?? Campus.defaultSite(for: a, count: qty, s)?.id }, set: { siteID = $0 })) {
                         Text("Choose a site…").tag(UUID?.none)
                         ForEach(sites) { site in
                             let free = site.capacityKW - Economy.siteLoadKW(s, site.id)
                             Text("\(site.name) — \(Fmt.watts(max(0, free) * 1000)) free\(site.isReady(s.date) ? "" : " (under construction)")").tag(UUID?.some(site.id))
                         }
                     }
-                    if let siteID, let site = s.sites.first(where: { $0.id == siteID }) {
+                    if let siteID = siteID ?? Campus.defaultSite(for: a, count: qty, s)?.id, let site = s.sites.first(where: { $0.id == siteID }) {
                         let best = Campus.maxOrder(a, site: site, s)
                         HStack {
                             Text("Most you can order for \(site.name): \(Fmt.int(best)) (allocation, cash and power)")
@@ -436,24 +436,29 @@ struct AcceleratorDetail: View {
                                 .buttonStyle(.borderless).font(.caption)
                                 .disabled(best < 1)
                         }
+                        if !site.isReady(s.date) {
+                            Label("\(site.name) is still being built and opens \(site.ready.gameShort) (in \(Fmt.days(site.ready.timeIntervalSince(s.date) / 86_400))). Chips bought for it sit unused until then and lose resale value meanwhile.",
+                                  systemImage: "exclamationmark.triangle.fill")
+                                .font(.caption.weight(.semibold)).foregroundStyle(.orange)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                     }
                     let total = buy * Double(qty)
                     HStack {
                         VStack(alignment: .leading, spacing: 1) {
                             Text("\(Fmt.money(total)) total").font(.headline.monospacedDigit())
                             Text(AlienFab.isAlienChip(a.id)
-                                 ? "\(Fmt.watts(Economy.chipKW(a) * Double(qty) * 1000)) incl. servers · from your alien fab line (\(Fmt.count(s.alienFab.capacityMonth))/month): ships in ~\(AlienFab.leadDays(s, count: qty)) days"
+                                 ? "\(Fmt.watts(Economy.chipKW(a) * Double(qty) * 1000)) incl. servers · from your alien fab line (\(Fmt.count(s.alienFab.capacityMonth))/month): first chips in ~\(AlienFab.shipDays) days, all in ~\(AlienFab.leadDays(s, count: qty)) days · up to \(Fmt.int(min(AlienFab.maxOrder(s), AlienFab.backlogRoom(s)))) per order (\(Fmt.int(AlienFab.openBacklog(s))) already queued)"
                                  : a.vendor == .custom ? "\(Fmt.watts(Economy.chipKW(a) * Double(qty) * 1000)) incl. servers · ships in ~\(Economy.leadTimeDays(a, s)) days · your own chip: no allocation limit"
                                  : "\(Fmt.watts(Economy.chipKW(a) * Double(qty) * 1000)) incl. servers · ships in ~\(Economy.leadTimeDays(a, s)) days · \(Fmt.int(Economy.allocationLimit(a, s))) available to you this quarter of \(Fmt.count(Economy.quarterlyProduction(a, s))) made")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()
                         Button("Buy") {
-                            guard let siteID else { store.show("Pick a site first", error: true); return }
+                            guard let siteID = siteID ?? Campus.defaultSite(for: a, count: qty, s)?.id else { store.show("None of your sites can take these", error: true); return }
                             if store.act("Order placed", { $0.buyHardware(a.id, count: qty, siteID: siteID) }) { dismiss() }
                         }
                         .buttonStyle(.borderedProminent)
-                        .disabled(siteID == nil)
                     }
                     if a.liquid { Label("Needs a liquid-cooled colocation cage or datacenter.", systemImage: "drop.fill").font(.caption).foregroundStyle(.blue) }
                 }

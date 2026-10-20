@@ -177,11 +177,13 @@ struct WaferBooking: Codable, Identifiable, Hashable {
     var end: Date
     /// The product these wafers go to.
     var designID: UUID?
+    /// 3.8: the month paid up front when it was booked (-1 = an older save: one month at its price).
+    @D var deposit: Double = -1
 
     func active(_ d: Date) -> Bool { start <= d && d < end }
 
-    /// The month paid up front when it was booked, returned when the booking ends (or set against a cancellation fee).
-    var deposit: Double { wafersMonth * price }
+    /// The deposit held: returned when the booking ends (or set against a cancellation fee).
+    var depositHeld: Double { deposit >= 0 ? deposit : wafersMonth * price }
 }
 
 /// Your own fab.
@@ -225,11 +227,13 @@ struct SupplyContract: Codable, Identifiable, Hashable {
     @D var buildCost: Double = 0
     /// Your own line: build cost still to pay before it opens.
     @D var unpaid: Double = 0
+    /// 3.8: the month paid up front when it was signed (-1 = an older save: one month at its price).
+    @D var deposit: Double = -1
 
     func active(_ d: Date) -> Bool { start <= d && (own || d < end) }
 
-    /// The month paid up front when it was signed (none for your own line), returned when the contract ends.
-    var deposit: Double { own ? 0 : units * price }
+    /// The deposit held (none for your own line): returned when the contract ends (or set against a cancellation fee).
+    var depositHeld: Double { own ? 0 : (deposit >= 0 ? deposit : units * price) }
 }
 
 /// A world supply-chain event cutting capacity for a while.

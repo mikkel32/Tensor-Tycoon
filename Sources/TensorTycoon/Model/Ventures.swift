@@ -118,6 +118,8 @@ struct AgentSwarm: Codable, Identifiable, Hashable {
     @D var orgID: UUID? = nil
     /// 3.6: what the team does inside its organisation.
     @D var role: TeamRole = .specialists
+    /// 3.8: paused because its model was retired and nothing could take its place (resumes when a model comes back).
+    @D var pausedNoModel: Bool = false
 
     static let autonomyNames = ["Supervised", "Semi-autonomous", "Fully autonomous"]
 

@@ -48,12 +48,21 @@ struct OperationsView: View {
 
     // MARK: Delegates
 
+    /// 3.9: "12 actions · $3.2M a month committed".
+    private func record(_ s: GameState, _ keys: [String]) -> String {
+        let n = keys.reduce(0) { $0 + (s.ops.tally[$1] ?? 0) }
+        let m = keys.reduce(0.0) { $0 + (s.ops.moved[$1] ?? 0) }
+        guard n > 0 else { return "No actions yet." }
+        return "\(n) action\(n == 1 ? "" : "s") so far" + (m > 0 ? " · \(Fmt.money(m)) committed" : "")
+    }
+
     private func delegates(_ s: GameState) -> some View {
-        Card {
+        let next = Operations.nextUp(s)
+        return Card {
             CardHeader(title: "Delegates", symbol: "switch.2", subtitle: "Each one runs on its own schedule. Turn off any you'd rather handle yourself.") { HelpButton(term: .delegates) }
             DelegateRow(title: "Serving capacity", symbol: "server.rack",
                         detail: "Adds inference chips when a model is turning users away and frees them when demand falls. Takes leased chips back first; with a cloud budget it rents on-demand chips when serving pays for them.",
-                        isOn: flag(\.autoscale))
+                        isOn: flag(\.autoscale), status: next["autoscale"], record: record(s, ["autoscale"]))
             if s.ops.autoscale {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
@@ -91,21 +100,33 @@ struct OperationsView: View {
                 }
                 .padding(.leading, 34)
             }
+            if s.ops.leaseIdle {
+                HStack {
+                    Text("Idle chips go to").font(.caption)
+                    Picker("Idle chips go to", selection: Binding(get: { store.game.ops.idleFirst }, set: { v in store.mutate { $0.ops.idleFirst = v } })) {
+                        Text("Research, then lease").tag(0)
+                        Text("Lease only").tag(1)
+                    }
+                    .labelsHidden()
+                    .frame(width: 180)
+                }
+                .padding(.leading, 34)
+            }
             DelegateRow(title: "Training", symbol: "flask.fill",
                         detail: "When no frontier run is going and chips sit idle, plans the best run your research allows on them and starts it — only if its forecast beats your best model.",
                         isOn: flag(\.autoTrain))
             DelegateRow(title: "Launches", symbol: "shippingbox.fill",
                         detail: "Ships finished models that beat your best, gives them servers, moves chat, agents and contracts onto them, and retires models nobody uses.",
-                        isOn: flag(\.autoLaunch))
+                        isOn: flag(\.autoLaunch), status: next["autoLaunch"], record: record(s, ["launch"]))
             DelegateRow(title: "Cloud renewals", symbol: "clock.badge.checkmark",
                         detail: "Renews reserved capacity two days before it ends, at today's rate.",
-                        isOn: flag(\.autoRenew))
+                        isOn: flag(\.autoRenew), status: next["autoRenew"], record: record(s, ["renew"]))
             DelegateRow(title: "Lease idle chips", symbol: "arrow.left.arrow.right.circle",
                         detail: "Rents out owned chips that sit idle beyond the free share, and recalls them when you need them.",
-                        isOn: flag(\.leaseIdle))
+                        isOn: flag(\.leaseIdle), status: next["leaseIdle"], record: record(s, ["idle"]))
             DelegateRow(title: "Hiring", symbol: "person.badge.plus",
                         detail: "Fills gaps for the size of your runs, fleet and revenue: engineers, infra, researchers, safety, data and sales.",
-                        isOn: flag(\.autoHire))
+                        isOn: flag(\.autoHire), status: next["autoHire"], record: record(s, ["hire"]))
             if s.ops.autoHire {
                 HStack {
                     Text("New payroll per month").font(.caption)
@@ -124,11 +145,19 @@ struct OperationsView: View {
             }
             DelegateRow(title: "Pay", symbol: "dollarsign.arrow.circlepath",
                         detail: "Raises anyone paid well below the market before rivals poach them.",
-                        isOn: flag(\.autoRaises))
+                        isOn: flag(\.autoRaises), status: next["autoRaises"], record: record(s, ["raises"]))
             DelegateRow(title: "Enterprise leads", symbol: "briefcase.fill",
                         detail: "Signs leads your best model and safety record can serve.",
-                        isOn: flag(\.autoLeads))
+                        isOn: flag(\.autoLeads), status: next["autoLeads"], record: record(s, ["leads"]))
             HStack {
+                Button("Recommended") {
+                    store.mutate { $0.updateOps { o in
+                        let r = OpsPolicy.recommended
+                        o.autoscale = r.autoscale; o.autoLaunch = r.autoLaunch; o.autoRenew = r.autoRenew; o.leaseIdle = r.leaseIdle
+                        o.autoRaises = r.autoRaises; o.autoLeads = r.autoLeads; o.autoTrain = r.autoTrain
+                    } }
+                }
+                .help("Capacity, launches, renewals, idle chips, pay, leads and training. Nothing here spends cash on its own: hiring and cloud rent stay yours.")
                 Button("Turn all on") {
                     store.mutate {
                         $0.updateOps { o in
@@ -223,7 +252,7 @@ struct OperationsView: View {
 
     private func log(_ s: GameState) -> some View {
         Card {
-            CardHeader("What the delegates did", symbol: "list.bullet.rectangle.portrait", subtitle: "Newest first, last 60 actions")
+            CardHeader("What the delegates did", symbol: "list.bullet.rectangle.portrait", subtitle: "Newest first, last 150 actions, each with the reason")
             if s.opsLog.isEmpty {
                 Text(s.ops.anyOn ? "Nothing yet: the delegates act on their schedule." : "Turn on a delegate and its actions show up here.")
                     .font(.callout).foregroundStyle(.secondary)
@@ -243,6 +272,9 @@ struct DelegateRow: View {
     let symbol: String
     let detail: String
     @Binding var isOn: Bool
+    /// 3.9: what it will do next and what it has done so far, shown while it is on.
+    var status: String? = nil
+    var record: String? = nil
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -253,6 +285,12 @@ struct DelegateRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).font(.callout.weight(.semibold))
                 Text(detail).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                if isOn, let status {
+                    Label(status, systemImage: "arrow.turn.down.right").font(.caption).foregroundStyle(.primary).fixedSize(horizontal: false, vertical: true)
+                }
+                if isOn, let record {
+                    Text(record).font(.caption2).foregroundStyle(.secondary)
+                }
             }
             Spacer(minLength: 8)
             Toggle(title, isOn: $isOn).labelsHidden().toggleStyle(.switch)

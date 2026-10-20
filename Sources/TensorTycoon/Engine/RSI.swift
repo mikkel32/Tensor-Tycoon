@@ -339,8 +339,8 @@ extension GameState {
         if autonomy == 2 && !b.has(.rsi) { return "Full autonomy needs Recursive Self-Improvement research." }
         guard let m = models.first(where: { $0.id == baseModelID }) else { return "Pick a base model." }
         if chips <= 0 { return "Allocate some chips." }
-        let free = Economy.freeChips(self, accelID)
-        if chips > free { return "Only \(free) free chips of that type." }
+        let free = recallLeased(accelID, needing: chips)
+        if chips > free { return "Only \(free) free chips of that type.\(leasedNote(accelID))" }
         if rsiRuns.contains(where: { $0.baseModelID == baseModelID && $0.status != .halted }) { return "That model already has an active run." }
         let run = RSIRun(name: "\(m.name)-SI", baseModelID: m.id, design: m.design, started: date, target: target, autonomy: autonomy,
                          oversight: oversight, checkpointEvery: checkpointEvery, accelID: accelID, chips: chips,

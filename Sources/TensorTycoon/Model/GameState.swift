@@ -143,6 +143,10 @@ struct HardwareOrder: Codable, Identifiable, Hashable {
     var unitCost: Double
     var ordered: Date
     var arrives: Date
+    /// Orders on your own fab line arrive as they're made: chips made but not yet shipped, and chips delivered so
+    /// far (`count` is what's still to come). Nil on vendor orders and on own-chip orders from before rolling delivery.
+    var made: Double? = nil
+    var delivered: Int? = nil
 }
 
 struct Site: Codable, Identifiable, Hashable {
@@ -186,6 +190,12 @@ struct Site: Codable, Identifiable, Hashable {
     @D var rampKW: Double = 0
     @D var rampStepKW: Double = 0
     @D var nextRamp: Date? = nil
+    /// 3.8: security deposit held by the landlord (a month of the full block); handed back when the lease ends.
+    @D var deposit: Double = 0
+    /// 3.8: the original term is over and the lease runs year to year: leaving costs one month's rent.
+    @D var rolledOver: Bool = false
+    /// 3.8: times the player pushed back a tranche.
+    @D var rampDeferrals: Int = 0
     /// Capacity you rent to someone else, and on what terms.
     @D var subleasedKW: Double = 0
     @D var subleaseRate: Double = 0
@@ -316,6 +326,12 @@ enum RLLevel: Int, Codable, CaseIterable, Identifiable {
     }
 }
 
+/// 3.9: one group of identical chips in a training run.
+struct ChipPart: Codable, Hashable, Sendable {
+    var accelID: String
+    var chips: Int
+}
+
 struct ModelDesign: Codable, Hashable {
     var name: String = "Model-1"
     var mode: TrainMode = .scratch
@@ -367,8 +383,15 @@ struct ModelDesign: Codable, Hashable {
     @D var qat: Bool = false
     /// A dangerous-capability evaluation stage before release (needs evaluation research).
     @D var safetyEvals: Bool = false
+    /// 3.9: other chip types training alongside the lead type (`accelID`/`chips`). Each group runs at its own speed;
+    /// see `Physics.throughputChips`. Empty for a single-type run, as every run before 3.9 was.
+    @D var helpers: [ChipPart] = []
 
     var activeParamsB: Double { paramsB * activeFraction }
+    /// Every chip in the run, lead and helpers: what fails, needs ops staff, power and pay.
+    var allChips: Int { chips + helpers.reduce(0) { $0 + $1.chips } }
+    /// The lead group and the helpers, lead first.
+    var parts: [ChipPart] { [ChipPart(accelID: accelID, chips: chips)] + helpers }
     var isMoE: Bool { activeFraction < 0.999 }
     var effectiveRL: RLLevel { reasoning ? (rlLevel == .off ? .standard : rlLevel) : .off }
 
@@ -493,6 +516,8 @@ struct TrainingRun: Codable, Identifiable, Hashable {
     @D var dataPlan: DataPlanSummary? = nil
     var cFinal: Double? = nil
     @D var saved: [TrainCheckpoint] = []
+    /// 3.8: when it was paused (the planner ignores runs paused for over a month).
+    @D var pausedSince: Date? = nil
     @D var lr: Int = 0
     @D var checkpointEvery: Double = 0
     @D var qualityPenalty: Double = 0
@@ -1003,6 +1028,10 @@ struct MonthRecord: Codable, Identifiable, Hashable {
     var costMarketing = 0.0
     var costInterest = 0.0
     var costOther = 0.0
+    /// 3.9: chip design programmes (an investment in your own silicon), split out of "other" so a big tape-out doesn't read as mystery overhead.
+    @D var costChipDesign: Double = 0
+    /// 3.9: what the books call "other" is mostly fines, lobbying and one-off projects; agent-org compute is split out too.
+    @D var costAgentOrgs: Double = 0
     var taxes = 0.0
     var capex = 0.0
     var cashEnd = 0.0
@@ -1055,7 +1084,7 @@ struct MonthRecord: Codable, Identifiable, Hashable {
     var commercialRevenue: Double { revAPI + revConsumer + revAgents + revEnterprise }
     /// Selling hardware and leasing compute: valued like a hardware business, not a software one.
     var hardwareRevenue: Double { revCloud + revChips }
-    var opex: Double { costRent + costPower + costSites + costPayroll + costData + costMarketing + costOther + costChips + costGroup }
+    var opex: Double { costRent + costPower + costSites + costPayroll + costData + costMarketing + costOther + costChipDesign + costAgentOrgs + costChips + costGroup }
     /// Operating profit before depreciation, interest and tax.
     var ebitda: Double { revenue - opex }
     /// Operating profit after depreciation.
@@ -1136,6 +1165,8 @@ struct GameState: Codable {
     var paidUsers: Double = 0
     var consumerShare: Double = 0
     var consumerServedFraction: Double = 1
+    /// 3.8: tokens a day your live models were asked for the last day any served; sizes servers when a model comes back or launches onto an empty fleet.
+    @D var lastLiveDemand: Double = 0
     var reliability: Double = 1
     var chatMoment: Double? = nil
 
@@ -1188,6 +1219,18 @@ struct GameState: Codable {
     @D var supplyDeals: [SupplyDeal] = []
     @D var agentModelID: UUID? = nil
     @D var agentPrice: Double = 100
+    /// 3.9: off (the default): when a model's chips run short, API, agents, contracts and paying subscribers are served first and free-tier users wait.
+    /// On: everyone shares the shortage equally, as before. (Off so that saves from before 3.9 get the better behaviour.)
+    @D var evenShortage: Bool = false
+    /// 3.9: keep the chat and agent prices near what buyers think they're worth (Market page toggle).
+    @D var autoSubPrice: Bool = false
+    /// 3.9: share of subscribers' / seat buyers' requests dropped for lack of chips, smoothed (what a shortage costs).
+    @D var lostChatFrac: Double = 0
+    @D var lostAgentFrac: Double = 0
+    /// 3.9: API revenue a month that unserved requests would have paid (smoothed).
+    @D var lostAPIMonth: Double = 0
+    /// 3.9: share of free-tier tokens that went unserved today (display).
+    @D var freeTierStarved: Double = 0
     @D var agentSeats: Double = 0
     @D var agentShare: Double = 0
     @D var benchSaturated: [String: Date] = [:]
@@ -1282,6 +1325,13 @@ struct GameState: Codable {
     @D var signatureRPToday: Double = 0
     /// The research director keeps the queue full.
     @D var autoResearch: Bool = false
+    /// 3.8: the director puts idle chips on experiments, up to the point where more stops helping.
+    /// Off switch (a missing key in an old save reads false, so the director uses chips by default).
+    @D var directorChipsOff: Bool = false
+    /// Queue entries the director added. What you queue yourself goes ahead of them, so a cheap pick of yours
+    /// never waits behind a year-long one of its.
+    @D var directorQueued: Set<String> = []
+    @D var directorQueueTracked: Bool = false
     @D var researchFocus: String = ""
     @D var eurekas: Int = 0
     /// Unique breakthrough ID → mastery level (1–3).

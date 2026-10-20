@@ -345,9 +345,35 @@ private struct CapacityCard: View {
             Text("Compute for experiments").font(.caption.weight(.semibold)).padding(.top, 4)
             let pools = store.derived.pools
             if pools.isEmpty { Text("No accelerators.").font(.caption).foregroundStyle(.secondary) }
-            ForEach(pools) { p in ResearchChipRow(pool: p, assigned: s.researchChips[p.accel.id] ?? 0) }
-            Text("Better researchers and more experiment compute make results land above the paper's promise.")
-                .font(.caption2).foregroundStyle(.secondary)
+            let bonuses = s.bonuses
+            let kit = FoundingKit.researchMultiplier(s)
+            let nowRP = Sim.researchRate(s, bonuses) * kit
+            ForEach(pools) { p in
+                ResearchChipRow(pool: p, assigned: s.researchChips[p.accel.id] ?? 0, otherPF: Sim.researchPF(s.researchChips.filter { $0.key != p.accel.id }),
+                                rpWith: { n in
+                                    var t = s
+                                    t.researchChips[p.accel.id] = n
+                                    return rate + (Sim.researchRate(t, bonuses) * kit - nowRP)
+                                })
+            }
+            let capPF = Sim.researchComputeCapPF
+            let havePF = Sim.researchPF(s.researchChips)
+            HStack {
+                Button("Use enough for the full boost") {
+                    var n = 0
+                    store.mutate { n = $0.assignResearchChipsForCap() }
+                    store.show(n == 0 ? "Nothing more to add: the boost is full or no chips are free" : "Put \(Fmt.int(n)) idle chips on experiments")
+                }
+                .disabled(havePF >= capPF)
+                .font(.caption)
+                Text(havePF >= capPF ? "Full boost reached" : "\(Fmt.trim(havePF, 0)) of \(Fmt.trim(capPF, 0)) PF (bf16) for the full boost")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+            Toggle("Director uses idle chips", isOn: Binding(get: { !s.directorChipsOff }, set: { v in store.mutate { $0.directorChipsOff = !v } }))
+                .toggleStyle(.switch).controlSize(.small).font(.caption)
+                .help("While the research director is on, it puts idle chips on experiments each day until the boost is full. It never takes chips that are in use, and training or serving can take them back.")
+            Text("Compute multiplies your researchers' output, up to 4× at the full boost, with only a little on top after that. Better researchers and more experiment compute also make results land above the paper's promise.")
+                .font(.caption2).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             Divider().padding(.vertical, 2)
             Text("Publication policy").font(.caption.weight(.semibold))
             Picker("Publication policy", selection: Binding(get: { s.publication }, set: { v in store.mutate { $0.publication = v } })) {
@@ -365,17 +391,29 @@ private struct ResearchChipRow: View {
     @Environment(GameStore.self) private var store
     let pool: ComputePool
     let assigned: Int
+    /// Petaflops other chip kinds already put on research.
+    let otherPF: Double
+    /// Research points per day with this many of these chips on research.
+    let rpWith: (Int) -> Double
     @State private var value = 0
 
     var body: some View {
-        HStack {
-            Text(pool.accel.name).font(.caption).lineLimit(1)
-            Spacer()
-            Stepper("\(Fmt.int(value))", value: $value, in: 0...(assigned + pool.free), step: max(1, (assigned + pool.free) / 16))
-                .font(.caption.monospacedDigit())
-            Button("Set") { store.mutate { $0.researchChips[pool.accel.id] = value } }
-                .disabled(value == assigned)
-                .font(.caption)
+        let top = assigned + pool.free
+        let cap = max(1, Int(((Sim.researchComputeCapPF - otherPF) * 1000 / max(0.001, pool.accel.bf16)).rounded(.up)))
+        // Coarse steps far from the cap, fine ones near it.
+        let step = max(1, min(top / 16, cap / 10))
+        VStack(alignment: .leading, spacing: 2) {
+            HStack {
+                Text(pool.accel.name).font(.caption).lineLimit(1)
+                Spacer()
+                Stepper("\(Fmt.int(value))", value: $value, in: 0...top, step: step)
+                    .font(.caption.monospacedDigit())
+                Button("Set") { store.mutate { $0.researchChips[pool.accel.id] = value } }
+                    .disabled(value == assigned)
+                    .font(.caption)
+            }
+            Text("\(Fmt.trim(rpWith(value), 1)) RP/day with \(Fmt.int(value)) · full boost at \(Fmt.int(cap)) of these\(top < cap ? " (you have \(Fmt.int(top)) free or assigned)" : "")")
+                .font(.caption2).foregroundStyle(.secondary)
         }
         .onAppear { value = assigned }
     }
