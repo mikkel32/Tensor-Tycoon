@@ -35,6 +35,82 @@ enum RunPlanner {
         return d
     }
 
+    // MARK: Plan my next model
+
+    /// One concrete way to spend idle chips on a new frontier run.
+    struct Proposal: Identifiable {
+        var id: String { label + design.accelID + String(design.chips) }
+        var label: String
+        var blurb: String
+        var design: ModelDesign
+        var est: Physics.Estimate
+        /// Forecast capability minus your best live model's (nil when none is live) and minus the best rival's.
+        var vsBest: Double?
+        var vsRival: Double
+        /// Chips of this type you could have used but the plan left out (health or cash), and why.
+        var leftOut: Int
+        var leftOutWhy: String
+        /// Idle chips of other types, which stay free for serving the new model or other work.
+        var othersIdle: String = ""
+    }
+
+    /// Chips of `p` a new run may take: idle plus leased-out, minus the ops reserve.
+    static func spareChips(_ s: GameState, _ p: ComputePool) -> Int {
+        max(0, p.free + (s.leases[p.accel.id] ?? 0) - Int(Double(p.total) * s.ops.reserveShare))
+    }
+
+    static func bestLiveC(_ s: GameState) -> Double? {
+        s.models.filter { !$0.retired && !$0.preview }.map(\.c).max()
+    }
+
+    static func bestRivalC(_ s: GameState) -> Double {
+        s.competitors.flatMap(\.models).filter { $0.date <= s.date }.map(\.c).max() ?? -10
+    }
+
+    /// 3.9: up to three designs sized to the chips you own and have idle, one chip type each (a run uses one type),
+    /// best forecast first: the strongest model you can train, a fast one, and the cheapest that still beats your best.
+    static func proposals(_ s: GameState) -> [Proposal] {
+        let live = bestLiveC(s), rival = bestRivalC(s)
+        let name = nextName(s)
+        var all: [(tier: Int, p: Proposal)] = []
+        let tiers: [(label: String, days: Double, share: Double)] = [("Strongest", 90, 1), ("Fast", 35, 1), ("Lean", 60, 0.3)]
+        for pool in Economy.pools(s) where pool.accel.supportsTraining(.bf16) && (pool.accel.cls != .consumer || pool.total <= 64) {
+            let spare = spareChips(s, pool)
+            guard spare >= 4 else { continue }
+            for (ti, t) in tiers.enumerated() {
+                let want = max(4, Int(Double(spare) * t.share))
+                let d = bestRecipe(s, accel: pool.accel, chips: want, days: t.days, name: name)
+                guard let est = Physics.estimate(d, state: s) else { continue }
+                if ProcessInfo.processInfo.environment["PLAN_DEBUG"] != nil { print("  cand \(t.label) \(pool.accel.name) chips \(d.chips) days \(est.days) mem \(est.memory.ok) gp \(est.goodput) c \(est.forecast.c)") }
+                guard est.memory.ok, est.finishes, est.goodput >= 0.6 else { continue }
+                let why = d.chips < spare ? (t.share < 1 ? "kept back for serving and research" : "more would stall on hardware failures (add ops agents or infra engineers)") : ""
+                let others = Economy.pools(s).filter { $0.accel.id != pool.accel.id && $0.free >= 100 }.sorted { $0.free > $1.free }.prefix(3)
+                    .map { "\(Fmt.int($0.free)) \($0.accel.name)" }.joined(separator: ", ")
+                let blurb = "\(Fmt.int(d.chips)) \(pool.accel.name) for about \(Fmt.days(est.days)), \(Fmt.money(est.totalCost))"
+                all.append((ti, Proposal(label: t.label, blurb: blurb, design: d, est: est, vsBest: live.map { est.forecast.c - $0 },
+                                         vsRival: est.forecast.c - rival, leftOut: spare - d.chips, leftOutWhy: why, othersIdle: others)))
+            }
+        }
+        var out: [Proposal] = []
+        func take(_ p: Proposal?) {
+            guard let p, !out.contains(where: { $0.design.accelID == p.design.accelID && $0.design.chips == p.design.chips && Int($0.est.days) == Int(p.est.days) }) else { return }
+            out.append(p)
+        }
+        take(all.filter { $0.tier == 0 }.max { $0.p.est.forecast.c < $1.p.est.forecast.c }?.p)
+        // Fast: the strongest that finishes within ~6 weeks.
+        take(all.filter { $0.p.est.days <= 45 }.max { $0.p.est.forecast.c < $1.p.est.forecast.c }?.p.with(label: "Fast"))
+        // Lean: cheapest that still beats your best live model (or, with none live, 80% of the strongest's forecast).
+        let strongest = out.first?.est.forecast.c ?? 0
+        let bar = live ?? (strongest - 0.5)
+        take(all.filter { $0.p.est.forecast.c > bar + 0.1 }.min { $0.p.est.totalCost < $1.p.est.totalCost }?.p.with(label: "Lean"))
+        return out
+    }
+
+    /// Starts a proposal as planned. Returns an error text, or nil.
+    static func start(_ p: Proposal, _ s: inout GameState) -> String? {
+        s.startTraining(p.design)
+    }
+
     /// The next name in your model line ("Acme-3" after "Acme-2").
     static func nextName(_ s: GameState) -> String {
         let base = s.companyName.split(separator: " ").first.map(String.init) ?? "Model"
@@ -96,4 +172,8 @@ extension Operations {
             chips /= 2
         }
     }
+}
+
+extension RunPlanner.Proposal {
+    func with(label l: String) -> RunPlanner.Proposal { var c = self; c.label = l; return c }
 }
