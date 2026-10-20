@@ -121,6 +121,11 @@ enum Swarms {
 
     static func insight(_ w: Double) -> Double { 0.23 * pow(max(0, w), 0.6) }
 
+    /// 3.9: alien insight a day from gated work on its own (the planner's forecast), with the daily scale.
+    static func xenoInsightDay(gated: Double, _ s: GameState, _ b: ResearchBonuses) -> Double {
+        insight(gated) * (1 + s.traits.insight + s.bonuses.insight) * (b.has(.agents) ? 1 : 0.6)
+    }
+
     /// What companies pay per researcher-equivalent day of agent labor.
     static func wage(_ y: Double) -> Double { interpolate([(2023, 250), (2026, 600), (2030, 900), (2035, 1_100)], at: y, extrapolate: false) }
 
@@ -539,9 +544,15 @@ extension GameState {
         return nil
     }
 
-    mutating func tuneSwarm(_ id: UUID, agents: Int, chips: Int, mission: SwarmMission, autonomy: Int, oversight: Double, modelID: UUID? = nil) -> String? {
+    /// 3.9: `accelID` moves the swarm to other hardware (its chips may be gone: a rental ended). A swarm stranded without
+    /// chips, or moved onto new ones, starts working again when the chips are free.
+    mutating func tuneSwarm(_ id: UUID, agents: Int, chips: Int, mission: SwarmMission, autonomy: Int, oversight: Double, modelID: UUID? = nil,
+                            accelID: String? = nil) -> String? {
         guard let i = swarms.firstIndex(where: { $0.id == id }) else { return "Not found." }
         let b = bonuses
+        let accel = accelID ?? swarms[i].accelID
+        let moving = accel != swarms[i].accelID
+        guard let a = HardwareCatalog.get(accel) else { return "Pick hardware." }
         // 3.8: the swarm can move to another model (the model it runs on may be retired).
         let target = modelID ?? swarms[i].modelID
         if target != swarms[i].modelID, models.first(where: { $0.id == target }).map({ $0.retired }) ?? true { return "Pick one of your live models." }
@@ -549,14 +560,16 @@ extension GameState {
             return "\(m.name) can't be trusted to run on its own yet: full autonomy needs an engineer-level model or Automated AI Research."
         }
         if agents < 1 || agents > Swarms.maxAgents { return "Pick between 1 and \(Fmt.int(Swarms.maxAgents)) agents." }
-        let current = swarms[i].paused ? 0 : swarms[i].chips
-        let free = Economy.freeChips(self, swarms[i].accelID) + current
-        if chips > free { return "Only \(Fmt.int(free)) chips available." }
+        let current = swarms[i].paused || moving ? 0 : swarms[i].chips
+        let free = Economy.freeChips(self, accel) + current
+        if chips > free { return free > 0 ? "Only \(Fmt.int(free)) \(a.name) chips available." : "No free \(a.name) chips. Pick other hardware, or buy or rent more." }
         if chips < 1 { return "A swarm needs at least one chip." }
-        if let m = models.first(where: { $0.id == target }), let a = HardwareCatalog.get(swarms[i].accelID) {
+        if let m = models.first(where: { $0.id == target }) {
             let k = Physics.chipsPerReplica(m, accel: a, precision: m.servingPrecision, bonuses: b)
             if chips < k { return "\(m.name) needs \(k) \(a.name) chips per copy." }
         }
+        // Stranded: its chips were taken (or never came back), so Resume could never work.
+        let stranded = swarms[i].paused && (swarms[i].chips < 1 || Economy.freeChips(self, swarms[i].accelID) < swarms[i].chips)
         let changedMission = swarms[i].mission != mission
         if target != swarms[i].modelID {
             swarms[i].modelID = target
@@ -564,8 +577,17 @@ extension GameState {
             if swarms[i].pausedNoModel, swarms[i].paused { swarms[i].paused = false }
             swarms[i].pausedNoModel = false
         }
+        if moving {
+            Swarms.log(&self, i, "Moved to \(a.name).")
+            swarms[i].accelID = accel
+        }
         swarms[i].agents = agents
         swarms[i].chips = chips
+        if swarms[i].paused, !swarms[i].pausedNoModel, stranded || moving,
+           !(models.first(where: { $0.id == swarms[i].modelID })?.retired ?? true) {
+            swarms[i].paused = false
+            Swarms.log(&self, i, "Resumed on \(Fmt.int(chips)) \(a.name) chips.")
+        }
         swarms[i].mission = mission
         swarms[i].autonomy = autonomy
         swarms[i].oversight = clamp(oversight, 0, 0.5)
@@ -593,7 +615,10 @@ extension GameState {
         if !paused && swarms[i].paused {
             if swarms[i].chips < 1 { return "This swarm lost its chips. Retune it with new chips first." }
             let free = Economy.freeChips(self, swarms[i].accelID)
-            if free < swarms[i].chips { return "Need \(Fmt.int(swarms[i].chips)) free chips, have \(Fmt.int(free))." }
+            if free < swarms[i].chips {
+                let name = HardwareCatalog.get(swarms[i].accelID)?.name ?? swarms[i].accelID
+                return "Needs \(Fmt.int(swarms[i].chips)) free \(name) chips; \(Fmt.int(free)) are free. Resize it to fewer, move it to other hardware (Retune or Resize), or buy or rent more."
+            }
             if models.first(where: { $0.id == swarms[i].modelID })?.retired ?? true { return "This swarm's model was retired. Bring it back on Models, or retune the swarm onto another model." }
         }
         swarms[i].paused = paused

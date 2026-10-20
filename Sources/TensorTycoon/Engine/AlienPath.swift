@@ -40,7 +40,11 @@ enum AlienPath {
         if !xenoSwarms.isEmpty && xenoSwarms.allSatisfy(\.paused) && !rsi {
             if xenoSwarms.contains(where: { $0.chips < 1 }) { return "Your search swarm lost its chips. Retune it with free chips on the Agent Swarms page." }
             if xenoSwarms.contains(where: { sw in s.models.first { $0.id == sw.modelID }?.retired ?? true }) {
-                return "Your search swarm's model was retired. Disband it and start one on your current best model."
+                return "Your search swarm's model was retired. Retune it onto your current best model on the Agent Swarms page."
+            }
+            // 3.9: chips it no longer has (a rental ended): resuming can't work, moving it to other hardware does.
+            if let sw = xenoSwarms.first(where: { Economy.freeChips(s, $0.accelID) < $0.chips }) {
+                return "Your search swarm needs \(Fmt.int(sw.chips)) \(HardwareCatalog.get(sw.accelID)?.name ?? sw.accelID) and only \(Fmt.int(Economy.freeChips(s, sw.accelID))) are free. Retune it onto chips you have on the Agent Swarms page."
             }
             return "Your search swarm is paused. Resume it on the Agent Swarms page."
         }
@@ -123,7 +127,14 @@ enum AlienPath {
             let (site, fits) = s.bestSite(for: a, count: 1)
             deploy.detail = "\(Fmt.int(ownedAlien)) installed\(onOrder.isEmpty ? "" : " · \(Fmt.int(onOrder.reduce(0) { $0 + $1.count })) on order, all in by \(onOrder.map(\.arrives).max()!.gameShort)") · \(Fmt.watts(Economy.chipKW(a) * 1000)) each, air-cooled"
             if let next = onOrder.map({ AlienFab.nextShipment($0, s) }).min() { deploy.eta = next }
-            if site == nil || fits < 1 {
+            // 3.9: a full fab queue is what stops orders: a cage wouldn't help, so say so instead of offering one.
+            let advice = AlienFab.orderAdvice(chip.id, s)
+            if advice.queueFull {
+                deploy.status = ownedAlien > 0 ? .done : .blocked
+                if ownedAlien == 0 { deploy.blocker = advice.reason } else { deploy.detail += " · " + (advice.reason ?? "") }
+                deploy.action = .order(chip.id)
+                deploy.actionTitle = "Order"
+            } else if site == nil || fits < 1 {
                 deploy.status = ownedAlien > 0 ? .done : .blocked
                 deploy.blocker = site == nil ? "None of your sites can take \(Int(a.tdpW)) W parts (a garage or office can't). Lease a colocation cage — ready in 30 days."
                                              : "No free power at your sites for more alien chips. Lease a cage or add capacity on Datacenters & Power."

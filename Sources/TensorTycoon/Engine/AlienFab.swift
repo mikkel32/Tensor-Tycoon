@@ -178,6 +178,37 @@ enum AlienFab {
         return n >= 1_000 ? n / 100 * 100 : n
     }
 
+    /// 3.9: the suggested order and, when it is zero, what stops it in the player's words: the line's queue, cash, or
+    /// power at your sites (only then does a cage help).
+    struct OrderAdvice {
+        var count: Int
+        var reason: String?
+        var needsCage = false
+        var queueFull = false
+    }
+
+    static func orderAdvice(_ chipID: String, _ s: GameState) -> OrderAdvice {
+        guard let a = HardwareCatalog.get(chipID), let price = a.price, price > 0 else { return OrderAdvice(count: 0, reason: "That chip isn't in production yet.") }
+        let n = suggestedOrder(chipID, s)
+        if n >= 1 { return OrderAdvice(count: n) }
+        if backlogRoom(s) < 1 {
+            let days = Double(openBacklog(s) - maxBacklog(s) + 1) / max(1, ownPerDay(s))
+            return OrderAdvice(count: 0, reason: "Fab queue full: \(Fmt.int(openBacklog(s))) chips are queued and the line holds twelve months (\(Fmt.int(maxBacklog(s)))). Room opens about \(GameCalendar.addDays(s.date, Int(days.rounded(.up)) + 1).gameShort) as chips ship, sooner if you expand the line.",
+                               queueFull: true)
+        }
+        if s.cash < price * 3 { return OrderAdvice(count: 0, reason: "Not enough cash: one costs \(Fmt.money(price)) and orders are sized to a third of your cash.") }
+        let (site, _) = s.bestSite(for: a, count: 1)
+        return OrderAdvice(count: 0, reason: site == nil ? "None of your sites can take \(Int(a.tdpW)) W parts. Lease a cage for them." : "No free power at your sites for \(a.name). Lease a cage or add capacity.",
+                           needsCage: true)
+    }
+
+    /// 3.9: the monthly fee of the cage `leaseAlienCage` would sign for `chips` of this chip.
+    static func cageFee(_ chipID: String, chips: Int, _ s: GameState) -> Double {
+        guard let a = HardwareCatalog.get(chipID), let loc = LocationCatalog.all.min(by: { $0.coloFee < $1.coloFee }) else { return 0 }
+        let kw = clamp(Double(max(chips, 1)) * Economy.chipKW(a) * 1.05, 2_000, Campus.coloCapMW * 1_000).rounded()
+        return loc.coloFee * kw * (a.liquid ? 1.35 : 1) * Science.coloFactor(s)
+    }
+
     static func openPilot(_ s: inout GameState) {
         guard !s.alienFab.exists else { return }
         s.alienFab.capacityMonth = pilotCapacity

@@ -65,6 +65,23 @@ extension ScenarioHarness {
         r.expect("design A starts on 3 nm (four chiplets, 8 HBM stacks, scale-up switch)", errA == nil, errA ?? "")
         guard errA == nil, let idA = s.semi.designs.last?.id else { return r }
         r.expect("design A is generation 1 although a dummy design exists", design(s, idA)?.generation == 1, "gen \(design(s, idA)?.generation ?? 0) with \(s.semi.designs.count) designs")
+        // 3.9: a design with wafer bookings waiting for it isn't cancelled without saying what happens to them. (These
+        // checks run on copies; the ID stream is put back so the rest of the scenario plays as before.)
+        let keepStream = s.idStream
+        s.idStream = StableID.current
+        var c = s
+        c.semi.bookings.append(WaferBooking(foundry: "fsw", node: "n5", wafersMonth: 100, price: 10_000, start: GameCalendar.addDays(c.date, 120),
+                                            end: GameCalendar.addDays(c.date, 850), designID: dummy))
+        r.expect("cancelling a design with bookings asks what to do with them", c.cancelChipDesign(dummy) != nil)
+        r.expect("…and keeping them leaves them unassigned", c.cancelChipDesign(dummy, cancelContracts: false) == nil && c.semi.bookings.last?.designID == nil)
+        // 3.9: hiring speeds up the phase under way, not just the next one.
+        var h = s
+        let left0 = design(h, idA)?.phaseDaysLeft ?? 0
+        let hireErr = h.resizeChipTeam(teamA, engineers: (h.semi.teams.first { $0.id == teamA }?.engineers ?? 300) + 300)
+        r.expect("a bigger team shortens the current phase", hireErr == nil && (design(h, idA)?.phaseDaysLeft ?? left0) < left0 - 1,
+                 "\(Int(left0)) → \(Int(design(h, idA)?.phaseDaysLeft ?? 0)) days\(hireErr.map { " (\($0))" } ?? "")")
+        StableID.resume(s)
+        s.idStream = keepStream
         _ = s.cancelChipDesign(dummy)
         let plan = Semis.plan(node: "n3", verification: 1, team: s.semi.teams.first, derived: false, s)
         r.note("A: \(Int(plan.months)) months and \(Fmt.money(plan.total)) to production planned, respin odds \(Fmt.pct(plan.respin, decimals: 0))")
@@ -253,6 +270,24 @@ extension ScenarioHarness {
             let delivered0 = y.semi.contracts.last!.delivered
             Semis.sell(&y)
             r.expect("a retired product still delivers its orders", y.semi.contracts.last!.delivered > delivered0)
+            // 3.9: chips owed on open orders stay put: they can't be taken for the fleet, and retiring moves only the rest
+            // of customer stock to yours. (On a copy with stock above what's owed; the ID stream is put back after.)
+            let keepStream = s.idStream
+            s.idStream = StableID.current
+            var z = s
+            if let zi = z.semi.designs.firstIndex(where: { $0.id == idA }) {
+                for b in 0..<3 { z.semi.designs[zi].stockSale[b] = max(z.semi.designs[zi].stockSale[b], Semis.owed(idA, bin: b, z)) }
+                z.semi.designs[zi].stockSale[0] = Semis.owed(idA, bin: 0, z) + 1_000
+                let z0 = z.semi.designs[zi], owed0 = Semis.owed(idA, bin: 0, z)
+                r.expect("chips owed on open orders can't be taken for the fleet", abs(Double(Semis.available(z0.chipIDs[0], z)) - (z0.stockMine[0] + 1_000)) <= 1,
+                         "\(Semis.available(z0.chipIDs[0], z)) free to take; yours \(Fmt.count(z0.stockMine[0])), customers \(Fmt.count(z0.stockSale[0])), owed \(Fmt.count(owed0))")
+                let retireErr = z.retireChipDesign(idA, cancelContracts: false)
+                let z1 = z.semi.designs[zi]
+                r.expect("retiring moves customer stock beyond open orders to your stock", retireErr == nil && abs(z1.stockSale[0] - owed0) < 1 && abs(z1.stockMine[0] - z0.stockMine[0] - 1_000) < 1,
+                         retireErr ?? "customer \(Fmt.count(z1.stockSale[0])) vs \(Fmt.count(owed0)) owed; yours \(Fmt.count(z0.stockMine[0])) → \(Fmt.count(z1.stockMine[0]))")
+            }
+            StableID.resume(s)
+            s.idStream = keepStream
         }
         s.setSemiPolicy(allowRivals: false)
 
