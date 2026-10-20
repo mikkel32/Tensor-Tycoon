@@ -33,6 +33,7 @@ struct SecurityView: View {
 private struct SecurityCard: View {
     @Environment(GameStore.self) private var store
     let state: GameState
+    @State private var confirmRelax = false
 
     var body: some View {
         let s = state
@@ -81,8 +82,15 @@ private struct SecurityCard: View {
             Text("Levels and attacker profiles from RAND's \"Securing AI Model Weights\" (2024). RAND puts no price on defence; the costs here are estimates.")
                 .font(.caption2).foregroundStyle(.tertiary)
             if s.security > .sl1 && !upgrading {
-                Button("Relax to SL\(s.security.rawValue - 1)") { store.act("Security relaxed") { $0.downgradeSecurity() } }
+                // 3.9: relaxing is instant and unrefunded, and can stop classified work; confirm with the costs spelled out.
+                Button("Relax to SL\(s.security.rawValue - 1)") { confirmRelax = true }
                     .buttonStyle(.link).font(.caption)
+                    .confirmationDialog("Relax weight security to SL\(s.security.rawValue - 1)?", isPresented: $confirmRelax, titleVisibility: .visible) {
+                        Button("Relax to SL\(s.security.rawValue - 1)", role: .destructive) { store.act("Security relaxed") { $0.downgradeSecurity() } }
+                        Button("Keep \(s.security.title)", role: .cancel) {}
+                    } message: {
+                        Text(SecurityOps.relaxWarning(s))
+                    }
             }
         }
     }
@@ -111,8 +119,10 @@ private struct ThreatCard: View {
                     Text(t.who).font(.callout)
                     Spacer()
                     Text(t.monthlyChance > 0 ? "\(Fmt.trim(t.monthlyChance * 100, 1))%/mo" : "—").font(.caption.monospacedDigit())
-                    Text(s.security.rawValue >= t.tier ? "blocked" : "can get in").font(.caption).foregroundStyle(s.security.rawValue >= t.tier ? .green : .orange)
-                        .frame(width: 80, alignment: .trailing)
+                    // 3.9: a matching level stops 95% of attempts, not all of them; say so.
+                    Text(s.security.rawValue >= t.tier ? "\(Fmt.trim(SecurityOps.stopChance(s.security.rawValue - t.tier) * 100, 1))% stopped" : "can get in")
+                        .font(.caption).foregroundStyle(s.security.rawValue >= t.tier ? .green : .orange)
+                        .frame(width: 96, alignment: .trailing)
                 }
             }
             Text("Leaked weights undercut your API with free copies. Stolen weights put a rival on your level. Losing a model above the High capability line also brings penalties. Better containment also lowers the odds that an escaping model or swarm gets out.")

@@ -44,10 +44,30 @@ enum SecurityOps {
         ]
     }
 
+    /// Chance a level `margin` steps above an attacker's class stops an attempt (at the class itself: 95%).
+    static func stopChance(_ margin: Int) -> Double { min(0.995, 0.95 + 0.015 * Double(margin)) }
+
     /// Chance an escaping model or swarm gets out, scaled by your containment.
     static func containmentFactor(_ s: GameState) -> Double {
         [1.0, 1.0, 0.85, 0.6, 0.35][s.security.rawValue - 1] * (s.researched.contains("eval_containment") ? 0.7 : 1)
             * (s.lawsPassed.contains("kill_switch") ? 0.75 : 1)
+    }
+
+    /// 3.9: what relaxing one level gives up, for the confirmation before it happens: no refund, the price and time of
+    /// getting back, and the programmes and bids that need the current level.
+    static func relaxWarning(_ s: GameState) -> String {
+        let cur = s.security.rawValue
+        guard cur > 1, let back = SecurityLevel(rawValue: cur) else { return "" }
+        var out = "Nothing you spent on \(back.title) is refunded. Getting it back costs about \(Fmt.money(upgradeCost(back, s))) and \(back.upgradeMonths) months at your current size."
+        out += " Upkeep falls from \(Fmt.money(upkeep(back, s))) to \(Fmt.money(upkeep(SecurityLevel(rawValue: cur - 1) ?? back, s))) a month."
+        if back == .sl5 && s.year < 2028 && s.politicalCapital < 40 { out += " Before 2028 you'd also need 40 political capital to rebuild SL5." }
+        let hit = s.advanced.programmes.filter { $0.status == .active && $0.sol.level.requiredSL >= cur }.map(\.sol.title)
+        if !hit.isEmpty {
+            out += " Stop-work order next month on \(hit.prefix(4).joined(separator: ", "))\(hit.count > 4 ? " and \(hit.count - 4) more" : "") (they need SL\(cur)); a programme still mobilising can run out of time and be terminated."
+        }
+        let bids = s.advanced.solicitations.filter { $0.bid != nil && $0.level.requiredSL >= cur }.count
+        if bids > 0 { out += " \(bids) pending bid\(bids == 1 ? "" : "s") at that level will score lower." }
+        return out
     }
 
     // MARK: Daily / monthly
@@ -74,7 +94,7 @@ enum SecurityOps {
         for t in threats(s) where t.monthlyChance > 0 && s.rng.chance(t.monthlyChance) {
             // A level well above the attacker's class almost never fails.
             let margin = s.security.rawValue - t.tier
-            if margin >= 0 && s.rng.chance(min(0.995, 0.95 + 0.015 * Double(margin))) {
+            if margin >= 0 && s.rng.chance(stopChance(margin)) {
                 s.attacksFoiled += 1
                 if t.tier >= 3 {
                     s.safetyScore = min(100, s.safetyScore + 1)
@@ -125,7 +145,7 @@ extension GameState {
             return "RAND judges SL5 \"currently not possible\" without help from the national-security community. Build political capital to 40 for a government partnership, or wait until 2028."
         }
         let cost = SecurityOps.upgradeCost(next, self)
-        if cost > cash { return "Reaching \(next.title) costs \(Fmt.money(cost))." }
+        if cost > cash { return "Reaching \(next.title) costs \(Fmt.money(cost)); you have \(Fmt.money(cash))." }
         cash -= cost
         month.capex += cost
         securityRaw = security.rawValue

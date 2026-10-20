@@ -1133,6 +1133,11 @@ struct GameState: Codable {
 
     var brand: Double = 10
     var safetyScore: Double = 30
+    /// 3.9: what decisions, bills and incidents added to the safety score; fades 10% a month instead of being wiped at month end.
+    @D var safetyAdjust: Double = 0
+    /// 3.9: the score month-end close last set, so bumps made since then can be carried into `safetyAdjust` (0: none yet,
+    /// as an older save decodes it).
+    @D var safetyLastClose: Double = 0
     var market = MarketModifiers()
 
     // Research
