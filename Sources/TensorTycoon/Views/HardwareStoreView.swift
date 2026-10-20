@@ -27,7 +27,7 @@ struct HardwareStoreView: View {
                 HStack(alignment: .bottom) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Compute is the new oil").font(.title.weight(.bold))
-                        Text("\(forSale) chips for sale · \(rentable) rentable · lead time ~\(Int(s.market.leadTimeDays)) days · prices \(s.market.hardwarePrice >= 1 ? "+" : "")\(Int((s.market.hardwarePrice - 1) * 100))% vs list")
+                        Text("\(forSale) chips for sale · \(rentable) rentable · market lead time ~\(Int(s.market.leadTimeDays)) days (each chip below quotes its own) · prices \(s.market.hardwarePrice >= 1 ? "+" : "")\(Int((s.market.hardwarePrice - 1) * 100))% vs list")
                             .font(.callout).opacity(0.9)
                     }
                     Spacer()
@@ -448,7 +448,7 @@ struct AcceleratorDetail: View {
                         VStack(alignment: .leading, spacing: 1) {
                             Text("\(Fmt.money(total)) total").font(.headline.monospacedDigit())
                             Text(AlienFab.isAlienChip(a.id)
-                                 ? "\(Fmt.watts(Economy.chipKW(a) * Double(qty) * 1000)) incl. servers · from your alien fab line (\(Fmt.count(s.alienFab.capacityMonth))/month): first chips in ~\(AlienFab.shipDays) days, all in ~\(AlienFab.leadDays(s, count: qty)) days · up to \(Fmt.int(AlienFab.maxOrder(s))) per order"
+                                 ? "\(Fmt.watts(Economy.chipKW(a) * Double(qty) * 1000)) incl. servers · from your alien fab line (\(Fmt.count(s.alienFab.capacityMonth))/month): first chips in ~\(AlienFab.shipDays) days, all in ~\(AlienFab.leadDays(s, count: qty)) days · up to \(Fmt.int(min(AlienFab.maxOrder(s), AlienFab.backlogRoom(s)))) per order (\(Fmt.int(AlienFab.openBacklog(s))) already queued)"
                                  : a.vendor == .custom ? "\(Fmt.watts(Economy.chipKW(a) * Double(qty) * 1000)) incl. servers · ships in ~\(Economy.leadTimeDays(a, s)) days · your own chip: no allocation limit"
                                  : "\(Fmt.watts(Economy.chipKW(a) * Double(qty) * 1000)) incl. servers · ships in ~\(Economy.leadTimeDays(a, s)) days · \(Fmt.int(Economy.allocationLimit(a, s))) available to you this quarter of \(Fmt.count(Economy.quarterlyProduction(a, s))) made")
                                 .font(.caption).foregroundStyle(.secondary)

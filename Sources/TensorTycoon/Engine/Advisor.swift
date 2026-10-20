@@ -26,6 +26,8 @@ enum AdvisorFix: Hashable {
     case openDecision(UUID)
     /// 3.8: set a fab's share for its product (the rest goes to foundry customers).
     case fabShare(UUID, Double)
+    /// 3.8: put all of a chip design's bins on sale.
+    case chipsOnSale(UUID)
 }
 
 /// Your chief of staff: a short, prioritised list of things that need your attention right now, most with a fix.
@@ -310,6 +312,9 @@ enum Advisor {
             return s.deploy(model, accelID: accel, chips: chips)
         case .launch(let id):
             return s.launch(id)
+        case .chipsOnSale(let id):
+            for b in 0..<3 { _ = s.setChipPrice(id, bin: b, onSale: true) }
+            return nil
         case .autoPrice(let ids):
             for id in ids { s.setAutoPrice(id, true) }
             return nil

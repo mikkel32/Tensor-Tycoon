@@ -707,7 +707,7 @@ extension GameState {
     mutating func startDistill(_ teacherID: UUID, tier: FamilyTier, data: DistillData, accelID: String, chips: Int, autoLaunch: Bool = true) -> String? {
         guard let t = models.first(where: { $0.id == teacherID }) else { return "Not found." }
         guard tier != .flagship else { return "Pick a smaller tier." }
-        if chips > Economy.freeChips(self, accelID) { return "Only \(Fmt.int(Economy.freeChips(self, accelID))) chips of that type are free." }
+        if chips > recallLeased(accelID, needing: chips) { return "Only \(Fmt.int(Economy.freeChips(self, accelID))) chips of that type are free.\(leasedNote(accelID))" }
         let plan = Families.distillPlan(self, teacher: t, tier: tier, data: data, accelID: accelID, chips: chips)
         if let e = plan.blocker { return e }
         let fi = Families.ensureFamily(&self, for: t)
@@ -721,7 +721,7 @@ extension GameState {
     @discardableResult
     mutating func startPostTrain(_ modelID: UUID, pass: PostTrainPass, accelID: String, chips: Int) -> String? {
         guard let m = models.first(where: { $0.id == modelID }) else { return "Not found." }
-        if chips > Economy.freeChips(self, accelID) { return "Only \(Fmt.int(Economy.freeChips(self, accelID))) chips of that type are free." }
+        if chips > recallLeased(accelID, needing: chips) { return "Only \(Fmt.int(Economy.freeChips(self, accelID))) chips of that type are free.\(leasedNote(accelID))" }
         let plan = Families.passPlan(self, model: m, pass: pass, accelID: accelID, chips: chips)
         if let e = plan.blocker { return e }
         families.jobs.append(ModelJob(kind: .postTrain, modelID: m.id, familyID: Families.family(of: m.id, self)?.id,
@@ -749,7 +749,7 @@ extension GameState {
     mutating func resumeModelJob(_ id: UUID) -> String? {
         guard let i = families.jobs.firstIndex(where: { $0.id == id }) else { return "Not found." }
         let j = families.jobs[i]
-        if Economy.freeChips(self, j.accelID) < j.chips { return "Needs \(Fmt.int(j.chips)) free chips; \(Fmt.int(Economy.freeChips(self, j.accelID))) are free." }
+        if recallLeased(j.accelID, needing: j.chips) < j.chips { return "Needs \(Fmt.int(j.chips)) free chips; \(Fmt.int(Economy.freeChips(self, j.accelID))) are free.\(leasedNote(j.accelID))" }
         families.jobs[i].paused = false
         return nil
     }

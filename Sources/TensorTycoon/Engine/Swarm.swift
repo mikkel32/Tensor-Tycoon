@@ -413,8 +413,8 @@ extension GameState {
         if agents < 1 || agents > Swarms.maxAgents { return "Pick between 1 and \(Fmt.int(Swarms.maxAgents)) agents." }
         if chips <= 0 { return "Give the swarm some chips." }
         guard let a = HardwareCatalog.get(accelID) else { return "Pick hardware." }
-        let free = Economy.freeChips(self, accelID)
-        if chips > free { return "Only \(Fmt.int(free)) free \(a.name) chips." }
+        let free = recallLeased(accelID, needing: chips)
+        if chips > free { return "Only \(Fmt.int(free)) free \(a.name) chips.\(leasedNote(accelID))" }
         let k = Physics.chipsPerReplica(m, accel: a, precision: m.servingPrecision, bonuses: b)
         if chips < k { return "\(m.name) needs \(k) \(a.name) chips per copy." }
         let trimmed = name.trimmingCharacters(in: .whitespaces)

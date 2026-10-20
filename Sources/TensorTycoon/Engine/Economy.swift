@@ -184,7 +184,8 @@ enum Economy {
     static func allocationLimit(_ a: Accelerator, _ s: GameState) -> Int {
         if a.cls == .consumer || a.cls == .workstation { return 2_000 }
         if a.vendor == .custom { return Semis.isSemiChip(a.id) ? Semis.available(a.id, s) : 20_000_000 }
-        let cutoff = GameCalendar.addDays(s.date, -90)
+        // 3.8: the window is at least the chip's lead time, so chips still in transit count against the allowance.
+        let cutoff = GameCalendar.addDays(s.date, -max(90, leadTimeDays(a, s)))
         let recent = s.orders.filter { $0.accelID == a.id && $0.ordered > cutoff }.reduce(0) { $0 + $1.count }
             + s.orderLog.filter { $0.accelID == a.id && $0.ordered > cutoff }.reduce(0) { $0 + $1.count }
         let cap = quarterlyProduction(a, s) * allocationShare(a, s)

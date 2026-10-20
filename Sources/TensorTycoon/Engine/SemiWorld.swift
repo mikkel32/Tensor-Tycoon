@@ -265,6 +265,13 @@ extension Semis {
                                        detail: "It's qualified but nothing makes it. Book wafers at a foundry or assign a fab.", screen: .semiconductors))
             }
         }
+        // 3.8: customer stock that can't sell because no bin is on sale.
+        for d in s.semi.designs where d.inProduction && !d.onSale.contains(true) && d.stockSale.reduce(0, +) >= 1_000 {
+            let n = d.stockSale.reduce(0, +)
+            out.append(AdvisorItem(id: "semi-offsale-\(d.id)", level: .warning, symbol: "tag.slash.fill", title: "\(Fmt.count(n)) \(d.name) chips are unsold: nothing is on sale",
+                                   detail: "They're in customer stock but no bin is on sale, so nobody can buy them. Put them on sale, or move the stock to your own fleet.",
+                                   screen: .semiconductors, fix: .chipsOnSale(d.id), fixLabel: "Put on sale"))
+        }
         let last = s.semi.history.first
         if let last, last.chips > 0, last.bottleneck == "packaging" || last.bottleneck == "HBM" {
             out.append(AdvisorItem(id: "semi-bottleneck", level: .info, symbol: "shippingbox.fill", title: "Chip output is limited by \(last.bottleneck)",
@@ -411,6 +418,14 @@ extension GameState {
         if let busy = Semis.teamBusy(self, team.id) { return "\(team.name) is busy designing \(busy.name)." }
         let p = Semis.plan(node: node, verification: verification, team: team, derived: !derivedFrom.isEmpty, self)
         if p.ipCost / max(1, p.designDays / 30.4) * 3 > cash { return "Keep three months of EDA and IP licences (\(Fmt.money(p.ipCost / max(1, p.designDays / 30.4) * 3))) in cash to start." }
+        // 3.8: a design that taped out years before any foundry offers the node sat on full pay and IP licences.
+        let node_ = SemiCatalog.node(node)
+        let open = SemiCatalog.foundries.map { Semis.opens(node_, $0) }.min() ?? node_.launch
+        let tapeYear = year + (p.phaseDays[0] + p.phaseDays[1] + p.phaseDays[2]) / 365.25
+        if tapeYear < open - 0.25 {
+            let startYear = open - (p.phaseDays[0] + p.phaseDays[1] + p.phaseDays[2]) / 365.25
+            return "This design would be ready to tape out about \(Int(((open - tapeYear) * 12).rounded())) months before any foundry offers \(node_.short) (from \(Fmt.trim(open, 1))), and the team and IP licences would be paid all that time. Start it around \(Fmt.trim(startYear, 1)), or pick a node that's open now."
+        }
         Semis.engage(&self)
         let gen = semi.designs.count + 1
         let name = "\(SemiCatalog.codenames[(gen - 1) % SemiCatalog.codenames.count])-\(gen)"
@@ -440,10 +455,24 @@ extension GameState {
         return nil
     }
 
-    mutating func retireChipDesign(_ id: UUID) -> String? {
+    /// Wafer bookings still running for a design, and what cancelling them all costs.
+    func designContracts(_ id: UUID) -> (bookings: [WaferBooking], fee: Double) {
+        let b = semi.bookings.filter { $0.designID == id && $0.end > date }
+        return (b, b.reduce(0) { $0 + bookingCancelFee($1) })
+    }
+
+    /// `cancelContracts` nil: refuse while the design still has wafer bookings (they keep billing after retirement);
+    /// true: cancel them (fee); false: retire and leave them unassigned.
+    mutating func retireChipDesign(_ id: UUID, cancelContracts: Bool? = nil) -> String? {
         guard let i = semi.designs.firstIndex(where: { $0.id == id }), semi.designs[i].inProduction else { return "Only products in production can be retired." }
+        let tied = designContracts(id)
+        if !tied.bookings.isEmpty && cancelContracts == nil {
+            return "\(semi.designs[i].name) still has \(tied.bookings.count) wafer booking\(tied.bookings.count == 1 ? "" : "s") that keep billing after it retires. Retire and cancel them (\(Fmt.money(tied.fee)) fee), or retire and keep them for another product."
+        }
+        if cancelContracts == true { for b in tied.bookings { _ = cancelBooking(b.id) } }
         semi.designs[i].phaseRaw = SemiPhase.retired.rawValue
         semi.designs[i].onSale = [false, false, false]
+        for bi in semi.bookings.indices where semi.bookings[bi].designID == id { semi.bookings[bi].designID = nil }
         Semis.note(&self, i, "Retired. Stock already made can still be taken for your fleet.")
         Semis.log(&self, "Retired \(semi.designs[i].name).")
         return nil
@@ -459,6 +488,7 @@ extension GameState {
         if wafersMonth > cap { return "\(f.name) can commit only \(Fmt.count(max(0, cap))) more \(n.short) wafers a month to you." }
         let price = Semis.waferPrice(n, f, year) * (months >= 24 ? 0.92 : 1)
         let deposit = wafersMonth * price
+        if months < 6 { return "Foundries book at least 6 months. Pick a longer term." }
         if deposit > cash { return "The deposit (one month, \(Fmt.money(deposit))) is more than your cash." }
         if let designID, let d = semi.designs.first(where: { $0.id == designID }), d.node != node { return "\(d.name) is a \(SemiCatalog.node(d.node).short) design." }
         Semis.engage(&self)
@@ -468,9 +498,9 @@ extension GameState {
         let lead = Semis.leadDays(f.leadDays, "wafer", self)
         let start = GameCalendar.addDays(date, max(lead, startDelayMonths * 30))
         semi.bookings.append(WaferBooking(foundry: foundry, node: node, wafersMonth: wafersMonth, price: price, start: start,
-                                          end: GameCalendar.addMonths(start, max(6, months)), designID: designID))
+                                          end: GameCalendar.addMonths(start, months), designID: designID, deposit: deposit))
         Semis.log(&self, "Booked \(Fmt.count(wafersMonth)) \(n.short) wafers/month at \(f.name) for \(months) months from \(start.gameShort) at \(Fmt.money(price)) each.")
-        Sim.news(&self, "Wafers booked at \(f.name)", "\(Fmt.count(wafersMonth)) \(n.short) wafers a month from \(start.gameShort), \(Fmt.money(wafersMonth * price))/month take-or-pay.", .hardware, image: "wafer")
+        Sim.news(&self, "Wafers booked at \(f.name)", "\(Fmt.count(wafersMonth)) \(n.short) wafers a month from \(start.gameShort), \(Fmt.money(wafersMonth * price))/month take-or-pay. The \(Fmt.money(deposit)) deposit comes off your last month.\(designID.flatMap { id in semi.designs.first { $0.id == id } }.map { $0.inProduction ? "" : " Billing waits until \($0.name) is in production." } ?? "")", .hardware, image: "wafer")
         return nil
     }
 
@@ -503,6 +533,7 @@ extension GameState {
         if year < sup.from { return "\(sup.name) doesn't offer this until \(Int(sup.from))." }
         let cap = Semis.supplyCap(sup, self) - Semis.supplyBooked(self, supplier: supplier)
         if units < 100 { return "The minimum is 100 a month." }
+        if months < 6 { return "Supply contracts run at least 6 months. Pick a longer term." }
         if units > cap { return "\(sup.name) can commit only \(Fmt.count(max(0, cap))) more a month to you." }
         let price = Semis.supplyPrice(sup, self) * (months >= 24 ? 0.92 : 1)
         let deposit = units * price
@@ -512,7 +543,7 @@ extension GameState {
         month.costChips += deposit
         if sup.kind == "pack" { semi.month.packCost += deposit } else { semi.month.hbmCost += deposit }
         let start = GameCalendar.addDays(date, Semis.leadDays(sup.leadDays, sup.kind, self))
-        semi.supply.append(SupplyContract(kind: sup.kind, supplier: supplier, units: units, price: price, start: start, end: GameCalendar.addMonths(start, max(6, months))))
+        semi.supply.append(SupplyContract(kind: sup.kind, supplier: supplier, units: units, price: price, start: start, end: GameCalendar.addMonths(start, months), deposit: deposit))
         let what = sup.kind == "pack" ? "packaging slots" : "HBM stacks"
         Semis.log(&self, "Signed \(sup.name): \(Fmt.count(units)) \(what)/month from \(start.gameShort) at \(Fmt.money(price)).")
         return nil
