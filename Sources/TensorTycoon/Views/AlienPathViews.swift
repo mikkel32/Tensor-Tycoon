@@ -95,16 +95,18 @@ private struct AlienStageRow: View {
                 .help("Add \(Fmt.count(AlienFabCard.defaultExpansion(s))) chips a month for \(Fmt.money(AlienFab.expansionCost(s, units: AlienFabCard.defaultExpansion(s)))). More options in the fab card below.")
                 .disabled(AlienFab.expansionBlocker(s, units: AlienFabCard.defaultExpansion(s)) != nil)
         case .leaseCage(let id):
-            let n = AlienFabCard.suggestedOrder(id, s, ignoringSites: true)
-            Button(title) { store.act("Cage leased — ready in 30 days") { $0.leaseAlienCage(for: id, chips: max(n, 4_000)) } }
+            let n = max(AlienFabCard.suggestedOrder(id, s, ignoringSites: true), 4_000)
+            let fee = AlienFab.cageFee(id, chips: n, s)
+            Button("\(title) (\(Fmt.money(fee))/mo)") { store.act("Cage leased — ready in 30 days") { $0.leaseAlienCage(for: id, chips: n) } }
                 .buttonStyle(.borderedProminent)
-                .help("A colocation cage sized for about \(Fmt.int(max(n, 4_000))) chips at the cheapest location. Alien chips run on air.")
+                .help("A colocation cage sized for about \(Fmt.int(n)) chips at the cheapest location, ready in 30 days: \(Fmt.money(fee)) now and every month until you end it.")
         case .order(let id):
-            let n = AlienFabCard.suggestedOrder(id, s)
+            let adv = AlienFab.orderAdvice(id, s)
+            let n = adv.count
             Button(n > 0 ? "\(title) \(Fmt.count(Double(n)))" : title) { store.act("Order queued on your fab line") { $0.orderOwnChips(id, count: n) } }
                 .buttonStyle(.borderedProminent)
                 .disabled(n < 1)
-                .help(n > 0 ? "From your fab line: the first chips in about \(AlienFab.shipDays) days, all \(Fmt.int(n)) in about \(AlienFab.leadDays(s, count: n)) days." : "No room or cash for more right now.")
+                .help(n > 0 ? "From your fab line: the first chips in about \(AlienFab.shipDays) days, all \(Fmt.int(n)) in about \(AlienFab.leadDays(s, count: n)) days." : (adv.reason ?? ""))
         case .modelLab:
             Button(title) { store.open(title == "Training" ? .training : .lab) }
         case .chipSales:
@@ -182,7 +184,12 @@ struct AlienFabCard: View {
 
     @ViewBuilder
     private func orderRow(_ c: CustomChip, _ s: GameState) -> some View {
-        let n = qty[c.id] ?? max(1, AlienFabCard.suggestedOrder(c.id, s))
+        // 3.9: the picker stays within what one order can be: the line's per-order cap, room in its queue and power at one site.
+        let fits = HardwareCatalog.get(c.id).map { s.bestSite(for: $0, count: 1).fits } ?? 0
+        let most = min(AlienFab.maxOrder(s), AlienFab.backlogRoom(s), fits)
+        let n = clamp(qty[c.id] ?? AlienFabCard.suggestedOrder(c.id, s), 1, max(1, most))
+        let why: String? = most >= 1 ? nil : (AlienFab.backlogRoom(s) < 1 ? AlienFab.orderAdvice(c.id, s).reason
+            : "No free power at your sites for \(c.name). Lease a cage or add capacity.")
         let owned = s.owned.filter { $0.accelID == c.id }.reduce(0) { $0 + $1.count }
         let onOrder = s.orders.filter { $0.accelID == c.id }.reduce(0) { $0 + $1.count }
         let ref = Silicon.reference(s)
@@ -192,12 +199,14 @@ struct AlienFabCard: View {
                 Text(c.name).font(.callout.weight(.semibold))
                 Text("\(Fmt.trim(c.bf16 / max(1, ref.bf16), 1))× a \(ref.name) · \(Fmt.money(c.unitCost)) · \(Int(c.tdpW)) W, air-cooled · \(Fmt.int(owned)) installed\(onOrder > 0 ? ", \(Fmt.int(onOrder)) coming" : "")")
                     .font(.caption).foregroundStyle(.secondary)
+                if let why { Text(why).font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true) }
             }
             Spacer()
-            QuantityPicker(value: Binding(get: { n }, set: { qty[c.id] = $0 }), range: 1...2_000_000, presets: [1_000, 4_000, 16_000, 64_000, 256_000])
+            QuantityPicker(value: Binding(get: { n }, set: { qty[c.id] = $0 }), range: 1...max(1, most), presets: [1_000, 4_000, 16_000, 64_000, 256_000])
             VStack(alignment: .trailing, spacing: 1) {
                 Button("Order") { store.act("Order queued on your fab line") { $0.orderOwnChips(c.id, count: n) } }
                     .buttonStyle(.borderedProminent)
+                    .disabled(why != nil)
                 Text("~\(AlienFab.leadDays(s, count: n)) days · \(Fmt.money(c.unitCost * Double(n)))").font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
             }
         }

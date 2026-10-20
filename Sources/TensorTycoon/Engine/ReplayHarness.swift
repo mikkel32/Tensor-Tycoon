@@ -134,6 +134,32 @@ enum ReplayHarness {
                 }
                 continue
             }
+            // 3.9: swarms lists every swarm and team and whether it can resume; retune:<name>:<chip id>:<chips> moves one to
+            // other hardware; alienorder prints what limits an alien-chip order.
+            if t == "swarms" {
+                for sw in s.swarms {
+                    var probe = s
+                    let resume = sw.paused ? (probe.setSwarmPaused(sw.id, false) ?? "ok") : "running"
+                    print("swarm \(sw.name): \(Fmt.int(sw.agents)) agents · \(Fmt.int(sw.chips))× \(sw.accelID) (\(Fmt.int(Economy.freeChips(s, sw.accelID))) free) · resume: \(resume)")
+                }
+                continue
+            }
+            if t.hasPrefix("retune:") {
+                let parts = t.split(separator: ":").map(String.init)
+                if parts.count == 4, let sw = s.swarms.first(where: { $0.name == parts[1] }) {
+                    let why = s.tuneOrgTeam(sw.id, agents: sw.agents, chips: Int(parts[3]) ?? 0, accelID: parts[2])
+                    let now = s.swarms.first { $0.id == sw.id }
+                    print("retune \(sw.name): \(why ?? "ok") → \(now.map { "\(Fmt.int($0.chips))× \($0.accelID), \($0.paused ? "paused" : "running")" } ?? "?")")
+                } else { print("use retune:<swarm name>:<chip id>:<chips>") }
+                continue
+            }
+            if t == "alienorder" {
+                for c in s.customChips where c.alien {
+                    let a = AlienFab.orderAdvice(c.id, s)
+                    print("alien order \(c.name): suggest \(Fmt.int(a.count)) · \(a.reason ?? "no blocker") · cage \(a.needsCage) · queue full \(a.queueFull) · cage fee \(Fmt.money(AlienFab.cageFee(c.id, chips: 4_000, s)))/mo")
+                }
+                continue
+            }
             if t.hasPrefix("unretire:") {
                 let name = String(t.dropFirst("unretire:".count))
                 if let m = s.models.first(where: { $0.name == name }) { s.unretire(m.id); print("unretired \(name)") } else { print("no model named \(name)") }

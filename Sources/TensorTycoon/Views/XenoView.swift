@@ -364,22 +364,31 @@ private struct AlienArchCard: View {
     @ViewBuilder
     private func chipSection(_ a: AlienArch, chip: Accelerator?, _ s: GameState) -> some View {
         if let chip {
+            // 3.9: say what stops an order; only offer a cage when power is what's missing.
+            let adv = AlienFab.orderAdvice(chip.id, s)
+            let n = adv.count
             HStack(alignment: .center, spacing: 12) {
                 Photo(key: chip.image, illustrative: true).frame(width: 64, height: 44).clipShape(.rect(cornerRadius: 8))
                 VStack(alignment: .leading, spacing: 2) {
                     Text(chip.name).font(.headline)
                     Text("\(Fmt.tflops(chip.best)) \(chip.bestPrecisionLabel) · \(Fmt.memory(chip.memoryGB)) · \(Int(chip.tdpW)) W · \(Fmt.money(chip.price ?? 0)) to make")
                         .font(.caption).foregroundStyle(.secondary)
+                    if n < 1, let why = adv.reason { Text(why).font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true) }
                 }
                 Spacer()
-                let n = AlienFabCard.suggestedOrder(chip.id, s)
                 if n > 0 {
                     Button("Order \(Fmt.count(Double(n)))") { store.act("Order queued on your fab line") { $0.orderOwnChips(chip.id, count: n) } }
                         .buttonStyle(.borderedProminent)
                         .help("From your alien fab line: the first chips in about \(AlienFab.shipDays) days, all \(Fmt.int(n)) in about \(AlienFab.leadDays(s, count: n)) days.")
+                } else if adv.needsCage {
+                    let cage = max(4_000, AlienFabCard.suggestedOrder(chip.id, s, ignoringSites: true))
+                    let fee = AlienFab.cageFee(chip.id, chips: cage, s)
+                    Button("Lease a cage (\(Fmt.money(fee))/mo)") { store.act("Cage leased — ready in 30 days") { $0.leaseAlienCage(for: chip.id, chips: cage) } }
+                        .help("\(adv.reason ?? "") A colocation cage for about \(Fmt.int(cage)) of these chips, ready in 30 days: \(Fmt.money(fee)) now and every month until you end it.")
                 } else {
-                    Button("Lease a cage") { store.act("Cage leased — ready in 30 days") { $0.leaseAlienCage(for: chip.id, chips: max(4_000, AlienFabCard.suggestedOrder(chip.id, s, ignoringSites: true))) } }
-                        .help("No site has free power for these chips. Lease a colocation cage sized for them (ready in 30 days).")
+                    Button("Order") {}
+                        .disabled(true)
+                        .help(adv.reason ?? "")
                 }
                 Button("In the store") { store.focusAccelID = chip.id; store.open(.hardware) }
                     .buttonStyle(.link)

@@ -308,10 +308,16 @@ extension Semis {
             let carry = bank * dieCost(d, s) * dieCarryMonthly
             let loss = dieLossMonthly(d, s)
             let held = days.isFinite ? "\(Fmt.trim(days / 30.4, 1)) months of packaging" : "nothing is packaging them"
+            // 3.9: a retired product's dies are never packaged again: more packaging can't help, only selling or scrapping.
+            let fix = d.phase == .retired
+                ? " \(d.name) is retired, so they will never be packaged. " + (s.semi.holdExcessDies
+                    ? "Turn on selling surplus dies (Sales tab) to sell them to other packagers at about \(Fmt.money(kgdPrice(d, s))) a die, or they age out."
+                    : "They are selling to other packagers at about \(Fmt.money(kgdPrice(d, s))) a die.")
+                : " Sign more packaging, give the fab's spare wafers to foundry customers"
+                    + (s.semi.holdExcessDies ? ", or sell the surplus to other packagers as known-good die (about \(Fmt.money(kgdPrice(d, s))) a die)." : "; the surplus beyond two months sells to other packagers at about \(Fmt.money(kgdPrice(d, s))) a die.")
             out.append(AdvisorItem(id: "semi-diebank-\(d.id)", level: days > 180 ? .warning : .info, symbol: "square.stack.3d.up.fill",
                                    title: "\(Fmt.count(bank)) \(d.name) dies waiting (\(held))",
-                                   detail: "Holding them costs \(Fmt.money(carry))/month and \(Fmt.pct(loss, decimals: 0)) of them age out a month\(superseded(d, s) ? " — a newer generation is out" : ""). Sign more packaging, give the fab's spare wafers to foundry customers"
-                                       + (s.semi.holdExcessDies ? ", or sell the surplus to other packagers as known-good die (about \(Fmt.money(kgdPrice(d, s))) a die)." : "; the surplus beyond two months sells to other packagers at about \(Fmt.money(kgdPrice(d, s))) a die."),
+                                   detail: "Holding them costs \(Fmt.money(carry))/month and \(Fmt.pct(loss, decimals: 0)) of them age out a month\(d.phase != .retired && superseded(d, s) ? " — a newer generation is out" : "")." + fix,
                                    screen: .semiconductors))
         }
         for f in s.semi.fabs {
@@ -414,13 +420,28 @@ extension GameState {
         guard let i = semi.teams.firstIndex(where: { $0.id == id }) else { return "Not found." }
         let n = clamp(engineers, 50, 2_000)
         let old = semi.teams[i].engineers
+        if n == old {
+            return old <= 50 ? "\(semi.teams[i].name) is at the 50-engineer minimum. Disband it to let everyone go."
+                             : "\(semi.teams[i].name) is at the 2,000-engineer maximum. Hire a second team for more."
+        }
         let cost = Double(abs(n - old)) * Semis.engineerCost(year) * 0.25
         if n > old && cost > cash { return "Hiring \(n - old) more costs \(Fmt.money(cost))." }
         cash -= cost
         month.costOther += cost
         semi.month.teamCost += cost
         semi.teams[i].engineers = n
-        Semis.log(&self, "\(semi.teams[i].name): \(old) → \(n) engineers (\(n > old ? "recruiting" : "severance") \(Fmt.money(cost))).")
+        // 3.9: the phase under way speeds up (or slows) too, not just the next one: time ∝ 1/√engineers.
+        var sooner = ""
+        if n != old, let busy = Semis.teamBusy(self, id), let di = semi.designs.firstIndex(where: { $0.id == busy.id }),
+           !busy.waiting.hasPrefix("Ready to tape out") {
+            let f = (Double(max(50, old)) / Double(n)).squareRoot()
+            let before = semi.designs[di].phaseDaysLeft
+            semi.designs[di].phaseDaysLeft *= f
+            semi.designs[di].phaseDays *= f
+            let delta = Int((before - semi.designs[di].phaseDaysLeft).rounded())
+            if delta != 0 { sooner = " \(busy.name)'s \(busy.phase.title.lowercased()) phase now ends \(abs(delta)) days \(delta > 0 ? "sooner" : "later")." }
+        }
+        Semis.log(&self, "\(semi.teams[i].name): \(old) → \(n) engineers (\(n > old ? "recruiting" : "severance") \(Fmt.money(cost)))." + sooner)
         return nil
     }
 
@@ -485,10 +506,18 @@ extension GameState {
         return nil
     }
 
-    mutating func cancelChipDesign(_ id: UUID) -> String? {
+    /// 3.9: `cancelContracts` as for `retireChipDesign`. A booking made for a design in development isn't billed until it
+    /// qualifies; once the design is gone, a kept booking bills at full rate from the next day.
+    mutating func cancelChipDesign(_ id: UUID, cancelContracts: Bool? = nil) -> String? {
         guard let i = semi.designs.firstIndex(where: { $0.id == id }) else { return "Not found." }
         let d = semi.designs[i]
         if d.inProduction || d.phase == .retired { return "Retire it instead." }
+        let tied = designContracts(id)
+        if !tied.bookings.isEmpty && cancelContracts == nil {
+            let monthly = tied.bookings.reduce(0) { $0 + $1.wafersMonth * $1.price }
+            return "\(d.name) has \(tied.bookings.count) wafer booking\(tied.bookings.count == 1 ? "" : "s") waiting for it. Without the design they bill \(Fmt.money(monthly))/month from tomorrow. Cancel the design and the bookings (\(Fmt.money(tied.fee)) fee), or cancel it and keep the bookings for another product."
+        }
+        if cancelContracts == true { for b in tied.bookings { _ = cancelBooking(b.id) } }
         decisions.removeAll { $0.kind == Semis.bugKind && $0.ref == d.id.uuidString }
         Semis.log(&self, "Cancelled \(d.name) after \(Fmt.money(d.spent)).", tone: -1)
         semi.designs.remove(at: i)
@@ -522,8 +551,17 @@ extension GameState {
         }
         semi.designs[i].phaseRaw = SemiPhase.retired.rawValue
         semi.designs[i].onSale = [false, false, false]
+        // 3.9: nothing sells off-sale, so customer stock beyond open orders moves to your own stock (it would sit forever).
+        var moved = 0.0
+        for b in 0..<3 {
+            let spare = max(0, semi.designs[i].stockSale[b] - Semis.owed(semi.designs[i].id, bin: b, self))
+            semi.designs[i].stockSale[b] -= spare
+            semi.designs[i].stockMine[b] += spare
+            moved += spare
+        }
         for bi in semi.bookings.indices where semi.bookings[bi].designID == id { semi.bookings[bi].designID = nil }
-        Semis.note(&self, i, "Retired. Open orders still ship from customer stock; stock already made can still be taken for your fleet.")
+        Semis.note(&self, i, "Retired. Open orders still ship from customer stock" + (moved >= 1 ? "; the other \(Fmt.count(moved)) customer chips moved to your stock for your fleet." : "; stock already made can still be taken for your fleet.")
+                   + (semi.designs[i].dieBank.reduce(0, +) > 1 ? " Its die bank can't be packaged any more: sell it as known-good die or let it age out." : ""))
         Semis.log(&self, "Retired \(semi.designs[i].name).")
         return nil
     }
@@ -723,8 +761,10 @@ extension GameState {
     mutating func moveChipStock(_ id: UUID, bin: Int, toMine: Bool) {
         guard let i = semi.designs.firstIndex(where: { $0.id == id }), (0..<3).contains(bin) else { return }
         if toMine {
-            semi.designs[i].stockMine[bin] += semi.designs[i].stockSale[bin]
-            semi.designs[i].stockSale[bin] = 0
+            // 3.9: what accepted orders still need stays in customer stock, or they ship late and pay penalties.
+            let spare = max(0, semi.designs[i].stockSale[bin] - Semis.owed(id, bin: bin, self))
+            semi.designs[i].stockMine[bin] += spare
+            semi.designs[i].stockSale[bin] -= spare
         } else {
             semi.designs[i].stockSale[bin] += semi.designs[i].stockMine[bin]
             semi.designs[i].stockMine[bin] = 0

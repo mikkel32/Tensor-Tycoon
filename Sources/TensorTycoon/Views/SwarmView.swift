@@ -221,7 +221,9 @@ private struct FoundOrgCard: View {
     @State private var verification = 0.1
     @State private var funded = true
 
-    private var agents: Int { Int(pow(10, agentsLog).rounded()) }
+    /// 3.9: before Hyperscaler a new organisation holds at most `orgAgentCap` agents.
+    private var cap: Int? { Progression.blocker(state, .bigOrgs) == nil ? nil : Progression.orgAgentCap }
+    private var agents: Int { max(1, min(Int(pow(10, agentsLog).rounded()), cap ?? .max)) }
 
     var body: some View {
         let s = state
@@ -251,7 +253,7 @@ private struct FoundOrgCard: View {
                         if let m = models.first(where: { $0.id == modelID }) {
                             AgentProfile(model: m, state: s, kind: kind)
                         }
-                        TeamSizeControls(state: s, agentsLog: $agentsLog, accelID: $accelID, chips: $chips)
+                        TeamSizeControls(state: s, model: models.first { $0.id == modelID }, maxAgents: cap, agentsLog: $agentsLog, accelID: $accelID, chips: $chips)
                         OversightControls(state: s, models: models.filter { $0.id == modelID }, autonomy: $autonomy, oversight: $oversight, verification: $verification)
                         Toggle("Fund tools and equipment fully", isOn: $funded)
                             .help("Each organisation needs money for tools, data, lab time and equipment. Without it, output falls (up to 30% for labs and fabs).")
@@ -264,10 +266,12 @@ private struct FoundOrgCard: View {
         }
         .onAppear {
             if modelID == nil { modelID = models.first?.id }
+            // 3.9: leave room under the cap for the ~5% supervisor team the org chart suggests.
+            if cap != nil && agentsLog == 3 { agentsLog = log10(950) }
             let d = store.derived
             if accelID.isEmpty, let p = d.pools.max(by: { Double($0.free) * $0.accel.best < Double($1.free) * $1.accel.best }) {
                 accelID = p.accel.id
-                chips = max(1, p.free)
+                chips = TeamSizeControls.fit(models.first { $0.id == modelID }, accelID: p.accel.id, agents: agents, s, d)
             }
         }
     }
@@ -295,6 +299,7 @@ private struct FoundOrgCard: View {
                 SpecRow(label: "Chips for \(Fmt.int(agents)) agents", value: Fmt.int(need))
                 SpecRow(label: "Agents these chips run", value: Fmt.count(e.specialists))
                 SpecRow(label: "Researcher-equivalents", value: Fmt.count(e.workforce))
+                if kind == .xeno { XenoForecast(model: m, workforce: e.workforce * (e.shares.first ?? 1), gate: e.gate, state: s) }
                 SpecRow(label: "Work right first time", value: Fmt.pct(e.accuracy, decimals: 1))
                 SpecRow(label: "Compute cost", value: "\(Fmt.money(cost * 30.4))/mo")
                 SpecRow(label: "Tools budget", value: funded ? "\(Fmt.money(e.needDaily * 30.4))/mo" : "None (−\(Fmt.pct(kind.toolCost.weight, decimals: 0)))")
@@ -329,6 +334,28 @@ private struct FoundOrgCard: View {
         }
         .padding(12)
         .background(Theme.insetFill, in: .rect(cornerRadius: Theme.Radius.inset))
+    }
+}
+
+/// 3.9: what an alien architecture lab would actually find: researcher-equivalents only count through the model's
+/// "sees alien designs" gate, which is near zero a step below the frontier, while the tools budget is spent regardless.
+private struct XenoForecast: View {
+    @Environment(GameStore.self) private var store
+    let model: AIModel
+    let workforce: Double
+    let gate: Double
+    let state: GameState
+
+    var body: some View {
+        let s = state
+        let i = Swarms.xenoInsightDay(gated: workforce * gate, s, store.derived.bonuses)
+        let left = max(0, Xeno.insightNeeded(s) - s.xenoInsight)
+        SpecRow(label: "Alien insight", value: i > 0.01 ? "+\(Fmt.trim(i, 1))/day · ~\(Fmt.days(left / max(0.01, i + s.xenoInsightToday))) to the next find" : "None")
+        if gate < 0.2 {
+            Label("\(model.name) is too weak to see alien designs: only \(Fmt.pct(gate, decimals: gate < 0.01 ? 2 : 0)) of its work counts. Only near-frontier models find anything, but the tools budget is spent on all of it.",
+                  systemImage: "exclamationmark.triangle.fill")
+                .font(.caption).foregroundStyle(.orange)
+        }
     }
 }
 
@@ -375,24 +402,42 @@ private struct KindGrid: View {
 private struct TeamSizeControls: View {
     @Environment(GameStore.self) private var store
     let state: GameState
+    /// 3.9: the model the team will run, to size the chips when the hardware changes.
+    var model: AIModel? = nil
+    /// 3.9: agents this team may have (the organisation cap before Hyperscaler); nil for no cap.
+    var maxAgents: Int? = nil
     @Binding var agentsLog: Double
     @Binding var accelID: String
     @Binding var chips: Int
 
     var body: some View {
         let d = store.derived
+        let top = maxAgents.map { log10(Double(max(1, $0))) } ?? 9
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("Agents")
-                Slider(value: $agentsLog, in: 1...9)
-                Text(Fmt.int(Int(pow(10, agentsLog).rounded()))).font(.callout.monospacedDigit().weight(.semibold)).frame(width: 120, alignment: .trailing)
-            }
-            HStack(spacing: 6) {
-                ForEach([2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0], id: \.self) { v in
-                    Button(Fmt.count(pow(10, v), decimals: 0)) { agentsLog = v }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
+            if let maxAgents, maxAgents < 10 {
+                Text(maxAgents < 1 ? "This organisation is at its \(Fmt.int(Progression.orgAgentCap))-agent limit." : "Room for \(Fmt.int(maxAgents)) more agents.")
+                    .font(.callout).foregroundStyle(.orange)
+            } else {
+                HStack {
+                    Text("Agents")
+                    Slider(value: Binding(get: { min(agentsLog, top) }, set: { agentsLog = $0 }), in: 1...max(1.01, top))
+                    Text(Fmt.int(Int(pow(10, min(agentsLog, top)).rounded()))).font(.callout.monospacedDigit().weight(.semibold)).frame(width: 120, alignment: .trailing)
                 }
+                HStack(spacing: 6) {
+                    ForEach([2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0].filter { $0 <= top + 1e-9 }, id: \.self) { v in
+                        Button(Fmt.count(pow(10, v), decimals: 0)) { agentsLog = v }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                    }
+                    if let maxAgents, top < 9 {
+                        Button("Max (\(Fmt.int(maxAgents)))") { agentsLog = top }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                    }
+                }
+            }
+            if maxAgents != nil, let why = Progression.blocker(state, .bigOrgs) {
+                Text("\(why) Until then an organisation has at most \(Fmt.int(Progression.orgAgentCap)) agents across its teams.").font(.caption2).foregroundStyle(.secondary)
             }
             HStack {
                 Picker("Hardware", selection: $accelID) {
@@ -402,6 +447,15 @@ private struct TeamSizeControls: View {
                 QuantityPicker(value: $chips, range: 1...max(1, d.free(accelID)))
             }
         }
+        // 3.9: a new chip type keeps no stale count: enough chips for the agents, at most what's free.
+        .onChange(of: accelID) { _, id in chips = Self.fit(model, accelID: id, agents: Int(pow(10, min(agentsLog, top)).rounded()), state, store.derived) }
+    }
+
+    /// Chips for `agents` on this hardware, at most what's free (at least one).
+    static func fit(_ m: AIModel?, accelID: String, agents: Int, _ s: GameState, _ d: Derived) -> Int {
+        let free = d.free(accelID)
+        guard let m else { return max(1, free) }
+        return max(1, min(free, Swarms.chipsNeeded(m, accelID: accelID, agents: agents, s, d.bonuses)))
     }
 }
 
@@ -589,6 +643,8 @@ private struct TeamBox: View {
     @State private var editing = false
     @State private var agentsLog = 3.0
     @State private var chips = 1
+    @State private var modelChoice: UUID? = nil
+    @State private var accelChoice = ""
     @State private var confirmRemove = false
 
     var body: some View {
@@ -596,6 +652,11 @@ private struct TeamBox: View {
         let s = state
         let model = s.models.first { $0.id == sw.modelID }
         let accel = HardwareCatalog.get(sw.accelID)
+        // 3.9: chips the team can have on the chosen hardware, and agents under the organisation cap.
+        let accelID = accelChoice.isEmpty ? sw.accelID : accelChoice
+        let maxChips = store.derived.free(accelID) + (sw.paused || accelID != sw.accelID ? 0 : sw.chips)
+        let cap: Int? = sw.orgID.flatMap { org in Progression.blocker(s, .bigOrgs) == nil ? nil : Progression.orgAgentCap - Progression.orgAgents(s, org) + sw.agents }
+        let agents = max(1, min(Int(pow(10, agentsLog).rounded()), cap ?? .max))
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
                 Image(systemName: sw.role.symbol).foregroundStyle(sw.role == .supervisors ? .orange : .accentColor)
@@ -605,6 +666,10 @@ private struct TeamBox: View {
                     .foregroundStyle(AgentOrgViews.alignColor(sw.alignmentMeasured)).help("Measured alignment, 0–100")
             }
             Text("\(model?.name ?? "?") · \(Fmt.int(sw.chips))× \(accel?.name ?? "?")").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            if sw.paused && store.derived.free(sw.accelID) < sw.chips {
+                Text("Needs \(Fmt.int(sw.chips)) \(accel?.name ?? "chips"); \(Fmt.int(store.derived.free(sw.accelID))) free. Resize it onto chips you have.")
+                    .font(.caption2).foregroundStyle(.orange)
+            }
             Text("\(Fmt.count(sw.active)) of \(Fmt.count(Double(sw.agents))) agents running\(sw.paused ? " · paused" : "")").font(.caption.monospacedDigit())
                 .foregroundStyle(sw.active + 0.5 < Double(sw.agents) ? .orange : .secondary)
             if let ev = eval {
@@ -617,30 +682,50 @@ private struct TeamBox: View {
                 Button("Resize") {
                     if !editing {
                         agentsLog = log10(Double(max(1, sw.agents)))
-                        chips = sw.chips
+                        modelChoice = sw.modelID
+                        accelChoice = sw.accelID
+                        chips = min(sw.chips, max(1, store.derived.free(sw.accelID) + (sw.paused ? 0 : sw.chips)))
                     }
                     editing.toggle()
                 }
+                .help("Change the team's size, model or hardware.")
                 Button("Audit") { store.act("Audit complete") { $0.auditSwarm(sw.id) } }.help("Expensive, accurate alignment check.")
                 Button("Remove", role: .destructive) { confirmRemove = true }
             }
             .controlSize(.small)
             if editing {
+                let top = cap.map { log10(Double(max(1, $0))) } ?? 9
                 HStack {
-                    Slider(value: $agentsLog, in: 1...9)
-                    Text(Fmt.count(pow(10, agentsLog), decimals: 0)).font(.caption.monospacedDigit()).frame(width: 50)
+                    Slider(value: Binding(get: { min(agentsLog, top) }, set: { agentsLog = $0 }), in: 0...max(0.01, top))
+                    Text(Fmt.int(agents)).font(.caption.monospacedDigit()).frame(width: 60)
+                }
+                if let cap { Text("At most \(Fmt.int(cap)) agents in this team: the organisation's \(Fmt.int(Progression.orgAgentCap))-agent limit until Hyperscaler.").font(.caption2).foregroundStyle(.secondary) }
+                Picker("Model", selection: $modelChoice) {
+                    ForEach(s.models.filter { !$0.retired || $0.id == sw.modelID }.sorted { Swarms.agenticX($0) > Swarms.agenticX($1) }) { m in
+                        Text("\(m.name)\(m.retired ? " (retired)" : "") · \(Swarms.tier(Swarms.quality(m, s)))").tag(UUID?.some(m.id))
+                    }
+                }
+                Picker("Hardware", selection: Binding(get: { accelID }, set: { id in
+                    accelChoice = id
+                    let m = s.models.first { $0.id == (modelChoice ?? sw.modelID) }
+                    let free = store.derived.free(id) + (sw.paused || id != sw.accelID ? 0 : sw.chips)
+                    chips = max(1, min(free, m.map { Swarms.chipsNeeded($0, accelID: id, agents: agents, s, store.derived.bonuses) } ?? free))
+                })) {
+                    if store.derived.pools.allSatisfy({ $0.accel.id != sw.accelID }) { Text("\(accel?.name ?? sw.accelID) — none left").tag(sw.accelID) }
+                    ForEach(store.derived.pools) { p in Text("\(p.accel.name) — \(Fmt.int(p.free + (p.accel.id == sw.accelID && !sw.paused ? sw.chips : 0))) for this team").tag(p.accel.id) }
                 }
                 HStack {
-                    QuantityPicker(value: $chips, range: 1...max(1, store.derived.free(sw.accelID) + (sw.paused ? 0 : sw.chips)))
+                    QuantityPicker(value: Binding(get: { clamp(chips, 1, max(1, maxChips)) }, set: { chips = $0 }), range: 1...max(1, maxChips))
                     Button("Apply") {
-                        store.act("Team resized") { $0.tuneOrgTeam(sw.id, agents: Int(pow(10, agentsLog).rounded()), chips: chips) }
+                        let n = clamp(chips, 1, max(1, maxChips))
+                        store.act("Team resized") { $0.tuneOrgTeam(sw.id, agents: agents, chips: n, modelID: modelChoice, accelID: accelID) }
                         editing = false
                     }
                     .buttonStyle(.borderedProminent)
                 }
                 .controlSize(.small)
-                if let m = model {
-                    let need = Swarms.chipsNeeded(m, accelID: sw.accelID, agents: Int(pow(10, agentsLog).rounded()), s, store.derived.bonuses)
+                if let m = s.models.first(where: { $0.id == (modelChoice ?? sw.modelID) }) {
+                    let need = Swarms.chipsNeeded(m, accelID: accelID, agents: agents, s, store.derived.bonuses)
                     Text("\(Fmt.int(need)) chips run that many agents.").font(.caption2).foregroundStyle(.secondary)
                 }
             }
@@ -861,7 +946,9 @@ private struct AddTeamPanel: View {
         let s = state
         let b = store.derived.bonuses
         let models = s.models.filter { !$0.retired }.sorted { Swarms.agenticX($0) > Swarms.agenticX($1) }
-        let agents = Int(pow(10, agentsLog).rounded())
+        // 3.9: before Hyperscaler the organisation's agents are capped; the controls stay inside what's left.
+        let cap: Int? = Progression.blocker(s, .bigOrgs) == nil ? nil : max(0, Progression.orgAgentCap - Progression.orgAgents(s, o.id))
+        let agents = max(1, min(Int(pow(10, agentsLog).rounded()), cap ?? .max))
         HStack(alignment: .top, spacing: 18) {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
@@ -882,7 +969,7 @@ private struct AddTeamPanel: View {
                     }
                 }
                 if let m = models.first(where: { $0.id == modelID }) { AgentProfile(model: m, state: s, kind: o.kind) }
-                TeamSizeControls(state: s, agentsLog: $agentsLog, accelID: $accelID, chips: $chips)
+                TeamSizeControls(state: s, model: models.first { $0.id == modelID }, maxAgents: cap, agentsLog: $agentsLog, accelID: $accelID, chips: $chips)
             }
             .frame(maxWidth: .infinity)
             VStack(alignment: .leading, spacing: 8) {
@@ -893,6 +980,7 @@ private struct AddTeamPanel: View {
                     SpecRow(label: "Output", value: "\(Fmt.count(f.before.workforce)) → \(Fmt.count(f.after.workforce)) r-eq")
                     SpecRow(label: "Right first time", value: "\(Fmt.pct(f.before.accuracy, decimals: 1)) → \(Fmt.pct(f.after.accuracy, decimals: 1))")
                     SpecRow(label: "Supervision", value: "\(Fmt.pct(f.before.supervision, decimals: 0)) → \(Fmt.pct(f.after.supervision, decimals: 0))")
+                    if o.kind == .xeno { XenoForecast(model: m, workforce: f.after.workforce * (f.after.shares.first ?? 1), gate: f.after.gate, state: s) }
                     SpecRow(label: "Chips for \(Fmt.int(agents)) agents", value: Fmt.int(Swarms.chipsNeeded(m, accelID: accelID, agents: agents, s, b)))
                     Button {
                         store.act("Team added") { $0.addOrgTeam(o.id, role: role, name: name, modelID: m.id, accelID: accelID, chips: chips, agents: agents) }
@@ -912,9 +1000,12 @@ private struct AddTeamPanel: View {
         .onAppear {
             if modelID == nil { modelID = models.first?.id }
             let d = store.derived
+            if let cap = Progression.blocker(s, .bigOrgs) == nil ? nil : max(1, Progression.orgAgentCap - Progression.orgAgents(s, o.id)), pow(10, agentsLog) > Double(cap) {
+                agentsLog = log10(Double(cap))
+            }
             if accelID.isEmpty, let p = d.pools.max(by: { Double($0.free) * $0.accel.best < Double($1.free) * $1.accel.best }) {
                 accelID = p.accel.id
-                chips = max(1, p.free)
+                chips = TeamSizeControls.fit(models.first { $0.id == modelID }, accelID: p.accel.id, agents: Int(pow(10, agentsLog).rounded()), s, d)
             }
         }
     }
@@ -962,6 +1053,7 @@ private struct SwarmCard: View {
     @State private var autonomy = 1
     @State private var oversight = 0.1
     @State private var modelChoice: UUID?
+    @State private var accelChoice = ""
     @State private var confirmDisband = false
 
     var body: some View {
@@ -970,6 +1062,9 @@ private struct SwarmCard: View {
         let model = s.models.first { $0.id == sw.modelID }
         let accel = HardwareCatalog.get(sw.accelID)
         let align = sw.alignmentMeasured
+        // 3.9: the swarm can move to other hardware; chips are counted on the chosen pool.
+        let accelID = accelChoice.isEmpty ? sw.accelID : accelChoice
+        let maxChips = store.derived.free(accelID) + (sw.paused || accelID != sw.accelID ? 0 : sw.chips)
         Card {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 6) {
@@ -988,6 +1083,9 @@ private struct SwarmCard: View {
                     }
                     if model?.retired ?? true {
                         Text("\(model?.name ?? "Its model") is retired, so this swarm can't run. It moves to a live model on its own when one fits; or retune it onto one, or bring \(model?.name ?? "the model") back on Models.")
+                            .font(.caption).foregroundStyle(.orange)
+                    } else if sw.paused && (sw.chips < 1 || store.derived.free(sw.accelID) < sw.chips) {
+                        Text("It needs \(Fmt.int(sw.chips)) \(accel?.name ?? "chips") and \(Fmt.int(store.derived.free(sw.accelID))) are free, so it can't resume. Retune it onto chips you have; it restarts when you apply.")
                             .font(.caption).foregroundStyle(.orange)
                     }
                     Text("\(model?.name ?? "?") · \(Fmt.int(sw.chips))× \(accel?.name ?? "?") · oversight \(Int(sw.oversight * 100))% · since \(sw.started.gameShort)")
@@ -1012,6 +1110,8 @@ private struct SwarmCard: View {
                             autonomy = sw.autonomy
                             oversight = sw.oversight
                             modelChoice = sw.modelID
+                            accelChoice = sw.accelID
+                            chips = min(sw.chips, max(1, store.derived.free(sw.accelID) + (sw.paused ? 0 : sw.chips)))
                         }
                         editing.toggle()
                     }
@@ -1033,7 +1133,17 @@ private struct SwarmCard: View {
                         Slider(value: $agentsLog, in: 1...9)
                         Text(Fmt.int(Int(pow(10, agentsLog).rounded()))).font(.callout.monospacedDigit()).frame(width: 120, alignment: .trailing)
                         Text("Chips")
-                        QuantityPicker(value: $chips, range: 1...max(1, store.derived.free(sw.accelID) + (sw.paused ? 0 : sw.chips)))
+                        QuantityPicker(value: Binding(get: { clamp(chips, 1, max(1, maxChips)) }, set: { chips = $0 }), range: 1...max(1, maxChips))
+                        Picker("on", selection: Binding(get: { accelID }, set: { id in
+                            accelChoice = id
+                            let m = s.models.first { $0.id == (modelChoice ?? sw.modelID) }
+                            let free = store.derived.free(id) + (sw.paused || id != sw.accelID ? 0 : sw.chips)
+                            chips = max(1, min(free, m.map { Swarms.chipsNeeded($0, accelID: id, agents: Int(pow(10, agentsLog).rounded()), s, store.derived.bonuses) } ?? free))
+                        })) {
+                            if store.derived.pools.allSatisfy({ $0.accel.id != sw.accelID }) { Text("\(accel?.name ?? sw.accelID) — none left").tag(sw.accelID) }
+                            ForEach(store.derived.pools) { p in Text("\(p.accel.name) — \(Fmt.int(p.free + (p.accel.id == sw.accelID && !sw.paused ? sw.chips : 0))) for this swarm").tag(p.accel.id) }
+                        }
+                        .frame(width: 280)
                     }
                     HStack {
                         Picker("Mission", selection: $mission) {
@@ -1051,8 +1161,8 @@ private struct SwarmCard: View {
                         Spacer()
                         Button("Apply") {
                             store.act("Swarm retuned") {
-                                $0.tuneSwarm(sw.id, agents: Int(pow(10, agentsLog).rounded()), chips: chips, mission: mission, autonomy: autonomy, oversight: oversight,
-                                             modelID: modelChoice)
+                                $0.tuneSwarm(sw.id, agents: Int(pow(10, agentsLog).rounded()), chips: clamp(chips, 1, max(1, maxChips)), mission: mission, autonomy: autonomy, oversight: oversight,
+                                             modelID: modelChoice, accelID: accelID)
                             }
                             editing = false
                         }

@@ -800,7 +800,10 @@ extension GameState {
         guard let oi = orgs.firstIndex(where: { $0.id == orgID }) else { return "Not found." }
         let o = orgs[oi]
         if swarms.filter({ $0.orgID == orgID }).count >= AgentOrgs.maxTeams { return "An organisation has at most \(AgentOrgs.maxTeams) teams." }
-        if Progression.orgAgents(self, orgID) + agents > Progression.orgAgentCap, let why = Progression.blocker(self, .bigOrgs) { return why }   // 3.8: Hyperscaler
+        if Progression.orgAgents(self, orgID) + agents > Progression.orgAgentCap, let why = Progression.blocker(self, .bigOrgs) {   // 3.8: Hyperscaler
+            let room = max(0, Progression.orgAgentCap - Progression.orgAgents(self, orgID))
+            return "\(why) " + (room > 0 ? "This organisation has room for \(Fmt.int(room)) more agents." : "This organisation is full.")
+        }
         let modelName = models.first { $0.id == modelID }?.name ?? "Agent"
         let trimmed = name.trimmingCharacters(in: .whitespaces)
         let teamName = trimmed.isEmpty ? "\(modelName) \(role.title.lowercased())" : trimmed
@@ -868,11 +871,14 @@ extension GameState {
         return nil
     }
 
-    mutating func tuneOrgTeam(_ id: UUID, agents: Int, chips: Int) -> String? {
+    /// 3.9: a team can move to another model or other hardware (a team whose chips are gone could never run again).
+    mutating func tuneOrgTeam(_ id: UUID, agents: Int, chips: Int, modelID: UUID? = nil, accelID: String? = nil) -> String? {
         guard let sw = swarms.first(where: { $0.id == id }) else { return "Not found." }
         if let org = sw.orgID, agents > sw.agents, Progression.orgAgents(self, org) - sw.agents + agents > Progression.orgAgentCap,
-           let why = Progression.blocker(self, .bigOrgs) { return why }   // 3.8: Hyperscaler
-        return tuneSwarm(id, agents: agents, chips: chips, mission: sw.mission, autonomy: sw.autonomy, oversight: sw.oversight)
+           let why = Progression.blocker(self, .bigOrgs) {   // 3.8: Hyperscaler
+            return "\(why) This organisation has room for \(Fmt.int(max(0, Progression.orgAgentCap - Progression.orgAgents(self, org) + sw.agents))) agents in this team."
+        }
+        return tuneSwarm(id, agents: agents, chips: chips, mission: sw.mission, autonomy: sw.autonomy, oversight: sw.oversight, modelID: modelID, accelID: accelID)
     }
 
     mutating func setOrgPaused(_ id: UUID, _ paused: Bool) -> String? {
