@@ -149,6 +149,10 @@ enum Briefing {
                 break
             }
             if ["API", "Chat subscriptions", "Agent seats", "Enterprise contracts"].contains(st.name) {
+                // Nothing on sale is the biggest cause you control.
+                if st.delta < 0 && cur.bestC == 0 && prev.bestC > 0 {
+                    causes.insert("no model was on sale at month end", at: 0)
+                }
                 // Turning users away is the cause you control: name it first.
                 if st.delta < 0 && (cur.served < 0.85 || (cur.served < 0.95 && cur.served < prev.served - 0.03)) {
                     causes.insert("you served only \(Fmt.pct(cur.served, decimals: 0)) of demand", at: 0)
@@ -196,6 +200,9 @@ enum Briefing {
         let runway: Double? = burn > 0 ? max(0, s.cash) / burn : nil
         if let r = runway, r < 9 {
             risks.append(BriefingLine(text: "\(Fmt.trim(r, 1)) months of cash at last month's burn (\(Fmt.money(burn))/month).", good: false, screen: Screen.funding.rawValue))
+        }
+        if cur.bestC == 0 && s.models.contains(where: \.released) {
+            risks.insert(BriefingLine(text: "No model is on sale, so revenue is heading to zero. Bring one back on the Models page.", good: false, screen: Screen.models.rawValue), at: 0)
         }
         if cur.served < 0.9 {
             risks.append(BriefingLine(text: "You turned away \(Fmt.pct(1 - cur.served, decimals: 0)) of demand. Unserved users churn and reliability falls.",

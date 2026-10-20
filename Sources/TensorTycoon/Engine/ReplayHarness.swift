@@ -49,6 +49,14 @@ enum ReplayHarness {
             }
             // train:<n> lists "Plan my next model" proposals and starts the n-th (0 = strongest).
             if t.hasPrefix("train:") { pending.append(String(t.dropFirst(6))); continue }
+            // fix:<advisor id prefix> applies that Chief of Staff item's one-click fix (3.9).
+            if t.hasPrefix("fix:") {
+                let id = String(t.dropFirst(4))
+                if let item = Advisor.items(s, pools: Economy.pools(s)).first(where: { $0.id.hasPrefix(id) }), let fix = item.fix {
+                    print("fix \(item.id): \(item.fixLabel) -> \(Advisor.apply(&s, fix) ?? "ok")")
+                } else { print("no fixable advisor item \(id)") }
+                continue
+            }
             if t == "ops:autoscale" { s.ops.autoscale = true; continue }
             if t.hasPrefix("ops:") {
                 // ops:all, ops:recommended, ops:<delegate> (autoscale, autoLaunch, autoRenew, leaseIdle, autoHire, autoRaises, autoLeads, autoTrain)
@@ -159,6 +167,9 @@ enum ReplayHarness {
         }
         let q = Corporate.quotes(s).map { "\($0.kind.rawValue) max \(Fmt.money($0.max))" }.joined(separator: ", ")
         print("    borrowing: \(q) · safe EBITDA \(Fmt.money(Corporate.safeEbitda(s))) · LTM \(Fmt.money(Corporate.ebitdaAnnual(s)))")
+        if ProcessInfo.processInfo.environment["REPLAY_ADVISOR"] != nil {
+            for i in Advisor.items(s, pools: pools) { print("    ADVISOR[\(i.level)] \(i.title) — \(i.detail)\(i.fix == nil ? "" : "  [\(i.fixLabel)]")") }
+        }
         for a in s.alerts where a.date == s.date { print("    ALERT\(a.critical ? "!" : ""): \(a.title) — \(a.body)") }
         for n in s.news.prefix(12) where n.date == s.date && (n.title.hasPrefix("Inbox:") || n.title.contains("ovenant") || n.title.contains("enalty")) {
             print("    NEWS: \(n.title) — \(n.body)")

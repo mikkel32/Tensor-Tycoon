@@ -28,6 +28,12 @@ enum AdvisorFix: Hashable {
     case fabShare(UUID, Double)
     /// 3.8: put all of a chip design's bins on sale.
     case chipsOnSale(UUID)
+    /// 3.9: bring a retired model back on sale.
+    case unretire(UUID)
+    /// 3.9: put idle chips on experiments up to the full research boost.
+    case fillResearch
+    /// 3.9: end a month-to-month rental whose chips sit idle.
+    case cancelRental(UUID)
 }
 
 /// Your chief of staff: a short, prioritised list of things that need your attention right now, most with a fix.
@@ -81,6 +87,14 @@ enum Advisor {
                 fix: .openDecision(d.id), "Answer")
         }
 
+        // 3.9: nothing on sale. Every other revenue line hangs off a live model, so this outranks the rest.
+        let liveModels = s.models.filter { $0.released && !$0.retired }
+        if liveModels.isEmpty, let back = s.models.filter({ $0.released && $0.retired }).max(by: { $0.index < $1.index }) {
+            add("no-live-model", .urgent, "exclamationmark.octagon.fill", "No model is on sale",
+                "Every model you released is retired, so API, chat, agents and contracts earn nothing and paused swarms have nothing to run. \(back.name) is your best.", .models,
+                fix: .unretire(back.id), "Bring back \(back.name)")
+        }
+
         // Training
         for r in s.runs where r.status == .paused && s.decisions.allSatisfy({ $0.ref != r.id.uuidString }) {
             let free = Economy.freeChips(s, r.design.accelID)
@@ -131,6 +145,12 @@ enum Advisor {
                 fix: fix.map { .deploy(model: m.id, accel: $0.0, chips: $0.1) },
                 fix.map { "Deploy \(Fmt.int($0.1)) chips (\(Fmt.count($0.2)) tokens/day)" } ?? "")
         }
+        for m in released.filter({ $0.api && $0.deployments.isEmpty && $0.demandTokensDay > 0 && $0.id != released.max(by: { $0.c < $1.c })?.id }).prefix(2) {
+            let fix = deployFix(s, m, pools: pools, target: 2)
+            add("deploy-\(m.id)", .info, "cube.box.fill", "\(m.name) has no servers", "\(Fmt.count(m.demandTokensDay)) tokens a day of demand go unserved.", .models,
+                fix: fix.map { .deploy(model: m.id, accel: $0.0, chips: $0.1) },
+                fix.map { "Deploy \(Fmt.int($0.1)) chips (\(Fmt.count($0.2)) tokens/day)" } ?? "")
+        }
         if let m = s.models.filter({ $0.capacityTokensDay > 0 && $0.demandTokensDay > $0.capacityTokensDay * 1.15 }).max(by: { $0.demandTokensDay < $1.demandTokensDay }) {
             let fix = growFix(s, m)
             add("capacity-\(m.id)", .warning, "flame.fill", "\(m.name) is over capacity", "Demand is \(Int(m.demandTokensDay / m.capacityTokensDay * 100))% of capacity; users are churning.", .models,
@@ -171,8 +191,10 @@ enum Advisor {
             let biggest = pools.filter { $0.owned > 0 }.max { spare($0) < spare($1) }
             let leasable = biggest.map { min(spare($0), $0.owned - (s.leases[$0.accel.id] ?? 0)) } ?? 0
             if let p = biggest, leasable >= 64 {
-                add("idle", .warning, "cpu", "\(Fmt.int(idle)) accelerators idle", "Train, serve, run agents — or lease them out.", .compute,
-                    fix: .lease(accel: p.accel.id, chips: (s.leases[p.accel.id] ?? 0) + leasable), "Lease \(Fmt.int(leasable)) \(p.accel.name)")
+                let perMonth = ChipBusiness.leaseIncomePerDay(p.accel, count: leasable, s) * 30.4
+                add("idle", .warning, "cpu", "\(Fmt.int(idle)) accelerators idle",
+                    "They earn nothing. Train, serve, run agents — or lease them out (\(Fmt.int(leasable)) \(p.accel.name) would bring about \(Fmt.money(perMonth)) a month).", .compute,
+                    fix: .lease(accel: p.accel.id, chips: (s.leases[p.accel.id] ?? 0) + leasable), "Lease \(Fmt.int(leasable)) \(p.accel.name) (~\(Fmt.money(perMonth))/mo)")
             } else {
                 add("idle", .warning, "cpu", "\(Fmt.int(idle)) accelerators idle", "Train, serve, run agents — or lease them out.", .compute)
             }
@@ -195,6 +217,53 @@ enum Advisor {
             let name = HardwareCatalog.get(r.accelID)?.name ?? r.accelID
             add("rental-\(r.id)", .warning, "clock.badge.exclamationmark", "\(Fmt.int(r.count))× \(name) reservation ends \(end.gameShort)",
                 "When it ends, those chips leave your fleet and whatever runs on them gets cut back.", .compute, fix: .renewRental(r.id), "Renew it")
+        }
+
+        // 3.9: research runs on chips you assign; below the cap every petaflop speeds every project.
+        let havePF = Sim.researchPF(s.researchChips)
+        if (!s.researchQueue.isEmpty || s.autoResearch), havePF < Sim.researchComputeCapPF * 0.9, pools.contains(where: { $0.free > 0 && $0.accel.bf16 > 0 }) {
+            var probe = s
+            let n = probe.assignResearchChipsForCap()
+            if n > 0 {
+                let onNow = s.researchChips.values.reduce(0, +)
+                add("research-chips", .warning, "flask.fill", "Research has \(onNow == 0 ? "no chips" : "only \(Fmt.int(onNow)) chips") working",
+                    "Experiments run at \(Fmt.trim(s.rpToday, 0)) RP/day. Researchers get faster with compute up to \(Fmt.int(onNow + n)) chips, and you have them idle.", .research,
+                    fix: .fillResearch, "Put \(Fmt.int(n)) idle chips on research")
+            }
+        }
+        // 3.9: chips bought for a site that isn't open yet earn and train nothing.
+        let waiting = Economy.waitingChips(s)
+        let waitingChips = waiting.reduce(0) { $0 + $1.count }
+        if waitingChips >= 1_000, let first = waiting.first {
+            let paid = s.owned.filter { b in s.sites.contains { $0.id == b.siteID && !$0.isReady(s.date) } }.reduce(0) { $0 + Double($1.count) * $1.unitCost }
+            let days = GameCalendar.daysBetween(s.date, first.site.ready)
+            add("waiting-chips", days > 90 ? .warning : .info, "shippingbox.fill", "\(Fmt.int(waitingChips)) chips are waiting for a datacenter",
+                "\(Fmt.money(paid)) of hardware sits at sites that aren't open; the first, \(first.site.name), opens \(first.site.ready.gameShort) (\(Agenda.daysText(days))). Until then they do no work.", .datacenters)
+        }
+        // 3.9: paying for rented chips nobody uses.
+        for r in s.rentals {
+            guard let p = pools.first(where: { $0.accel.id == r.accelID }), p.free >= r.count, p.rented >= r.count else { continue }
+            let monthly = r.hourly * 24 * 30.4 * Double(r.count)
+            guard monthly >= 20_000 else { continue }
+            let name = p.accel.name
+            if r.end == nil {
+                add("idle-rental-\(r.id)", .warning, "creditcard.trianglebadge.exclamationmark", "\(Fmt.int(r.count))× \(name) rented and idle",
+                    "You pay \(Fmt.money(monthly)) a month for chips that run nothing.", .compute, fix: .cancelRental(r.id), "Cancel it (saves \(Fmt.money(monthly))/mo)")
+            } else if let end = r.end {
+                add("idle-rental-\(r.id)", .info, "creditcard.trianglebadge.exclamationmark", "\(Fmt.int(r.count))× \(name) reserved and idle",
+                    "\(Fmt.money(monthly)) a month until \(end.gameShort). Put them to work, or let the reservation lapse.", .compute)
+            }
+        }
+        // 3.9: a leased block's rent climbs with every tranche handed over.
+        if let site = s.sites.filter({ $0.isTermLease && $0.rampKW > 0 }).max(by: { $0.rampKW * $0.leaseRate < $1.rampKW * $1.leaseRate }) {
+            let nowFee = site.isReady(s.date) ? site.leaseRate * site.capacityKW : 0
+            let full = site.leaseRate * (site.capacityKW + site.rampKW)
+            let lastRev = s.history.last?.revenue ?? 0
+            if full - nowFee >= 1_000_000 {
+                add("rent-ramp-\(site.id)", full > max(lastRev * 0.25, 1) ? .warning : .info, "chart.line.uptrend.xyaxis",
+                    "\(site.name): rent will reach \(Fmt.money(full))/mo",
+                    "\(Fmt.money(nowFee))/mo now; \(Fmt.watts(site.rampKW * 1000)) more is handed over\(site.nextRamp.map { ", next tranche \($0.gameShort)" } ?? ""). That is \(lastRev > 0 ? "\(Fmt.pct(full / lastRev, decimals: 0)) of last month's revenue" : "a lot with no revenue") (\(site.rampDeferrals) tranche\(site.rampDeferrals == 1 ? "" : "s") deferred so far).", .datacenters)
+            }
         }
 
         // The industry
@@ -383,6 +452,13 @@ enum Advisor {
             return s.leaseCapacity(locationID: loc, mw: mw, years: years, cooling: s.year >= 2023 ? .liquid : .air)
         case .openDecision:
             return nil
+        case .unretire(let id):
+            s.unretire(id)
+            return nil
+        case .fillResearch:
+            return s.assignResearchChipsForCap() > 0 ? nil : "No idle chips to assign."
+        case .cancelRental(let id):
+            return s.cancelRental(id)
         case .fabShare(let id, let share):
             guard s.semi.fabs.contains(where: { $0.id == id }) else { return "That fab is gone." }
             s.setFabShare(id, share: share)
