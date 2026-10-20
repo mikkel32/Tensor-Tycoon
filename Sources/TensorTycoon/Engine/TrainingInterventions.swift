@@ -49,7 +49,7 @@ enum TrainingInterventions {
     /// full eval suite and held-out analysis instead of training) plus the engineers' time.
     static func diagnoseCost(_ s: GameState, _ run: TrainingRun) -> (flops: Double, money: Double) {
         let perDay = Training.dailyFlops(run, state: s)
-        let chipDay = HardwareCatalog.get(run.design.accelID).map { Economy.chipDailyCost($0, count: run.design.chips, state: s) } ?? 0
+        let chipDay = Physics.dailyChipCost(run.design, state: s)   // 3.9: every chip group, helpers too
         return (perDay * 0.25, max(25_000, chipDay * 0.1))
     }
 
@@ -259,10 +259,11 @@ enum TrainingInterventions {
         let now = idx(c, "stop")
         let sd = max(run.revealSigma, 0.01)
         let planned = Training.projectedIndex(s, run).0
-        let perDay = Training.dailyFlops(run, state: s) * Sim.checkpointOverhead(run.interval)
+        // 3.9: the same pace and bill as the run's own ETA (goodput, stragglers, LR speed; every chip group).
+        let perDay = Training.expectedFlopsPerDay(run, state: s)
         let left = max(0, run.flopsTotal - run.flopsDone)
         let days = perDay > 0 ? left / perDay : .infinity
-        let chipDay = HardwareCatalog.get(run.design.accelID).map { Economy.chipDailyCost($0, count: run.design.chips, state: s) } ?? 0
+        let chipDay = Physics.dailyChipCost(run.design, state: s)
         _ = fc
         return StopPreview(indexNow: now, indexPlanned: planned, indexLow: idx(c - 1.28 * sd, "stopl"), indexHigh: idx(c + 1.28 * sd, "stoph"),
                            c: c, sigma: sd, daysLeft: days, costLeft: days.isFinite ? days * chipDay : .infinity,
@@ -280,9 +281,9 @@ enum TrainingInterventions {
         let extra = (run.dReasoning, run.dCode, run.dChat, run.dSafety, run.dLang)
         let index = ForecastEngine.index(ForecastEngine.profile(f, design: longer, key: "extend", c: f.c + run.revealMean + known, extra: extra),
                                          set: Leaderboard.indexSet(s))
-        let perDay = Training.dailyFlops(run, state: s) * Sim.checkpointOverhead(run.interval)
+        let perDay = Training.expectedFlopsPerDay(run, state: s)   // 3.9: as the run's ETA, not the raw peak
         let days = perDay > 0 ? run.flopsTotal * x * (wsd ? 1 : 1.02) / perDay : .infinity
-        let chipDay = HardwareCatalog.get(run.design.accelID).map { Economy.chipDailyCost($0, count: run.design.chips, state: s) } ?? 0
+        let chipDay = Physics.dailyChipCost(run.design, state: s)
         return (index, days, days.isFinite ? days * chipDay : .infinity)
     }
 

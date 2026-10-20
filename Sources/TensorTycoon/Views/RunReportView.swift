@@ -433,11 +433,12 @@ struct RunReportSheet: View {
                         .help("Publish the weights too: brand with developers, but anyone can serve it.")
                     Button("Keep private") { close() }
                     Button {
-                        releaseAndDeploy(model, run)
+                        releaseAndDeploy(model)
                     } label: {
                         Label("Release & deploy", systemImage: "paperplane.fill")
                     }
                     .buttonStyle(.borderedProminent)
+                    .help("Release it with an API and give it servers (as much capacity as your best live model has, in whole replicas on idle chips). Chat, agents and contracts move to it when it beats what they run on.")
                     .keyboardShortcut(.defaultAction)
                 } else {
                     Button("Done") { close() }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
@@ -454,16 +455,21 @@ struct RunReportSheet: View {
         store.reportRunID = nil
     }
 
-    /// Release with an API in the chosen launch style and put every idle chip of the training hardware behind it.
-    private func releaseAndDeploy(_ m: AIModel, _ run: TrainingRun) {
+    /// Release with an API in the chosen launch style and launch it as the Models screen does: servers in whole replicas
+    /// (3.9: it used to put raw idle chips behind it, a partial replica serves nothing) and products moved onto it.
+    /// Nothing changes when no replica fits.
+    private func releaseAndDeploy(_ m: AIModel) {
         let plan = launchPlan ?? store.game.launchDefault
         let open = openWeights
         let ok = store.act("\(m.name) is live") { st in
-            if let e = st.release(m.id, api: true, openWeights: open, plan: plan) { return e }
-            let free = Economy.freeChips(st, run.design.accelID)
-            if free > 0 { _ = st.deploy(m.id, accelID: run.design.accelID, chips: free) }
-            if st.chatModelID == nil && m.design.instruct { st.chatModelID = m.id }
-            return nil
+            st.undoingOnError { st in
+                if let e = st.release(m.id, api: true, openWeights: open, plan: plan) { return e }
+                if let e = st.launch(m.id, plan: plan) { return e }
+                guard let live = st.models.first(where: { $0.id == m.id }), live.deployments.isEmpty else { return nil }
+                let per = HardwareCatalog.get(m.design.accelID).map { Physics.chipsPerReplica(m, accel: $0, precision: m.servingPrecision, bonuses: st.bonuses) } ?? 0
+                return "No idle chips fit a replica of \(m.name)" + (per > 0 ? " (one needs \(Fmt.int(per)) \(HardwareCatalog.get(m.design.accelID)?.name ?? "chips"))" : "")
+                    + ". Free or rent some, or keep it private and release it from Models & Serving later."
+            }
         }
         if ok { close() }
     }

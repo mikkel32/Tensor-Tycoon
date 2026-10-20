@@ -218,6 +218,7 @@ struct ModelLabView: View {
         }
         design.name = nextName(design.name)
         if design.generation > 0 { design.generation += 1 }
+        design.helpers = []   // 3.9: those chips are now busy; the next design starts on one chip type
         store.open(.training)
     }
 
@@ -293,6 +294,7 @@ struct ModelLabView: View {
         let b = store.derived.bonuses
         design.mode = .scratch
         design.baseModelRef = nil
+        design.helpers = []   // 3.9: a recipe is a one-chip-type run; a whole-fleet plan's helper groups don't carry over
         design.activeFraction = 1
         design.reasoning = false
         design.toolUse = false
@@ -308,32 +310,32 @@ struct ModelLabView: View {
         var note: String? = nil
         switch r {
         case .quick:
-            design.chips = max(1, store.derived.free(design.accelID) / 10)
+            design.chips = max(1, usable(design.accelID) / 10)
             lr = .aggressive
             interval = 0.25
             note = autoSize(s, days: 7, overtrain: 1)
         case .optimal:
-            design.chips = max(1, store.derived.free(design.accelID))
+            design.chips = max(1, usable(design.accelID))
             bestRecipe(b)
             design.mtp = false
             lr = .standard
             interval = 0.1
             note = autoSize(s, days: 30, overtrain: 1)
         case .overtrained:
-            design.chips = max(1, store.derived.free(design.accelID))
+            design.chips = max(1, usable(design.accelID))
             bestRecipe(b)
             lr = .standard
             interval = 0.1
             note = autoSize(s, days: 30, overtrain: 8)
         case .moe:
-            design.chips = max(1, store.derived.free(design.accelID))
+            design.chips = max(1, usable(design.accelID))
             bestRecipe(b)
             design.activeFraction = b.has(.fineMoE) ? 1.0 / 32 : 1.0 / 16
             lr = .standard
             interval = 0.05
             note = autoSize(s, days: 30, overtrain: 2)
         case .reasoning:
-            design.chips = max(1, store.derived.free(design.accelID))
+            design.chips = max(1, usable(design.accelID))
             bestRecipe(b)
             design.reasoning = b.has(.reasoning)
             design.rlLevel = b.has(.extremeRL) ? .heavy : .standard
@@ -348,7 +350,7 @@ struct ModelLabView: View {
             interval = 0.05
             note = autoSize(s, days: 35, overtrain: 2)
         case .finetune:
-            design.chips = max(1, store.derived.free(design.accelID))
+            design.chips = max(1, usable(design.accelID))
             guard pickFinetuneBase(s) else {
                 store.show("No open model fits your cluster's memory. Rent bigger chips or research model parallelism.", error: true)
                 return
@@ -657,21 +659,30 @@ struct ModelLabView: View {
                 CardHeader(title: "Cluster", symbol: "cpu") {
                     Button("Get more compute") { store.open(.hardware) }.buttonStyle(.link)
                 }
-                Picker("Accelerator", selection: $design.accelID) {
-                    ForEach(d.pools) { p in
-                        Text("\(p.accel.name) — \(p.free) free of \(p.total)").tag(p.accel.id)
-                    }
-                }
-                .onChange(of: design.accelID) { _, new in
-                    design.chips = max(1, store.derived.free(new))
+                // 3.9: only the player's own pick resets the size (copying in a plan keeps the plan's chips), and it
+                // drops a whole-fleet plan's helper groups. Leased-out chips count: starting recalls them.
+                Picker("Accelerator", selection: Binding(get: { design.accelID }, set: { new in
+                    design.accelID = new
+                    design.chips = max(1, usable(new))
+                    design.helpers = []
                     fixPrecision(s)
+                })) {
+                    ForEach(d.pools) { p in
+                        let leased = s.leases[p.accel.id] ?? 0
+                        Text("\(p.accel.name) — \(p.free) free of \(p.total)\(leased > 0 ? ", \(Fmt.int(leased)) leased out" : "")").tag(p.accel.id)
+                    }
                 }
                 let free = d.free(design.accelID)
                 HStack {
                     Text("Chips")
                     Spacer()
-                    QuantityPicker(value: $design.chips, range: 1...max(1, free))
+                    QuantityPicker(value: $design.chips, range: 1...max(1, usable(design.accelID)))
                 }
+                if design.chips > free {
+                    Text("Starting recalls \(Fmt.int(design.chips - free)) leased-out chips: their lease income stops.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                helperRows(s)
                 if let a = HardwareCatalog.get(design.accelID) {
                     Text("\(Fmt.tflops(a.trainTFLOPS(design.precision))) \(design.precision.short) per chip · \(Fmt.memory(a.memoryGB)) \(a.memoryType) · scale-up domain \(a.scaleUp)")
                         .font(.caption).foregroundStyle(.secondary)
@@ -683,12 +694,39 @@ struct ModelLabView: View {
 
     // MARK: Helpers
 
+    /// 3.9: chips of a type a run can start on: idle plus leased out (starting recalls the leases, as the planner assumes).
+    private func usable(_ accelID: String) -> Int {
+        store.derived.free(accelID) + (store.game.leases[accelID] ?? 0)
+    }
+
+    /// 3.9: a whole-fleet plan's helper groups, shown so they can be checked and dropped.
+    @ViewBuilder
+    private func helperRows(_ s: GameState) -> some View {
+        if !design.helpers.isEmpty {
+            ForEach(design.helpers, id: \.accelID) { h in
+                let name = HardwareCatalog.get(h.accelID)?.name ?? h.accelID
+                let have = usable(h.accelID)
+                HStack {
+                    Text("+ \(Fmt.int(h.chips))× \(name) helper group").font(.callout)
+                    if h.chips > have {
+                        Text("only \(Fmt.int(have)) free").font(.caption).foregroundStyle(.orange)
+                    }
+                    Spacer()
+                    Button("Remove") { design.helpers.removeAll { $0.accelID == h.accelID } }.buttonStyle(.link)
+                }
+            }
+            Text("Helper groups train beside the lead chips, each at its own speed (85% efficient together). Their chips fail, need ops agents, draw power and cost money like the lead's.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
     /// Ops staffing for this cluster: the coverage unpinned training-ops swarms would give it, and what that buys.
     private func opsCoverageRow(_ s: GameState) -> some View {
         let b = store.derived.bonuses
-        let cov = Training.plannedCoverage(s, chips: design.chips)
-        let now = Training.goodput(chips: design.chips, coverage: cov, state: s, bonuses: b)
-        let full = Training.goodput(chips: design.chips, coverage: 1, state: s, bonuses: b)
+        let chips = design.allChips   // 3.9: helper groups fail too
+        let cov = Training.plannedCoverage(s, chips: chips)
+        let now = Training.goodput(chips: chips, coverage: cov, state: s, bonuses: b, spares: design.spares)
+        let full = Training.goodput(chips: chips, coverage: 1, state: s, bonuses: b, spares: design.spares)
         return HStack(spacing: 8) {
             Image(systemName: "wrench.and.screwdriver.fill").foregroundStyle(cov >= 0.9 ? .green : (cov >= 0.5 ? .orange : .secondary))
             VStack(alignment: .leading, spacing: 1) {
@@ -704,9 +742,9 @@ struct ModelLabView: View {
 
     private func prepare(_ s: GameState, _ d: Derived) {
         let b = d.bonuses
-        if let best = d.pools.max(by: { Double($0.free) * $0.accel.bf16 < Double($1.free) * $1.accel.bf16 }) {
+        if let best = d.pools.max(by: { Double(usable($0.accel.id)) * $0.accel.bf16 < Double(usable($1.accel.id)) * $1.accel.bf16 }) {
             design.accelID = best.accel.id
-            design.chips = max(1, best.free)
+            design.chips = max(1, usable(best.accel.id))
         }
         design.name = nextName("\(s.companyName.split(separator: " ").first.map(String.init) ?? "Model")-\(s.models.count)")
         design.instruct = b.has(.chat)
@@ -824,8 +862,9 @@ struct ForecastPanel: View {
             let tier = ForecastEngine.tier(index: band.mean, top: top)
             let comparable = RealModels.closest(index: band.mean, set: set)
             let days = est.days
-            let advice = Training.goodputAdvice(chips: design.chips, coverage: est.coverage, running: false, state: s, bonuses: b)
+            let advice = Training.goodputAdvice(chips: design.allChips, coverage: est.coverage, running: false, state: s, bonuses: b)
             let blocked = advice?.blocked ?? false
+            let noBase = design.mode != .scratch && design.baseModelRef == nil   // 3.9: Start used to fail only after recalling leases
             VStack(alignment: .leading, spacing: 14) {
                 Card {
                     CardHeader(title: "Forecast", symbol: "sparkles", subtitle: known ? "Scaling-law prediction · 80% interval" : "Research Neural Scaling Laws for real forecasts") {
@@ -912,8 +951,8 @@ struct ForecastPanel: View {
                                   unit: "per 1M tokens at full load (going rate \(Fmt.price(Macro.frontierPrice(s.year))) at the frontier)")
                         BigNumber(label: "MFU · goodput", value: "\(Fmt.pct(est.mfu, decimals: 0)) · \(Fmt.pct(est.goodput, decimals: 0))", unit: "",
                                   tint: est.goodput < Training.goodputFloor ? .red : (est.goodput < Training.goodputTarget ? .orange : .primary))
-                        BigNumber(label: "Hardware failures", value: est.finishes ? Fmt.trim(Double(design.chips) * Training.failuresPerChipDay * days, 0)
-                                                                                  : Fmt.trim(Double(design.chips) * Training.failuresPerChipDay, 0),
+                        BigNumber(label: "Hardware failures", value: est.finishes ? Fmt.trim(Double(design.allChips) * Training.failuresPerChipDay * days, 0)
+                                                                                  : Fmt.trim(Double(design.allChips) * Training.failuresPerChipDay, 0),
                                   unit: est.finishes ? "expected (Llama 3 rates)" : "per day (Llama 3 rates)")
                     }
                     HStack(spacing: 8) {
@@ -937,8 +976,8 @@ struct ForecastPanel: View {
                             ForEach(adv.fixes, id: \.self) { fix in
                                 Label(fix, systemImage: "wrench.and.screwdriver").font(.caption).foregroundStyle(.secondary)
                             }
-                            if adv.healthyChips < design.chips {
-                                Button("Use \(Fmt.int(adv.healthyChips)) chips") { resize(adv.healthyChips) }
+                            if let n = TrainingExperience.leadChips(forTotal: adv.healthyChips, design) {
+                                Button("Use \(Fmt.int(n)) \(HardwareCatalog.get(design.accelID)?.name ?? "") chips") { resize(n) }
                                     .controlSize(.small)
                             }
                         }
@@ -966,7 +1005,11 @@ struct ForecastPanel: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
-                .disabled(!est.memory.ok || blocked)
+                .disabled(!est.memory.ok || blocked || noBase)
+                if noBase {
+                    Text(design.mode == .distill ? "Pick a teacher model above first." : "Pick a base model above first.")
+                        .font(.caption).foregroundStyle(.orange)
+                }
                 if blocked {
                     Text("Hardware failures would leave this run under \(Fmt.pct(Training.goodputFloor, decimals: 0)) goodput, so it can't start. Fix it with one of the options under Compute budget.")
                         .font(.caption).foregroundStyle(.red)
@@ -984,7 +1027,7 @@ struct ForecastPanel: View {
 
     private func clusterTF(_ est: Physics.Estimate) -> Double {
         guard let a = HardwareCatalog.get(design.accelID) else { return 0 }
-        return Double(design.chips) * a.trainTFLOPS(design.precision) * est.mfu
+        return Physics.throughputChips(design) * a.trainTFLOPS(design.precision) * est.mfu   // 3.9: helper groups add throughput
     }
 }
 

@@ -600,6 +600,13 @@ enum Training {
             * Physics.runMFU(run.design, accel: a, coverage: run.opsCoverage, state: s, bonuses: b) * 86_400
     }
 
+    /// 3.9: FLOPs a live run moves forward on an average day, as the daily step sees it: goodput (failures and
+    /// stragglers at its ops coverage and hot spares), checkpoint overhead and the learning-rate schedule's speed.
+    static func expectedFlopsPerDay(_ run: TrainingRun, state s: GameState) -> Double {
+        dailyFlops(run, state: s) * goodput(chips: run.design.allChips, coverage: run.opsCoverage, state: s, bonuses: s.bonuses, spares: run.design.spares)
+            * Sim.checkpointOverhead(run.interval) * run.schedule.speed
+    }
+
     static func poisson(_ lambda: Double, _ rng: inout GameRNG) -> Int {
         guard lambda > 0 else { return 0 }
         if lambda > 25 { return max(0, Int((lambda + rng.gaussian() * sqrt(lambda)).rounded())) }

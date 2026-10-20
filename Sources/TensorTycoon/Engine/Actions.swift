@@ -215,7 +215,12 @@ extension GameState {
 
     // MARK: Training
 
+    /// 3.9: a start that fails puts recalled leases back (`undoingOnError`).
     mutating func startTraining(_ d: ModelDesign, lr: LRSchedule = .standard, checkpointEvery: Double = 0.1, autoRollback: Bool = false) -> String? {
+        undoingOnError { $0.beginTraining(d, lr: lr, checkpointEvery: checkpointEvery, autoRollback: autoRollback) }
+    }
+
+    private mutating func beginTraining(_ d: ModelDesign, lr: LRSchedule, checkpointEvery: Double, autoRollback: Bool) -> String? {
         guard let a = HardwareCatalog.get(d.accelID) else { return "Pick hardware." }
         let b = bonuses
         if d.name.trimmingCharacters(in: .whitespaces).isEmpty { return "Name your model." }

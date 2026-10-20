@@ -131,6 +131,21 @@ enum Families {
         return (p.accel.id, p.free)
     }
 
+    /// 3.9: why the chosen chips can't run a job, in words: none free at all, a type that can't train, or no chips picked.
+    static func chipBlocker(_ s: GameState, accelID: String, chips: Int, days: Double) -> String? {
+        guard let a = HardwareCatalog.get(accelID), Economy.freeChips(s, accelID) + (s.leases[accelID] ?? 0) > 0 else {
+            return "No free chips: free some up on Compute Fleet, or buy or rent more."
+        }
+        if chips <= 0 { return "Pick how many \(a.name) chips the job uses." }
+        if !days.isFinite { return "\(a.name) can't train models: pick another chip type." }
+        return nil
+    }
+
+    /// "Only N free X chips." with the leased-out note, for every family job.
+    static func shortNote(_ s: GameState, _ accelID: String) -> String {
+        "Only \(Fmt.int(Economy.freeChips(s, accelID))) free \(HardwareCatalog.get(accelID)?.name ?? "chips of that type").\(s.leasedNote(accelID))"
+    }
+
     static func distillPlan(_ s: GameState, teacher t: AIModel, tier: FamilyTier, data: DistillData, accelID: String, chips: Int) -> DistillPlan {
         let b = s.bonuses
         let f = tier.sizeFraction
@@ -171,8 +186,7 @@ enum Families {
         if t.retired { blocker = "\(t.name) is retired." }
         else if t.preview { blocker = "Preview checkpoints can't teach: finish the run first." }
         else if activeB < 0.02 { blocker = "\(t.name) is too small to distil a \(tier.label) tier from." }
-        else if chips <= 0 { blocker = "Pick free chips for the job (Compute Fleet frees them up)." }
-        else if !days.isFinite { blocker = "Those chips can't run the job." }
+        else if let e = chipBlocker(s, accelID: accelID, chips: chips, days: days) { blocker = e }
         else if s.families.jobs.contains(where: { $0.kind == .distill && $0.modelID == t.id && $0.tier == tier.rawValue }) { blocker = "A \(tier.label) distillation of \(t.name) is already running." }
         else if tier.isSpecialist || tier == .flagship { blocker = "Distil a size tier (Core, Spark or Mote); specialists are forked with a specialisation pass." }
         return DistillPlan(tier: tier, data: data, studentParamsB: paramsB, studentActiveB: activeB, tokensT: tokensT, flops: flops, perDay: day,
@@ -490,8 +504,7 @@ enum Families {
         for d in pass.refreshes where now[d.index] > after.knowHow[d.index] { after.knowHow[d.index] = now[d.index] }
         let (gains, costs) = apply(pass, to: &after, bonuses: b)
         var blocker = passBlocker(s, m, pass)
-        if blocker == nil && chips <= 0 { blocker = "Pick free chips for the job (Compute Fleet frees them up)." }
-        if blocker == nil && !days.isFinite { blocker = "Those chips can't run the job." }
+        if blocker == nil { blocker = chipBlocker(s, accelID: accelID, chips: chips, days: days) }
         return PassPlan(pass: pass, flops: flops, perDay: day, days: days, dailyCost: dailyCost, cost: days.isFinite ? dailyCost * days : .infinity,
                         gains: gains, costs: costs, before: m, after: after, blocker: blocker)
     }
@@ -961,9 +974,10 @@ extension GameState {
     mutating func startDistill(_ teacherID: UUID, tier: FamilyTier, data: DistillData, accelID: String, chips: Int, autoLaunch: Bool = true) -> String? {
         guard let t = models.first(where: { $0.id == teacherID }) else { return "Not found." }
         guard tier != .flagship, !tier.isSpecialist else { return "Pick a smaller tier." }
-        if chips > recallLeased(accelID, needing: chips) { return "Only \(Fmt.int(Economy.freeChips(self, accelID))) chips of that type are free.\(leasedNote(accelID))" }
+        // 3.9: every check before leases are recalled, so a blocked job costs nothing.
         let plan = Families.distillPlan(self, teacher: t, tier: tier, data: data, accelID: accelID, chips: chips)
         if let e = plan.blocker { return e }
+        if chips > recallLeased(accelID, needing: chips) { return Families.shortNote(self, accelID) }
         let fi = Families.ensureFamily(&self, for: t)
         let name = Families.tierName(self, family: families.families[fi].name, tier: tier)
         families.jobs.append(ModelJob(kind: .distill, modelID: t.id, familyID: families.families[fi].id, name: name, tier: tier.rawValue, data: data.rawValue,
@@ -976,9 +990,9 @@ extension GameState {
     mutating func startPostTrain(_ modelID: UUID, pass: PostTrainPass, accelID: String, chips: Int) -> String? {
         if pass.forks { return startFork(modelID, pass: pass, accelID: accelID, chips: chips) }
         guard let m = models.first(where: { $0.id == modelID }) else { return "Not found." }
-        if chips > recallLeased(accelID, needing: chips) { return "Only \(Fmt.int(Economy.freeChips(self, accelID))) chips of that type are free.\(leasedNote(accelID))" }
         let plan = Families.passPlan(self, model: m, pass: pass, accelID: accelID, chips: chips)
         if let e = plan.blocker { return e }
+        if chips > recallLeased(accelID, needing: chips) { return Families.shortNote(self, accelID) }
         families.jobs.append(ModelJob(kind: .postTrain, modelID: m.id, familyID: Families.family(of: m.id, self)?.id,
                                       name: "\(Families.baseName(m.name)) \(Families.versionLabel(m.version + 1)): \(pass.label.lowercased())",
                                       pass: pass.rawValue, accelID: accelID, chips: chips, flops: plan.flops, started: date))
@@ -990,9 +1004,9 @@ extension GameState {
     mutating func startFork(_ modelID: UUID, pass: PostTrainPass, accelID: String, chips: Int, autoLaunch: Bool = true) -> String? {
         guard let m = models.first(where: { $0.id == modelID }) else { return "Not found." }
         guard let tier = pass.tier else { return "That pass upgrades a model in place." }
-        if chips > Economy.freeChips(self, accelID) { return "Only \(Fmt.int(Economy.freeChips(self, accelID))) chips of that type are free." }
         let plan = Families.passPlan(self, model: m, pass: pass, accelID: accelID, chips: chips)
         if let e = plan.blocker { return e }
+        if chips > recallLeased(accelID, needing: chips) { return Families.shortNote(self, accelID) }   // 3.9: leases come back, as for other jobs
         let fi = Families.ensureFamily(&self, for: m)
         let name = Families.tierName(self, family: families.families[fi].name, tier: tier)
         families.jobs.append(ModelJob(kind: .fork, modelID: m.id, familyID: families.families[fi].id, name: name, tier: tier.rawValue,
@@ -1018,7 +1032,9 @@ extension GameState {
         guard let m = models.first(where: { $0.id == modelID }) else { return "Not found." }
         guard Families.canMerge(m) else { return "Merging needs at least two post-training passes since the last release." }
         if jobs(for: modelID) { return "\(m.name) is already being post-trained." }
-        guard chips > 0, chips <= Economy.freeChips(self, accelID) else { return "Pick free chips for the merge." }
+        let runs = Families.perDay(self, accelID: accelID, chips: max(1, chips), bonuses: bonuses) > 0
+        if let e = Families.chipBlocker(self, accelID: accelID, chips: chips, days: runs ? 1 : .infinity) { return e }
+        if chips > recallLeased(accelID, needing: chips) { return Families.shortNote(self, accelID) }   // 3.9: leases come back, as for other jobs
         families.jobs.append(ModelJob(kind: .merge, modelID: m.id, familyID: Families.family(of: m.id, self)?.id,
                                       name: "\(Families.baseName(m.name)) merge", accelID: accelID, chips: chips, flops: Families.mergeFlops(m), started: date))
         return nil
