@@ -243,13 +243,26 @@ enum Moonshots {
         case .running:
             let months = m.ends.map { max(0, GameCalendar.daysBetween(s.date, $0)) / 30 } ?? 0
             let effort = m.rpTarget > 0 ? m.rpInvested / m.rpTarget : 0
-            return "Running\(m.partnered ? " with a national lab" : "") · \(months) months left · \(Int((m.chance * 100).rounded()))% odds at launch · research \(Int((effort * 100).rounded()))% of plan"
+            var line = "Running\(m.partnered ? " with a national lab" : "") · \(months) months left · \(Int((m.chance * 100).rounded()))% odds at launch · research \(Int((effort * 100).rounded()))% of plan"
+            // 3.8: the plan was sized at launch RP; if your research has dropped since, say what it does to the odds.
+            if let end = projectedEffort(m, s), end < 0.9, let d = m.def {
+                let odds = clamp(chance(d, s, partnered: m.partnered) * pow(clamp(end, 0.25, 1.5), 0.5), 0.03, 0.97)
+                line += " · on pace for \(Int((end * 100).rounded()))% of plan, so about \(Int((odds * 100).rounded()))% odds. More research points would close the gap"
+            }
+            return line
         case .succeeded:
             return m.royaltyMonthsLeft > 0 ? "Achieved · \(Fmt.money(m.royaltyMonthly))/month in royalties for \(m.royaltyMonthsLeft) more months" : "Achieved"
         case .failed: return "Fell short · a quarter of its research effects stayed with you"
         case .declined: return "Passed"
         case .rival: return "Passed — a rival did it"
         }
+    }
+
+    /// 3.8: share of the planned research the moonshot will have by its end if today's rate holds.
+    static func projectedEffort(_ m: Moonshot, _ s: GameState) -> Double? {
+        guard m.status == .running, m.rpTarget > 0, let end = m.ends, let d = m.def else { return nil }
+        let left = Double(max(0, GameCalendar.daysBetween(s.date, end)))
+        return (m.rpInvested + s.rpToday * min(0.5, d.researchShare) * left) / m.rpTarget
     }
 
     static func succeeded(_ s: GameState) -> Int { s.moonshots.filter { $0.status == .succeeded }.count }

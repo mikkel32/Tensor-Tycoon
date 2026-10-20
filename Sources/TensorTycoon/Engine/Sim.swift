@@ -268,14 +268,28 @@ enum Sim {
 
     // MARK: - Research
 
+    /// 3.8: compute research points where the people multiplier stops growing (computeRP / 10 caps at 3, i.e. 4x).
+    static let researchComputeCapPF = pow(7.5, 1 / 0.45)
+
+    /// 3.8: chips of one kind that alone reach the compute cap.
+    static func chipsForResearchCap(_ a: Accelerator) -> Int {
+        a.bf16 > 0 ? Int((researchComputeCapPF * 1000 / a.bf16).rounded(.up)) : 0
+    }
+
+    /// 3.8: petaflops (bf16) these research chips add up to.
+    static func researchPF(_ chips: [String: Int]) -> Double {
+        var pf = 0.0
+        for (id, n) in chips.sorted(by: { $0.key < $1.key }) where n > 0 {   // 3.7: fixed order (float sums)
+            if let a = HardwareCatalog.get(id) { pf += Double(n) * a.bf16 / 1000 }
+        }
+        return pf
+    }
+
     static func researchRate(_ s: GameState, _ b: ResearchBonuses) -> Double {
         let people = s.employees.filter { $0.role == .researcher && !s.advanced.seconded.contains($0.id) }.reduce(0.0) { $0 + pow($1.skill / 50, 1.3) * $1.traitMultiplier * (0.6 + $1.morale / 250) }
         let t = s.traits
         let founder = 0.8 * (1 + t.founderRP)
-        var computePF = 0.0
-        for (id, n) in s.researchChips.sorted(by: { $0.key < $1.key }) where n > 0 {   // 3.7: fixed order (float sums)
-            if let a = HardwareCatalog.get(id) { computePF += Double(n) * a.bf16 / 1000 }
-        }
+        let computePF = researchPF(s.researchChips)
         let computeRP = 4 * pow(computePF, 0.45)
         // Compute is a multiplier on people, plus a little on its own.
         let community = s.publication == .open ? 1.1 : 1.0

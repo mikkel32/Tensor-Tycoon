@@ -500,13 +500,13 @@ enum Science {
         } else {
             s.science.projects[i].log.append(SciStageLog(stage: st.rawValue, date: s.date, odds: o, outcome: "rerun", days: days, cost: attemptCost))
             s.science.projects[i].attempts += 1
-            s.science.projects[i].progress = 0
+            s.science.projects[i].progress = p.progress * 0.5   // 3.8: half the stage's work carries over to the rerun
             s.science.projects[i].stageStarted = s.date
             let rerunCost = stageCost(p, st, s) * 0.7
             s.science.projects[i].spent += rerunCost
             book(&s, rerunCost)
             Sim.news(&s, "\(d.name): \(stageName.lowercased()) failed, rerunning",
-                     "\(rerunWhy(st, d, key: key)) The team reruns it (attempt \(p.attempts + 2), \(Fmt.money(rerunCost))). Odds were \(Int((o * 100).rounded()))%.",
+                     "\(rerunWhy(st, d, key: key)) The team reruns it from the half-way point (attempt \(p.attempts + 2), \(Fmt.money(rerunCost)) charged now). Odds were \(Int((o * 100).rounded()))%.",
                      .research, good: false)
         }
     }
@@ -1066,6 +1066,18 @@ enum Science {
         return ok > s.date ? ok : nil
     }
 
+    /// 3.8: a project stopped after its discovery can be restarted at the stage it stopped at, after the same 180 days.
+    static func resumeBlocker(_ p: SciProject, _ s: GameState) -> Date? {
+        guard p.status == .stalled, let ended = p.ended else { return nil }
+        let ok = GameCalendar.addDays(ended, 180)
+        return ok > s.date ? ok : nil
+    }
+
+    /// Stalled projects of this def that are waiting to be resumed.
+    static func stalledProject(_ defID: String, _ s: GameState) -> SciProject? {
+        s.science.projects.last { $0.def == defID && $0.status == .stalled }
+    }
+
     /// Discoveries waiting for a follow-up decision.
     static func pending(_ s: GameState) -> [SciDiscovery] { s.science.discoveries.filter { $0.choice.isEmpty } }
 }
@@ -1179,6 +1191,33 @@ extension GameState {
         Science.book(&self, c)
         science.projects.append(p)
         Sim.news(&self, "Project started: \(d.name)", "\(d.pitch) In the \(lab.name). \(d.speculative ? "Speculative: expect dead ends." : "")", .research, image: lab.def.image)
+        return nil
+    }
+
+    /// 3.8: restart a stalled project at its stage, in `lab` (or its old lab). Costs the stage again.
+    mutating func resumeScienceProject(_ id: UUID, lab labID: UUID? = nil) -> String? {
+        guard let i = science.projects.firstIndex(where: { $0.id == id }), science.projects[i].status == .stalled else { return "Nothing to resume." }
+        let p = science.projects[i]
+        guard let d = p.projectDef else { return "Unknown project." }
+        if let when = Science.resumeBlocker(p, self) { return "The team needs new ideas before restarting \(d.name): \(when.gameShort)." }
+        guard let lab = science.labs.first(where: { $0.id == (labID ?? p.lab) }) ?? science.labs.first(where: { $0.id == p.lab }) else {
+            return "Pick a lab to run it in."
+        }
+        guard lab.isReady(date) else { return "\(lab.name) opens \(lab.ready.gameMonth)." }
+        guard lab.def.runs(d.field) else { return "The \(lab.def.name) can't do \(ScienceCatalog.field(d.field).name.lowercased())." }
+        guard Science.active(lab, self).count < Science.capacity(lab) else { return "\(lab.name) is running \(Science.capacity(lab)) projects already; upgrade its equipment for more room." }
+        let c = Science.stageCost(p, p.currentStage, self)
+        guard cash >= c else { return "Restarting costs \(Fmt.money(c)); you have \(Fmt.money(cash))." }
+        science.projects[i].status = .running
+        science.projects[i].lab = lab.id
+        science.projects[i].ended = nil
+        science.projects[i].progress = 0
+        science.projects[i].attempts = 0
+        science.projects[i].stageStarted = date
+        science.projects[i].spent += c
+        if let disc = p.discovery, let k = science.discoveries.firstIndex(where: { $0.id == disc }) { science.discoveries[k].labScaleOnly = false }
+        Science.book(&self, c)
+        Sim.news(&self, "Project resumed: \(d.name)", "Back at \(Science.stageName(p.currentStage, d.field).lowercased()) in the \(lab.name), with fresh ideas. The stage costs \(Fmt.money(c)) again.", .research, image: lab.def.image)
         return nil
     }
 
