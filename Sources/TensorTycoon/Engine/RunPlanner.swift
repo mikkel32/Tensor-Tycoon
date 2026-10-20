@@ -192,8 +192,9 @@ enum RunPlanner {
             for i in order where need > 0 {
                 guard let dep = s.models[i].deployments.first(where: { $0.accelID == accel }) else { continue }
                 let k = Operations.perChip(s.models[i], accel, s.bonuses)?.1 ?? 1
-                let cut = min(dep.chips, (need + k - 1) / k * k)
-                if s.deploy(s.models[i].id, accelID: accel, chips: dep.chips - cut) == nil { need -= cut }
+                // 3.9: what's left stays whole replicas (deploy refuses a part replica); the remainder is freed too.
+                let left = (dep.chips - min(dep.chips, (need + k - 1) / k * k)) / k * k
+                if s.deploy(s.models[i].id, accelID: accel, chips: left) == nil { need -= dep.chips - left }
             }
             let name = HardwareCatalog.get(accel)?.name ?? accel
             Sim.news(&s, "\(Fmt.int(p.fromServing)) \(name) moved from serving to training", "Your next model gets them; serving runs on what's left until the run ends.", .company)

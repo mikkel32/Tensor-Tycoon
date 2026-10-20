@@ -96,6 +96,20 @@ enum Commercial {
     /// Enterprise contracts running today, per day (they're booked first).
     static func contractsDaily(_ s: GameState) -> Double { s.deals.filter(\.active).reduce(0) { $0 + $1.monthly } / 30.4 }
 
+    /// 3.9: what contracts worth `contracts` a day actually bill. Enterprise budgets are fixed: rivals win the enterprise
+    /// pool in proportion to their API business (RivalEconomy); if your contracts plus theirs would outspend it, yours
+    /// are squeezed to your share. The Sim bills this, and bookings count this (not the nominal amount).
+    static func enterpriseDaily(_ s: GameState, _ snap: MarketSnapshot, contracts: Double? = nil) -> Double {
+        let c = contracts ?? contractsDaily(s)
+        var billedAPI = 0.0, rivalsBilled = 0.0
+        for p in snap.api {
+            billedAPI += p.share * p.price
+            if !p.isPlayer { rivalsBilled += p.share * p.price * (p.open ? 0.5 : 1) }
+        }
+        let rivals = billedAPI > 0 ? snap.enterprisePool / 365 * rivalsBilled / billedAPI : 0
+        return c * Market.budgetFactor(c, pool: snap.enterprisePool / 365, others: rivals)
+    }
+
     /// What the API, chat and agent demand reaching you today would pay if you took all of it.
     static func potentialDaily(_ s: GameState, _ snap: MarketSnapshot) -> Double {
         var api = 0.0
@@ -116,15 +130,41 @@ enum Commercial {
         s.corp.unbookedToday = 0
         let potential = potentialDaily(s, snap)
         guard potential > 0 else { return 1 }
-        let cap = capacity(s)
-        let room = cap.cap / 30.44 - contractsDaily(s)
-        let r = clamp(room / potential, 0, 1)
+        let r = reachValue(s, snap)
         if r < 0.999 {
             s.corp.unbookedToday = potential * (1 - r)
             s.month.revUnbooked += potential * (1 - r)
-            s.month.bookingLimit = cap.limit.rawValue
+            s.month.bookingLimit = capacity(s).limit.rawValue
         }
         return r
+    }
+
+    /// 3.9: `reach` without recording anything, for forecasts at other prices (the Price lab). Contracts count at what
+    /// they actually bill after the enterprise budget squeeze.
+    static func reachValue(_ s: GameState, _ snap: MarketSnapshot) -> Double {
+        let potential = potentialDaily(s, snap)
+        guard potential > 0 else { return 1 }
+        return clamp(roomDaily(s, snap) / potential, 0, 1)
+    }
+
+    /// 3.9: bookings per day left for API, chat and agents once contracts are counted (negative when contracts alone
+    /// fill the cap).
+    static func roomDaily(_ s: GameState, _ snap: MarketSnapshot) -> Double {
+        capacity(s).cap / 30.44 - enterpriseDaily(s, snap)
+    }
+
+    /// 3.9: what signing a contract worth `monthly` adds a month once the bookings it pushes out are counted: while
+    /// bookings are full, a contract takes the place of API, chat and agent revenue (it's booked first) and only what
+    /// goes past the cap is new. Returns the net gain and the revenue displaced, per month.
+    static func contractNet(_ s: GameState, _ snap: MarketSnapshot, monthly: Double) -> (net: Double, displaced: Double) {
+        let potential = potentialDaily(s, snap)
+        let before = enterpriseDaily(s, snap)
+        let after = enterpriseDaily(s, snap, contracts: contractsDaily(s) + monthly / 30.4)
+        let cap = capacity(s).cap / 30.44
+        let othersBefore = min(potential, max(0, cap - before))
+        let othersAfter = min(potential, max(0, cap - after))
+        let displaced = (othersBefore - othersAfter) * 30.4
+        return ((after - before) * 30.4 - displaced, displaced)
     }
 
     /// Enterprise leads come less often when your team is already fully booked.

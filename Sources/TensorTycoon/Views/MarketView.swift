@@ -91,7 +91,8 @@ private struct ChatProductCard: View {
 
     var body: some View {
         let s = state
-        let chatModels = s.releasedModels.filter { $0.design.instruct }
+        // 3.9: a model with trusted testers can't take the chat app until general release (the launch moves it back daily).
+        let chatModels = s.releasedModels.filter { $0.design.instruct && (Launches.testingUntil(s, $0.id) == nil || $0.id == s.chatModelID) }
         let wtp = Market.chatWTP(s)
         let conv = Market.paidConversion(price: s.chatPrice, freeTier: s.freeTier, wtp: wtp)
         Card {
@@ -105,7 +106,7 @@ private struct ChatProductCard: View {
                 }
                 HStack {
                     Text("Subscription")
-                    Slider(value: Binding(get: { s.chatPrice }, set: { v in store.mutate { $0.chatPrice = (v).rounded() } }), in: 5...200, step: 1)
+                    Slider(value: Binding(get: { s.chatPrice }, set: { v in setSubscriptionPrice(store, s) { $0.chatPrice = (v).rounded() } }), in: 5...200, step: 1)
                     Text("$\(Int(s.chatPrice))/mo").font(.headline.monospacedDigit()).frame(width: 80, alignment: .trailing)
                         .help("Users would pay about $\(Int(wtp))/month for this app. Revenue peaks near that price; above it, paying users fall away fast.")
                 }
@@ -114,7 +115,9 @@ private struct ChatProductCard: View {
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], alignment: .leading, spacing: 10) {
                     MiniStat(label: "Weekly users", value: Fmt.count(s.consumerUsers))
                     MiniStat(label: "Paying", value: "\(Fmt.count(s.paidUsers)) (\(Fmt.pct(conv)))")
-                    MiniStat(label: "Revenue / mo", value: Fmt.money(s.paidUsers * s.chatPrice))
+                    // 3.9: what the app actually billed this month, run-rated (as the agent card does): none while
+                    // "Not launched", and less while chips run short.
+                    MiniStat(label: "Revenue / mo", value: Fmt.money(s.month.revConsumer / Double(max(1, GameCalendar.components(s.date).day)) * 30.4))
                     MiniStat(label: "Market share", value: Fmt.pct(s.consumerShare))
                     MiniStat(label: "Tokens / user / day", value: Fmt.count(Macro.tokensPerUserDay(s.year)))
                     MiniStat(label: "Requests served", value: Fmt.pct(s.consumerServedFraction, decimals: 0))
@@ -136,7 +139,7 @@ private struct AgentProductCard: View {
     var body: some View {
         let s = state
         let b = store.derived.bonuses
-        let eligible = s.releasedModels.filter { $0.design.toolUse && !$0.retired }
+        let eligible = s.releasedModels.filter { $0.design.toolUse && !$0.retired && (Launches.testingUntil(s, $0.id) == nil || $0.id == s.agentModelID) }
         // Seats beyond what today's price supports aren't billed: revenue is what this month actually collected, run-rated.
         let days = max(1, GameCalendar.components(s.date).day)
         let monthly = s.month.revAgents / Double(days) * 30.4
@@ -157,7 +160,7 @@ private struct AgentProductCard: View {
                 }
                 HStack {
                     Text("Seat price")
-                    Slider(value: Binding(get: { log10(max(s.agentPrice, 10)) }, set: { v in store.mutate { $0.agentPrice = (pow(10, v) / 5).rounded() * 5 } }), in: 1.3...3.3)
+                    Slider(value: Binding(get: { log10(max(s.agentPrice, 20)) }, set: { v in setSubscriptionPrice(store, s) { $0.agentPrice = clamp((pow(10, v) / 5).rounded() * 5, 20, 2000) } }), in: log10(20)...log10(2000))
                     Text("$\(Int(s.agentPrice))/mo").font(.headline.monospacedDigit()).frame(width: 90, alignment: .trailing)
                         .help(worth.map { "A seat of your agent is worth about $\(Int($0))/month to buyers: the wage of the work it does. Revenue plateaus around there." } ?? "Pick the model that powers your agent product.")
                 }
@@ -174,6 +177,13 @@ private struct AgentProductCard: View {
             }
         }
     }
+}
+
+/// 3.9: moving a subscription price by hand turns off the weekly auto-pricing (which used to drift it back), and says so once.
+@MainActor
+private func setSubscriptionPrice(_ store: GameStore, _ s: GameState, _ change: (inout GameState) -> Void) {
+    store.mutate { change(&$0); $0.autoSubPrice = false }
+    if s.autoSubPrice { store.show("Automatic chat and agent pricing is now off: your price stays.") }
 }
 
 private struct MiniStat: View {
@@ -258,23 +268,33 @@ private struct DealsCard: View {
                          action: s.releasedModels.isEmpty ? "Models & Serving" : "Hire sales staff", screen: s.releasedModels.isEmpty ? .models : .team)
             }
             ForEach(offers) { d in
+                // 3.9: only models that meet the client's bar, with their index and spare capacity, so a pick can't
+                // fail on the index or quietly breach for want of chips.
+                let fits = models.filter { $0.index + 0.01 >= d.minIndex }
+                let pick = chosen[d.id].flatMap { id in fits.first { $0.id == id } } ?? fits.max { $0.index < $1.index }
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("\(d.client) — \(d.title)").font(.callout.weight(.semibold))
                         Text("\(Fmt.money(d.monthly))/mo × \(d.months) months · \(Fmt.count(d.tokensPerDay)) tokens/day · needs index ≥ \(Fmt.score(d.minIndex)), safety ≥ \(Int(d.minSafety)) · expires \(d.expires.gameShort)")
                             .font(.caption).foregroundStyle(.secondary)
+                        if let note = Self.offerNote(d, fits: fits, pick: pick, models: models, state: s, snap: store.derived.snapshot) {
+                            Text(note).font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+                        }
                     }
                     Spacer()
-                    Picker("Model", selection: Binding(get: { chosen[d.id] ?? models.max { $0.index < $1.index }?.id ?? UUID() }, set: { chosen[d.id] = $0 })) {
-                        ForEach(models) { m in Text(m.name).tag(m.id) }
+                    Picker("Model", selection: Binding(get: { pick?.id ?? DealsCard.none }, set: { chosen[d.id] = $0 })) {
+                        if fits.isEmpty { Text("No model qualifies").tag(DealsCard.none) }
+                        ForEach(fits) { m in Text("\(m.name) · \(Fmt.score(m.index)) · \(Fmt.count(Self.spare(m))) spare").tag(m.id) }
                     }
                     .labelsHidden()
-                    .frame(width: 150)
+                    .frame(width: 210)
+                    .disabled(fits.isEmpty)
                     Button("Sign") {
-                        guard let mid = chosen[d.id] ?? models.max(by: { $0.index < $1.index })?.id else { return }
+                        guard let mid = pick?.id else { return }
                         store.act("Contract signed") { $0.acceptDeal(d.id, modelID: mid) }
                     }
                     .buttonStyle(.borderedProminent)
+                    .disabled(pick == nil)
                     Button("Decline") { store.mutate { $0.declineDeal(d.id) } }
                 }
                 Divider()
@@ -283,27 +303,59 @@ private struct DealsCard: View {
                 Text("Active contracts · \(Fmt.money(active.reduce(0) { $0 + $1.monthly }))/mo").font(.caption.weight(.semibold))
                 ForEach(active) { d in
                     HStack {
-                        Image(systemName: d.modelID == nil ? "exclamationmark.triangle.fill" : "checkmark.seal.fill")
-                            .foregroundStyle(d.modelID == nil ? .orange : .green)
+                        // 3.9: contracts with no token commitment (sovereign, defence, pilots) need no serving and never breach.
+                        let stranded = d.modelID == nil && d.tokensPerDay > 0
+                        Image(systemName: stranded ? "exclamationmark.triangle.fill" : "checkmark.seal.fill")
+                            .foregroundStyle(stranded ? .orange : .green)
                         Text("\(d.client) — \(d.title)").font(.callout)
-                        if d.modelID == nil {
-                            Text("no model meets its bar — it breaches daily").font(.caption).foregroundStyle(.orange)
+                        if stranded {
+                            Text("no model meets its index of \(Fmt.score(d.minIndex)) — it breaches daily").font(.caption).foregroundStyle(.orange)
+                        } else if d.tokensPerDay <= 0 {
+                            Text("no serving needed").font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()
-                        Picker("Served by", selection: Binding(get: { d.modelID ?? DealsCard.none }, set: { id in
-                            if id != DealsCard.none { store.act("Contract moved") { $0.reassignDeal(d.id, modelID: id) } }
-                        })) {
-                            if d.modelID == nil { Text("Pick a model…").tag(DealsCard.none) }
-                            ForEach(models.filter { $0.index + 0.01 >= d.minIndex }) { m in Text(m.name).tag(m.id) }
+                        if d.tokensPerDay > 0 {
+                            Picker("Served by", selection: Binding(get: { d.modelID ?? DealsCard.none }, set: { id in
+                                if id != DealsCard.none { store.act("Contract moved") { $0.reassignDeal(d.id, modelID: id) } }
+                            })) {
+                                if d.modelID == nil { Text("Pick a model…").tag(DealsCard.none) }
+                                ForEach(models.filter { $0.index + 0.01 >= d.minIndex }) { m in Text(m.name).tag(m.id) }
+                            }
+                            .labelsHidden()
+                            .frame(width: 140)
                         }
-                        .labelsHidden()
-                        .frame(width: 140)
                         Text("\(Fmt.money(d.monthly))/mo · \(d.monthsLeft) months left\(d.breaches > 0 ? " · ⚠️ \(d.breaches) SLA misses" : "")")
                             .font(.caption.monospacedDigit()).foregroundStyle(d.breaches > 0 ? .orange : .secondary)
                     }
                 }
             }
         }
+    }
+}
+
+extension DealsCard {
+    /// Tokens a day a model could still take on.
+    static func spare(_ m: AIModel) -> Double { max(0, m.capacityTokensDay - m.demandTokensDay) }
+
+    /// 3.9: why signing this lead may not go as hoped: no model qualifies, the chosen one lacks capacity, or bookings
+    /// are full so the contract mostly replaces other revenue.
+    static func offerNote(_ d: EnterpriseDeal, fits: [AIModel], pick: AIModel?, models: [AIModel], state s: GameState, snap: MarketSnapshot) -> String? {
+        if fits.isEmpty {
+            let best = models.map(\.index).max()
+            return "None of your released models reaches index \(Fmt.score(d.minIndex))\(best.map { " (your best is \(Fmt.score($0)))" } ?? ""). Release a stronger model before it expires."
+        }
+        var parts: [String] = []
+        if let m = pick, d.tokensPerDay > 0, spare(m) < d.tokensPerDay {
+            parts.append(m.capacityTokensDay <= 0 ? "\(m.name) has no servers: deploy chips first or it breaches every day."
+                                                  : "\(m.name) has \(Fmt.count(spare(m))) tokens/day spare of the \(Fmt.count(d.tokensPerDay)) this needs: add chips or it breaches.")
+        }
+        if Commercial.reachValue(s, snap) < 0.999 {
+            let n = Commercial.contractNet(s, snap, monthly: d.monthly)
+            if n.displaced > d.monthly * 0.05 {
+                parts.append("Bookings are full: this replaces about \(Fmt.money(n.displaced))/mo of API, chat and agent revenue, so it adds about \(Fmt.money(max(0, n.net)))/mo.")
+            }
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " ")
     }
 }
 

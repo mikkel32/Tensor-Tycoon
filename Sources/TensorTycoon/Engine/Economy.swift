@@ -289,15 +289,22 @@ enum Economy {
 
     // MARK: Costs
 
-    /// Effective $/day for `count` chips: rental rate if the company rents them, otherwise power + 4-year amortisation.
+    /// Effective $/day for `count` chips: power + 4-year amortisation for chips you own, the rental rate for chips
+    /// you rent. 3.9: a pool that mixes both is costed at its blend (a few rented chips used to price every owned chip
+    /// of that type at the rental rate, which pushed the API price floor up several times).
     static func chipDailyCost(_ a: Accelerator, count: Int, state s: GameState) -> Double {
-        if let r = s.rentals.first(where: { $0.accelID == a.id }) {
-            return r.hourly * 24 * Double(count)
-        }
         let unit = (price(a, s) ?? (a.price ?? 0)) + Semis.siliconCost(a.id, s)   // 3.9: your own chips amortise their silicon too
         let amort = unit / (4 * 365)
         let site = s.sites.first { $0.kind != .garage } ?? s.sites.first
         let power = chipKW(a) * (site?.pue ?? 1.4) * 24 * (site?.powerPrice ?? 0.1)
+        let rentals = s.rentals.filter { $0.accelID == a.id }
+        let rented = rentals.reduce(0) { $0 + $1.count }
+        if rented > 0 {
+            let rentDay = rentals.reduce(0.0) { $0 + $1.hourly * 24 * Double($1.count) } / Double(rented)
+            let owned = s.owned.filter { $0.accelID == a.id }.reduce(0) { $0 + $1.count }
+            let share = Double(rented) / Double(rented + owned)
+            return (share * rentDay + (1 - share) * (amort + power)) * Double(count)
+        }
         if a.purchasable || s.owned.contains(where: { $0.accelID == a.id }) {
             return (amort + power) * Double(count)
         }

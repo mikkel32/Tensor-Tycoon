@@ -213,9 +213,12 @@ enum Operations {
                 for d in s.models[i].deployments.sorted(by: { trainValue($0.accelID) > trainValue($1.accelID) }) {
                     guard let (per, k) = perChip(m, d.accelID, b), surplus > 0 else { continue }
                     var drop = min(d.chips, Int(surplus / per / Double(k))  * k)
-                    if demand > 0 && drop >= s.models[i].deployments.reduce(0, { $0 + $1.chips }) { drop = max(0, drop - k) }
+                    // 3.9: a model in limited-access testing sells nothing yet but goes on sale soon: keep its replica too.
+                    let keepOne = demand > 0 || Launches.testingUntil(s, m.id) != nil
+                    if keepOne && drop >= s.models[i].deployments.reduce(0, { $0 + $1.chips }) { drop = max(0, drop - k) }
                     guard drop >= k else { continue }
-                    if s.deploy(m.id, accelID: d.accelID, chips: d.chips - drop) == nil {
+                    let left = (d.chips - drop) / k * k   // 3.9: whole replicas (deploy refuses a part replica)
+                    if s.deploy(m.id, accelID: d.accelID, chips: left) == nil {
                         surplus -= Double(drop) * per
                         log(&s, "Capacity: freed \(Fmt.int(drop)) \(HardwareCatalog.get(d.accelID)?.name ?? d.accelID) from \(m.name) (demand fell).")
                     }
@@ -260,7 +263,7 @@ enum Operations {
                 moved += back
                 toMove -= Double(back) * perBest
             }
-            if moved > 0, s.deploy(m.id, accelID: best.accel.id, chips: onBest.chips - moved) == nil {
+            if moved > 0, s.deploy(m.id, accelID: best.accel.id, chips: (onBest.chips - moved) / kBest * kBest) == nil {
                 log(&s, "Capacity: moved \(m.name) off \(Fmt.int(moved)) \(best.accel.name) onto other chips, keeping them free for training.")
             }
         }
@@ -494,9 +497,15 @@ enum Operations {
     // MARK: Enterprise
 
     static func autoLeads(_ s: inout GameState) {
+        // 3.9: while bookings are full a contract is booked first and pushes out API, chat and agent revenue: sign only
+        // leads that still add most of their value.
+        let snap = s.deals.contains { !$0.active } ? Market.snapshot(s) : nil
         for d in s.deals where !d.active {
-            guard let m = s.models.filter({ $0.released && !$0.retired && $0.index + 0.01 >= d.minIndex }).max(by: { $0.index < $1.index }),
+            // 3.9: the best qualifying model that has servers (a contract on one without breaches daily, so it's refused).
+            let fits = s.models.filter { $0.released && !$0.retired && $0.index + 0.01 >= d.minIndex }
+            guard let m = fits.filter({ $0.capacityTokensDay > 0 }).max(by: { $0.index < $1.index }) ?? fits.max(by: { $0.index < $1.index }),
                   s.safetyScore >= d.minSafety else { continue }
+            if let snap, Commercial.reachValue(s, snap) < 0.999, Commercial.contractNet(s, snap, monthly: d.monthly).net < d.monthly * 0.5 { continue }
             if s.acceptDeal(d.id, modelID: m.id) == nil {
                 note(&s, "leads", "Signed \(d.client): \(Fmt.money(d.monthly))/month on \(m.name).", money: d.monthly)
             }

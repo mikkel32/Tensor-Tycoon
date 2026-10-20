@@ -182,8 +182,9 @@ enum Monthly {
             s.deals[i].monthsLeft -= 1
             if s.deals[i].breaches > 6 {
                 s.deals[i].active = false
+                s.deals[i].expires = .distantPast   // 3.9: gone, not back among the leads with its breaches wiped
                 s.brand = max(0, s.brand - 4)
-                Sim.news(&s, "\(s.deals[i].client) cancels its contract", "Repeated SLA breaches: your capacity couldn't keep up with their traffic.",
+                Sim.news(&s, "\(s.deals[i].client) cancels its contract", s.deals[i].modelID == nil ? "Repeated SLA breaches: none of your models met their Intelligence Index bar." : "Repeated SLA breaches: your capacity couldn't keep up with their traffic.",
                          .company, important: true, good: false)
             }
             s.deals[i].breaches = 0

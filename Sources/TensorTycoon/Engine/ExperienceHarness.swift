@@ -16,7 +16,9 @@ extension BalanceHarness {
     static func choresLab(year: Double, seed: UInt64) -> (GameState, UUID) {
         var (s, id) = frontierLab(year: year, chips: 30_000, seed: seed)
         let ref = Silicon.reference(s).id
-        _ = s.deploy(id, accelID: ref, chips: 64)
+        // One replica (at least 64 chips): deploy refuses a part replica (3.9).
+        let k = s.models.first { $0.id == id }.flatMap { m in HardwareCatalog.get(ref).map { Physics.chipsPerReplica(m, accel: $0, precision: m.servingPrecision, bonuses: s.bonuses) } } ?? 64
+        _ = s.deploy(id, accelID: ref, chips: max(64, k))
         s.chatModelID = id
         if let i = s.models.firstIndex(where: { $0.id == id }) {
             var next = s.models[i]

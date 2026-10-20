@@ -17,9 +17,14 @@ enum MarketForecast {
     /// how many of them pay (`paidConversion`) and the consumer budget caps what all subscribers spend.
     static func chat(_ s: GameState, price: Double, snap: MarketSnapshot) -> Point {
         let wtp = Market.chatWTP(s)
-        var users = s.consumerUsers
+        // 3.9: users follow your bookings room (Commercial); at another price the room covers a different share of demand.
+        var s2 = s
+        s2.chatPrice = price
+        let reachNow = Commercial.reachValue(s, snap), reach = Commercial.reachValue(s2, snap)
+        var users = reachNow > 0 ? s.consumerUsers * reach / reachNow : s.consumerUsers
         let chat = snap.consumer.first(where: \.isPlayer)
-        if !s.freeTier, let chat { users = min(users, chat.share * snap.consumerUsersPool * 0.06 * Market.wtpDemand(price / wtp)) }
+        if reach > reachNow, let chat { users = min(users, max(s.consumerUsers, chat.share * snap.consumerUsersPool * reach)) }
+        if !s.freeTier, let chat { users = min(users, chat.share * snap.consumerUsersPool * reach * 0.06 * Market.wtpDemand(price / wtp)) }
         let conv = Market.paidConversion(price: price, freeTier: s.freeTier, wtp: wtp)
         let rivalARPU = Market.paidConversion(price: 20, freeTier: true) * 20
         let others = (1 - (chat?.share ?? 0)) * snap.consumerUsersPool * rivalARPU / 30.4
@@ -34,7 +39,8 @@ enum MarketForecast {
         s2.agentPrice = price
         let snap = Market.snapshot(s2)
         guard let ag = snap.agents.first(where: \.isPlayer) else { return nil }
-        let target = Market.agentSeatTarget(snap, ag: ag, price: price)
+        // 3.9: the sim scales seats by what bookings can take on (Commercial.reach); the forecast does too.
+        let target = Market.agentSeatTarget(snap, ag: ag, price: price) * Commercial.reachValue(s2, snap)
         // Seats converge over weeks; show where they settle.
         return Point(price: price, units: target, share: ag.share, revenueMonth: target * price * (0.4 + 0.6 * (1 - s.lostAgentFrac)))
     }
@@ -47,10 +53,11 @@ enum MarketForecast {
         s2.models[i].apiPrice = price
         let snap = Market.snapshot(s2)
         guard let p = snap.api.first(where: { $0.modelID == id }) else { return nil }
-        let tokens = p.share * snap.apiTokenPool
+        // 3.9: only what bookings can take on reaches you (Commercial.reach), as in the sim.
+        let tokens = p.share * snap.apiTokenPool * Commercial.reachValue(s2, snap)
         // Chips left for API traffic: capacity minus what the model's other customers use (free-tier chat waits last).
         let base = Market.snapshot(s)
-        let now = base.api.first(where: { $0.modelID == id }).map { $0.share * base.apiTokenPool } ?? 0
+        let now = base.api.first(where: { $0.modelID == id }).map { $0.share * base.apiTokenPool * Commercial.reachValue(s, base) } ?? 0
         var others = max(0, m.demandTokensDay - now)
         if !s.evenShortage, s.chatModelID == id, s.consumerUsers > 0 {
             let freeFrac = 1 - min(1, s.paidUsers / s.consumerUsers)
