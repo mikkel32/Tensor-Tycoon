@@ -31,6 +31,20 @@ struct OpsPolicy: Codable, Hashable {
     /// The on-demand rentals the capacity delegate took out: it only ever gives back its own.
     @D var delegateRentals: Set<UUID> = []
 
+    /// 3.9: where idle chips go first: 0 = research (up to the cap that still helps), then lease; 1 = lease only.
+    @D var idleFirst: Int = 0
+    /// 3.9: what each delegate has done: actions taken and dollars it committed (rent, payroll a year, deals signed a month).
+    @D var tally: [String: Int] = [:]
+    @D var moved: [String: Double] = [:]
+
+    /// 3.9: the safe set. Nothing here spends cash on its own (hiring and cloud rent stay your call).
+    static var recommended: OpsPolicy {
+        var o = OpsPolicy()
+        o.autoscale = true; o.autoLaunch = true; o.autoRenew = true; o.leaseIdle = true
+        o.autoRaises = true; o.autoLeads = true; o.autoTrain = true
+        return o
+    }
+
     var target: Double { targetUtil > 0 ? targetUtil : 0.8 }
     var reserveShare: Double { reserve > 0 ? reserve : 0.15 }
     var anyOn: Bool { autoscale || autoLaunch || autoRenew || leaseIdle || autoHire || autoRaises || autoLeads || autoTrain }
@@ -76,7 +90,14 @@ enum Operations {
 
     static func log(_ s: inout GameState, _ text: String) {
         s.opsLog.insert("\(s.date.gameShort) · \(text)", at: 0)
-        if s.opsLog.count > 60 { s.opsLog.removeLast(s.opsLog.count - 60) }
+        if s.opsLog.count > 150 { s.opsLog.removeLast(s.opsLog.count - 150) }
+    }
+
+    /// 3.9: a logged action that counts toward the delegate's tally and the money it moved.
+    static func note(_ s: inout GameState, _ who: String, _ text: String, money: Double = 0) {
+        s.ops.tally[who, default: 0] += 1
+        s.ops.moved[who, default: 0] += money
+        log(&s, text)
     }
 
     /// Runs right after the daily rebalance, before training and serving.
@@ -142,8 +163,17 @@ enum Operations {
                     guard let pool = Economy.pool(s, c.id) else { continue }
                     let current = s.models[i].deployments.first { $0.accelID == c.id }?.chips ?? 0
                     let wantedAdd = seed ? c.k : Int((remaining / c.per / Double(c.k)).rounded(.up)) * c.k
-                    let keepFree = Int(Double(pool.total) * reserve)
+                    // 3.9: guard-rail — below 80% of demand served, users matter more than the free share, and
+                    // chips parked on research come back before anyone is turned away.
+                    let starving = demand > 0 && cap < demand * 0.8
+                    let keepFree = starving ? 0 : Int(Double(pool.total) * reserve)
                     var room = max(0, pool.free - keepFree)
+                    if starving, room < wantedAdd, let onResearch = s.researchChips[c.id], onResearch > 0 {
+                        let back = min(onResearch, wantedAdd - room)
+                        s.researchChips[c.id] = onResearch - back > 0 ? onResearch - back : nil
+                        room += back
+                        note(&s, "autoscale", "Took \(Fmt.int(back)) \(pool.accel.name) off research: \(m.name) was serving under 80% of its demand.")
+                    }
                     // Serving your own users beats renting chips to strangers: take leased chips back first, but only
                     // what buys whole replicas (a recall it can't use would sit idle and get leased out again).
                     let leased = s.leases[c.id] ?? 0
@@ -152,13 +182,13 @@ enum Operations {
                         let back = max(0, usable - room)
                         if back > 0, s.setLease(c.id, chips: leased - back) == nil {
                             room += back
-                            log(&s, "Recalled \(Fmt.int(back)) leased \(pool.accel.name) to serve \(m.name).")
+                            note(&s, "autoscale", "Recalled \(Fmt.int(back)) leased \(pool.accel.name) to serve \(m.name).")
                         }
                     }
                     let add = min(wantedAdd, room) / c.k * c.k
                     guard add > 0, s.deploy(m.id, accelID: c.id, chips: current + add) == nil else { continue }
                     remaining -= Double(add) * c.per
-                    log(&s, "Capacity: +\(Fmt.int(add)) \(pool.accel.name) to \(m.name) (demand \(Fmt.count(demand)) tokens/day).")
+                    note(&s, "autoscale", "Capacity: +\(Fmt.int(add)) \(pool.accel.name) to \(m.name) (demand \(Fmt.count(demand)) tokens/day).")
                 }
                 // Still short after every pool: rent cloud chips within the budget, when serving pays for them.
                 if !seed, remaining > 0, let c = cands.first, remaining / c.per >= Double(c.k) {
@@ -208,8 +238,8 @@ enum Operations {
             guard s.rentHardware(accelID, count: n, term: .onDemand) == nil, let r = s.rentals.last else { return 0 }
             s.ops.delegateRentals.insert(r.id)
         }
-        log(&s, "Rented \(Fmt.int(n)) \(a.name) on demand for \(m.name): \(Fmt.money(monthly * Double(n)))/month "
-            + "(\(Fmt.money(spent + monthly * Double(n))) of your \(Fmt.money(s.ops.rentBudget)) cloud budget).")
+        note(&s, "autoscale", "Rented \(Fmt.int(n)) \(a.name) on demand for \(m.name): \(Fmt.money(monthly * Double(n)))/month "
+            + "(\(Fmt.money(spent + monthly * Double(n))) of your \(Fmt.money(s.ops.rentBudget)) cloud budget).", money: monthly * Double(n))
         return n
     }
 
@@ -238,7 +268,7 @@ enum Operations {
         let bestReleased = s.models.filter { $0.released && !$0.retired }.map(\.index).max() ?? -1
         if let m = s.models.filter({ !$0.released && !$0.retired && !$0.preview }).max(by: { $0.index < $1.index }), m.index > bestReleased + 0.5 {
             if s.launch(m.id, by: "delegate") == nil {
-                log(&s, "Launched \(m.name) (index \(Fmt.score(m.index))) and moved your products onto it.")
+                note(&s, "launch", "Launched \(m.name) (index \(Fmt.score(m.index))) and moved your products onto it.")
             }
         }
         // Retire released models nobody uses any more (not the two best, nothing that powers a product or a contract).
@@ -247,7 +277,7 @@ enum Operations {
         for m in s.models where m.released && !m.retired && !keep.contains(m.id) && !used.contains(m.id) && m.demandTokensDay < 1e6
             && GameCalendar.daysBetween(m.releaseDate ?? m.created, s.date) > 90 {
             s.retire(m.id)
-            log(&s, "Retired \(m.name): almost no traffic left; its chips are free again.")
+            note(&s, "launch", "Retired \(m.name): almost no traffic left; its chips are free again.")
         }
     }
 
@@ -255,35 +285,109 @@ enum Operations {
 
     static func autoRenew(_ s: inout GameState) {
         let today = s.date
+        // 3.9: look far enough ahead to catch the lapse between two visits (scripts only look in every 7 days).
+        let ahead = max(2, competence(s).everyDays + 1)
         for i in s.rentals.indices {
             let r = s.rentals[i]
-            guard let end = r.end, let months = r.term.months, GameCalendar.daysBetween(today, end) <= 2,
+            guard let end = r.end, let months = r.term.months, GameCalendar.daysBetween(today, end) <= ahead,
                   let rate = Economy.rentQuote(HardwareCatalog.get(r.accelID) ?? HardwareCatalog.h100, s, renewing: r.count) else { continue }
+            let name = HardwareCatalog.get(r.accelID)?.name ?? r.accelID
+            // 3.9: only keep what earns its rent: a rental whose chips mostly sit idle past the free share is left to lapse.
+            if let pool = Economy.pool(s, r.accelID), pool.free - Int(Double(pool.total) * s.ops.reserveShare) >= r.count, !s.ops.delegateRentals.contains(r.id) {
+                let msg = "Let \(Fmt.int(r.count))× \(name) rental lapse: \(Fmt.int(pool.free)) of your \(Fmt.int(pool.total)) \(name) sit idle, so it isn't needed."
+                if !s.opsLog.prefix(40).contains(where: { $0.hasSuffix(msg) }) { note(&s, "renew", msg) }   // visits repeat until it ends
+                continue
+            }
             s.rentals[i].end = GameCalendar.addMonths(end, months)
             s.rentals[i].hourly = rate * r.term.discount
-            let name = HardwareCatalog.get(r.accelID)?.name ?? r.accelID
-            log(&s, "Renewed \(Fmt.int(r.count))× \(name) (\(r.term.rawValue.lowercased())) at \(Fmt.price(rate * r.term.discount))/hr.")
+            note(&s, "renew", "Renewed \(Fmt.int(r.count))× \(name) (\(r.term.rawValue.lowercased())) at \(Fmt.price(rate * r.term.discount))/hr; it is in use.",
+                 money: rate * r.term.discount * 24 * 30.4 * Double(r.count))
         }
     }
 
+    /// 3.9: the idle-compute delegate. Serving shortfalls are autoscale's job and run first; what is still idle beyond the
+    /// free share goes to research (while it still speeds research up), then out on lease, so chips never sit for weeks.
+    /// Your own work gets leased chips back through `recallLeased` and autoscale, so none of this blocks it.
     static func leaseIdle(_ s: inout GameState) {
+        // Chips autoscale could not place yet (whole replicas only) stay free for serving: parking them on research
+        // would just get them pulled back tomorrow.
+        let underServed = s.models.contains { $0.released && !$0.retired && $0.demandTokensDay > 0 && $0.capacityTokensDay < $0.demandTokensDay * 0.9 }
         for pool in Economy.pools(s) where pool.owned > 0 {
+            let id = pool.accel.id
             let keepFree = Int(Double(pool.total) * s.ops.reserveShare)
-            let idle = pool.free - keepFree
-            let current = s.leases[pool.accel.id] ?? 0
-            if idle >= 64 {
+            var idle = pool.free - keepFree
+            let current = s.leases[id] ?? 0
+            // Research first, unless the player wants lease only: it costs nothing and is taken back for training.
+            if idle > 0, s.ops.idleFirst == 0, !underServed, pool.accel.bf16 > 0 {
+                let needPF = Sim.researchComputeCapPF - Sim.researchPF(s.researchChips)
+                let take = min(idle, Int((max(0, needPF) * 1000 / pool.accel.bf16).rounded(.up)))
+                if take > 0 {
+                    s.researchChips[id, default: 0] += take
+                    idle -= take
+                    note(&s, "idle", "Put \(Fmt.int(take)) idle \(pool.accel.name) on research: nothing else needed them and research is below its useful size.")
+                }
+            }
+            // 3.9: a small fleet leases from 8 chips, not 64 (a lab with 100 chips never leased anything before).
+            let minLease = max(8, min(64, pool.owned / 10))
+            if idle >= minLease {
                 let n = min(pool.owned, current + idle)
-                if s.setLease(pool.accel.id, chips: n) == nil {
-                    log(&s, "Leased \(Fmt.int(idle)) idle \(pool.accel.name) to the market.")
+                if s.setLease(id, chips: n) == nil {
+                    note(&s, "idle", "Leased \(Fmt.int(idle)) idle \(pool.accel.name) to the market: no serving shortfall, research is full.")
                 }
             } else if pool.free < keepFree / 2 && current > 0 {
                 // Your own work needs them back.
                 let back = min(current, keepFree - pool.free)
-                if back > 0, s.setLease(pool.accel.id, chips: current - back) == nil {
-                    log(&s, "Recalled \(Fmt.int(back)) leased \(pool.accel.name) for your own work.")
+                if back > 0, s.setLease(id, chips: current - back) == nil {
+                    note(&s, "idle", "Recalled \(Fmt.int(back)) leased \(pool.accel.name) for your own work.")
                 }
             }
         }
+    }
+
+    /// 3.9: what each delegate will do next, in plain words: the line the Operations screen shows under each switch.
+    static func nextUp(_ s: GameState) -> [String: String] {
+        var out: [String: String] = [:]
+        let c = competence(s)
+        let day = Int(s.date.timeIntervalSince1970 / 86_400)
+        let wait = (c.everyDays - day % c.everyDays) % c.everyDays
+        let when = wait == 0 ? "today" : wait == 1 ? "tomorrow" : "in \(wait) days"
+        let pools = Economy.pools(s)
+        let b = s.bonuses
+        if s.ops.autoscale {
+            let live = s.models.filter { $0.released && !$0.retired && $0.demandTokensDay > 0 }
+            let short = live.filter { $0.demandTokensDay > $0.capacityTokensDay * 1.0 }
+            out["autoscale"] = short.isEmpty ? "Every live model is covered; checks again \(when)."
+                : "\(short.map(\.name).joined(separator: ", ")) \(short.count == 1 ? "is" : "are") short of capacity; adds chips \(when)."
+            _ = b
+        }
+        if s.ops.leaseIdle {
+            let idle = pools.reduce(0) { $0 + max(0, $1.free - Int(Double($1.total) * s.ops.reserveShare)) }
+            out["leaseIdle"] = idle > 0 ? "\(Fmt.int(idle)) chips are idle beyond the free share; routes them \(when) (\(s.ops.idleFirst == 0 ? "research, then lease" : "lease"))."
+                : "No spare chips beyond the free share."
+        }
+        if s.ops.autoRenew {
+            let soon = s.rentals.filter { r in r.end.map { GameCalendar.daysBetween(s.date, $0) <= 14 } ?? false }
+            out["autoRenew"] = soon.isEmpty ? "No rental ends in the next two weeks."
+                : "\(soon.count) rental\(soon.count == 1 ? "" : "s") end within two weeks; in-use ones renew, idle ones lapse."
+        }
+        if s.ops.autoLaunch {
+            let ready = s.models.filter { !$0.released && !$0.retired && !$0.preview }.count
+            out["autoLaunch"] = ready > 0 ? "\(ready) finished model\(ready == 1 ? "" : "s") waiting; ships one only if it beats your best." : "Nothing finished and waiting."
+        }
+        if s.ops.autoHire {
+            let want = staffing(s)
+            let gaps = Role.allCases.reduce(0) { acc, r in acc + max(0, (want[r] ?? 0) - s.employees.filter { $0.role == r }.count) }
+            out["autoHire"] = gaps > 0 ? "\(gaps) open role\(gaps == 1 ? "" : "s") to fill at the next weekly review." : "Staffing matches your size."
+        }
+        if s.ops.autoRaises {
+            let n = s.employees.filter { $0.salary < Macro.salary($0.role, s.year) * 0.85 }.count
+            out["autoRaises"] = n > 0 ? "\(n) \(n == 1 ? "person is" : "people are") paid well under market; raises at the next weekly review." : "Everyone is paid near the market."
+        }
+        if s.ops.autoLeads {
+            let n = s.deals.filter { !$0.active }.count
+            out["autoLeads"] = n > 0 ? "\(n) open lead\(n == 1 ? "" : "s"); signs the ones your best model and safety record can serve." : "No open leads."
+        }
+        return out
     }
 
     // MARK: People
@@ -314,7 +418,7 @@ enum Operations {
             let pick = precision >= 0.9 ? pool.max(by: { $0.skill / $0.salary < $1.skill / $1.salary }) : pool.first
             guard let c = pick, s.hire(c.id) == nil else { continue }
             budget -= c.salary / 12
-            log(&s, "Hired \(c.name), \(role.title.lowercased()) (\(Fmt.money(c.salary))/yr).")
+            note(&s, "hire", "Hired \(c.name), \(role.title.lowercased()) (\(Fmt.money(c.salary))/yr): the team was below the size your runs, fleet and revenue call for.", money: c.salary / 12)
         }
         if s.employees.count >= Economy.officeCapacity(s) - 1, s.officeLevel + 1 < Economy.officeLevels.count {
             let next = Economy.officeLevels[s.officeLevel + 1]
@@ -328,10 +432,12 @@ enum Operations {
         let y = s.year
         var given = 0
         for e in s.employees where e.salary < Macro.salary(e.role, y) * 0.85 && given < max(1, s.employees.count / 4) {
-            s.giveRaise(e.id)
+            // 3.9: one 15% step can leave a big gap open (and the same people were raised every week); close it to 90%.
+            var steps = 0
+            while steps < 3, (s.employees.first { $0.id == e.id }?.salary ?? .infinity) < Macro.salary(e.role, y) * 0.9 { s.giveRaise(e.id); steps += 1 }
             given += 1
         }
-        if given > 0 { log(&s, "Raised pay for \(given) \(given == 1 ? "person" : "people") who had fallen behind the market.") }
+        if given > 0 { note(&s, "raises", "Raised pay for \(given) \(given == 1 ? "person" : "people") who had fallen behind the market.", money: 0) }
     }
 
     // MARK: Enterprise
@@ -341,7 +447,7 @@ enum Operations {
             guard let m = s.models.filter({ $0.released && !$0.retired && $0.index + 0.01 >= d.minIndex }).max(by: { $0.index < $1.index }),
                   s.safetyScore >= d.minSafety else { continue }
             if s.acceptDeal(d.id, modelID: m.id) == nil {
-                log(&s, "Signed \(d.client): \(Fmt.money(d.monthly))/month on \(m.name).")
+                note(&s, "leads", "Signed \(d.client): \(Fmt.money(d.monthly))/month on \(m.name).", money: d.monthly)
             }
         }
     }

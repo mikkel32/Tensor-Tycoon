@@ -50,6 +50,29 @@ enum ReplayHarness {
             // train:<n> lists "Plan my next model" proposals and starts the n-th (0 = strongest).
             if t.hasPrefix("train:") { pending.append(String(t.dropFirst(6))); continue }
             if t == "ops:autoscale" { s.ops.autoscale = true; continue }
+            if t.hasPrefix("ops:") {
+                // ops:all, ops:recommended, ops:<delegate> (autoscale, autoLaunch, autoRenew, leaseIdle, autoHire, autoRaises, autoLeads, autoTrain)
+                let n = String(t.dropFirst(4))
+                if n == "all" || n == "recommended" {
+                    let keepBudget = (s.ops.rentBudget, s.ops.hireBudget)
+                    s.ops = OpsPolicy.recommended
+                    (s.ops.rentBudget, s.ops.hireBudget) = keepBudget
+                    if n == "all" { s.ops.autoHire = true }
+                } else {
+                    switch n {
+                    case "autoscale": s.ops.autoscale = true
+                    case "autoLaunch": s.ops.autoLaunch = true
+                    case "autoRenew": s.ops.autoRenew = true
+                    case "leaseIdle": s.ops.leaseIdle = true
+                    case "autoHire": s.ops.autoHire = true
+                    case "autoRaises": s.ops.autoRaises = true
+                    case "autoLeads": s.ops.autoLeads = true
+                    case "autoTrain": s.ops.autoTrain = true
+                    default: print("unknown delegate \(n)")
+                    }
+                }
+                continue
+            }
             if t.hasPrefix("unretire:") {
                 let name = String(t.dropFirst("unretire:".count))
                 if let m = s.models.first(where: { $0.name == name }) { s.unretire(m.id); print("unretired \(name)") } else { print("no model named \(name)") }
@@ -84,6 +107,8 @@ enum ReplayHarness {
             report(s)
         }
         if let g = s.gameOver { print("GAME OVER: \(g)") }
+        if !s.opsLog.isEmpty { print("delegate log (newest first):"); for l in s.opsLog.prefix(25) { print("  \(l)") } }
+        if !s.ops.tally.isEmpty { print("delegate tally: \(s.ops.tally.sorted { $0.key < $1.key }.map { "\($0.key) \($0.value) (\(Fmt.money(s.ops.moved[$0.key] ?? 0)))" }.joined(separator: ", "))") }
         return 0
     }
 
