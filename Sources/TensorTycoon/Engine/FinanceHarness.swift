@@ -287,7 +287,9 @@ enum FinanceHarness {
         var worst = 0.0, label = ""
         let h = base.history
         for i in 1..<h.count {
-            let best = h[max(0, i - 3)..<i].map { $0.commercialRevenue / Double(GameCalendar.daysInMonth($0.month)) }.max() ?? 0
+            let daily = { (m: MonthRecord) in m.commercialRevenue / Double(GameCalendar.daysInMonth(m.month)) }
+            // 3.9: as Commercial.bookedDaily: the best of the last three months, or 80% of the best of the last twelve.
+            let best = max(h[max(0, i - 3)..<i].map(daily).max() ?? 0, 0.8 * (h[max(0, i - 12)..<i].map(daily).max() ?? 0))
             let y = h[i].month.decimalYear + 1.0 / 12
             let allowed = Commercial.ramp(base: best * 30.44, market: Macro.marketSize(y) / 12, year: y) * 1.05
             let r = h[i].commercialRevenue / Double(GameCalendar.daysInMonth(h[i].month)) * 30.44 / max(1, allowed)
