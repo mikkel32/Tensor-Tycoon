@@ -121,7 +121,7 @@ private struct SemiTeamsCard: View {
         let perEng = Semis.engineerCost(s.year)
         Card {
             CardHeader("Design teams", symbol: "person.3.fill",
-                       subtitle: "Architects, verification and physical-design engineers. Bigger teams finish sooner (time ∝ 1/√size); every tape-out a team ships makes its next one safer and better.")
+                       subtitle: "Architects, verification and physical-design engineers. Bigger teams finish sooner (time ∝ 1/√size, the phase under way included); every tape-out a team ships makes its next one safer and better.")
             if !s.bonuses.has(.customSilicon) {
                 NextStep("Research Custom Accelerator Design to start a chip programme.", action: "Research", screen: .research)
             }
@@ -299,6 +299,8 @@ private struct DesignCard: View {
     let design: SemiDesign
     let state: GameState
     @State private var showTimeline = false
+    @State private var confirmCancel = false
+    @State private var confirmRetire = false
 
     var body: some View {
         let d = design
@@ -328,7 +330,7 @@ private struct DesignCard: View {
                     Text("\(Int(max(0, d.phaseDaysLeft))) days left in this phase · spent \(Fmt.money(d.spent)) · respin odds \(Fmt.pct(d.respinOdds, decimals: 0))\(d.respins + d.metalFixes > 0 ? " · \(d.respins) respin\(d.respins == 1 ? "" : "s"), \(d.metalFixes) metal fix\(d.metalFixes == 1 ? "" : "es")" : "")")
                         .font(.caption.monospacedDigit())
                     Spacer()
-                    Button("Cancel design") { store.act("Design cancelled") { $0.cancelChipDesign(d.id) } }
+                    Button("Cancel design") { confirmCancel = true }
                 }
             } else {
                 ChipBinsTable(design: d, state: s)
@@ -336,13 +338,7 @@ private struct DesignCard: View {
                     Text(productLine(d)).font(.caption).foregroundStyle(.secondary)
                     Spacer()
                     if d.inProduction {
-                        let tied = s.designContracts(d.id)
-                        if tied.bookings.isEmpty {
-                            Button("Retire") { store.act("Product retired") { $0.retireChipDesign(d.id) } }
-                        } else {
-                            Button("Retire, keep wafer bookings") { store.act("Product retired") { $0.retireChipDesign(d.id, cancelContracts: false) } }
-                            Button("Retire and cancel bookings (\(Fmt.money(tied.fee)))") { store.act("Product retired") { $0.retireChipDesign(d.id, cancelContracts: true) } }
-                        }
+                        Button("Retire…") { confirmRetire = true }
                     }
                 }
             }
@@ -350,6 +346,38 @@ private struct DesignCard: View {
                 VStack(alignment: .leading, spacing: 3) { ForEach(Array(d.timeline.enumerated()), id: \.offset) { _, e in EventLine(e: e) } }
             }
             .font(.caption)
+        }
+        // 3.9: retiring can't be undone: say what happens to stock, dies and bookings before it does.
+        .confirmationDialog("Retire \(d.name)? It stops being made for good.", isPresented: $confirmRetire, titleVisibility: .visible) {
+            let tied = s.designContracts(d.id)
+            if tied.bookings.isEmpty {
+                Button("Retire", role: .destructive) { store.act("Product retired") { $0.retireChipDesign(d.id) } }
+            } else {
+                Button("Retire and cancel bookings (\(Fmt.money(tied.fee)) fee)", role: .destructive) { store.act("Product retired") { $0.retireChipDesign(d.id, cancelContracts: true) } }
+                Button("Retire, keep wafer bookings for another product", role: .destructive) { store.act("Product retired") { $0.retireChipDesign(d.id, cancelContracts: false) } }
+            }
+        } message: {
+            let bank = d.dieBank.reduce(0, +)
+            let tied = s.designContracts(d.id)
+            Text("Open orders still ship from customer stock; the rest of customer stock moves to your stock for your fleet."
+                 + (bank > 1 ? " The \(Fmt.count(bank)) dies in its bank are never packaged: \(s.semi.holdExcessDies ? "they lose 10% a month unless you turn on selling surplus dies" : "they sell to other packagers at about \(Fmt.money(Semis.dieCost(d, s) * 0.25)) a die")." : "")
+                 + (tied.bookings.isEmpty ? "" : " Kept wafer bookings bill \(Fmt.money(tied.bookings.reduce(0) { $0 + $1.wafersMonth * $1.price }))/month until you assign or cancel them."))
+        }
+        // 3.9: cancelling throws away everything spent, and bookings made for the design start billing.
+        .confirmationDialog("Cancel \(d.name)? The \(Fmt.money(d.spent)) spent on it is gone.", isPresented: $confirmCancel, titleVisibility: .visible) {
+            let tied = s.designContracts(d.id)
+            if tied.bookings.isEmpty {
+                Button("Cancel design", role: .destructive) { store.act("Design cancelled") { $0.cancelChipDesign(d.id) } }
+            } else {
+                Button("Cancel design and its bookings (\(Fmt.money(tied.fee)) fee)", role: .destructive) { store.act("Design cancelled") { $0.cancelChipDesign(d.id, cancelContracts: true) } }
+                Button("Cancel design, keep bookings (\(Fmt.money(tied.bookings.reduce(0) { $0 + $1.wafersMonth * $1.price }))/month from tomorrow)", role: .destructive) {
+                    store.act("Design cancelled") { $0.cancelChipDesign(d.id, cancelContracts: false) }
+                }
+            }
+        } message: {
+            let tied = s.designContracts(d.id)
+            Text(tied.bookings.isEmpty ? "Team time, IP licences and any masks paid so far are not refunded."
+                 : "Its \(tied.bookings.count) wafer booking\(tied.bookings.count == 1 ? "" : "s") wait for it unbilled. Without the design, kept bookings bill at full rate until you assign them to another product or cancel them.")
         }
     }
 }
@@ -425,6 +453,8 @@ private struct FoundryBookingCard: View {
     @State private var months = 24
     @State private var delay = 0
     @State private var designID: UUID? = nil
+    /// 3.9: the player picked "No product yet" (or a design) explicitly; until then the first design is the default.
+    @State private var picked = false
 
     var body: some View {
         let s = state
@@ -434,13 +464,19 @@ private struct FoundryBookingCard: View {
         let n = SemiCatalog.node(nodeID)
         let cap = Semis.waferCap(f, n, s)
         let booked = Semis.waferBooked(s, foundry: f.id, node: nodeID)
+        // 3.9: the stepper stays within what the foundry will still commit (it used to default above it).
+        let room = max(0, cap.value - booked)
+        let wafers = clamp(self.wafers, 100, max(100, room))
         let price = Semis.waferPrice(n, f, s.year) * (months >= 24 ? 0.92 : 1)
         let lead = Semis.leadDays(f.leadDays, "wafer", s)
         let candidates = s.semi.designs.filter { $0.node == nodeID && $0.phase != .retired }
-        let target = candidates.first { $0.id == designID } ?? candidates.first
+        let target = picked ? designID.flatMap { id in candidates.first { $0.id == id } } : candidates.first
+        let blocker: String? = nodeID.isEmpty ? "\(f.name) offers no AI-class node yet."
+            : room < 100 ? "\(f.name) has no more \(n.short) wafers to commit to you (\(Fmt.count(booked)) of \(Fmt.count(cap.value)) a month already booked). Try another foundry or node."
+            : price * wafers > s.cash ? "The deposit (one month, \(Fmt.money(price * wafers))) is more than your cash." : nil
         Card {
             CardHeader("Book wafers at a foundry", symbol: "building.2.fill",
-                       subtitle: "Take-or-pay: you pay for every wafer booked from its start date, used or not. Wafers that arrive before a design qualifies are wasted — time the start.")
+                       subtitle: "Take-or-pay: you pay for every wafer booked from its start date, used or not. A booking for a design still in development isn't billed until that design is in production (its dates move back to match), so you can book early. A booking for no product bills from its start.")
             ForEach(SemiCatalog.foundries) { fd in
                 let o = SemiCatalog.nodes.filter { Semis.offered($0, fd, s) }
                 HStack(alignment: .top) {
@@ -466,7 +502,7 @@ private struct FoundryBookingCard: View {
                 }
                 GridRow {
                     Text("Wafers a month").font(.callout)
-                    Stepper("\(Fmt.count(wafers)) (you can get \(Fmt.count(max(0, cap.value - booked))) more)", value: $wafers, in: 100...50_000, step: 100)
+                    Stepper("\(Fmt.count(wafers)) (you can get \(Fmt.count(room)) more)", value: Binding(get: { wafers }, set: { self.wafers = $0 }), in: 100...max(100, room), step: 100)
                 }
                 GridRow {
                     Text("Term").font(.callout)
@@ -478,7 +514,7 @@ private struct FoundryBookingCard: View {
                 }
                 GridRow {
                     Text("For").font(.callout)
-                    Picker("Design", selection: Binding(get: { target?.id }, set: { designID = $0 })) {
+                    Picker("Design", selection: Binding(get: { target?.id }, set: { designID = $0; picked = true })) {
                         Text("No product yet").tag(UUID?.none)
                         ForEach(candidates) { d in Text("\(d.name) (\(d.phase.title.lowercased()))").tag(Optional(d.id)) }
                     }.labelsHidden()
@@ -492,14 +528,14 @@ private struct FoundryBookingCard: View {
                         let chips = wafers * y.diesPerWafer * y.good / Double(SemiCatalog.die(t.die).dies)
                         Text("≈ \(Fmt.count(chips)) \(t.name) chips a month at today's yield (\(Fmt.pct(y.good, decimals: 0)) good dies, \(Int(y.diesPerWafer)) a wafer)").font(.caption).foregroundStyle(.secondary)
                     }
-                    if let why = Semis.foundryBlocker(f, n, s) { Text(why).font(.caption).foregroundStyle(.red) }
+                    if let why = Semis.foundryBlocker(f, n, s) ?? blocker { Text(why).font(.caption).foregroundStyle(.red) }
                 }
                 Spacer()
                 Button("Book wafers") {
                     store.act("Wafers booked") { $0.bookWafers(foundry: f.id, node: nodeID, wafersMonth: wafers, months: months, startDelayMonths: delay, designID: target?.id) }
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(nodeID.isEmpty)
+                .disabled(blocker != nil || Semis.foundryBlocker(f, n, s) != nil)
             }
             if !nodeID.isEmpty { Why("Your allocation: \(cap.why) = \(Fmt.count(cap.value))/month (\(Fmt.count(booked)) already booked).") }
             Why("Price: \(n.short) launch price \(Fmt.money(n.waferPrice)) × \(f.name) \(Fmt.trim(f.priceFactor, 2)), cheaper as the node matures, +\(Fmt.pct(0.4 * Semis.tightness("wafer", s.year), decimals: 0)) while wafers are \(Semis.tightWords(Semis.tightness("wafer", s.year))).")
@@ -637,13 +673,18 @@ private struct FabRow: View {
                 let fs = Semis.foundryServicePrice(fab, s)
                 Text("Running at \(Fmt.pct(ramp, decimals: 0)) of \(Fmt.count(fab.wafersMonth)) wafers/month · defects ×\(Fmt.trim(Semis.fabD0Factor(fab), 2)) the node's best after \(Fmt.count(fab.wafersDone)) wafers · \(Int(Semis.fabMW(fab, s))) MW · \(Fmt.count(Semis.fabWater(fab, s))) m³ water/day")
                     .font(.caption).foregroundStyle(.secondary)
-                if let target {
+                // 3.9: the fab only makes a product that is in production; until then every wafer goes to foundry service.
+                let making = target.map { $0.inProduction && $0.node == fab.node } ?? false
+                if let target, making {
                     HStack {
                         Text("Wafers to \(target.name): \(Fmt.pct(fab.productShare, decimals: 0)) (\(Fmt.count(fab.wafersMonth * ramp * fab.productShare))/month)").font(.caption).frame(width: 260, alignment: .leading)
                         Slider(value: Binding(get: { fab.productShare }, set: { v in store.mutate { $0.setFabShare(fab.id, share: (v * 20).rounded() / 20) } }), in: 0...1)
                     }
                 }
-                if target == nil || fab.productShare < 1 {
+                if let target, !making {
+                    Text("\(target.phase == .retired ? "\(target.name) is retired: selling all wafers" : "Selling all wafers until \(target.name) qualifies") to other chipmakers at \(Fmt.money(fs.price)) each (they take \(Fmt.pct(fs.fill, decimals: 0)) of what you offer).")
+                        .font(.caption).foregroundStyle(.orange)
+                } else if target == nil || fab.productShare < 1 {
                     Text("Selling \(target == nil ? "all its" : "the other") wafers to other chipmakers at \(Fmt.money(fs.price)) each (they take \(Fmt.pct(fs.fill, decimals: 0)) of what you offer).").font(.caption).foregroundStyle(.secondary)
                 }
                 if Semis.ownFabFactor(s, fab) < 1 { Text("A supply shock cuts output to \(Fmt.pct(Semis.ownFabFactor(s, fab), decimals: 0)).").font(.caption).foregroundStyle(.orange) }
@@ -846,14 +887,20 @@ private struct SupplyContractsCard: View {
             if let sup {
                 let cap = Semis.supplyCap(sup, s) - Semis.supplyBooked(s, supplier: sup.id)
                 let price = Semis.supplyPrice(sup, s) * (months >= 24 ? 0.92 : 1)
+                // 3.9: the stepper stays within what the supplier will still commit.
+                let units = clamp(self.units, 100, max(100, cap))
+                let why: String? = cap < 100 ? "\(sup.name) has nothing more to commit to you right now. Try another supplier."
+                    : units * price > s.cash ? "The deposit (one month, \(Fmt.money(units * price))) is more than your cash." : nil
                 Divider()
                 HStack {
                     Picker("Supplier", selection: Binding(get: { sup.id }, set: { supplier = $0 })) { ForEach(sups) { x in Text(x.name).tag(x.id) } }.labelsHidden().fixedSize()
-                    Stepper("\(Fmt.count(units)) \(unit)/month", value: $units, in: 100...500_000, step: pack ? 1_000 : 5_000)
+                    Stepper("\(Fmt.count(units)) \(unit)/month", value: Binding(get: { units }, set: { self.units = $0 }), in: 100...max(100, cap), step: pack ? 1_000 : 5_000)
                     Picker("Term", selection: $months) { Text("12 mo").tag(12); Text("24 mo").tag(24) }.pickerStyle(.segmented).labelsHidden().frame(width: 130)
                     Spacer()
                     Button("Sign") { store.act("Contract signed") { $0.signSupply(supplier: sup.id, units: units, months: months) } }.buttonStyle(.borderedProminent)
+                        .disabled(why != nil).help(why ?? "Sign the contract.")
                 }
+                if let why { Text(why).font(.caption).foregroundStyle(.red) }
                 Text("\(sup.blurb) \(Fmt.money(price)) each → \(Fmt.money(price * units))/month · up to \(Fmt.count(max(0, cap))) more a month · \(Semis.leadDays(sup.leadDays, kind, s)) days lead · \(pack ? "assembly" : "stack") yield \(Fmt.pct(sup.yield, decimals: 0)) · 6-month minimum; the first month is a deposit returned when it ends, and billing waits until a product is in production")
                     .font(.caption).foregroundStyle(.secondary)
                 Why(pack ? "Price: \(Fmt.money(Semis.packPrice(s.year))) a slot in \(Int(s.year)) × \(sup.name) \(Fmt.trim(sup.priceFactor, 2)) × shortage premium \(Fmt.trim(1 + 0.6 * Semis.tightness(kind, s.year), 2))."
@@ -965,7 +1012,12 @@ private struct BinSalesRow: View {
         let dem = Semis.demand(d.id, bin: b, price: p, s)
         let open = Semis.buyers(s).filter { $0.blocked == nil }.reduce(0) { $0 + $1.weight }
         let uc = Semis.unitCost(d, foundry: SemiCatalog.foundryByID["fsw"]!, s)
-        let avail = Int(d.stockMine[b] + d.stockSale[b])
+        // 3.9: what you can take is your stock plus customer stock open orders don't need, and all of it must fit at one site.
+        let avail = Semis.available(chip.id, s)
+        let owed = Semis.owed(d.id, bin: b, s)
+        let room = s.bestSite(for: chip, count: max(1, avail))
+        let most = min(avail, room.fits)
+        let take = clamp(self.take, 0, most)
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Text(chip.name).font(.callout.weight(.semibold))
@@ -982,17 +1034,33 @@ private struct BinSalesRow: View {
                 Text("Stock: yours \(Fmt.count(d.stockMine[b])) · customers \(Fmt.count(d.stockSale[b]))").font(.caption.monospacedDigit())
             }
             HStack {
-                QuantityPicker(value: $take, range: 0...max(0, avail), presets: [64, 512, 4096, 32_768])
+                QuantityPicker(value: Binding(get: { take }, set: { self.take = $0 }), range: 0...max(0, most), presets: [64, 512, 4096, 32_768])
                 Button("Take for my fleet") { store.act("Chips on their way") { $0.orderOwnChips(chip.id, count: take) } }
                     .disabled(take <= 0)
+                    .help(takeNote(avail: avail, owed: owed, room: room))
                 Text("\(Fmt.money(chip.price ?? 0)) each for the server around it (the silicon, about \(Fmt.money(Semis.siliconCost(chip.id, s))), is already paid) · arrives in \(Semis.shipDays) days").font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 Button("Stock → customers") { store.mutate { $0.moveChipStock(d.id, bin: b, toMine: false) } }.help("Move your stock of this part to customer stock")
-                Button("Stock → mine") { store.mutate { $0.moveChipStock(d.id, bin: b, toMine: true) } }.help("Move customer stock to your own")
+                Button("Stock → mine") { store.mutate { $0.moveChipStock(d.id, bin: b, toMine: true) } }.help("Move customer stock to your own, except what open orders still need")
             }
+            if avail > 0 || owed > 0 { Text(takeNote(avail: avail, owed: owed, room: room)).font(.caption).foregroundStyle(most < avail ? Theme.warning : .secondary) }
             Why("Demand: \(dem.why), × \(Fmt.pct(open, decimals: 0)) of buyers you sell to. Cost per chip \(Fmt.money(uc.total)) (see Supply chain).")
             Divider()
         }
+    }
+}
+
+extension BinSalesRow {
+    /// What limits "Take for my fleet": stock not promised to orders, and power at one site.
+    func takeNote(avail: Int, owed: Double, room: (site: Site?, fits: Int)) -> String {
+        var t = "\(Fmt.int(avail)) free to take"
+        if owed >= 1 { t += " (\(Fmt.count(owed)) in customer stock stay for open orders)" }
+        if let site = room.site {
+            t += room.fits < avail ? " · one order goes to one site: \(site.name) has room for \(Fmt.int(room.fits)). Lease a cage or add power for more." : " · they go to \(site.name)"
+        } else {
+            t += " · none of your sites can take \(Int(chip.tdpW)) W parts. Lease a cage or build a datacenter."
+        }
+        return t + "."
     }
 }
 

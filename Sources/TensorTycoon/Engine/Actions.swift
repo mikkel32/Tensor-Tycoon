@@ -13,7 +13,7 @@ extension GameState {
         if a.liquid && !site.cooling.supportsLiquidChips { return "\(a.name) needs liquid cooling. \(site.name) is air-cooled." }
         if a.minOrder > 1 && count % a.minOrder != 0 { return "\(a.name) ships in racks of \(a.minOrder). Order a multiple of \(a.minOrder)." }
         let limit = Economy.allocationLimit(a, self)
-        if count > limit && Semis.isSemiChip(a.id) { return "Only \(Fmt.int(limit)) finished \(a.name) in stock. Make more on the Semiconductors page." }
+        if count > limit && Semis.isSemiChip(a.id) { return "Only \(Fmt.int(limit)) finished \(a.name) are free to take (open customer orders keep what they're owed). Make more on the Semiconductors page." }
         if AlienFab.isAlienChip(a.id) && count > AlienFab.maxOrder(self) {
             return "Your fab line makes \(Fmt.count(max(alienFab.capacityMonth, AlienFab.pilotCapacity))) chips a month: order up to \(Fmt.int(AlienFab.maxOrder(self))) (six months) at a time, or expand the line."
         }

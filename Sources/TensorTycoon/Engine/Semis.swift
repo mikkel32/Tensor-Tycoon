@@ -1079,12 +1079,12 @@ enum Semis {
         return max(last, now) * Double(die.dies) / py
     }
 
-    /// 3.9: dies a day the packaging slots and HBM you've contracted can take for this product — contracts running or
-    /// signed to start within two months — shared across your products by their wafer starts. It sizes the die bank, so
-    /// dies made before packaging starts are kept for it rather than dumped.
+    /// 3.9: dies a day the packaging slots and HBM you've contracted can take for this product — every contract running
+    /// or signed to start later — shared across your products by their wafer starts. It sizes the die bank, so dies made
+    /// before packaging starts are kept for it rather than dumped. (A two-month horizon missed packaging signed after
+    /// qualification: its lead time is four to five months, so the whole bank was sold off meanwhile.)
     static func diesContractedDay(_ d: SemiDesign, _ s: GameState) -> Double {
-        let horizon = GameCalendar.addDays(s.date, Int(dieBankTargetDays))
-        let live = s.semi.supply.filter { $0.start <= horizon && ($0.own || $0.end > s.date) }
+        let live = s.semi.supply.filter { $0.own || $0.end > s.date }
         let slots = live.filter { $0.kind == "pack" }.reduce(0) { $0 + $1.units } / 30.4
         let hbm = live.filter { $0.kind == "hbm" }.reduce(0) { $0 + $1.units * (SemiCatalog.supplierByID[$1.supplier]?.yield ?? 0.97) } / 30.4
         let chips = min(slots / max(0.1, slotsPerChip(d)), hbm / Double(max(1, d.stacks)))
@@ -1473,20 +1473,29 @@ enum Semis {
         return (i, b)
     }
 
-    /// Finished chips of this part you could take for your own fleet now.
-    static func available(_ id: String, _ s: GameState) -> Int {
-        guard let (i, b) = design(ofChip: id, s) else { return 0 }
-        return Int(s.semi.designs[i].stockMine[b] + s.semi.designs[i].stockSale[b])
+    /// 3.9: chips of one bin still owed on accepted, open orders (they ship from customer stock).
+    static func owed(_ designID: UUID, bin: Int, _ s: GameState) -> Double {
+        s.semi.contracts.filter { !$0.closed && $0.designID == designID && $0.bin == bin }.reduce(0) { $0 + $1.remaining }
     }
 
-    /// Take chips from stock (yours first) for a hardware order; returns days to delivery.
+    /// Finished chips of this part you could take for your own fleet now: your stock, and customer stock beyond what
+    /// open orders still need (3.9: taking those made the orders late).
+    static func available(_ id: String, _ s: GameState) -> Int {
+        guard let (i, b) = design(ofChip: id, s) else { return 0 }
+        let d = s.semi.designs[i]
+        return Int(d.stockMine[b] + max(0, d.stockSale[b] - owed(d.id, bin: b, s)))
+    }
+
+    /// Take chips from stock (yours first, then customer stock not promised to an order) for a hardware order; returns
+    /// days to delivery.
     static func take(_ s: inout GameState, _ id: String, count: Int) -> Int {
         guard let (i, b) = design(ofChip: id, s) else { return 45 }
         var n = Double(count)
         let mine = min(n, s.semi.designs[i].stockMine[b])
         s.semi.designs[i].stockMine[b] -= mine
         n -= mine
-        s.semi.designs[i].stockSale[b] = max(0, s.semi.designs[i].stockSale[b] - n)
+        let spare = max(0, s.semi.designs[i].stockSale[b] - owed(s.semi.designs[i].id, bin: b, s))
+        s.semi.designs[i].stockSale[b] = max(0, s.semi.designs[i].stockSale[b] - min(n, spare))
         s.semi.designs[i].taken[b] += Double(count)
         s.semi.month.taken += Double(count)
         return shipDays
