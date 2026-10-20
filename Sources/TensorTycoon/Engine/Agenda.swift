@@ -192,6 +192,7 @@ enum Agenda {
                              detail: site.leaseToOwn ? "The site becomes yours" : "It rolls over for a year at the market rate", symbol: "doc.text.fill", screen: .datacenters))
             }
         }
+        for u in FoundingContracts.upcoming(s) { add(u) }   // 3.9: the founding award's deadlines
         // 3.5: power deals coming online.
         for c in s.powerContracts where c.online > today {
             add(Upcoming(id: "power-\(c.id)", date: c.online, title: "\(c.kind.rawValue): \(Fmt.watts(c.mw * 1e6)) online",

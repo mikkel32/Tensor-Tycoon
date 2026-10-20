@@ -194,6 +194,7 @@ enum ReplayHarness {
                 guard let d = s.decisions.first else { break }
                 s.resolveDecision(d.id, option: 0)
             }
+            if ProcessInfo.processInfo.environment["REPLAY_CONTRACT"] == "play" { FoundingContracts.assist(&s) }   // 3.9
             Sim.advanceDay(&s)
             report(s)
             if dayNo % 30 == 0 { moneyLine(s); forecastLines(s) }
@@ -280,6 +281,7 @@ enum ReplayHarness {
             for i in Advisor.items(s, pools: pools) { print("    ADVISOR[\(i.level)] \(i.title) — \(i.detail)\(i.fix == nil ? "" : "  [\(i.fixLabel)]")") }
         }
         if ProcessInfo.processInfo.environment["REPLAY_SAFETY"] != nil { print("    SAFETY \(Fmt.trim(s.safetyScore, 1)) (carried adjustment \(Fmt.trim(s.safetyAdjust, 2))) · \(s.security.title)") }
+        if ProcessInfo.processInfo.environment["REPLAY_CONTRACT"] != nil { for l in FoundingContracts.replayLines(s) { print(l) } }   // 3.9
         for a in s.alerts where a.date == s.date { print("    ALERT\(a.critical ? "!" : ""): \(a.title) — \(a.body)") }
         for n in s.news.prefix(12) where n.date == s.date && (n.title.hasPrefix("Inbox:") || n.title.contains("ovenant") || n.title.contains("enalty")) {
             print("    NEWS: \(n.title) — \(n.body)")

@@ -87,6 +87,7 @@ enum SaveMigration {
         Progression.bootstrap(&s)
         Corporate.migrate(&s)   // 3.8: covenant cycle
         DCMarket.migrateDeposits(&s)   // 3.8: refundable lease deposits
+        FoundingContracts.migrate(&s)   // 3.9: older saves are offered one founding award, once
     }
 
     /// Decodes a save, migrates it and plays 90 days on a copy, resolving decisions with their first option

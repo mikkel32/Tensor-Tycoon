@@ -43,6 +43,7 @@ struct AdvancedProjectsView: View {
                 StatTile(title: "Cleared compute", value: "\(Fmt.int(Int(AdvancedProjects.computeCapacity(s, atLeast: 1)))) H100e", detail: computeDetail(s),
                          symbol: "lock.rectangle.stack.fill", tint: .orange)
             }
+            FoundingContractCard(state: s)   // 3.9: the founding award
             SectionTabs(selection: $tab, options: AdvancedTab.allCases)
             switch tab {
             case .market: MarketplaceSection(state: s)
