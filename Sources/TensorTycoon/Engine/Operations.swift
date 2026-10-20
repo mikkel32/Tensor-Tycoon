@@ -370,7 +370,8 @@ enum Operations {
             // Research first, unless the player wants lease only: it costs nothing and is taken back for training.
             if idle > 0, s.ops.idleFirst == 0, !underServed, pool.accel.bf16 > 0 {
                 let needPF = Sim.researchComputeCapPF - Sim.researchPF(s.researchChips)
-                let take = min(idle, Int((max(0, needPF) * 1000 / pool.accel.bf16).rounded(.up)))
+                var take = min(idle, Int((max(0, needPF) * 1000 / pool.accel.bf16).rounded(.up)))
+                if let limit = s.researchChipLimit[id] { take = min(take, max(0, limit - pool.research)) }   // 3.9: the player's research limit
                 if take > 0 {
                     s.researchChips[id, default: 0] += take
                     idle -= take

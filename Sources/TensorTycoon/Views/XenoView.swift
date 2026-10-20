@@ -125,6 +125,7 @@ private struct XenoStudyCard: View {
                 Spacer()
                 Text(s.studyRPToday > 0 ? "\(Fmt.trim(s.studyRPToday, 1)) RP/day" : "Nobody is studying").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
             }
+            ShareOverflowNote(state: s)   // 3.9: shares past 100% are scaled down
             ForEach(s.alienArchs) { a in legibilityRow(a.name, symbol: "atom", value: Xeno.legibility(a, s)) }
             ForEach(s.xenoArtifacts) { a in legibilityRow(a.name, symbol: a.kind.symbol, value: a.legibility) }
         }

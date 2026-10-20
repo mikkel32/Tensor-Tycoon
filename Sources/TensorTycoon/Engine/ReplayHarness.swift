@@ -92,12 +92,10 @@ enum ReplayHarness {
                 if let m = s.models.first(where: { $0.name == name }) { s.unretire(m.id); print("unretired \(name)") } else { print("no model named \(name)") }
                 continue
             }
-            if t.hasPrefix(Breakthroughs.refinePrefix) {
-                _ = s.queueRefine(String(t.dropFirst(Breakthroughs.refinePrefix.count)))
-            } else {
-                s.queueResearch(t)
-            }
-            print(s.researchQueue.firstIndex(of: t).map { "queued \(t) at #\($0 + 1)" } ?? "could not queue \(t)")
+            // remove:<entry> takes an entry off the queue the way its ✕ does (3.9).
+            if t.hasPrefix("remove:") { let e = String(t.dropFirst(7)); print("remove \(e): \(s.removeResearch(e) ?? "ok")"); continue }
+            let why = t.hasPrefix(Breakthroughs.refinePrefix) ? s.queueRefine(String(t.dropFirst(Breakthroughs.refinePrefix.count))) : s.queueResearch(t)
+            print(s.researchQueue.firstIndex(of: t).map { "queued \(t) at #\($0 + 1)" } ?? "could not queue \(t)\(why.map { ": \($0)" } ?? "")")
         }
         startDate = s.date
         report(s)

@@ -165,6 +165,7 @@ private struct LabCard: View {
     let lab: SciLab
     let state: GameState
     @State private var confirmClose = false
+    @State private var confirmRelease = false
 
     var body: some View {
         let s = state
@@ -203,13 +204,26 @@ private struct LabCard: View {
                 if let up = lab.upgradeReady {
                     Label("Equipment upgrade arrives \(up.gameShort)", systemImage: "shippingbox.fill").font(.caption).foregroundStyle(.orange)
                 }
+                // 3.9: hire what fits (the engine hires up to the cap), and say what letting people go does to running work.
+                let hire = max(0, min(4, Science.staffCap(lab) - lab.staff))
+                let need = Int(Science.staffPerProject) * active.count
                 HStack {
-                    Button("Hire 4 (\(Fmt.money(4 * Science.salary(lab.site, s) * 0.15)))") {
-                        store.act("Hired 4 \(def.staffTitle)") { $0.hireScientists(lab.id, 4) }
+                    Button(hire == 0 ? "Lab is full (\(lab.staff) people)" : "Hire \(hire) (\(Fmt.money(Double(hire) * Science.salary(lab.site, s) * 0.15)))") {
+                        store.act("Hired \(hire) \(def.staffTitle)") { $0.hireScientists(lab.id, hire) }
                     }
-                    .disabled(lab.staff >= Science.staffCap(lab))
-                    Button("Let 2 go") { store.mutate { $0.releaseScientists(lab.id, 2) } }
+                    .disabled(hire == 0)
+                    Button("Let 2 go (\(Fmt.money(2 * Science.salary(lab.site, s) / 4)))") { confirmRelease = true }
                         .disabled(lab.staff < 2)
+                        .help("Severance is three months' pay each.")
+                        .confirmationDialog("Let 2 \(def.staffTitle) go?", isPresented: $confirmRelease) {
+                            Button("Let them go", role: .destructive) { store.mutate { $0.releaseScientists(lab.id, 2) } }
+                            Button("Keep them", role: .cancel) {}
+                        } message: {
+                            Text("Severance is \(Fmt.money(2 * Science.salary(lab.site, s) / 4)). "
+                                 + (lab.staff - 2 < need
+                                    ? "\(lab.staff - 2) left for \(active.count) running project\(active.count == 1 ? "" : "s"): full speed needs \(need), so every stage runs slower (down to a fifth of the speed with nobody)."
+                                    : "\(lab.staff - 2) left, still enough for full speed on what's running."))
+                        }
                     if lab.equipment < Science.maxEquipment && lab.upgradeReady == nil {
                         Button("Upgrade equipment (\(Fmt.money(Science.upgradeCost(lab, s))))") {
                             store.act("Equipment ordered") { $0.upgradeLab(lab.id) }
@@ -222,7 +236,7 @@ private struct LabCard: View {
                             Button("Close it", role: .destructive) { store.mutate { $0.closeLab(lab.id) } }
                             Button("Keep it", role: .cancel) {}
                         } message: {
-                            Text("Its projects stop: discoveries they made stay yours at lab scale (at most half their full effect). Severance is three months' pay.")
+                            Text("Its projects stop: discoveries they made stay yours at lab scale (at most half their full effect), and those can be restarted in another lab from \(GameCalendar.addDays(s.date, Science.resumeWaitDays).gameShort). Severance is three months' pay (\(Fmt.money(Double(lab.staff) * Science.salary(lab.site, s) / 4))).")
                         }
                 }
                 .controlSize(.small)
@@ -329,16 +343,22 @@ private struct BuildLabCard: View {
                     Text("\(st.note). Local hires \(local > 0 ? "+\(Int(local)) skill" : "average") for this lab.").font(.caption2).foregroundStyle(.secondary)
                 }
             }
-            SpecRow(label: "Build cost", value: Fmt.money(cost))
-            SpecRow(label: "Opens in", value: "\(def.buildDays) days")
+            // 3.9: what buildLab charges (recruiting the first 8 included) and its home-country build time.
+            let hires = 8 * Science.salary(site, s) * 0.15
+            let home = Science.isHome(site, s)
+            SpecRow(label: "Build cost", value: "\(Fmt.money(cost)) + \(Fmt.money(hires)) to recruit the first team")
+            SpecRow(label: "Opens in", value: "\(Int(Double(def.buildDays) * (home ? 0.9 : 1))) days\(home ? " (10% faster at home)" : "")")
             SpecRow(label: "Runs", value: "\(def.capacity) projects at once (more with better equipment)")
             SpecRow(label: "Fields", value: (def.primary + def.secondary).map { ScienceCatalog.field($0).name }.joined(separator: ", "))
             SpecRow(label: "Scientist cost here", value: "\(Fmt.money(Science.salary(site, s)))/year each")
             HStack {
-                Button("Build for \(Fmt.money(cost)) with 8 \(def.staffTitle)") {
+                Button("Build for \(Fmt.money(cost + hires)) with 8 \(def.staffTitle)") {
                     store.act("Construction started") { $0.buildLab(kind, site: site) }
                 }
                 .buttonStyle(.borderedProminent)
+                if s.cash < cost + hires {
+                    Text("You have \(Fmt.money(max(0, s.cash))).").font(.caption).foregroundStyle(.orange)
+                }
                 Spacer()
                 ImageCreditLabel(key: def.image, representative: true)
             }
@@ -403,7 +423,10 @@ private struct ProjectCard: View {
                         Text("\(Science.stageName(st, d.field)) · attempt \(p.attempts + 1)").font(.subheadline.weight(.semibold))
                         Text(ScienceCatalog.stage(st).blurb).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                         Meter(value: p.progress / max(1, days), tint: .blue, height: 6)
-                        Text("Day \(Int(p.progress)) of about \(Int(days.rounded())) · next attempt costs \(Fmt.money(Science.stageCost(p, st, s)))").font(.caption2).foregroundStyle(.secondary)
+                        // 3.9: a rerun is charged at 70% of the stage, and the last attempt has none after it.
+                        Text("Day \(Int(p.progress)) of about \(Int(days.rounded())) · "
+                             + (p.attempts < Science.maxReruns ? "a rerun would cost \(Fmt.money(Science.stageCost(p, st, s) * 0.7))" : "last attempt: a failure ends the project here"))
+                            .font(.caption2).foregroundStyle(p.attempts < Science.maxReruns ? Color.secondary : Color.orange)
                     }
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Odds this stage: \(Int((o.p * 100).rounded()))%").font(.subheadline.weight(.semibold))
@@ -436,7 +459,7 @@ private struct ProjectCard: View {
                             Button("Keep going", role: .cancel) {}
                         } message: {
                             Text(p.discovery == nil ? "Nothing is discovered yet: the money spent is gone."
-                                                    : "The discovery stays yours at lab scale — at most half its full effect, like a dead end — and the field learns nothing from it.")
+                                                    : "The discovery stays yours at lab scale — at most half its full effect, like a dead end — and the field learns nothing from it. You can restart it at this stage from \(GameCalendar.addDays(s.date, Science.resumeWaitDays).gameShort), paying for the stage again.")
                         }
                 }
                 .font(.caption)
@@ -487,18 +510,20 @@ private struct ProjectRow: View {
         }
         if p.status == .stalled, let d = p.projectDef {
             // 3.8: a stopped project can be restarted at the stage it stopped at.
-            let lab = s.science.labs.first { $0.id == p.lab } ?? s.science.labs.first { $0.isReady(s.date) && $0.def.runs(d.field) && Science.active($0, s).count < Science.capacity($0) }
+            // 3.9: its old lab only if it has room; otherwise another open lab with room (Resume used to fail on a full old lab).
+            let lab = Science.resumeLab(p, s)
             let cost = Science.stageCost(p, p.currentStage, s)
             let wait = Science.resumeBlocker(p, s)
+            let why = Science.endedAtDeadEnd(p) ? "New ideas by" : "Stopped by you: can restart from"
             HStack(spacing: 8) {
                 Button("Resume") {
                     store.act("\(d.name) resumed") { $0.resumeScienceProject(p.id, lab: lab?.id) }
                 }
                 .disabled(lab == nil || wait != nil)
                 .font(.caption)
-                Text(wait.map { "New ideas by \($0.gameShort) · " } ?? "")
+                Text(wait.map { "\(why) \($0.gameShort) · " } ?? "")
                     .font(.caption2).foregroundStyle(.secondary)
-                + Text("Restarts at \(Science.stageName(p.currentStage, d.field).lowercased()) for \(Fmt.money(cost))\(lab == nil ? " · needs a free lab that can run it" : "")")
+                + Text("Restarts at \(Science.stageName(p.currentStage, d.field).lowercased()) for \(Fmt.money(cost))\(lab.map { $0.id != p.lab ? " in the \($0.name)" : "" } ?? " · needs a free lab that can run it")")
                     .font(.caption2).foregroundStyle(.secondary)
             }
         }

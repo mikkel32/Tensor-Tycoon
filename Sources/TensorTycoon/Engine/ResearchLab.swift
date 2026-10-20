@@ -11,14 +11,21 @@ enum ResearchLab {
         let rate = Sim.researchRate(s, b) * FoundingKit.researchMultiplier(s) + s.rsiRPToday + s.swarmRPToday
         s.rpToday = rate
 
-        // Signature programme and alien study take their shares first.
-        var sigRP = s.signature != nil && s.signatureLevel < SignatureSecret.maxLevel ? rate * clamp(s.signatureShare, 0, 0.75) : 0
-        let studyRP = XenoScience.hasUndeciphered(s) ? rate * clamp(s.xenoStudyShare, 0, 0.6) : 0
+        // Signature programme and alien study take their shares first (3.9: scaled to fit when they add up past 100%,
+        // which used to hand out more research than the lab made).
+        let share = shares(s)
+        var sigRP = rate * share.sig
+        let studyRP = rate * share.study
         // 3.4: running moonshots take theirs (zero when none are running).
-        let moonRP = rate * Moonshots.researchShare(s)
+        let moonRP = rate * share.moon
         var pool = max(0, rate - sigRP - studyRP - moonRP)
 
         if s.autoResearch { fillQueue(&s) }
+        // 3.9: points banked while nothing was queued go into the first project now queued.
+        if s.researchBanked > 0, !s.researchQueue.isEmpty {
+            pool += s.researchBanked
+            s.researchBanked = 0
+        }
 
         // Work through the queue; leftover points roll into the next project.
         var steps = 0
@@ -34,12 +41,19 @@ enum ResearchLab {
                 pool = 0
             }
         }
+        // 3.9: out of steps with points left (many cheap projects in a day): they go to the next project, not nowhere.
+        if pool > 0.0001, let current = s.researchQueue.first, let (_, mult) = remaining(&s, current) {
+            s.researchProgress[current, default: 0] += pool * mult
+            pool = 0
+        }
 
         // Nothing queued: idle researchers push the signature programme instead.
         if pool > 0 && s.signature != nil && s.signatureLevel < SignatureSecret.maxLevel {
             sigRP += pool
             pool = 0
         }
+        // 3.9: no signature to push (mastered or not chosen): bank the points for the next project instead of losing them.
+        if pool > 0.0001 { s.researchBanked += pool }
         s.signatureRPToday = sigRP
         s.studyRPToday = studyRP
         if sigRP > 0 { advanceSignature(&s, sigRP) }
@@ -92,12 +106,23 @@ enum ResearchLab {
     }
 
     /// True if a technique can't be researched now or through its prerequisites.
-    static func blocked(_ s: GameState, _ id: String, depth: Int = 0) -> Bool {
-        guard depth < 12, let item = ResearchCatalog.byID[id] else { return true }
-        if s.researched.contains(id) { return false }
-        if item.isExotic && !s.exoticOwned.contains(id) { return true }
-        if !XenoScience.researchUnlocked(id, s) { return true }
-        return item.prereqs.contains { blocked(s, $0, depth: depth + 1) }
+    static func blocked(_ s: GameState, _ id: String, depth: Int = 0) -> Bool { blockReason(s, id, depth: depth) != nil }
+
+    /// 3.9: why a technique can't be researched now or through its prerequisites, in the player's words (nil = it can).
+    static func blockReason(_ s: GameState, _ id: String, depth: Int = 0) -> String? {
+        guard depth < 12, let item = ResearchCatalog.byID[id] else { return "Unknown technique." }
+        if s.researched.contains(id) { return nil }
+        let own: String? = {
+            if item.isExotic && !s.exoticOwned.contains(id) { return "Only a lab that comes up with \(item.name) itself can research it." }
+            if !XenoScience.researchUnlocked(id, s) {
+                let kind = XenoScience.requirement(id).map { $0 == .architecture ? "an alien architecture" : "alien \($0.title.lowercased())" } ?? "an alien discovery"
+                return "\(item.name) needs \(kind) to study, and you have none."
+            }
+            return nil
+        }()
+        if let own { return depth == 0 ? own : "It needs \(item.name) first, which can't be researched: \(own)" }
+        for pre in item.prereqs { if let why = blockReason(s, pre, depth: depth + 1) { return why } }
+        return nil
     }
 
     // MARK: Completion
@@ -271,7 +296,8 @@ enum ResearchLab {
         var added = 0
         for pool in Economy.pools(s).sorted(by: { $0.accel.bf16 != $1.accel.bf16 ? $0.accel.bf16 > $1.accel.bf16 : $0.accel.id < $1.accel.id })
         where pool.accel.bf16 > 0 && needPF > 0.01 {
-            let room = reserve ? min(pool.free, max(0, pool.total / 2 - pool.research)) : pool.free
+            var room = reserve ? min(pool.free, max(0, pool.total / 2 - pool.research)) : pool.free
+            if let limit = s.researchChipLimit[pool.accel.id] { room = min(room, max(0, limit - pool.research)) }   // 3.9: your own limit
             let want = Int((needPF * 1000 / pool.accel.bf16).rounded(.up))
             let take = min(room, want)
             guard take > 0 else { continue }
@@ -285,6 +311,9 @@ enum ResearchLab {
     static func fillQueue(_ s: inout GameState) {
         var added = 0
         s.directorQueued.formIntersection(s.researchQueue)
+        // 3.9: re-sort every day, not only after adding: a full queue never added, so a 250 RP refine could wait
+        // weeks behind a 23k RP pick (migrated saves, or a pick that got cheaper as work moved on).
+        sortDirectorEntries(&s)
         while s.researchQueue.count < 2 && added < 3, let next = pick(s) {
             s.researchQueue.append(next)
             s.directorQueued.insert(next)
@@ -306,6 +335,7 @@ enum ResearchLab {
     static func enqueueByPlayer(_ s: inout GameState, _ entry: String) {
         s.researchQueue.removeAll { $0 == entry }
         s.directorQueued.remove(entry)
+        s.directorDismissed.remove(entry)
         let at = s.researchQueue.firstIndex { s.directorQueued.contains($0) } ?? s.researchQueue.count
         s.researchQueue.insert(entry, at: at)
     }
@@ -331,7 +361,8 @@ enum ResearchLab {
     /// The director's next pick: the best value for money under your focus.
     static func pick(_ s: GameState) -> String? {
         let focus = s.focus
-        let queued = Set(s.researchQueue)
+        // 3.9: what you removed counts as queued, so the director doesn't put it straight back.
+        let queued = Set(s.researchQueue).union(s.directorDismissed)
         var best: (String, Double)? = nil
         // 3.8: something that would take more than ~90 days at today's rate scores lower. 3.9: a penalty, not a gate, so
         // your focus (×2.5 on its categories) can still pick a long project in its area over a quick one outside it.
@@ -408,7 +439,8 @@ enum ResearchLab {
         if depth < 12 {
             for pre in item.prereqs where !s.researched.contains(pre) { total += entryNeed(s, pre, counted: &counted, depth: depth + 1) }
         }
-        let mult = max(0.1, item.category == .frontier ? 1 + s.traits.frontierRP : 1) * FoundingKit.categorySpeed(s, item)
+        // 3.9: the same multiplier `remaining` uses, architecture design included (ETAs ran up to 40% long without it).
+        let mult = max(0.1, item.category == .frontier ? 1 + s.traits.frontierRP : 1) * FoundingKit.categorySpeed(s, item) * Capabilities.researchSpeed(s, item)
         return total + max(0, (Sim.researchCost(item, year: s.year) - done) / mult)
     }
 
@@ -449,9 +481,23 @@ enum ResearchLab {
 
     /// Research points per day left for the queue after the signature programme and alien study take their shares.
     static func queueRate(_ s: GameState, total: Double) -> Double {
-        let sig = s.signature != nil && s.signatureLevel < SignatureSecret.maxLevel ? clamp(s.signatureShare, 0, 0.75) : 0
-        let study = XenoScience.hasUndeciphered(s) ? clamp(s.xenoStudyShare, 0, 0.6) : 0
-        return total * max(0, 1 - sig - study - Moonshots.researchShare(s))
+        let share = shares(s)
+        return total * max(0, 1 - share.sig - share.study - share.moon)
+    }
+
+    /// The shares the signature programme, alien study and running moonshots ask for, before scaling.
+    static func requestedShares(_ s: GameState) -> (sig: Double, study: Double, moon: Double) {
+        (s.signature != nil && s.signatureLevel < SignatureSecret.maxLevel ? clamp(s.signatureShare, 0, 0.75) : 0,
+         XenoScience.hasUndeciphered(s) ? clamp(s.xenoStudyShare, 0, 0.6) : 0,
+         Moonshots.researchShare(s))
+    }
+
+    /// 3.9: the shares they actually get: scaled down together when they add up past 100%.
+    static func shares(_ s: GameState) -> (sig: Double, study: Double, moon: Double) {
+        let r = requestedShares(s)
+        let total = r.sig + r.study + r.moon
+        guard total > 1 else { return r }
+        return (r.sig / total, r.study / total, r.moon / total)
     }
 
     // MARK: Monthly: new ideas, licence royalties
@@ -596,11 +642,49 @@ extension GameState {
         if on { ResearchLab.fillQueue(&self) }
     }
 
-    /// 3.8: the "Use enough for the full boost" button: idle chips, best first, no reserve.
-    mutating func assignResearchChipsForCap() -> Int { ResearchLab.assignIdleChips(&self, reserve: false) }
+    /// 3.8: the "Use enough for the full boost" button: idle chips, best first, no reserve. 3.9: it lifts your per-chip
+    /// limits too, since asking for the full boost overrides them.
+    mutating func assignResearchChipsForCap() -> Int {
+        researchChipLimit.removeAll()
+        return ResearchLab.assignIdleChips(&self, reserve: false)
+    }
+
+    /// 3.9: the per-chip "Set" on the Research page. Never more than you have free plus what's already on research
+    /// (a stale count used to over-assign, and the next day's cut blamed "a rental ended"). Lowering it is a limit the
+    /// director and idle-chip leasing respect, so it isn't undone the next day; raising it lifts the limit.
+    mutating func setResearchChips(_ id: String, _ n: Int) -> String? {
+        guard let pool = Economy.pools(self).first(where: { $0.accel.id == id }) else { return "You have none of those chips." }
+        let top = pool.research + pool.free
+        let k = clamp(n, 0, top)
+        if k < pool.research { researchChipLimit[id] = k } else { researchChipLimit[id] = nil }
+        researchChips[id] = k > 0 ? k : nil
+        if n > top { return "Only \(Fmt.int(top)) \(pool.accel.name) are free or on research; the rest are training, serving or leased." }
+        return nil
+    }
+
+    /// 3.9: take an entry off the queue. The director won't pick it again until you change focus (it used to be back
+    /// the next day), and a prerequisite stays while something queued needs it.
+    mutating func removeResearch(_ entry: String) -> String? {
+        guard researchQueue.contains(entry) else { return nil }
+        if let item = ResearchCatalog.byID[entry],
+           let parent = researchQueue.compactMap({ ResearchCatalog.byID[$0] }).first(where: { $0.id != entry && Self.needs($0.id, entry) }) {
+            return "\(item.name) is needed for \(parent.name), which is still queued. Remove \(parent.name) first."
+        }
+        researchQueue.removeAll { $0 == entry }
+        directorQueued.remove(entry)
+        if autoResearch { directorDismissed.insert(entry) }
+        return nil
+    }
+
+    /// Whether `id` needs `pre` somewhere down its unresearched prerequisites.
+    private static func needs(_ id: String, _ pre: String, depth: Int = 0) -> Bool {
+        guard depth < 12, let item = ResearchCatalog.byID[id] else { return false }
+        return item.prereqs.contains { $0 == pre || needs($0, pre, depth: depth + 1) }
+    }
 
     mutating func setResearchFocus(_ f: ResearchFocus) {
         researchFocus = f.rawValue
+        directorDismissed.removeAll()   // 3.9: a new focus is a fresh start for the director
         // 3.9: a new focus re-picks the director's queue at once (it only topped up an emptying queue before, so changing
         // focus looked like it did nothing). Your own picks stay; progress on a dropped pick is kept for later.
         guard autoResearch else { return }
@@ -629,7 +713,7 @@ extension GameState {
     /// 3.4: queue the next level of a frontier programme.
     mutating func queueProgram(_ id: String) -> String? {
         guard let p = FrontierProgram.byID[id] else { return "Unknown programme." }
-        if year < p.opens { return "\(p.name) opens in \(Int(p.opens))." }
+        if year < p.opens { return "\(p.name) opens in \(p.opensMonth)." }   // 3.9: "in 2027" read wrong in June 2027
         if !researched.contains(p.prereq) { return "Research \(ResearchCatalog.byID[p.prereq]?.name ?? p.prereq) first." }
         if researchQueue.contains(p.entry) { return nil }
         ResearchLab.enqueueByPlayer(&self, p.entry)
@@ -650,7 +734,7 @@ extension GameState {
     mutating func queueAllPublished() -> Int {
         let picks = (ResearchCatalog.core + ResearchCatalog.lateGame).filter { item in
             !researched.contains(item.id) && !researchQueue.contains(item.id) && item.year <= year
-                && item.category != .frontier && XenoScience.researchUnlocked(item.id, self)
+                && item.category != .frontier && !ResearchLab.blocked(self, item.id)   // 3.9: not ones that can't start
         }.sorted { Sim.researchCost($0, year: year) < Sim.researchCost($1, year: year) }
         for item in picks { ResearchLab.enqueueByPlayer(&self, item.id) }
         return picks.count

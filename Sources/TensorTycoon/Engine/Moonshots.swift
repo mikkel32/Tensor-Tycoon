@@ -191,8 +191,8 @@ enum Moonshots {
         Events.addDecision(&s, kind: kind, title: "Moonshot: \(d.name)",
                            body: "\(d.blurb) It would take about \(d.months) months and \(Int((d.researchShare * 100).rounded()))% of your research while it runs. If it works: \(d.reward)",
                            image: d.image ?? "supercomputer",
-                           options: [DecisionOption(label: "Fund it alone", detail: "\(Fmt.money(price)) up front · \(Int((solo * 100).rounded()))% chance · \(payoff)."),
-                                     DecisionOption(label: "Partner with a national lab", detail: "\(Fmt.money(price / 2)) · \(Int((shared * 100).rounded()))% chance · half the royalties, more political capital."),
+                           options: [DecisionOption(label: "Fund it alone", detail: "\(Fmt.money(price)) up front (you have \(Fmt.money(max(0, s.cash))) today) · \(Int((solo * 100).rounded()))% chance · \(payoff)."),
+                                     DecisionOption(label: "Partner with a national lab", detail: "\(Fmt.money(price / 2)) up front · \(Int((shared * 100).rounded()))% chance · half the royalties, more political capital."),
                                      DecisionOption(label: "Pass", detail: "A rival lab may take it on instead.")],
                            amount: price, ref: d.id)
     }
@@ -205,9 +205,16 @@ enum Moonshots {
         guard option < 2 else { decline(&s, i); return }
         let partnered = option == 1
         let price = dec.amount * (partnered ? 0.5 : 1)
+        // 3.9: too little cash keeps the offer open instead of throwing it away (it used to count as passing, with a
+        // rival free to take it, even when the half-price partnership was affordable).
         guard s.cash >= price else {
-            Sim.news(&s, "Couldn't fund \(d.name)", "The moonshot needed \(Fmt.money(price)) up front, which you don't have. The backers move on.", .company, good: false)
-            decline(&s, i)
+            s.decisions.append(dec)
+            let half = dec.amount * 0.5
+            let alt = !partnered && s.cash >= half ? " Partnering with a national lab costs \(Fmt.money(half)), which you can afford." : ""
+            let until = dec.deadline.map { " The offer stays in your inbox until \($0.gameShort)." } ?? " The offer stays in your inbox."
+            Sim.news(&s, "Not enough cash for \(d.name)",
+                     "\(partnered ? "Partnering" : "Funding it alone") needs \(Fmt.money(price)) up front; you have \(Fmt.money(max(0, s.cash))).\(alt)\(until)",
+                     .company, good: false)
             return
         }
         s.cash -= price
@@ -227,6 +234,7 @@ enum Moonshots {
 
     static func decline(_ s: inout GameState, _ i: Int) {
         s.moonshots[i].status = .declined
+        Science.moonshotDropped(&s, s.moonshots[i].id)   // 3.9: discoveries fed to it get their choice back
         let y = s.year
         let labs = s.competitors.filter { !$0.acquired && !$0.bankrupt && y >= $0.def.founded.decimal }
         if !labs.isEmpty, s.rng.chance(0.5) {
@@ -244,11 +252,15 @@ enum Moonshots {
         case .running:
             let months = m.ends.map { max(0, GameCalendar.daysBetween(s.date, $0)) / 30 } ?? 0
             let effort = m.rpTarget > 0 ? m.rpInvested / m.rpTarget : 0
-            var line = "Running\(m.partnered ? " with a national lab" : "") · \(months) months left · \(Int((m.chance * 100).rounded()))% odds at launch · research \(Int((effort * 100).rounded()))% of plan"
-            // 3.8: the plan was sized at launch RP; if your research has dropped since, say what it does to the odds.
-            if let end = projectedEffort(m, s), end < 0.9, let d = m.def {
+            var line = "Running\(m.partnered ? " with a national lab" : "") · \(months) months left · research \(Int((effort * 100).rounded()))% of plan"
+            // 3.9: today's odds, as `finish` will roll them: fed discoveries, your models against the frontier and your
+            // safety score all move them after launch (the row only showed launch odds before).
+            if let d = m.def {
+                let end = projectedEffort(m, s) ?? 1
                 let odds = clamp(chance(d, s, partnered: m.partnered) * pow(clamp(end, 0.25, 1.5), 0.5), 0.03, 0.97)
-                line += " · on pace for \(Int((end * 100).rounded()))% of plan, so about \(Int((odds * 100).rounded()))% odds. More research points would close the gap"
+                line += " · about \(Int((odds * 100).rounded()))% odds now (\(Int((m.chance * 100).rounded()))% at launch)"
+                // 3.8: the plan was sized at launch RP; if your research has dropped since, say what it does to the odds.
+                if end < 0.9 { line += " · on pace for \(Int((end * 100).rounded()))% of plan. More research points would close the gap" }
             }
             return line
         case .succeeded:
@@ -263,7 +275,10 @@ enum Moonshots {
     static func projectedEffort(_ m: Moonshot, _ s: GameState) -> Double? {
         guard m.status == .running, m.rpTarget > 0, let end = m.ends, let d = m.def else { return nil }
         let left = Double(max(0, GameCalendar.daysBetween(s.date, end)))
-        return (m.rpInvested + s.rpToday * min(0.5, d.researchShare) * left) / m.rpTarget
+        // 3.9: its part of what running moonshots really get (capped at half, and scaled when shares pass 100%).
+        let asked = s.moonshots.filter { $0.status == .running }.reduce(0.0) { $0 + ($1.def?.researchShare ?? 0) }
+        let mine = asked > 0 ? ResearchLab.shares(s).moon * d.researchShare / asked : 0
+        return (m.rpInvested + s.rpToday * mine * left) / m.rpTarget
     }
 
     static func succeeded(_ s: GameState) -> Int { s.moonshots.filter { $0.status == .succeeded }.count }
