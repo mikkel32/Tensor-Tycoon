@@ -228,8 +228,8 @@ struct CompareRow: Identifiable {
             CompareRow(label: "Price today", note: "if you can buy it now", better: .lower,
                        value: { a in Economy.canBuy(a, s) ? Economy.price(a, s) : nil },
                        text: dash { Fmt.money($0) }, estimated: est("price")),
-            CompareRow(label: "Rent today", note: "per chip-hour, if rentable now", better: .lower,
-                       value: { a in Economy.canRent(a, s) ? Economy.rent(a, s) : nil },
+            CompareRow(label: "Rent today", note: "per chip-hour you'd pay, if rentable now", better: .lower,
+                       value: { a in Economy.canRent(a, s) ? Economy.rentQuote(a, s) : nil },   // 3.9: with the surcharge for what you already rent
                        text: dash { "\(Fmt.price($0))/hr" }, estimated: est("rent")),
             CompareRow(label: "$ per BF16 TFLOP", note: "launch price · lower is better", better: .lower,
                        value: { a in a.price.flatMap { p in a.bf16 > 0 ? p / a.bf16 : nil } },

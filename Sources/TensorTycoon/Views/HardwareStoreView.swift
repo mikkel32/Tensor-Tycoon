@@ -173,7 +173,7 @@ struct HardwareStoreView: View {
     }
 
     private func perfPerRent(_ a: Accelerator, _ s: GameState) -> Double {
-        guard let r = Economy.rent(a, s), Economy.canRent(a, s) else { return 0 }
+        guard let r = Economy.rentQuote(a, s), Economy.canRent(a, s) else { return 0 }   // 3.9: what you'd actually pay
         return a.best / r
     }
 }
@@ -348,7 +348,9 @@ struct AcceleratorDetail: View {
         }
         .frame(width: 900, height: 720)
         .onAppear {
-            siteID = s.sites.first { $0.isReady(s.date) && a.tdpW <= $0.maxChipTDP && (!a.liquid || $0.cooling.supportsLiquidChips) }?.id
+            // 3.9: no fixed site: until you pick one, the order goes to the open site with the most room for it
+            // (Campus.defaultSite), not the first site that can cool the chip.
+            siteID = nil
             qty = a.minOrder > 1 ? a.minOrder : (a.cls == .consumer || a.cls == .workstation ? 4 : 8)
         }
     }
@@ -409,7 +411,8 @@ struct AcceleratorDetail: View {
             HStack {
                 Text("Quantity")
                 Spacer()
-                QuantityPicker(value: $qty, range: 1...max(1, max(Economy.allocationLimit(a, s), Economy.rentalLimit(a, s))),
+                // 3.9: buying and renting have separate limits; each button below checks its own and offers its own max.
+                QuantityPicker(value: $qty, range: 1...max(1, max(buy != nil ? buyCeiling(a, s) : 0, rent != nil ? Economy.rentalRoom(a, s) : 0)),
                                presets: a.minOrder > 1 ? [a.minOrder, a.minOrder * 16, a.minOrder * 256, a.minOrder * 4096, a.minOrder * 32_768]
                                                        : [1, 8, 64, 512, 4096, 32_768, 262_144, 1_048_576])
             }
@@ -423,7 +426,8 @@ struct AcceleratorDetail: View {
                         Text("Choose a site…").tag(UUID?.none)
                         ForEach(sites) { site in
                             let free = site.capacityKW - Economy.siteLoadKW(s, site.id)
-                            Text("\(site.name) — \(Fmt.watts(max(0, free) * 1000)) free\(site.isReady(s.date) ? "" : " (under construction)")").tag(UUID?.some(site.id))
+                            let fits = a.tdpW <= site.maxChipTDP && (!a.liquid || site.cooling.supportsLiquidChips)
+                            Text("\(site.name) — \(fits ? "\(Fmt.watts(max(0, free) * 1000)) free" : (a.liquid && !site.cooling.supportsLiquidChips ? "air-cooled, can't take these" : "can't power these"))\(site.isReady(s.date) ? "" : " (under construction)")").tag(UUID?.some(site.id))
                         }
                     }
                     if let siteID = siteID ?? Campus.defaultSite(for: a, count: qty, s)?.id, let site = s.sites.first(where: { $0.id == siteID }) {
@@ -435,6 +439,13 @@ struct AcceleratorDetail: View {
                             Button("Use max") { qty = max(1, best) }
                                 .buttonStyle(.borderless).font(.caption)
                                 .disabled(best < 1)
+                        }
+                        if qty > best {
+                            Label(best < 1 ? "Nothing can be ordered for \(site.name) right now: \(buyBlock(a, site: site, s))."
+                                           : "\(Fmt.int(qty)) is more than you can order for \(site.name) now (\(Fmt.int(best)) at most: \(buyBlock(a, site: site, s))).",
+                                  systemImage: "exclamationmark.triangle.fill")
+                                .font(.caption).foregroundStyle(.orange)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
                         if !site.isReady(s.date) {
                             Label("\(site.name) is still being built and opens \(site.ready.gameShort) (in \(Fmt.days(site.ready.timeIntervalSince(s.date) / 86_400))). Chips bought for it sit unused until then and lose resale value meanwhile.",
@@ -459,6 +470,7 @@ struct AcceleratorDetail: View {
                             if store.act("Order placed", { $0.buyHardware(a.id, count: qty, siteID: siteID) }) { dismiss() }
                         }
                         .buttonStyle(.borderedProminent)
+                        .disabled(buyOver(a, s))
                     }
                     if a.liquid { Label("Needs a liquid-cooled colocation cage or datacenter.", systemImage: "drop.fill").font(.caption).foregroundStyle(.blue) }
                 }
@@ -470,10 +482,13 @@ struct AcceleratorDetail: View {
                         ForEach(RentalTerm.allCases) { t in Text("\(t.rawValue) (\(Fmt.price(rent * t.discount))/hr)").tag(t) }
                     }
                     let monthly = rent * term.discount * 24 * 30.4 * Double(qty)
+                    let room = Economy.rentalRoom(a, s)
+                    let rented = Economy.rentedCount(a, s)
                     HStack {
                         VStack(alignment: .leading, spacing: 1) {
                             Text("\(Fmt.money(monthly))/month").font(.headline.monospacedDigit())
-                            Text("On \(a.cloudProvider). Instant, no power or cooling needed. You can rent up to \(Fmt.int(Economy.rentalLimit(a, s))) of the world's \(Fmt.count(Economy.cloudSupply(a, s))); prices rise as you take more of them.")
+                            // 3.9: the limit counts what you already rent, so say how many more fit.
+                            Text("On \(a.cloudProvider). Instant, no power or cooling needed. You can rent \(Fmt.int(room)) more\(rented > 0 ? " (you rent \(Fmt.int(rented)) of your \(Fmt.int(Economy.rentalLimit(a, s))) limit)" : "") of the world's \(Fmt.count(Economy.cloudSupply(a, s))); prices rise as you take more of them.")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()
@@ -482,9 +497,63 @@ struct AcceleratorDetail: View {
                         }
                         .buttonStyle(.borderedProminent)
                         .tint(.teal)
+                        .disabled(qty > room)
+                    }
+                    if qty > room {
+                        HStack {
+                            Label(room == 0 ? "You can't rent more \(a.name) right now: \(rentBlock(a, s))."
+                                            : "\(Fmt.int(qty)) is more than you can rent: \(Fmt.int(room)) more at most (\(rentBlock(a, s))).",
+                                  systemImage: "exclamationmark.triangle.fill")
+                                .font(.caption).foregroundStyle(.orange)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Spacer()
+                            if room > 0 { Button("Rent max") { qty = room }.buttonStyle(.borderless).font(.caption) }
+                        }
                     }
                 }
             }
         }
+    }
+
+    /// The largest buy the quantity picker offers: allocation, or for your own fab line what one order can take.
+    private func buyCeiling(_ a: Accelerator, _ s: GameState) -> Int {
+        let alloc = Economy.allocationLimit(a, s)
+        return AlienFab.isAlienChip(a.id) ? min(alloc, AlienFab.maxOrder(s), AlienFab.backlogRoom(s)) : alloc
+    }
+
+    /// The site the Buy button would use.
+    private func buySite(_ a: Accelerator, _ s: GameState) -> Site? {
+        guard let id = siteID ?? Campus.defaultSite(for: a, count: qty, s)?.id else { return nil }
+        return s.sites.first { $0.id == id }
+    }
+
+    /// 3.9: Buy is off when the quantity is over what you can order for that site (the line above it says why).
+    private func buyOver(_ a: Accelerator, _ s: GameState) -> Bool {
+        guard let site = buySite(a, s) else { return false }
+        return qty > Campus.maxOrder(a, site: site, s)
+    }
+
+    /// Which limit stops a bigger order, in plain words.
+    private func buyBlock(_ a: Accelerator, site: Site, _ s: GameState) -> String {
+        guard let unit = Economy.price(a, s), unit > 0 else { return "not for sale" }
+        if a.tdpW > site.maxChipTDP { return "\(site.name) can't power \(Int(a.tdpW)) W parts" }
+        if a.liquid && !site.cooling.supportsLiquidChips { return "\(site.name) is air-cooled" }
+        let power = Int(max(0, site.capacityKW - Economy.siteLoadKW(s, site.id)) / max(0.001, Economy.chipKW(a)))
+        let cash = Int(max(0, s.cash) / unit)
+        let alloc = Economy.allocationLimit(a, s)
+        var reasons: [(Int, String)] = [(power, "power free at \(site.name)"), (cash, "your cash"), (alloc, a.vendor == .custom ? "chips available" : "\(a.vendor.rawValue)'s allocation to you")]
+        if AlienFab.isAlienChip(a.id) {
+            reasons.append((AlienFab.maxOrder(s), "six months of your fab line per order"))
+            reasons.append((AlienFab.backlogRoom(s), "room in your fab line's twelve-month queue"))
+        }
+        return reasons.min { $0.0 < $1.0 }?.1 ?? "allocation, cash and power"
+    }
+
+    /// Which cap stops more rentals.
+    private func rentBlock(_ a: Accelerator, _ s: GameState) -> String {
+        if a.cls == .consumer || a.cls == .workstation { return "clouds rent at most \(Fmt.int(Economy.rentalLimit(a, s))) to one customer" }
+        return Economy.rentalSupplyCap(a, s) <= Economy.rentalCreditCap(a, s)
+            ? "\(a.cloudProvider) rents one customer at most \(Fmt.pct(Economy.rentalSupplyShare(a, s), decimals: 0)) of the world's supply"
+            : "two months of rent must be covered by your cash and revenue"
     }
 }

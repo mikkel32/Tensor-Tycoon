@@ -90,23 +90,42 @@ private struct LeaseRow: View {
         let s = state
         let rate = ChipBusiness.listRate(p.accel, s)
         let maxLease = min(p.owned, p.free + leased)
-        HStack(spacing: 12) {
-            Photo(key: p.accel.image).frame(width: 54, height: 36).clipShape(.rect(cornerRadius: 7)).acceleratorPhotoLabel(p.accel)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(p.accel.name).font(.callout.weight(.semibold))
-                Text("\(Fmt.int(p.owned)) owned · \(Fmt.int(p.free)) idle · \(Fmt.int(leased)) leased · market \(Fmt.price(rate))/chip-hour")
-                    .font(.caption).foregroundStyle(.secondary)
+        let byHand = s.ops.handLeased.contains(p.accel.id)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 12) {
+                Photo(key: p.accel.image).frame(width: 54, height: 36).clipShape(.rect(cornerRadius: 7)).acceleratorPhotoLabel(p.accel)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(p.accel.name).font(.callout.weight(.semibold))
+                    Text("\(Fmt.int(p.owned)) owned · \(Fmt.int(p.free)) idle · \(Fmt.int(leased)) leased · market \(Fmt.price(rate))/chip-hour")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                if leased > 0 {
+                    Text("\(Fmt.money(ChipBusiness.leaseIncomePerDay(p.accel, count: leased, s) * 30.4))/mo").font(.callout.monospacedDigit()).foregroundStyle(.green)
+                }
+                QuantityPicker(value: $count, range: 0...max(0, maxLease), presets: [0, 64, 512, 4096, 32768])
+                Button(count == 0 && leased > 0 ? "Recall all" : "Set lease") {
+                    store.act(count == 0 ? "Leases recalled" : "Leasing \(Fmt.int(count)) chips") { $0.setLeaseByHand(p.accel.id, chips: count) }
+                }
+                .disabled(count == leased)
             }
-            Spacer()
-            if leased > 0 {
-                Text("\(Fmt.money(ChipBusiness.leaseIncomePerDay(p.accel, count: leased, s) * 30.4))/mo").font(.callout.monospacedDigit()).foregroundStyle(.green)
-            }
-            QuantityPicker(value: $count, range: 0...max(0, maxLease), presets: [0, 64, 512, 4096, 32768])
-            Button(count == 0 && leased > 0 ? "Recall all" : "Set lease") {
-                store.act(count == 0 ? "Leases recalled" : "Leasing \(Fmt.int(count)) chips") { $0.setLease(p.accel.id, chips: count) }
+            // 3.9: the idle-leasing delegate used to re-lease recalled chips on its next run. Say what it does, and that a
+            // lease set here is left alone.
+            if s.ops.leaseIdle {
+                HStack(spacing: 6) {
+                    if byHand {
+                        Text("Set by hand: the idle-leasing delegate won't lease more of these, but still recalls them when your own work needs them.")
+                        Button("Let the delegate manage them") { store.mutate { $0.releaseLeaseToDelegate(p.accel.id) } }
+                            .buttonStyle(.borderless)
+                    } else {
+                        Text("The idle-leasing delegate (Operations) leases idle chips every few days. Setting a lease here, or recalling it, keeps it as you set it.")
+                    }
+                }
+                .font(.caption2).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
         }
         .onAppear { count = leased > 0 ? leased : max(0, p.free) }
+        .onChange(of: leased) { _, new in count = min(new, maxLease) }   // 3.9: follow leases the delegate changes
     }
 }
 

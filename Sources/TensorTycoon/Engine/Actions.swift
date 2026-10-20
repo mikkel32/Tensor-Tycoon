@@ -72,12 +72,18 @@ extension GameState {
         guard Economy.canRent(a, self), let rate = Economy.rentQuote(a, self) else { return "\(a.name) isn't rentable right now." }
         if let why = Partners.blocker(a, self) { return why }
         let limit = Economy.rentalLimit(a, self)
-        let existing = rentals.filter { $0.accelID == accelID }.reduce(0) { $0 + $1.count }
+        let existing = Economy.rentedCount(a, self)
         if existing + count > limit {
+            // 3.9: the limit counts what you already rent; say how many more fit and which cap binds.
+            let room = max(0, limit - existing)
+            let already = existing > 0 ? " You already rent \(Fmt.int(existing)), so \(room > 0 ? "\(Fmt.int(room)) more fit" : "none more fit")." : ""
+            if a.cls == .consumer || a.cls == .workstation {
+                return "Cloud providers rent at most \(Fmt.int(limit)) \(a.name) to one customer.\(already)"
+            }
             let supply = Economy.cloudSupply(a, self)
-            return existing + count > Int(supply * 0.25)
-                ? "\(a.cloudProvider) won't rent one customer more than \(Fmt.int(limit)) \(a.name): about a quarter of the \(Fmt.count(supply)) in the world's clouds. Try newer chips, sign a supply deal or build your own."
-                : "\(a.cloudProvider) caps you at \(Fmt.int(limit)) \(a.name): two months of rent must be covered by your cash and revenue."
+            return Economy.rentalSupplyCap(a, self) <= Economy.rentalCreditCap(a, self)
+                ? "\(a.cloudProvider) won't rent one customer more than \(Fmt.int(limit)) \(a.name): \(Fmt.pct(Economy.rentalSupplyShare(a, self), decimals: 0)) of the \(Fmt.count(supply)) in the world's clouds.\(already) Try newer chips, sign a supply deal or build your own."
+                : "\(a.cloudProvider) caps you at \(Fmt.int(limit)) \(a.name): two months of rent must be covered by your cash and revenue.\(already)"
         }
         let hourly = rate * term.discount
         let firstDay = hourly * 24 * Double(count)
@@ -94,10 +100,9 @@ extension GameState {
         let r = rentals[i]
         let pool = Economy.pool(self, r.accelID)
         if (pool?.free ?? 0) < r.count { return "Free up \(r.count - (pool?.free ?? 0)) of these chips first." }
-        if let end = r.end {
-            let months = max(0, Double(GameCalendar.daysBetween(date, end)) / 30.4)
-            let penalty = r.hourly * 24 * 30.4 * Double(r.count) * months * 0.5
-            if penalty > cash { return "Breaking this reservation costs \(Fmt.money(penalty))." }
+        if r.end != nil {
+            let penalty = Economy.breakPenalty(r, self)
+            if penalty > cash { return "Breaking this reservation costs \(Fmt.money(penalty)) (half the rent left); you have \(Fmt.money(cash))." }
             cash -= penalty
             month.costRent += penalty
         }
@@ -169,7 +174,8 @@ extension GameState {
     mutating func expandSite(_ id: UUID, addKW: Double) -> String? {
         guard let i = sites.firstIndex(where: { $0.id == id }) else { return "Not found." }
         let site = sites[i]
-        if site.expanding > 0 { return "An expansion is already under way." }
+        // 3.9: a campus mid-phase queues the expansion behind its phases instead of refusing it.
+        if site.expanding > 0 && site.kind != .datacenter { return "An expansion is already under way." }
         switch site.kind {
         case .garage, .office:
             return "Upgrade your office from the Team page instead."
@@ -193,7 +199,8 @@ extension GameState {
                 if capex > cash { return n > 1 ? "The first phase costs \(Fmt.money(capex))." : "This expansion costs \(Fmt.money(capex))." }
             }
             sites[i].plannedKW += addKW
-            sites[i].phaseKW = phase
+            // Queued behind other phases: keep the larger phase size so the queue isn't cut into small slow steps.
+            sites[i].phaseKW = site.plannedKW > 0 || site.expanding > 0 ? max(site.phaseKW, phase) : phase
             if site.isReady(date) && site.expanding == 0 { Campus.startNextPhase(&self, i, factor: 0.6) }
         }
         return nil
@@ -204,12 +211,15 @@ extension GameState {
         if !deal.available(self) { return "Not available yet." }
         if sites[i].kind == .garage || sites[i].kind == .office { return "Your landlord picks the power for you." }
         if sites[i].kind == .colo && (deal == .gas || deal == .smr || deal == .fusion) { return "A colocation provider can't run on-site generation for you." }
+        if deal == sites[i].powerDeal { return nil }
+        // 3.9: the picker used to switch a site to turbines or a PPA for free (a 10 GW ceiling, a cheaper rate) while the
+        // real thing is a paid contract. Now a site switches only to grid or to power it actually holds.
+        if let why = Power.dealBlocker(sites[i], deal, self) { return why }
         let cap = sites[i].kind == .datacenter ? Campus.siteLimitMW(sites[i], deal, self) : Campus.siteCapMW(sites[i].location, deal, self)
         if Campus.plannedTotalKW(sites[i]) / 1000 > cap + 0.01 {
             return "\(deal.rawValue) can only supply \(Fmt.watts(cap * 1e6)) here; this campus is planned for \(Fmt.watts(Campus.plannedTotalKW(sites[i]) * 1000))."
         }
-        sites[i].powerDeal = deal
-        if deal.green >= 1 { brand = min(100, brand + 1) }
+        sites[i].powerDeal = deal   // 3.9: no brand bump here: signing the contract already earned it, and switching back and forth farmed it
         return nil
     }
 

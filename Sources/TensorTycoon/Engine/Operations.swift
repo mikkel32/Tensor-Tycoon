@@ -33,6 +33,8 @@ struct OpsPolicy: Codable, Hashable {
 
     /// 3.9: where idle chips go first: 0 = research (up to the cap that still helps), then lease; 1 = lease only.
     @D var idleFirst: Int = 0
+    /// 3.9: chip types whose lease you set by hand on Chip sales: the leasing delegate stops leasing more of them.
+    @D var handLeased: Set<String> = []
     /// 3.9: what each delegate has done: actions taken and dollars it committed (rent, payroll a year, deals signed a month).
     @D var tally: [String: Int] = [:]
     @D var moved: [String: Double] = [:]
@@ -379,7 +381,8 @@ enum Operations {
             }
             // 3.9: a small fleet leases from 8 chips, not 64 (a lab with 100 chips never leased anything before).
             let minLease = max(8, min(64, pool.owned / 10))
-            if idle >= minLease {
+            // 3.9: a lease you set (or recalled) by hand stays as you left it; the delegate only takes chips back.
+            if idle >= minLease && !s.ops.handLeased.contains(id) {
                 let n = min(pool.owned, current + idle)
                 if s.setLease(id, chips: n) == nil {
                     note(&s, "idle", "Leased \(Fmt.int(idle)) idle \(pool.accel.name) to the market: no serving shortfall, research is full.")

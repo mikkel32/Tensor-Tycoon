@@ -246,6 +246,16 @@ extension GameState {
         return "New capacity for your own chips is booked as wafers, packaging and HBM on the Semiconductors page. This line keeps the \(Fmt.count(chipLines[i].capacityMonth)) a month it has."
     }
 
+    /// 3.9: the Chip sales control. A lease set by hand is kept: the idle-leasing delegate won't lease more of this chip
+    /// (and undo a recall) until you hand it back with `releaseLeaseToDelegate`.
+    mutating func setLeaseByHand(_ accelID: String, chips: Int) -> String? {
+        if let e = setLease(accelID, chips: chips) { return e }
+        if ops.leaseIdle { ops.handLeased.insert(accelID) }
+        return nil
+    }
+
+    mutating func releaseLeaseToDelegate(_ accelID: String) { ops.handLeased.remove(accelID) }
+
     /// Lease `chips` owned accelerators of a type to the market (0 recalls them).
     mutating func setLease(_ accelID: String, chips: Int) -> String? {
         guard let a = HardwareCatalog.get(accelID) else { return "Unknown hardware." }

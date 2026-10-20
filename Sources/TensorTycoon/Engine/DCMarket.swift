@@ -241,6 +241,12 @@ enum DCMarket {
     /// Rent step the next tranche adds, a month.
     static func trancheRent(_ site: Site) -> Double { site.leaseRate * min(site.rampKW, site.rampStepKW) }
 
+    /// 3.9: the term a sublet actually gets: no longer than the whole years left on your own lease (at least one).
+    static func subleaseYears(_ site: Site, _ years: Int, _ s: GameState) -> Int {
+        guard let end = site.leaseEnd else { return years }
+        return min(years, max(1, GameCalendar.daysBetween(s.date, end) / 365))
+    }
+
     /// Rent a tenant pays for `kw` of your space.
     static func subleaseRate(_ site: Site, kw: Double, years: Int, _ s: GameState) -> Double {
         let market = leaseRate(site.location, mw: kw / 1000, years: years, cooling: site.cooling, toOwn: false, s)
@@ -402,9 +408,10 @@ enum DCMarket {
             let powerMonth = mw * 1000 * 0.8 * pue * 24 * 30.4 * loc.powerPrice * 1.1 * grid
             let monthly = rate * mw * 1000
             let score = (monthly + powerMonth) * 36 + first * waitCost
-            let q = CapacityQuote(kind: .lease, locationID: loc.id, mw: mw, cooling: cooling, years: years, upfront: 0, monthly: monthly + powerMonth,
+            // 3.9: signing takes a month's rent on the whole block as a deposit (leaseCapacity), so the quote says so.
+            let q = CapacityQuote(kind: .lease, locationID: loc.id, mw: mw, cooling: cooling, years: years, upfront: monthly, monthly: monthly + powerMonth,
                                   monthsToFirst: first, monthsToFull: full,
-                                  note: "\(years)-year wholesale lease at \(Fmt.money(rate))/kW-month\(ramp ? ", handed over in quarterly tranches" : ""). Rent starts on hand-over.")
+                                  note: "\(years)-year wholesale lease at \(Fmt.money(rate))/kW-month\(ramp ? ", handed over in quarterly tranches" : ""). Up front is a refundable deposit (a month's rent on the whole block), returned when the lease ends. Rent starts on hand-over.")
             if lease == nil || score < lease!.1 { lease = (q, score) }
         }
         if let lease { out.append(lease.0) }
@@ -539,8 +546,7 @@ extension GameState {
         if kw < 100 { return "Tenants take at least 100 kW." }
         let free = site.capacityKW - Economy.siteLoadKW(self, id)
         if kw > free + 0.01 { return "Only \(Fmt.watts(max(0, free) * 1000)) is free here." }
-        var term = years
-        if let end = site.leaseEnd { term = min(term, max(1, GameCalendar.daysBetween(date, end) / 365)) }
+        let term = DCMarket.subleaseYears(site, years, self)
         let rate = DCMarket.subleaseRate(site, kw: kw, years: term, self)
         sites[i].subleasedKW = kw
         sites[i].subleaseRate = rate
