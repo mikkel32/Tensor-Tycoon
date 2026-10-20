@@ -42,8 +42,11 @@ enum Commercial {
         /// Booked revenue it grows from (per month), and the growth it allows.
         var base: Double
         var growth: Double
-        var cap: Double { min(ramp, team) }
-        var limit: Limit { ramp <= team ? .ramp : .team }
+        /// 3.9: monthly revenue of the customers you already had in your best month of the last year: the team limit
+        /// never cuts below it (they're already looked after); growing past it takes more people.
+        var held: Double = 0
+        var cap: Double { min(ramp, max(team, held)) }
+        var limit: Limit { ramp <= max(team, held) ? .ramp : .team }
     }
 
     static func monthlyMarket(_ s: GameState) -> Double { Macro.marketSize(s.year) / 12 }
@@ -86,10 +89,8 @@ enum Commercial {
         let market = monthlyMarket(s)
         let base = bookedDaily(s) * 30.44
         let g = (1 + growthAllowance(share: base / max(1, market))) * marketGrowth(s.year) - 1
-        // 3.9: customers you already served are already looked after: the team limit never falls below your best month
-        // of the last year, so growing past it is what takes more people.
-        let team = max(teamUnits(s) * market * perHeadShare, peakBookedDaily(s) * 30.44)
-        return Capacity(ramp: ramp(base: base, market: market, year: s.year), team: team, base: base, growth: g)
+        let team = teamUnits(s) * market * perHeadShare
+        return Capacity(ramp: ramp(base: base, market: market, year: s.year), team: team, base: base, growth: g, held: peakBookedDaily(s) * 30.44)
     }
 
     /// Enterprise contracts running today, per day (they're booked first).
