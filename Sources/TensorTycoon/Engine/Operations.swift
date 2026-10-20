@@ -258,7 +258,7 @@ enum Operations {
         for i in s.rentals.indices {
             let r = s.rentals[i]
             guard let end = r.end, let months = r.term.months, GameCalendar.daysBetween(today, end) <= 2,
-                  let rate = Economy.rentQuote(HardwareCatalog.get(r.accelID) ?? HardwareCatalog.h100, s) else { continue }
+                  let rate = Economy.rentQuote(HardwareCatalog.get(r.accelID) ?? HardwareCatalog.h100, s, renewing: r.count) else { continue }
             s.rentals[i].end = GameCalendar.addMonths(end, months)
             s.rentals[i].hourly = rate * r.term.discount
             let name = HardwareCatalog.get(r.accelID)?.name ?? r.accelID

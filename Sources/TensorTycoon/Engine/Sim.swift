@@ -543,7 +543,8 @@ enum Sim {
                 * Nations.powerFactor(s, location: site.locationID)   // 3.7: energy policy where the site is
         }
         power *= max(0.5, 1 - s.traits.power) * XenoScience.powerFactor(s) * AgentOrgs.powerFactor(s) * Science.powerFactor(s) * AdvancedProjects.powerFactor(s)   // 3.6: infrastructure teams; energy discoveries; cooling programmes
-        let sites = s.sites.reduce(0) { $0 + $1.monthlyFee } / 30.4
+        // 3.8: a new colo's first month is paid up front (`setup`), so it bills only once it's ready, like a term lease.
+        let sites = s.sites.reduce(0) { $0 + ($1.isReady(s.date) ? $1.monthlyFee : 0) } / 30.4
         let office = Economy.office(s, s.officeLevel).monthly / 30.4   // 3.5: local rent
         let payroll = Economy.payrollYear(s) / 365
         let data = Economy.dataMonthlyCost(s) / 30.4

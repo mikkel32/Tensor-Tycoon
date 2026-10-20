@@ -21,7 +21,16 @@ enum ReplayHarness {
         SaveMigration.migrate(&s)
         BenchmarkCatalog.resetCache()
         HardwareCatalog.register(s.customChips)
+        var answer = true
         for t in techs {
+            // cash:<amount> sets cash; noanswer leaves decisions to the inbox defaults; defer:<n> defers every leased tranche n times.
+            if t.hasPrefix("cash:") { s.cash = Double(t.dropFirst(5)) ?? s.cash; print("cash set to \(Fmt.money(s.cash))"); continue }
+            if t == "noanswer" { answer = false; continue }
+            if t == "nowaiver" { for i in s.corp.debts.indices { s.corp.debts[i].waiverUntil = nil }; continue }
+            if t.hasPrefix("defer:") {
+                for id in s.sites.map(\.id) { for _ in 0..<(Int(t.dropFirst(6)) ?? 1) { _ = s.deferTranche(id) } }
+                continue
+            }
             if t.hasPrefix("order:") {
                 let parts = t.split(separator: ":").map(String.init)
                 let why = parts.count == 3 ? s.orderOwnChips(parts[1], count: Int(parts[2]) ?? 0) : "use order:<chip>:<count>"
@@ -43,7 +52,7 @@ enum ReplayHarness {
         }
         report(s)
         for _ in 0..<days where s.gameOver == nil {
-            for _ in 0..<10 {
+            for _ in 0..<10 where answer {
                 guard let d = s.decisions.first else { break }
                 s.resolveDecision(d.id, option: 0)
             }
@@ -75,9 +84,18 @@ enum ReplayHarness {
         print("    live models \(live.count) (capacity/demand:\(liveText)) · chat \(chat) · agent \(agent)")
         print("    users \(Fmt.count(s.consumerUsers)) (\(Fmt.count(s.paidUsers)) paid) · seats \(Fmt.count(s.agentSeats)) · cash \(Fmt.money(s.cash)) · lifetime revenue \(Fmt.money(s.lifetimeRevenue)) · swarms:\(swarmText.isEmpty ? " none" : swarmText)")
         for n in s.news.prefix(6) where n.date == s.date && ProcessInfo.processInfo.environment["REPLAY_NEWS"] != nil { print("    news: \(n.title) — \(n.body)") }
-        for a in s.alerts.prefix(4) where a.date == s.date && ProcessInfo.processInfo.environment["REPLAY_NEWS"] != nil { print("    ALERT\(a.critical ? " (critical)" : ""): \(a.title) — \(a.body)") }
         if ProcessInfo.processInfo.environment["REPLAY_POOLS"] != nil {
             for p in pools where p.total > 0 { print("    pool \(p.accel.name): owned \(p.owned) rented \(p.rented) free \(p.free) leased \(p.leased) training \(p.training) research \(p.research) swarm \(p.swarm) inference \(p.inference)") }
+        }
+        // Money: cash, debts, board confidence and the day's new alerts.
+        let debts = s.corp.debts.map { "\($0.kind.rawValue) \(Fmt.money($0.balance)) (+\(Fmt.trim($0.penalty, 1)) pts, \($0.breaches) breaches)" }.joined(separator: ", ")
+        let leases = s.sites.filter(\.isTermLease).map { "\($0.name): \(Fmt.money($0.monthlyFee))/mo, +\(Fmt.watts($0.rampKW * 1000)) to come, deposit \(Fmt.money($0.deposit))" }.joined(separator: "; ")
+        print("    cash \(Fmt.money(s.cash)) · debt \(Fmt.money(Economy.debt(s))) [\(debts)] · board \(Int(s.boardConfidence)) · rating \(s.corp.rating) · leases: \(leases)")
+        let q = Corporate.quotes(s).map { "\($0.kind.rawValue) max \(Fmt.money($0.max))" }.joined(separator: ", ")
+        print("    borrowing: \(q) · safe EBITDA \(Fmt.money(Corporate.safeEbitda(s))) · LTM \(Fmt.money(Corporate.ebitdaAnnual(s)))")
+        for a in s.alerts where a.date == s.date { print("    ALERT\(a.critical ? "!" : ""): \(a.title) — \(a.body)") }
+        for n in s.news.prefix(12) where n.date == s.date && (n.title.hasPrefix("Inbox:") || n.title.contains("ovenant") || n.title.contains("enalty")) {
+            print("    NEWS: \(n.title) — \(n.body)")
         }
         let fab = s.orders.filter { AlienFab.isAlienChip($0.accelID) }
         if s.alienFab.exists {

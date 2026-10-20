@@ -71,9 +71,9 @@ enum Agenda {
     }
 
     /// The answer an inbox decision takes if it expires.
-    static func defaultAnswer(_ d: Decision) -> String? {
+    static func defaultAnswer(_ d: Decision, _ s: GameState) -> String? {
         guard !d.options.isEmpty else { return nil }
-        return d.options[min(d.options.count - 1, Alerts.inboxDefaults[d.kind] ?? d.options.count - 1)].label
+        return d.options[Alerts.inboxDefault(d, s)].label
     }
 
     // MARK: Coming up

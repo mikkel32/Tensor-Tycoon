@@ -156,11 +156,13 @@ extension GameState {
         if site.subleasedKW > 0 && site.kind == .colo { return "\(site.subleaseTenant) rents space here until \(site.subleaseEnd?.gameShort ?? "later"). End the sublease first." }
         if site.kind == .colo {
             let penalty = site.isTermLease ? DCMarket.exitFee(site, self) : site.monthlyFee
-            if penalty > cash { return site.isTermLease ? "Ending the lease early costs half the rent left, \(Fmt.money(penalty))." : "Ending the lease early costs a month's fee (\(Fmt.money(penalty)))." }
+            // 3.8: the deposit comes back against the fee.
+            if penalty - site.deposit > cash { return site.isTermLease ? "Ending the lease early costs \(site.rolledOver ? "a month's rent" : "half the rent left"), \(Fmt.money(penalty))\(site.deposit > 0 ? " less your \(Fmt.money(site.deposit)) deposit" : "")." : "Ending the lease early costs a month's fee (\(Fmt.money(penalty)))." }
             cash -= penalty
             month.costSites += penalty
+            cash += site.deposit
             sites.remove(at: i)
-            Sim.news(&self, "Lease ended: \(site.name)", "\(Fmt.watts(site.capacityKW * 1000)) handed back. Early-exit fee: \(Fmt.money(penalty)).", .company)
+            Sim.news(&self, "Lease ended: \(site.name)", "\(Fmt.watts(site.capacityKW * 1000)) handed back. Early-exit fee: \(Fmt.money(penalty))\(site.deposit > 0 ? "; your \(Fmt.money(site.deposit)) deposit is returned" : "").", .company)
             return nil
         }
         let price = Campus.salePrice(site, self)

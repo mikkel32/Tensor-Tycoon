@@ -92,7 +92,8 @@ enum Board {
 
     static func tranche(_ s: GameState) -> Double {
         let last = s.rounds.last(where: { $0.name != "IPO" })?.amount ?? 1e6
-        return clamp(last * 0.08, 1e5, 4e9)
+        // 3.8: a tranche follows the company too (0.05% of valuation), or a $3T lab was paid $200K for a goal worth billions.
+        return clamp(max(last * 0.08, s.valuation * 0.0005), 1e5, 6e9)
     }
 
     /// How hard a goal is (0.25–1.5): how far it asks you to move against a typical ask of its kind.
@@ -217,7 +218,7 @@ enum Board {
         }
         var o = Objective(kind: k, title: title, detail: detail, start: now, target: target, issued: s.date,
                           deadline: GameCalendar.addMonths(s.date, months),
-                          rewardCash: min(4e9, tranche(s) * difficulty(k, start: now, target: target)), rewardPoints: points,
+                          rewardCash: min(6e9, tranche(s) * difficulty(k, start: now, target: target)), rewardPoints: points,
                           rewardConfidence: 8 + Double(points) * 3)
         if k == .release { o.bar = target }
         return o
@@ -270,8 +271,11 @@ enum Board {
             } else if s.date > o.deadline {
                 s.objectives[i].failed = true
                 s.objectivesFailed += 1
-                s.boardConfidence = clamp(s.boardConfidence - 10, 0, 100)
-                Sim.news(&s, "Missed a board goal: \(o.title)", "The deadline passed. Board confidence falls.", .finance, important: true, good: false)
+                // 3.8: a goal set long ago was set for a smaller company, and a near miss isn't a failure.
+                let span = GameCalendar.daysBetween(o.issued, o.deadline)
+                let hit = (span > 300 ? 5.0 : span > 240 ? 7.0 : 10.0) * (o.progress >= 0.7 ? 0.6 : 1)
+                s.boardConfidence = clamp(s.boardConfidence - hit, 0, 100)
+                Sim.news(&s, "Missed a board goal: \(o.title)", "The deadline passed. Board confidence falls \(Int(hit.rounded())) points.", .finance, important: true, good: false)
             }
         }
         refill(&s)

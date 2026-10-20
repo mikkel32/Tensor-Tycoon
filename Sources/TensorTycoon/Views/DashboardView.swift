@@ -362,7 +362,7 @@ private struct InboxRow: View {
     var body: some View {
         let left = Agenda.daysLeft(decision, today: store.game.date)
         let tint: Color = left <= 3 ? .orange : .blue
-        let fallback = Agenda.defaultAnswer(decision).map { " it resolves as \"\($0)\"" } ?? " it resolves on its own"
+        let fallback = Agenda.defaultAnswer(decision, store.game).map { " it resolves as \"\($0)\"" } ?? " it resolves on its own"
         NeedLayout(symbol: "tray.full.fill", tint: tint, title: decision.title,
                    detail: "Waiting in your inbox. \(left == 0 ? "Today is the last day; then" : "\(left) day\(left == 1 ? "" : "s") left, then")\(fallback).") {
             Button("Answer") { store.openDecisionID = decision.id }

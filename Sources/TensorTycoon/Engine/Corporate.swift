@@ -153,9 +153,21 @@ enum Corporate {
     /// The licence fee it pays you is a cost here (it lowers the margin) and is valued once, on your side (`feeValue`).
     static func fundamental(_ sub: Subsidiary, _ s: GameState) -> Double {
         let gm = growthAndMargin(sub)
-        let m = baseMultiple(sub, s) * multipleFactor(growth: gm.growth, margin: gm.margin)
+        var factor = multipleFactor(growth: gm.growth, margin: gm.margin)
+        // 3.8: a loss-maker never earns more than 0.6× the typical multiple however fast it grows, and one that will run out of
+        // cash within a year is worth less the sooner (it has to raise on whatever terms it can get).
+        if gm.margin < 0 { factor = min(factor, 0.6) }
+        let burn = max(0, -(sub.history.suffix(3).reduce(0) { $0 + $1.profit } / Double(max(1, sub.history.suffix(3).count))))
+        if burn > 0 {
+            let runway = max(0, sub.cash) / burn
+            if runway < 12 { factor *= 0.6 + 0.4 * runway / 12 }
+        }
+        let m = baseMultiple(sub, s) * factor
         let floor = max(0, sub.cash) + Double(sub.headcount) * sub.kind.payPerHead * payScale(sub.kind, s.year) * 0.8
-        return max(sub.revenue * 12 * m, floor)
+        // Three months' average revenue, so one lumpy month doesn't reprice the company.
+        let h = sub.history.suffix(3)
+        let rev = h.count >= 2 ? h.reduce(0) { $0 + $1.revenue } / Double(h.count) : sub.revenue
+        return max(rev * 12 * m, floor)
     }
 
     /// The licence fees separate subsidiaries pay you, a year at the current rate (intercompany revenue).
@@ -273,6 +285,22 @@ enum Corporate {
         return m.notch
     }
 
+    /// 3.8: saves stuck in the breach cycle (a term loan sized on trailing EBITDA, then a bad month): a year's waiver, the penalty
+    /// rate off and the pending breach notices withdrawn, once.
+    static func migrate(_ s: inout GameState) {
+        guard !s.corp.fixes.contains("covenants38") else { return }
+        s.corp.fixes.insert("covenants38")
+        guard s.corp.engaged, !s.corp.debts.isEmpty else { return }
+        let m = metrics(s)
+        for i in s.corp.debts.indices where breaches(s.corp.debts[i], s, m, ignoreWaiver: true).isEmpty == false || s.corp.debts[i].breaches > 0 {
+            guard s.corp.debts[i].covenanted else { continue }
+            s.corp.debts[i].waiverUntil = GameCalendar.addMonths(s.date, 12)
+            s.corp.debts[i].penalty = 0
+            let ref = s.corp.debts[i].id.uuidString
+            s.decisions.removeAll { $0.kind == "corp_covenant" && $0.ref == ref }
+        }
+    }
+
     // MARK: Debt offers
 
     struct Quote {
@@ -283,6 +311,31 @@ enum Corporate {
         var available: Bool
         var reason: String
         var covenants: String
+        /// 3.8: how much more debt the covenant leaves room for (3× the lower of last-twelve-months and recent EBITDA, less all debt).
+        var room: Double = 0
+    }
+
+    /// 3.8: EBITDA a lender can rely on: the lower of the last twelve months and the last three annualised. Sizing debt on LTM alone
+    /// let a lab borrow to the limit just as a bad quarter pulled the LTM figure under it.
+    static func safeEbitda(_ s: GameState) -> Double {
+        let ltm = ebitdaAnnual(s)
+        let recent = Array(s.history.suffix(3))
+        guard !recent.isEmpty else { return ltm }
+        return min(ltm, recent.reduce(0) { $0 + $1.revenue - $1.opex } / Double(recent.count) * 12)
+    }
+
+    /// Debt room under the 3× sizing rule: all debt (loans, notes, bonds) counts.
+    static func debtRoom(_ s: GameState) -> Double { max(0, 3 * safeEbitda(s) - Economy.debt(s)) }
+
+    /// What borrowing `amount` more does to the covenant (limit 4× last-twelve-months EBITDA): text, and whether it would breach.
+    static func covenantNote(_ s: GameState, adding amount: Double) -> (text: String, breach: Bool) {
+        let ltm = ebitdaAnnual(s)
+        let after = Economy.debt(s) + amount
+        guard ltm > 0 else { return ("No EBITDA to measure the covenant against.", true) }
+        let lev = after / ltm
+        let breach = after > 4 * min(ltm, safeEbitda(s) > 0 ? safeEbitda(s) : ltm)
+        return ("Debt would be \(Fmt.trim(lev, 1))× EBITDA (covenant limit 4×); \(Fmt.money(max(0, 4 * ltm - after))) of headroom left."
+                + (breach ? " Would breach the covenant." : (lev > 3.4 ? " Close to the limit." : "")), breach)
     }
 
     static func quotes(_ s: GameState) -> [Quote] {
@@ -292,20 +345,24 @@ enum Corporate {
         let spread = spreads[notch]
         var out: [Quote] = []
         // Term loan: banks lend against cash flow.
-        let termMax = m.ebitda > 0 ? max(0, 3 * m.ebitda - m.debt) : 0
+        // 3.8: all debt counts (notes too) and EBITDA is the lower of the last twelve months and the last three annualised.
+        let room = debtRoom(s)
+        let termMax = m.ebitda > 0 ? room : 0
         out.append(Quote(kind: .termLoan, max: termMax, rate: fed + spread, term: 60, available: termMax > 1e6 && notch <= 5,
                          reason: m.ebitda <= 0 ? "Banks lend against EBITDA — you need to be making money first."
-                             : (notch > 5 ? "Your rating is too low for a bank to lend." : "Up to 3× EBITDA less what you already owe. Cheaper than venture debt, but it comes with covenants."),
-                         covenants: "Debt ≤ 4× last-twelve-months EBITDA, EBITDA ≥ 2× interest, tested monthly"))
+                             : (notch > 5 ? "Your rating is too low for a bank to lend." : "Up to 3× recent EBITDA less everything you owe, convertibles included. Cheaper than venture debt, but it comes with covenants."),
+                         covenants: "Debt ≤ 4× last-twelve-months EBITDA, EBITDA ≥ 2× interest, tested monthly", room: room))
         // Convertible note: cheap coupon, converts into shares if the company does well.
         let raised = !s.rounds.isEmpty || s.isPublic
         let notes = s.corp.debts.filter { $0.kind == .convertible }.reduce(0) { $0 + $1.balance }
-        let convMax = raised ? max(0, min(s.valuation * 0.15, Finance.maxRaise(s.year) * 0.5) - notes) : 0
+        // 3.8: notes count as debt under a term loan's covenant, so with one outstanding they share its room.
+        var convMax = raised ? max(0, min(s.valuation * 0.15, Finance.maxRaise(s.year) * 0.5) - notes) : 0
+        if s.corp.debts.contains(where: \.covenanted) { convMax = min(convMax, room) }
         let price = pricePerShare(s)
         out.append(Quote(kind: .convertible, max: convMax, rate: max(0.5, fed - 1), term: 48, available: convMax > 1e6,
                          reason: raised ? "A low coupon, repaid in 4 years — or turned into shares at \(Fmt.price(price * 1.25)) (25% above today's \(Fmt.price(price))) if they're worth more by then."
                                         : "Needs a priced equity round first.",
-                         covenants: "None. Dilutes you if it converts"))
+                         covenants: "None. Dilutes you if it converts", room: room))
         // Green bond: long, cheap money against datacenters, cheaper still on clean power.
         let dcs = s.sites.filter { $0.kind == .datacenter }
         let green = dcs.filter { [.solar, .wind, .nuclear, .smr, .fusion].contains($0.powerDeal) }
@@ -459,7 +516,9 @@ enum Corporate {
                      .finance, image: "stock_exchange", important: true, good: false)
             Alerts.raise(&s, .corporate, key: "rating", title: "Credit rating cut to \(ratingName(notch))",
                          body: "From \(ratingName(old)). Term loans now cost \(Fmt.trim(0.25 * Double(move), 2)) points more.", screen: .corporate, cooldown: 0)
-            s.boardConfidence = clamp(s.boardConfidence - 3 * Double(move), 0, 100)
+            // 3.8: a covenant breach this month already costs the board's trust once; the cut itself is capped.
+            let inBreach = s.corp.debts.contains { !breaches($0, s, m).isEmpty }
+            if !inBreach { s.boardConfidence = clamp(s.boardConfidence - min(6, 3 * Double(move)), 0, 100) }
             if s.isPublic { s.sharePrice *= fallen ? 0.95 : 0.98; s.valuation = s.sharePrice * s.totalShares }
             record(&s, "Rating cut \(ratingName(old)) → \(ratingName(notch))")
             if !s.corp.debts.isEmpty && !s.decisions.contains(where: { $0.kind == "corp_downgrade" }) {
@@ -481,9 +540,9 @@ enum Corporate {
     }
 
     /// Which covenants a debt is breaking right now (empty when none, or while a waiver lasts).
-    static func breaches(_ d: CorpDebt, _ s: GameState, _ m: Metrics) -> [String] {
+    static func breaches(_ d: CorpDebt, _ s: GameState, _ m: Metrics, ignoreWaiver: Bool = false) -> [String] {
         guard d.covenanted else { return [] }
-        if let w = d.waiverUntil, w > s.date { return [] }
+        if !ignoreWaiver, let w = d.waiverUntil, w > s.date { return [] }
         var out: [String] = []
         if d.maxLeverage > 0 && (m.ebitda <= 0 || m.debt / m.ebitda > d.maxLeverage) {
             out.append("debt is \(m.ebitda > 0 ? Fmt.trim(m.debt / m.ebitda, 1) + "×" : "more than any multiple of") EBITDA (limit \(Fmt.trim(d.maxLeverage, 1))×)")
@@ -503,6 +562,17 @@ enum Corporate {
         for i in s.corp.debts.indices {
             let d = s.corp.debts[i]
             let why = breaches(d, s, m)
+            // 3.8: a penalty rate lifts after six months in which the covenants held (a waiver doesn't count as holding).
+            if breaches(d, s, m, ignoreWaiver: true).isEmpty {
+                if d.covenanted { s.corp.debts[i].cleanMonths += 1 }
+                if d.penalty > 0 && s.corp.debts[i].cleanMonths >= 6 {
+                    s.corp.debts[i].penalty = 0
+                    Sim.news(&s, "Penalty rate lifted on your \(d.kind.rawValue.lowercased())", "Six months inside the covenants: the lenders took the extra interest off.", .finance, good: true)
+                    record(&s, "Penalty rate lifted on the \(d.kind.rawValue.lowercased())")
+                }
+            } else {
+                s.corp.debts[i].cleanMonths = 0
+            }
             guard !why.isEmpty, !s.decisions.contains(where: { $0.kind == "corp_covenant" && $0.ref == d.id.uuidString }) else { continue }
             s.corp.debts[i].breaches += 1
             let fee = (d.balance * 0.01 / 1_000).rounded(.up) * 1_000
@@ -512,7 +582,7 @@ enum Corporate {
                                image: "stock_exchange",
                                options: [DecisionOption(label: "Pay for a waiver", detail: "\(Fmt.money(fee)) (1% of the balance); covenants aren't tested for 6 months."),
                                          DecisionOption(label: "Repay it now", detail: "\(Fmt.money(d.balance)) from cash (a waiver if you can't)."),
-                                         DecisionOption(label: "Accept a penalty rate", detail: "+2 points of interest from now on, and 6 months' grace.")],
+                                         DecisionOption(label: "Accept a penalty rate", detail: "+2 points of interest (no cash now) and 6 months' grace. Lifted after six clean months.")],
                                amount: fee, ref: d.id.uuidString)
             Alerts.raise(&s, .corporate, key: "covenant|\(d.id.uuidString)", title: "Covenant breach: \(d.kind.rawValue)",
                          body: why.joined(separator: "; ").capitalizedFirst + ". A decision is waiting in your inbox.", screen: .corporate, cooldown: 60)
@@ -871,9 +941,10 @@ enum Corporate {
                 Sim.news(&s, "Debt repaid after a covenant breach", "You paid off the \(Fmt.money(debt.balance)) \(debt.kind.rawValue.lowercased()).", .finance)
                 record(&s, "Repaid the \(debt.kind.rawValue.lowercased()) after a breach")
             default:
-                s.corp.debts[i].penalty += 2
+                s.corp.debts[i].penalty = min(4, s.corp.debts[i].penalty + 2)
+                s.corp.debts[i].cleanMonths = 0
                 s.corp.debts[i].waiverUntil = GameCalendar.addMonths(s.date, 6)
-                Sim.news(&s, "Penalty rate on your \(debt.kind.rawValue.lowercased())", "Lenders added 2 points of interest in exchange for six months' grace.", .finance, good: false)
+                Sim.news(&s, "Penalty rate on your \(debt.kind.rawValue.lowercased())", "Lenders added 2 points of interest in exchange for six months' grace. It comes off after six months inside the covenants.", .finance, good: false)
                 record(&s, "Took a +2 point penalty rate on the \(debt.kind.rawValue.lowercased())")
             }
         case ("corp_downgrade", 0):

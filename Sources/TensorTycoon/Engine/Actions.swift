@@ -120,7 +120,7 @@ extension GameState {
             let ready = GameCalendar.addDays(date, 30)
             sites.append(Site(name: name, kind: .colo, locationID: locationID, capacityKW: capacityKW, cooling: cooling, powerDeal: power,
                               opened: date, ready: ready, capex: 0, monthlyFee: setup))
-            Sim.news(&self, "Signed colocation lease: \(name)", "\(Fmt.watts(capacityKW * 1000)) in \(loc.name), ready in 30 days. \(Fmt.money(setup))/month.",
+            Sim.news(&self, "Signed colocation lease: \(name)", "\(Fmt.watts(capacityKW * 1000)) in \(loc.name), ready in 30 days. The first month (\(Fmt.money(setup))) is paid now; \(Fmt.money(setup))/month from then on.",
                      .company, image: loc.image)
         case .datacenter:
             let mw = capacityKW / 1000
