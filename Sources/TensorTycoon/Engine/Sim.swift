@@ -186,8 +186,9 @@ enum Sim {
         Campus.daily(&s)
     }
 
-    /// If allocations exceed what we have (rental ended, chips died), recall leases, shrink research and swarms,
-    /// then inference, then pause self-improvement and training.
+    /// If allocations exceed what we have (rental ended, chips died), take chips back in this order: recall leases, then
+    /// research chips, swarms and self-improvement, then shrink training runs to fit (pause one that no longer fits in
+    /// memory) and only then cut serving, in whole replicas. Paused runs and jobs resume by themselves when chips return.
     static func rebalance(_ s: inout GameState, _ pools: [ComputePool]) {
         for pool in pools where pool.allocated > pool.total || pool.leased > pool.owned {
             var excess = pool.allocated - pool.total
@@ -204,6 +205,9 @@ enum Sim {
                 let cut = min(r, excess)
                 s.researchChips[id] = r - cut
                 excess -= cut
+                // 3.8: say so; the research rate drops with them.
+                news(&s, "Research lost \(Fmt.int(cut)) \(pool.accel.name)", "\(Fmt.int(r - cut)) are left on research. Something took the chips (a rental ended, or hardware failed); buy or rent more to get them back.",
+                     .company, good: false)
             }
             for si in s.swarms.indices where s.swarms[si].accelID == id && !s.swarms[si].paused && excess > 0 {
                 let cut = min(s.swarms[si].chips, excess)
@@ -215,39 +219,62 @@ enum Sim {
                 }
                 Swarms.log(&s, si, "Lost \(Fmt.int(cut)) \(pool.accel.name) chips — fewer agents can run.")
             }
-            if excess > 0 {
-                for mi in s.models.indices {
-                    for di in s.models[mi].deployments.indices where s.models[mi].deployments[di].accelID == id && excess > 0 {
-                        let cut = min(s.models[mi].deployments[di].chips, excess)
-                        s.models[mi].deployments[di].chips -= cut
-                        excess -= cut
-                    }
-                    s.models[mi].deployments.removeAll { $0.chips <= 0 }
-                }
+            for ri in s.rsiRuns.indices where s.rsiRuns[ri].accelID == id && s.rsiRuns[ri].status == .running && excess > 0 {
+                s.rsiRuns[ri].status = .paused
+                excess -= s.rsiRuns[ri].chips
+                RSI.log(&s, ri, "Paused: not enough \(pool.accel.name) chips.")
             }
-            if excess > 0 {
-                for ri in s.rsiRuns.indices where s.rsiRuns[ri].accelID == id && s.rsiRuns[ri].status == .running && excess > 0 {
-                    s.rsiRuns[ri].status = .paused
-                    excess -= s.rsiRuns[ri].chips
-                    RSI.log(&s, ri, "Paused: not enough \(pool.accel.name) chips.")
-                }
-            }
-            if excess > 0 && pool.accel.vendor == .custom {
-                // 3.5: your own chips can't be rented as spares, so a run on them carries on with the chips that are left.
-                AlienFab.shrinkRuns(&s, accel: pool.accel, excess: &excess)
-            }
+            // 3.8: training shrinks to the chips that are left (whatever the vendor) before anything is paused or served less.
+            if excess > 0 { AlienFab.shrinkRuns(&s, accel: pool.accel, excess: &excess) }
             if excess > 0 {
                 for ri in s.runs.indices where s.runs[ri].design.accelID == id && (s.runs[ri].status == .running || s.runs[ri].status == .postTraining) && excess > 0 {
                     s.runs[ri].status = .paused
+                    s.runs[ri].pausedSince = s.date
                     s.runs[ri].note = "Paused: not enough \(pool.accel.name) chips."
                     excess -= s.runs[ri].design.chips
-                    news(&s, "Training paused: \(s.runs[ri].design.name)", "You no longer have enough \(pool.accel.name) chips for this run.", .company, important: true, good: false)
+                    news(&s, "Training paused: \(s.runs[ri].design.name)", "You no longer have enough \(pool.accel.name) chips for this run. It restarts by itself when enough are free.", .company, important: true, good: false)
                     Alerts.raise(&s, .runPaused, key: s.runs[ri].id.uuidString, title: "\(s.runs[ri].design.name) stalled",
-                                 body: "Not enough \(pool.accel.name) chips: something else took them, or a rental ended. Free chips up or shrink the run, then resume.",
+                                 body: "Not enough \(pool.accel.name) chips: something else took them, or a rental ended. It resumes by itself when chips are free; or free chips up or shrink the run, then resume.",
                                  screen: .training, critical: true, cooldown: 7)
                 }
             }
             if excess > 0 && !s.families.jobs.isEmpty { Families.shrink(&s, accelID: id, excess: &excess) }   // 3.5: model families
+            // Serving last, and in whole replicas: half a replica serves nothing. Weakest models first; chat and agents last.
+            if excess > 0 {
+                let b = s.bonuses
+                let protected = Set([s.chatModelID, s.agentModelID].compactMap { $0 })
+                let order = s.models.indices.filter { s.models[$0].deployments.contains { $0.accelID == id } }
+                    .sorted { x, y in
+                        let px = protected.contains(s.models[x].id), py = protected.contains(s.models[y].id)
+                        return px != py ? !px : s.models[x].index < s.models[y].index
+                    }
+                for mi in order where excess > 0 {
+                    let m = s.models[mi]
+                    let k = max(1, Physics.chipsPerReplica(m, accel: pool.accel, precision: m.servingPrecision, bonuses: b))
+                    var lost = 0
+                    for di in s.models[mi].deployments.indices where s.models[mi].deployments[di].accelID == id && excess > 0 {
+                        let have = s.models[mi].deployments[di].chips
+                        var cut = min(have, (excess + k - 1) / k * k)
+                        if have - cut < k { cut = have }
+                        s.models[mi].deployments[di].chips -= cut
+                        excess -= cut
+                        lost += cut
+                    }
+                    s.models[mi].deployments.removeAll { $0.chips <= 0 }
+                    if lost > 0 {
+                        let left = s.models[mi].deployments.reduce(0) { $0 + $1.chips }
+                        news(&s, "\(m.name) lost \(Fmt.int(lost)) serving chips",
+                             left > 0 ? "\(Fmt.int(left)) chips still serve it. Some users get turned away until you add more."
+                                      : "Nothing serves it now, so its traffic goes unanswered. Give it chips on Models.",
+                             .company, important: left == 0, good: false)
+                    }
+                }
+            }
+        }
+        // Weekly: whatever stalled for lack of chips comes back once chips are free.
+        if GameCalendar.components(s.date).day % 7 == 1 {
+            AlienFab.resumeRuns(&s)
+            Families.resumeJobs(&s)
         }
     }
 
@@ -423,8 +450,9 @@ enum Sim {
         // Serve
         var servedTotal = 0.0, demandTotal = 0.0
         var revAPI = 0.0
-        var chatServed = 1.0
-        var agentServed = 1.0
+        // 3.8: no model behind chat or agents serves nobody (this used to default to fully served).
+        var chatServed = 0.0
+        var agentServed = 0.0
         for i in s.models.indices {
             let id = s.models[i].id
             let cap = s.models[i].deployments.reduce(0) { $0 + Physics.capacity(s.models[i], deployment: $1, bonuses: b) }
@@ -456,11 +484,13 @@ enum Sim {
             demandTotal += dem
         }
         if let r = freeRoute { chatServed = chatServed * (1 - r.share) + freeServed * r.share }
+        let liveDemand = s.models.filter { $0.released && !$0.retired }.reduce(0) { $0 + $1.demandTokensDay }
+        if liveDemand > 0 { s.lastLiveDemand = liveDemand }
         s.consumerServedFraction = chatServed
         let overall = demandTotal > 0 ? servedTotal / demandTotal : 1
         s.reliability = clamp(s.reliability * 0.93 + overall * 0.07, 0.05, 1)
 
-        let revConsumer = s.paidUsers * s.chatPrice / 30.4 * (0.5 + 0.5 * chatServed)
+        let revConsumer = s.paidUsers * s.chatPrice / 30.4 * (0.5 + 0.5 * chatServed) * (snap.consumer.contains { $0.isPlayer } ? 1 : 0)   // 3.8: no chat model, no subscriptions billed
         // Enterprise budgets are fixed too: rivals win the enterprise pool in proportion to their API business
         // (RivalEconomy); if your contracts plus theirs would outspend it, yours are squeezed to your share.
         let contracts = s.deals.filter(\.active).reduce(0.0) { $0 + $1.monthly } / 30.4
@@ -471,7 +501,7 @@ enum Sim {
         }
         let rivalsEnterprise = billedAPI > 0 ? snap.enterprisePool / 365 * rivalsBilled / billedAPI : 0
         let revEnterprise = contracts * Market.budgetFactor(contracts, pool: snap.enterprisePool / 365, others: rivalsEnterprise)
-        let revAgents = billedSeats * max(1, s.agentPrice) / 30.4 * (0.4 + 0.6 * agentServed)
+        let revAgents = billedSeats * max(1, s.agentPrice) / 30.4 * (0.4 + 0.6 * agentServed) * (agentModelID != nil ? 1 : 0)
         let total = revAPI + revConsumer + revEnterprise + revAgents
         s.month.revAgents += revAgents
         s.month.revAPI += revAPI

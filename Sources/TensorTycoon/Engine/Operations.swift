@@ -123,43 +123,64 @@ enum Operations {
         for i in order {
             let m = s.models[i]
             let demand = m.demandTokensDay
-            // Serve on the hardware it already uses, else the pool with the most idle chips.
-            let pools = Economy.pools(s)
-            let accelID = m.deployments.max(by: { $0.chips < $1.chips })?.accelID
-                ?? pools.filter { $0.free > 0 }.max(by: { Double($0.free) * $0.accel.best < Double($1.free) * $1.accel.best })?.accel.id
-            guard let accelID, let (per, k) = perChip(m, accelID, b), let pool = pools.first(where: { $0.accel.id == accelID }) else { continue }
-            let current = m.deployments.first { $0.accelID == accelID }?.chips ?? 0
+            // 3.8: capacity can come from several pools. Hardware the model already uses first, then the fastest
+            // chips it fits on; when one pool runs out of room the rest spills onto the next.
+            let used = Set(m.deployments.map(\.accelID))
+            var cands: [(id: String, per: Double, k: Int)] = []
+            for p in Economy.pools(s) {
+                if let (per, k) = perChip(m, p.accel.id, b), p.free > 0 || used.contains(p.accel.id) { cands.append((p.accel.id, per, k)) }
+            }
+            cands.sort { x, y in used.contains(x.id) != used.contains(y.id) ? used.contains(x.id) : x.per > y.per }
+            guard !cands.isEmpty else { continue }
+            let cap = m.deployments.reduce(0) { $0 + Physics.capacity(m, deployment: $1, bonuses: b) }
+            let need = demand > 0 ? demand / aim : 0
             // 3.5: a family tier on sale with no servers yet gets one replica, so it can start winning traffic.
             let seed = demand <= 0 && m.deployments.isEmpty && m.api && Families.tier(of: m.id, s) != nil
-            let wanted = demand > 0 ? Int((demand / aim / per / Double(k)).rounded(.up)) * k : (seed ? k : 0)
-            let keepFree = Int(Double(pool.total) * reserve)
-            if wanted > current {
-                var room = max(0, pool.free - keepFree)
-                // Serving your own users beats renting chips to strangers: take leased chips back first, but only
-                // what buys whole replicas (a recall it can't use would sit idle and get leased out again).
-                let leased = s.leases[accelID] ?? 0
-                if room < wanted - current && leased > 0 {
-                    let usable = min(wanted - current, room + leased) / k * k
-                    let back = max(0, usable - room)
-                    if back > 0, s.setLease(accelID, chips: leased - back) == nil {
-                        room += back
-                        log(&s, "Recalled \(Fmt.int(back)) leased \(pool.accel.name) to serve \(m.name).")
+            var remaining = seed ? 1 : need - cap
+            if remaining > 0 {
+                for c in cands where remaining > 0 {
+                    guard let pool = Economy.pool(s, c.id) else { continue }
+                    let current = s.models[i].deployments.first { $0.accelID == c.id }?.chips ?? 0
+                    let wantedAdd = seed ? c.k : Int((remaining / c.per / Double(c.k)).rounded(.up)) * c.k
+                    let keepFree = Int(Double(pool.total) * reserve)
+                    var room = max(0, pool.free - keepFree)
+                    // Serving your own users beats renting chips to strangers: take leased chips back first, but only
+                    // what buys whole replicas (a recall it can't use would sit idle and get leased out again).
+                    let leased = s.leases[c.id] ?? 0
+                    if room < wantedAdd && leased > 0 {
+                        let usable = min(wantedAdd, room + leased) / c.k * c.k
+                        let back = max(0, usable - room)
+                        if back > 0, s.setLease(c.id, chips: leased - back) == nil {
+                            room += back
+                            log(&s, "Recalled \(Fmt.int(back)) leased \(pool.accel.name) to serve \(m.name).")
+                        }
                     }
-                }
-                var add = min(wanted - current, room) / k * k
-                // Still short: rent cloud chips within the budget, when serving pays for them.
-                if wanted - current - add >= k {
-                    add += rentForServing(&s, m, accelID: accelID, chips: wanted - current - add, perChip: per * aim, k: k)
-                }
-                guard add > 0 else { continue }
-                if s.deploy(m.id, accelID: accelID, chips: current + add) == nil {
+                    let add = min(wantedAdd, room) / c.k * c.k
+                    guard add > 0, s.deploy(m.id, accelID: c.id, chips: current + add) == nil else { continue }
+                    remaining -= Double(add) * c.per
                     log(&s, "Capacity: +\(Fmt.int(add)) \(pool.accel.name) to \(m.name) (demand \(Fmt.count(demand)) tokens/day).")
                 }
-            } else if Double(wanted) < Double(current) * 0.6 && current - wanted >= k {
-                // Give back what it no longer needs (keep one replica while it still has demand).
-                let keep = demand > 0 ? max(k, wanted) : 0
-                if s.deploy(m.id, accelID: accelID, chips: keep) == nil {
-                    log(&s, "Capacity: freed \(Fmt.int(current - keep)) \(pool.accel.name) from \(m.name) (demand fell).")
+                // Still short after every pool: rent cloud chips within the budget, when serving pays for them.
+                if !seed, remaining > 0, let c = cands.first, remaining / c.per >= Double(c.k) {
+                    let chips = Int((remaining / c.per / Double(c.k)).rounded(.up)) * c.k
+                    let n = rentForServing(&s, m, accelID: c.id, chips: chips, perChip: c.per * aim, k: c.k)
+                    let cur = s.models[i].deployments.first { $0.accelID == c.id }?.chips ?? 0
+                    if n > 0, s.deploy(m.id, accelID: c.id, chips: cur + n) == nil {
+                        log(&s, "Capacity: +\(Fmt.int(n)) rented to \(m.name).")
+                    }
+                }
+            } else if need < cap * 0.6 {
+                // Give back what it no longer needs, slowest chips first (keep one replica while it still has demand).
+                var surplus = cap - need
+                for d in s.models[i].deployments.sorted(by: { (perChip(m, $0.accelID, b)?.0 ?? 0) < (perChip(m, $1.accelID, b)?.0 ?? 0) }) {
+                    guard let (per, k) = perChip(m, d.accelID, b), surplus > 0 else { continue }
+                    var drop = min(d.chips, Int(surplus / per / Double(k))  * k)
+                    if demand > 0 && drop >= s.models[i].deployments.reduce(0, { $0 + $1.chips }) { drop = max(0, drop - k) }
+                    guard drop >= k else { continue }
+                    if s.deploy(m.id, accelID: d.accelID, chips: d.chips - drop) == nil {
+                        surplus -= Double(drop) * per
+                        log(&s, "Capacity: freed \(Fmt.int(drop)) \(HardwareCatalog.get(d.accelID)?.name ?? d.accelID) from \(m.name) (demand fell).")
+                    }
                 }
             }
         }
@@ -342,17 +363,7 @@ extension GameState {
         let m = models[i]
         let b = bonuses
         // Servers: on its training hardware if there are idle chips, as many as the model it replaces had.
-        if m.deployments.isEmpty {
-            let previous = models.filter { $0.id != id && $0.released && !$0.retired }.max { $0.index < $1.index }
-            let accelID = runs.first { $0.modelID == id }?.design.accelID ?? previous?.deployments.first?.accelID ?? Economy.pools(self).max { $0.free < $1.free }?.accel.id
-            if let accelID, let a = HardwareCatalog.get(accelID) {
-                let k = Physics.chipsPerReplica(m, accel: a, precision: m.servingPrecision, bonuses: b)
-                let free = Economy.freeChips(self, accelID)
-                let goal = max(k, previous?.deployments.reduce(0) { $0 + $1.chips } ?? k * 4)
-                let n = min(free, goal) / k * k
-                if n > 0 { _ = deploy(id, accelID: accelID, chips: n) }
-            }
-        }
+        if m.deployments.isEmpty { provisionServers(id) }
         func better(than other: UUID?) -> Bool {
             guard let other, let o = models.first(where: { $0.id == other && !$0.retired }) else { return true }
             return m.index > o.index
@@ -364,6 +375,60 @@ extension GameState {
             deals[d].modelID = id
         }
         return nil
+    }
+
+    /// Tokens a day your products were last asked for: the biggest of what any model (retired or not) was asked for,
+    /// the last day a live model was, and what today's users and seats would use.
+    func lastKnownDemand() -> Double {
+        let y = year
+        let now = consumerUsers * Macro.tokensPerUserDay(y) + agentSeats * Macro.tokensPerSeatDay(y)
+        return max(models.map { max($0.demandTokensDay, $0.servedTokensDay) }.max() ?? 0, lastLiveDemand, now)
+    }
+
+    /// Give a released model servers: as much capacity as the model it replaces had; with no live model before it,
+    /// sized from the last known demand. Starts on its training hardware, then the fastest pools with room. Says what
+    /// share of demand the servers cover when it had to guess. Returns the chips deployed.
+    @discardableResult
+    mutating func provisionServers(_ id: UUID) -> Int {
+        guard let m = models.first(where: { $0.id == id }) else { return 0 }
+        let b = bonuses
+        let previous = models.filter { $0.id != id && $0.released && !$0.retired }.max { $0.index < $1.index }
+        let demand = lastKnownDemand()
+        let sized = previous == nil && demand > 0
+        // Where: training hardware, the previous model's, then whatever serves it fastest.
+        var order: [String] = []
+        if let t = runs.first(where: { $0.modelID == id })?.design.accelID { order.append(t) }
+        if let p = previous?.deployments.first?.accelID { order.append(p) }
+        let pools = Economy.pools(self)
+        let fastest = pools.filter { $0.free > 0 }.compactMap { p in Operations.perChip(m, p.accel.id, b).map { (p.accel.id, $0.0) } }
+            .sorted { $0.1 > $1.1 }.map(\.0)
+        for a in fastest where !order.contains(a) { order.append(a) }
+        guard !order.isEmpty else { return 0 }
+        // How much: tokens a day of capacity.
+        let prevCap = previous.map { p in p.deployments.reduce(0.0) { $0 + Physics.capacity(p, deployment: $1, bonuses: b) } } ?? 0
+        var goalChips = 0
+        if let a = HardwareCatalog.get(order[0]) { goalChips = Physics.chipsPerReplica(m, accel: a, precision: m.servingPrecision, bonuses: b) * 4 }
+        var remaining = sized ? demand / 0.8 : (prevCap > 0 ? prevCap : -1)
+        var placed = 0, capacity = 0.0
+        for accelID in order {
+            guard let a = HardwareCatalog.get(accelID), let (per, k) = Operations.perChip(m, accelID, b) else { continue }
+            let want = remaining > 0 ? Int((remaining / per / Double(k)).rounded(.up)) * k : max(k, goalChips / max(1, k) * k)
+            let n = min(Economy.freeChips(self, accelID), max(k, want)) / k * k
+            guard n > 0, deploy(id, accelID: accelID, chips: n + (models.first { $0.id == id }?.deployments.first { $0.accelID == accelID }?.chips ?? 0)) == nil else { continue }
+            placed += n
+            capacity += Double(n) * per
+            if remaining > 0 { remaining -= Double(n) * per; if remaining <= 0 { break } } else { break }
+            _ = a
+        }
+        if sized {
+            let covered = demand > 0 ? min(1, capacity / demand) : 0
+            Sim.news(&self, "\(m.name) is serving again",
+                     placed > 0 ? "\(Fmt.int(placed)) chips cover \(Int(covered * 100))% of the \(Fmt.count(demand)) tokens a day your products last asked for."
+                                  + (covered < 0.95 ? " Free more chips, rent some, or turn on the capacity delegate to serve the rest." : "")
+                                : "There are no free chips it fits on, so chat, agents and the API stay down. Free some up on Compute.",
+                     .company, important: true, good: placed > 0)
+        }
+        return placed
     }
 
     mutating func setChatModel(_ id: UUID?) { chatModelID = id }

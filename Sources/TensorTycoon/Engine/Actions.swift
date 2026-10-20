@@ -286,6 +286,7 @@ extension GameState {
             return nil
         }
         runs[i].status = status
+        if status == .paused { runs[i].pausedSince = date; runs[i].note = "Paused by you \(date.gameShort)." }
         if status == .cancelled { runs[i].note = "Cancelled \(date.gameShort)." }
         return nil
     }
@@ -454,6 +455,27 @@ extension GameState {
         if chatModelID == id { chatModelID = others.filter(\.design.instruct).max { $0.index < $1.index }?.id }
         if agentModelID == id { agentModelID = others.filter(\.design.toolUse).max { $0.index < $1.index }?.id }
         Business.rehomeDeals(&self, from: id)
+    }
+
+    /// 3.8: bring a retired model back. Gives it servers if it has none, moves chat, agents and contracts that have
+    /// no model (or a weaker one) onto it, and restarts swarms that stopped for lack of it.
+    mutating func unretire(_ id: UUID) {
+        guard let i = models.firstIndex(where: { $0.id == id }), models[i].retired else { return }
+        models[i].retired = false
+        let m = models[i]
+        Sim.news(&self, "\(m.name) is back", "Retirement undone.\(m.released ? " Chat, agents and contracts that had no model move onto it." : "")", .company, good: true)
+        guard m.released else { return }
+        // Swarms first (they only want the chips they had), then servers from what is left.
+        Swarms.rebindRetired(&self, bonuses)
+        Swarms.resumeForModel(&self, id)
+        if m.deployments.isEmpty { provisionServers(id) }
+        func weaker(_ other: UUID?) -> Bool {
+            guard let other, let o = models.first(where: { $0.id == other && $0.released && !$0.retired }) else { return true }
+            return m.index > o.index
+        }
+        if m.design.instruct && weaker(chatModelID) { chatModelID = id }
+        if m.design.toolUse && (agentModelID != nil || agentSeats > 0) && weaker(agentModelID) { agentModelID = id }
+        Business.rehomeDeals(&self)
     }
 
     // MARK: Enterprise

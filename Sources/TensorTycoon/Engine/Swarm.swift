@@ -192,6 +192,82 @@ enum Swarms {
         if s.swarms[i].log.count > 40 { s.swarms[i].log.removeLast() }
     }
 
+    /// 3.8: whether the swarm stopped because its model was retired (and nothing else could take over).
+    static func pausedForModel(_ sw: AgentSwarm) -> Bool {
+        guard sw.paused else { return false }
+        if sw.pausedNoModel { return true }
+        // Saves from before the flag: the last thing the swarm logged about pausing or resuming.
+        return sw.log.first { $0.contains("Paused") || $0.contains("Resumed") || $0.contains("Rebound") }?.contains("was retired") ?? false
+    }
+
+    /// 3.8: a swarm whose model was retired moves to your best live model (one at least as capable if there is one) and
+    /// carries on; with none to move to it stops and raises an alert.
+    static func rebindRetired(_ s: inout GameState, _ b: ResearchBonuses) {
+        for i in s.swarms.indices {
+            let old = s.models.first { $0.id == s.swarms[i].modelID }
+            let sw = s.swarms[i]
+            guard old?.retired ?? true else {
+                // Rebound or its model came back, but it was waiting for chips: start it as soon as they are free.
+                if sw.paused, sw.pausedNoModel, sw.chips >= 1, Economy.freeChips(s, sw.accelID) >= sw.chips {
+                    s.swarms[i].paused = false
+                    s.swarms[i].pausedNoModel = false
+                    log(&s, i, "Resumed on \(old?.name ?? "its model"): chips are free.")
+                    Sim.news(&s, "\(sw.name) is working again", "\(Fmt.int(sw.chips)) chips are free, so it restarted.", .research, good: true)
+                }
+                continue
+            }
+            let live = s.models.filter { $0.released && !$0.retired && $0.id != old?.id }
+            func fits(_ m: AIModel) -> Bool {
+                guard let a = HardwareCatalog.get(sw.accelID) else { return false }
+                return sw.chips >= Physics.chipsPerReplica(m, accel: a, precision: m.servingPrecision, bonuses: b)
+                    && (sw.autonomy < 2 || canRunAutonomous(m, s, b))
+            }
+            let usable = live.filter(fits)
+            let same = usable.filter { $0.c >= (old?.c ?? -100) }
+            guard let pick = (same.isEmpty ? usable : same).max(by: { quality($0, s) < quality($1, s) }) else {
+                if !sw.paused || !sw.pausedNoModel {
+                    s.swarms[i].paused = true
+                    s.swarms[i].pausedNoModel = true
+                    log(&s, i, "Paused: \(old?.name ?? "its model") was retired and no live model fits \(Fmt.int(sw.chips)) chips.")
+                }
+                Alerts.raise(&s, .swarmStopped, key: sw.id.uuidString, title: "\(sw.name) has no model to run on",
+                             body: "\(old?.name ?? "Its model") was retired and none of your live models fits. Bring \(old?.name ?? "it") back on Models, or release another model, and the swarm restarts.",
+                             screen: .swarms, critical: true, cooldown: 30)
+                continue
+            }
+            let wasStopped = pausedForModel(sw)
+            s.swarms[i].modelID = pick.id
+            s.swarms[i].pausedNoModel = wasStopped   // still waiting if it cannot restart yet
+            log(&s, i, "Rebound from \(old?.name ?? "a retired model") to \(pick.name).")
+            var note = "\(sw.name) now runs on \(pick.name)."
+            if wasStopped {
+                if Economy.freeChips(s, sw.accelID) >= sw.chips {
+                    s.swarms[i].paused = false
+                    s.swarms[i].pausedNoModel = false
+                    log(&s, i, "Resumed on \(pick.name).")
+                    note += " It is working again."
+                } else {
+                    note += " It restarts when \(Fmt.int(sw.chips)) chips are free."
+                }
+            }
+            Sim.news(&s, "\(sw.name) moved to \(pick.name)", note, .research, good: true)
+        }
+    }
+
+    /// 3.8: a model came back: swarms that stopped for lack of it start again if their chips are free.
+    static func resumeForModel(_ s: inout GameState, _ id: UUID) {
+        for i in s.swarms.indices where s.swarms[i].modelID == id && pausedForModel(s.swarms[i]) {
+            guard Economy.freeChips(s, s.swarms[i].accelID) >= s.swarms[i].chips, s.swarms[i].chips >= 1 else {
+                log(&s, i, "Its model is back; it needs \(Fmt.int(s.swarms[i].chips)) free chips to restart.")
+                continue
+            }
+            s.swarms[i].paused = false
+            s.swarms[i].pausedNoModel = false
+            log(&s, i, "Resumed: its model is back.")
+            Sim.news(&s, "\(s.swarms[i].name) is working again", "Its model is back, so the swarm restarted.", .research, good: true)
+        }
+    }
+
     static func daily(_ s: inout GameState, _ b: ResearchBonuses) {
         s.swarmRPToday = 0
         s.laborToday = 0
@@ -204,6 +280,7 @@ enum Swarms {
             _ = AgentOrgs.daily(&s, b)   // 3.6: organisations without teams (clears their levels)
             return
         }
+        rebindRetired(&s, b)
         // Pool each mission: effective agents and quality-weighted sums.
         var effAgents: [SwarmMission: Double] = [:]
         var qualitySum: [SwarmMission: Double] = [:]
@@ -217,8 +294,9 @@ enum Swarms {
                 s.swarms[i].output = 0
                 continue
             }
-            if m.retired {
+            if m.retired {   // rebindRetired found nothing to move it to
                 s.swarms[i].paused = true
+                s.swarms[i].pausedNoModel = true
                 log(&s, i, "Paused: \(m.name) was retired.")
                 continue
             }
@@ -431,10 +509,13 @@ extension GameState {
         return nil
     }
 
-    mutating func tuneSwarm(_ id: UUID, agents: Int, chips: Int, mission: SwarmMission, autonomy: Int, oversight: Double) -> String? {
+    mutating func tuneSwarm(_ id: UUID, agents: Int, chips: Int, mission: SwarmMission, autonomy: Int, oversight: Double, modelID: UUID? = nil) -> String? {
         guard let i = swarms.firstIndex(where: { $0.id == id }) else { return "Not found." }
         let b = bonuses
-        if autonomy == 2, let m = models.first(where: { $0.id == swarms[i].modelID }), !Swarms.canRunAutonomous(m, self, b) {
+        // 3.8: the swarm can move to another model (the model it runs on may be retired).
+        let target = modelID ?? swarms[i].modelID
+        if target != swarms[i].modelID, models.first(where: { $0.id == target }).map({ $0.retired }) ?? true { return "Pick one of your live models." }
+        if autonomy == 2, let m = models.first(where: { $0.id == target }), !Swarms.canRunAutonomous(m, self, b) {
             return "\(m.name) can't be trusted to run on its own yet: full autonomy needs an engineer-level model or Automated AI Research."
         }
         if agents < 1 || agents > Swarms.maxAgents { return "Pick between 1 and \(Fmt.int(Swarms.maxAgents)) agents." }
@@ -442,11 +523,17 @@ extension GameState {
         let free = Economy.freeChips(self, swarms[i].accelID) + current
         if chips > free { return "Only \(Fmt.int(free)) chips available." }
         if chips < 1 { return "A swarm needs at least one chip." }
-        if let m = models.first(where: { $0.id == swarms[i].modelID }), let a = HardwareCatalog.get(swarms[i].accelID) {
+        if let m = models.first(where: { $0.id == target }), let a = HardwareCatalog.get(swarms[i].accelID) {
             let k = Physics.chipsPerReplica(m, accel: a, precision: m.servingPrecision, bonuses: b)
             if chips < k { return "\(m.name) needs \(k) \(a.name) chips per copy." }
         }
         let changedMission = swarms[i].mission != mission
+        if target != swarms[i].modelID {
+            swarms[i].modelID = target
+            Swarms.log(&self, i, "Now runs on \(models.first { $0.id == target }?.name ?? "another model").")
+            if swarms[i].pausedNoModel, swarms[i].paused { swarms[i].paused = false }
+            swarms[i].pausedNoModel = false
+        }
         swarms[i].agents = agents
         swarms[i].chips = chips
         swarms[i].mission = mission
@@ -477,7 +564,7 @@ extension GameState {
             if swarms[i].chips < 1 { return "This swarm lost its chips. Retune it with new chips first." }
             let free = Economy.freeChips(self, swarms[i].accelID)
             if free < swarms[i].chips { return "Need \(Fmt.int(swarms[i].chips)) free chips, have \(Fmt.int(free))." }
-            if models.first(where: { $0.id == swarms[i].modelID })?.retired ?? true { return "This swarm's model was retired. Disband it and start a new one." }
+            if models.first(where: { $0.id == swarms[i].modelID })?.retired ?? true { return "This swarm's model was retired. Bring it back on Models, or retune the swarm onto another model." }
         }
         swarms[i].paused = paused
         Swarms.log(&self, i, paused ? "Paused." : "Resumed.")
