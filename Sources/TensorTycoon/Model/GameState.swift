@@ -1134,6 +1134,9 @@ struct GameState: Codable {
     @D var signatureRPToday: Double = 0
     /// The research director keeps the queue full.
     @D var autoResearch: Bool = false
+    /// 3.8: the director puts idle chips on experiments, up to the point where more stops helping.
+    /// Off switch (a missing key in an old save reads false, so the director uses chips by default).
+    @D var directorChipsOff: Bool = false
     /// Queue entries the director added. What you queue yourself goes ahead of them, so a cheap pick of yours
     /// never waits behind a year-long one of its.
     @D var directorQueued: Set<String> = []

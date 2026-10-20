@@ -6,6 +6,7 @@ enum ResearchLab {
     // MARK: Daily
 
     static func daily(_ s: inout GameState, _ b: ResearchBonuses) {
+        if s.autoResearch && !s.directorChipsOff { assignIdleChips(&s, reserve: true) }
         // 3.5: founding-kit research multipliers (×1 without a kit) speed up your people, not your agents.
         let rate = Sim.researchRate(s, b) * FoundingKit.researchMultiplier(s) + s.rsiRPToday + s.swarmRPToday
         s.rpToday = rate
@@ -260,6 +261,26 @@ enum ResearchLab {
 
     // MARK: Research director
 
+    /// 3.8: puts idle chips on experiments, best bf16 first, until more would stop adding to the researcher boost.
+    /// Never takes allocated chips. With `reserve` the director leaves half of each chip kind alone for your own plans.
+    @discardableResult
+    static func assignIdleChips(_ s: inout GameState, reserve: Bool) -> Int {
+        var needPF = Sim.researchComputeCapPF - Sim.researchPF(s.researchChips)
+        guard needPF > 0.01 else { return 0 }
+        var added = 0
+        for pool in Economy.pools(s).sorted(by: { $0.accel.bf16 != $1.accel.bf16 ? $0.accel.bf16 > $1.accel.bf16 : $0.accel.id < $1.accel.id })
+        where pool.accel.bf16 > 0 && needPF > 0.01 {
+            let room = reserve ? min(pool.free, max(0, pool.total / 2 - pool.research)) : pool.free
+            let want = Int((needPF * 1000 / pool.accel.bf16).rounded(.up))
+            let take = min(room, want)
+            guard take > 0 else { continue }
+            s.researchChips[pool.accel.id, default: 0] += take
+            needPF -= Double(take) * pool.accel.bf16 / 1000
+            added += take
+        }
+        return added
+    }
+
     static func fillQueue(_ s: inout GameState) {
         var added = 0
         s.directorQueued.formIntersection(s.researchQueue)
@@ -268,6 +289,16 @@ enum ResearchLab {
             s.directorQueued.insert(next)
             added += 1
         }
+        if added > 0 { sortDirectorEntries(&s) }
+    }
+
+    /// 3.8: the director's own entries go cheapest first (fewest days left), in the slots they already hold.
+    static func sortDirectorEntries(_ s: inout GameState) {
+        let slots = s.researchQueue.indices.filter { s.directorQueued.contains(s.researchQueue[$0]) }
+        guard slots.count > 1 else { return }
+        let sorted = slots.map { s.researchQueue[$0] }.enumerated()
+            .sorted { (entryNeed(s, $0.element), $0.offset) < (entryNeed(s, $1.element), $1.offset) }.map(\.element)
+        for (k, i) in slots.enumerated() { s.researchQueue[i] = sorted[k] }
     }
 
     /// Queues something you picked: ahead of the director's picks, behind your own earlier ones.
@@ -288,6 +319,14 @@ enum ResearchLab {
         let focus = s.focus
         let queued = Set(s.researchQueue)
         var best: (String, Double)? = nil
+        // 3.8: something that would take more than ~90 days at today's rate only gets picked when nothing quicker is left.
+        var bestLong: (String, Double)? = nil
+        let qRate = queueRate(s, total: s.rpToday)
+        func offer(_ id: String, _ score: Double, need: Double) {
+            let long = qRate > 0 && need / qRate > 90
+            if long { if bestLong == nil || score > bestLong!.1 { bestLong = (id, score) } }
+            else if best == nil || score > best!.1 { best = (id, score) }
+        }
         for item in ResearchCatalog.all where !s.researched.contains(item.id) && !queued.contains(item.id) {
             if item.isExotic && !s.exoticOwned.contains(item.id) { continue }
             if !XenoScience.researchUnlocked(item.id, s) { continue }
@@ -306,7 +345,7 @@ enum ResearchLab {
             if let partner = Breakthroughs.partner(of: item.id), s.researched.contains(partner) { value += 2 }
             value *= ResearchCatalog.directorWeight(item)   // 3.4: domain-only research ranks below the core
             let score: Double = focus == .cheapest ? 1 / cost : focus.weight(item.category) * value / pow(cost, 0.75)
-            if best == nil || score > best!.1 { best = (item.id, score) }
+            offer(item.id, score, need: max(0, entryNeed(s, item.id)))
         }
         // 3.4: from 2027 the repeatable frontier programmes compete for research points, and refining unique
         // breakthroughs competes with them instead of waiting for the tree to run dry.
@@ -314,7 +353,7 @@ enum ResearchLab {
             for p in FrontierProgram.all where p.isOpen(s) && !queued.contains(p.entry) {
                 let cost = p.cost(level: s.programLevel(p.id) + 1)
                 let score = focus == .cheapest ? 1 / cost : focus.weight(p.category) * programValue / pow(cost, 0.75)
-                if best == nil || score > best!.1 { best = (p.entry, score) }
+                offer(p.entry, score, need: cost)
             }
             for id in s.exoticOwned where s.researched.contains(id) && (s.exoticMastery[id] ?? 1) < Breakthroughs.maxMastery
                 && !queued.contains(Breakthroughs.refineID(id)) {
@@ -322,9 +361,10 @@ enum ResearchLab {
                 let cost = max(50, Breakthroughs.refineCost(item, toLevel: (s.exoticMastery[id] ?? 1) + 1))
                 let value = 1.2 + (Breakthroughs.rarity(id) == .legendary ? 1 : 0)
                 let score = focus == .cheapest ? 1 / cost : focus.weight(.exotic) * value / pow(cost, 0.75)
-                if best == nil || score > best!.1 { best = (Breakthroughs.refineID(id), score) }
+                offer(Breakthroughs.refineID(id), score, need: cost)
             }
         }
+        if best == nil { best = bestLong }
         // Nothing left to learn: refine your best unique breakthrough.
         if best == nil {
             let refinable = s.exoticOwned.filter { s.researched.contains($0) && (s.exoticMastery[$0] ?? 1) < Breakthroughs.maxMastery }
@@ -336,14 +376,41 @@ enum ResearchLab {
         return best?.0
     }
 
-    /// Days until a queue entry finishes at today's rate, counting everything ahead of it.
+    /// Research points of work an entry still needs at today's speed (the multiplier is folded in, like `remaining`),
+    /// counting unresearched prerequisites not yet in `counted`.
+    static func entryNeed(_ s: GameState, _ entry: String, counted: inout Set<String>, depth: Int = 0) -> Double {
+        guard counted.insert(entry).inserted else { return 0 }
+        let done = s.researchProgress[entry] ?? 0
+        if let p = FrontierProgram.get(entry: entry) { return max(0, p.cost(level: s.programLevel(p.id) + 1) - done) }
+        if entry.hasPrefix(Breakthroughs.refinePrefix) {
+            let id = String(entry.dropFirst(Breakthroughs.refinePrefix.count))
+            guard let item = ResearchCatalog.byID[id] else { return 0 }
+            return max(0, Breakthroughs.refineCost(item, toLevel: (s.exoticMastery[id] ?? 1) + 1) - done)
+        }
+        guard let item = ResearchCatalog.byID[entry], !s.researched.contains(entry) else { return 0 }
+        var total = 0.0
+        if depth < 12 {
+            for pre in item.prereqs where !s.researched.contains(pre) { total += entryNeed(s, pre, counted: &counted, depth: depth + 1) }
+        }
+        let mult = max(0.1, item.category == .frontier ? 1 + s.traits.frontierRP : 1) * FoundingKit.categorySpeed(s, item)
+        return total + max(0, (Sim.researchCost(item, year: s.year) - done) / mult)
+    }
+
+    static func entryNeed(_ s: GameState, _ entry: String) -> Double {
+        var c = Set<String>()
+        return entryNeed(s, entry, counted: &c)
+    }
+
+    /// Days until a queue entry finishes at today's rate, counting everything ahead of it and its prerequisites.
     static func eta(_ s: GameState, entry: String, rate: Double) -> Double? {
         guard rate > 0, let idx = s.researchQueue.firstIndex(of: entry) else { return nil }
         var total = 0.0
-        for e in s.researchQueue.prefix(idx + 1) { total += entryCost(s, e) - (s.researchProgress[e] ?? 0) }
+        var counted = Set<String>()
+        for e in s.researchQueue.prefix(idx + 1) { total += entryNeed(s, e, counted: &counted) }
         return max(0, total) / rate
     }
 
+    /// Full cost of an entry (before progress and speed multipliers), for the progress bar.
     static func entryCost(_ s: GameState, _ entry: String) -> Double {
         if let p = FrontierProgram.get(entry: entry) { return p.cost(level: s.programLevel(p.id) + 1) }
         if entry.hasPrefix(Breakthroughs.refinePrefix) {
@@ -513,6 +580,9 @@ extension GameState {
         if on { ResearchLab.fillQueue(&self) }
     }
 
+    /// 3.8: the "Use enough for the full boost" button: idle chips, best first, no reserve.
+    mutating func assignResearchChipsForCap() -> Int { ResearchLab.assignIdleChips(&self, reserve: false) }
+
     mutating func setResearchFocus(_ f: ResearchFocus) {
         researchFocus = f.rawValue
         if autoResearch { ResearchLab.fillQueue(&self) }
@@ -520,6 +590,7 @@ extension GameState {
 
     /// Move a queued project up (negative) or down (positive).
     mutating func moveResearch(_ entry: String, by delta: Int) {
+        directorQueued.remove(entry)   // 3.8: once you move it, it's yours
         guard let i = researchQueue.firstIndex(of: entry) else { return }
         let j = clamp(i + delta, 0, researchQueue.count - 1)
         guard i != j else { return }
@@ -528,6 +599,7 @@ extension GameState {
     }
 
     mutating func researchNext(_ entry: String) {
+        directorQueued.remove(entry)
         researchQueue.removeAll { $0 == entry }
         researchQueue.insert(entry, at: 0)
     }

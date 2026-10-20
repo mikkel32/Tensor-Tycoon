@@ -378,10 +378,13 @@ private struct TimelineRow: View {
 }
 
 private struct ProjectRow: View {
+    @Environment(GameStore.self) private var store
     let project: SciProject
     let state: GameState
     var body: some View {
         let p = project
+        let s = state
+        VStack(alignment: .leading, spacing: 4) {
         HStack {
             Image(systemName: p.status == .done ? "checkmark.seal.fill" : (p.status == .stalled ? "pause.circle.fill" : "xmark.circle.fill"))
                 .foregroundStyle(p.status == .done ? .green : (p.status == .stalled ? .orange : .secondary))
@@ -390,6 +393,24 @@ private struct ProjectRow: View {
             Spacer()
             Text("\(p.log.filter { $0.outcome == "rerun" }.count) reruns · \(Fmt.money(p.spent))").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
             Text("\(p.started.gameShort) → \(p.ended?.gameShort ?? "…")").font(.caption2).foregroundStyle(.tertiary)
+        }
+        if p.status == .stalled, let d = p.projectDef {
+            // 3.8: a stopped project can be restarted at the stage it stopped at.
+            let lab = s.science.labs.first { $0.id == p.lab } ?? s.science.labs.first { $0.isReady(s.date) && $0.def.runs(d.field) && Science.active($0, s).count < Science.capacity($0) }
+            let cost = Science.stageCost(p, p.currentStage, s)
+            let wait = Science.resumeBlocker(p, s)
+            HStack(spacing: 8) {
+                Button("Resume") {
+                    store.act("\(d.name) resumed") { $0.resumeScienceProject(p.id, lab: lab?.id) }
+                }
+                .disabled(lab == nil || wait != nil)
+                .font(.caption)
+                Text(wait.map { "New ideas by \($0.gameShort) · " } ?? "")
+                    .font(.caption2).foregroundStyle(.secondary)
+                + Text("Restarts at \(Science.stageName(p.currentStage, d.field).lowercased()) for \(Fmt.money(cost))\(lab == nil ? " · needs a free lab that can run it" : "")")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+        }
         }
     }
 }
