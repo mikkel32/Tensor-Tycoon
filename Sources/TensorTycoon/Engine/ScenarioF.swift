@@ -64,10 +64,12 @@ extension ScenarioHarness {
         var started = 0
         for (k, n) in sol.staff.sorted(by: { $0.key < $1.key }) { if let role = Role(rawValue: k) { started += s.clearPeople(role, n + 1, level: 2) } }
         r.expect("Secret investigations started", started >= sol.staffTotal, "\(started) for a team of \(sol.staffTotal)")
-        // 3.9: sized for the facility size actually built (the next size up, which grows over the year the site takes),
-        // not the bare requirement: a requirement just above a size step needed far more power than the campus had.
-        let builtSize = AdvancedProjects.sizes(.restrictedCompute, s.year + 1).first { $0 >= sol.computeH100e } ?? sol.computeH100e
-        let campusKW = ((max(sol.computeH100e * 1.3, builtSize * 1.1) * World.kwPerH100e(s.year) + 3_000) / 1_000).rounded(.up) * 1_000
+        // 3.9: sized for the facility size step actually built once the site is ready (steps grow with the year), not the
+        // bare requirement: a requirement just above a step needed far more power than the campus had.
+        let builtSize = stride(from: 0.0, through: 1.5, by: 0.25).map { dy in
+            AdvancedProjects.sizes(.restrictedCompute, s.year + dy).first { $0 >= sol.computeH100e } ?? sol.computeH100e
+        }.max() ?? sol.computeH100e
+        let campusKW = ((max(sol.computeH100e * 1.3, builtSize * 1.05) * World.kwPerH100e(s.year) + 3_000) / 1_000).rounded(.up) * 1_000
         let siteErr = s.buildSite(kind: .datacenter, locationID: "texas", capacityKW: campusKW, cooling: .air, power: .grid, name: "Abilene Secure Campus")
         r.expect("datacenter site under construction", siteErr == nil, siteErr ?? "")
         let siteID = s.sites.last { $0.name == "Abilene Secure Campus" }?.id
