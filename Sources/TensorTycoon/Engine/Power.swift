@@ -239,8 +239,10 @@ struct PowerSummary {
     var ownedKW = 0.0
     var leasedKW = 0.0
     var facilityMW = 0.0
+    /// 3.9: room at open sites held for orders on their way (and programme spaces), not drawing power yet.
+    var reservedKW = 0.0
 
-    var usedKW: Double { chipKW + subleasedKW }
+    var usedKW: Double { chipKW + reservedKW + subleasedKW }
     var freeKW: Double { max(0, onlineKW - usedKW) }
     var pipelineKW: Double { buildingKW + plannedKW + leasePendingKW }
 }
@@ -260,11 +262,24 @@ enum Power {
 
     static func summary(_ s: GameState) -> PowerSummary {
         var p = PowerSummary()
+        // 3.9: "your chips" and the facility draw count only chips you own at open sites, drawing what the power bill
+        // charges (Sim.dailyCosts: 30% idle, up to 95% busy). Orders on their way only reserve room.
+        var util: [String: Double] = [:]
+        for pool in Economy.pools(s) where pool.total > 0 { util[pool.accel.id] = Double(pool.allocated) / Double(pool.total) }
+        let facilities = AdvancedProjects.facilityDraw(s)
         for site in s.sites {
             let ready = site.isReady(s.date)
             if ready {
                 p.onlineKW += site.capacityKW
-                p.facilityMW += Economy.siteLoadKW(s, site.id) * site.pue / 1000
+                var chips = 0.0, draw = 0.0
+                for b in s.owned where b.siteID == site.id {
+                    guard let a = HardwareCatalog.get(b.accelID) else { continue }
+                    chips += Economy.chipKW(a) * Double(b.count)
+                    draw += Economy.chipKW(a) * Double(b.count) * (0.3 + 0.65 * (util[a.id] ?? 0))
+                }
+                p.chipKW += chips
+                p.reservedKW += max(0, Economy.siteLoadKW(s, site.id) - chips - site.subleasedKW)
+                p.facilityMW += (draw * site.pue + (facilities[site.id] ?? 0)) / 1000
                 if site.kind == .colo { p.leasedKW += site.capacityKW } else if site.kind == .datacenter { p.ownedKW += site.capacityKW }
             } else if site.kind == .colo {
                 p.leasePendingKW += site.capacityKW
@@ -276,7 +291,6 @@ enum Power {
             p.plannedKW += site.plannedKW
             p.leasePendingKW += site.rampKW
         }
-        p.chipKW = s.sites.reduce(0) { $0 + Economy.siteLoadKW(s, $1.id) } - p.subleasedKW
         for c in s.powerContracts {
             let on = c.isOnline(s.date)
             switch c.kind {
@@ -432,6 +446,46 @@ enum Power {
         return clamp((site.onsiteKW + site.batteryMWh / 4 * 1000 * 0.5 + ppa * 0.3) / loadKW, 0, 1)
     }
 
+    /// 3.9: what walking away from `c` costs today: a fee charged now, money already paid that is lost, and what comes back.
+    static func cancelCost(_ c: PowerContract, _ s: GameState) -> (fee: Double, lost: Double, refund: Double) {
+        if c.isOnline(s.date) {
+            return c.kind.onSite ? (0, 0, 0) : (c.mw * 1000 * 24 * 365 * c.priceMWh / 1000 * 0.25, 0, 0)
+        }
+        guard c.capex > 0 else { return (0, 0, 0) }
+        if c.kind == .interconnect { return (0, c.capex, 0) }   // queue deposits and network studies are forfeit
+        let total = max(1, Double(GameCalendar.daysBetween(c.signed, c.online)))
+        let built = clamp(Double(GameCalendar.daysBetween(c.signed, s.date)) / total, 0, 1)
+        let refund = c.capex * (1 - built) * 0.5
+        return (0, c.capex - refund, refund)
+    }
+
+    /// The contract kinds that back a site power source.
+    static func backing(_ d: PowerDeal) -> [PowerKind] {
+        switch d {
+        case .grid: []
+        case .solar: [.solar]
+        case .wind: [.wind]
+        case .gas: [.gasTurbines]
+        case .nuclear: [.nuclearRestart, .nuclearContract]
+        case .smr: [.smr]
+        case .fusion: [.fusion]
+        }
+    }
+
+    /// 3.9: why `site` can't switch to `deal`. Grid is always there; a PPA needs one of that kind delivering in the
+    /// site's region, on-site generation a running plant on the site itself.
+    static func dealBlocker(_ site: Site, _ deal: PowerDeal, _ s: GameState) -> String? {
+        let kinds = backing(deal)
+        guard !kinds.isEmpty, deal != site.powerDeal else { return nil }
+        let held = s.powerContracts.contains { c in
+            kinds.contains(c.kind) && c.isOnline(s.date) && (c.kind.onSite ? c.siteID == site.id : c.locationID == site.locationID)
+        }
+        if held { return nil }
+        return kinds[0].onSite
+            ? "\(site.name) has no \(kinds[0].rawValue.lowercased()) running. Build them from Power → Sign a power deal; the site can switch once they're online."
+            : "No \(deal.rawValue) delivers in \(site.location.name) yet. Sign one from Power → Sign a power deal; the site can switch once it delivers."
+    }
+
     // MARK: Advice
 
     /// Your datacenter power is nearly all spoken for and little more is coming: (share used, suggested MW).
@@ -476,20 +530,25 @@ extension GameState {
         return nil
     }
 
-    /// Walk away from a contract that hasn't delivered yet (deposits and construction spent are lost).
+    /// Walk away from a contract: a running purchase agreement costs a quarter of a year's value; a queue place forfeits
+    /// its deposit; a plant still being built loses what's been built, and the unbuilt equipment is resold at half price.
     mutating func cancelPower(_ id: UUID) -> String? {
         guard let i = powerContracts.firstIndex(where: { $0.id == id }) else { return "Not found." }
         let c = powerContracts[i]
         if c.isOnline(date) && c.kind.onSite { return "It's built. It stays with the site." }
-        if c.isOnline(date) {
-            // Breaking a running purchase agreement: a year of the contract's value.
-            let fee = c.mw * 1000 * 24 * 365 * c.priceMWh / 1000 * 0.25
-            if fee > cash { return "Breaking it costs \(Fmt.money(fee))." }
-            cash -= fee
-            month.costPower += fee
+        let cost = Power.cancelCost(c, self)
+        if cost.fee > cash { return "Breaking it costs \(Fmt.money(cost.fee)); you have \(Fmt.money(cash))." }
+        cash -= cost.fee
+        month.costPower += cost.fee
+        cash += cost.refund
+        month.capex -= cost.refund
+        // 3.9: the site no longer carries a plant it won't get (its sale price is based on what's invested).
+        if c.kind.onSite, c.capex > 0, let sid = c.siteID, let si = sites.firstIndex(where: { $0.id == sid }) {
+            sites[si].capex = max(0, sites[si].capex - c.capex)
         }
         powerContracts.remove(at: i)
-        Sim.news(&self, "Cancelled: \(c.kind.rawValue.lowercased())", "\(Fmt.watts(c.mw * 1e6)) in \(c.location.name).", .company)
+        let money = cost.fee > 0 ? " Fee: \(Fmt.money(cost.fee))." : (cost.lost > 0 ? " \(Fmt.money(cost.lost)) lost\(cost.refund > 0 ? ", \(Fmt.money(cost.refund)) back for unbuilt equipment" : "")." : "")
+        Sim.news(&self, "Cancelled: \(c.kind.rawValue.lowercased())", "\(Fmt.watts(c.mw * 1e6)) in \(c.location.name).\(money)", .company)
         return nil
     }
 }

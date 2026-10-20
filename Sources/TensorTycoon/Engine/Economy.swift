@@ -197,11 +197,34 @@ enum Economy {
     /// and supply deals), and no more than two months of rent your cash and revenue can cover.
     static func rentalLimit(_ a: Accelerator, _ s: GameState) -> Int {
         if a.cls == .consumer || a.cls == .workstation { return 2_000 }
+        return Int(max(32, min(rentalSupplyCap(a, s), rentalCreditCap(a, s), 20_000_000)))
+    }
+
+    /// 3.9: the share of the world's cloud supply one customer may rent: a quarter, up to half with partners and deals.
+    static func rentalSupplyShare(_ a: Accelerator, _ s: GameState) -> Double {
         let deal = (hasDeal(a, s) ? 1.4 : 1.0) * Partners.allocationMult(a, s) * (1 + s.traits.allocation)
-        let supply = cloudSupply(a, s) * min(0.5, 0.25 * deal)
+        return min(0.5, 0.25 * deal)
+    }
+
+    static func rentalSupplyCap(_ a: Accelerator, _ s: GameState) -> Double { cloudSupply(a, s) * rentalSupplyShare(a, s) }
+
+    /// Chips two months of rent your cash, credits and revenue can cover.
+    static func rentalCreditCap(_ a: Accelerator, _ s: GameState) -> Double {
         let monthlyPerChip = (rent(a, s) ?? 1) * 24 * 30.4
-        let credit = (max(0, s.cash) + s.cloudCredits + 2 * (s.history.last?.revenue ?? 0)) / max(1, 2 * monthlyPerChip)
-        return Int(max(32, min(supply, credit, 20_000_000)))
+        return (max(0, s.cash) + s.cloudCredits + 2 * (s.history.last?.revenue ?? 0)) / max(1, 2 * monthlyPerChip)
+    }
+
+    /// Chips of this type you rent today.
+    static func rentedCount(_ a: Accelerator, _ s: GameState) -> Int { s.rentals.filter { $0.accelID == a.id }.reduce(0) { $0 + $1.count } }
+
+    /// 3.9: how many more you can rent: the limit counts the chips you already rent (what `rentHardware` checks).
+    static func rentalRoom(_ a: Accelerator, _ s: GameState) -> Int { max(0, rentalLimit(a, s) - rentedCount(a, s)) }
+
+    /// 3.9: what breaking a reserved rental costs today: half the rent left on the contract (on-demand: nothing).
+    static func breakPenalty(_ r: Rental, _ s: GameState) -> Double {
+        guard let end = r.end else { return 0 }
+        let months = max(0, Double(GameCalendar.daysBetween(s.date, end)) / 30.4)
+        return r.hourly * 24 * 30.4 * Double(r.count) * months * 0.5
     }
 
     /// Your share of the world's rentable supply of this chip.

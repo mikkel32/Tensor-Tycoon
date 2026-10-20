@@ -52,6 +52,28 @@ enum ReplayHarness {
                 }
                 continue
             }
+            // 3.9 hardware checks: hw:sites, hw:power, hw:rent:<chip>:<n>, hw:max:<chip>, hw:expand:<site>:<MW>, hw:deal:<site>:<deal>,
+            // hw:lease:<MW> (the lease quote), hw:lease:<chip>:<n> (set by hand), hw:leases, hw:break (break the first reserved rental).
+            if t.hasPrefix("hw:") {
+                let p = t.split(separator: ":").map(String.init)
+                let site = { (n: String) in s.sites.first { $0.name == n } }
+                switch p.count > 1 ? p[1] : "" {
+                case "sites": for x in s.sites { print("site \(x.name) [\(x.kind)] \(x.powerDeal.rawValue) \(Fmt.watts(x.capacityKW * 1000)) planned \(Fmt.watts(Campus.plannedTotalKW(x) * 1000)) expanding \(Fmt.watts(x.expanding * 1000)) ready \(x.ready.gameShort) lease end \(x.leaseEnd?.gameShort ?? "-")") }
+                case "power": let q = Power.summary(s); print("power: chips \(Fmt.watts(q.chipKW * 1000)) reserved \(Fmt.watts(q.reservedKW * 1000)) sublet \(Fmt.watts(q.subleasedKW * 1000)) free \(Fmt.watts(q.freeKW * 1000)) online \(Fmt.watts(q.onlineKW * 1000)) facility \(Fmt.watts(q.facilityMW * 1e6))")
+                case "rent" where p.count == 4:
+                    if let a = HardwareCatalog.get(p[2]) { print("rent \(p[3])× \(a.name): limit \(Economy.rentalLimit(a, s)) rented \(Economy.rentedCount(a, s)) room \(Economy.rentalRoom(a, s)) -> \(s.rentHardware(a.id, count: Int(p[3]) ?? 0, term: .reserved1y) ?? "ok")") }
+                case "max" where p.count == 3:
+                    if let a = HardwareCatalog.get(p[2]) { for x in s.sites where x.kind != .garage { print("max \(a.name) at \(x.name): \(Campus.maxOrder(a, site: x, s))") }; print("default site: \(Campus.defaultSite(for: a, count: 8, s)?.name ?? "none")") }
+                case "expand" where p.count == 4: if let x = site(p[2]) { print("expand \(x.name) +\(p[3]) MW -> \(s.expandSite(x.id, addKW: (Double(p[3]) ?? 0) * 1000) ?? "ok")") }
+                case "deal" where p.count == 4: if let x = site(p[2]), let d = PowerDeal(rawValue: p[3]) { print("deal \(x.name) -> \(d.rawValue): \(s.setPowerDeal(x.id, d) ?? "ok")") }
+                case "lease" where p.count == 3: for q in DCMarket.quotes(s, mw: Double(p[2]) ?? 100, template: .training) where q.kind == .lease { print("lease quote \(Fmt.watts(q.mw * 1e6)) up front \(Fmt.money(q.upfront)) · \(q.note)") }
+                case "lease" where p.count == 4: print("lease \(p[2]) by hand to \(p[3]): \(s.setLeaseByHand(p[2], chips: Int(p[3]) ?? 0) ?? "ok"), leased now \(s.leases[p[2]] ?? 0)")
+                case "leases": print("leases: \(s.leases.sorted { $0.key < $1.key }.map { "\($0.key) \($0.value)" }.joined(separator: ", "))")
+                case "break": if let r = s.rentals.first(where: { $0.end != nil }) { print("break \(r.count)× \(r.accelID): penalty \(Fmt.money(Economy.breakPenalty(r, s))) -> \(s.cancelRental(r.id) ?? "ok")") } else { print("no reserved rental") }
+                default: print("unknown \(t)")
+                }
+                continue
+            }
             // train:<n> lists "Plan my next model" proposals and starts the n-th (0 = strongest).
             if t.hasPrefix("train:") { pending.append(String(t.dropFirst(6))); continue }
             // fix:<advisor id prefix> applies that Chief of Staff item's one-click fix (3.9).

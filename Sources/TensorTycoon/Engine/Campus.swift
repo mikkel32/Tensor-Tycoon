@@ -132,6 +132,8 @@ enum Campus {
         guard let unit = Economy.price(a, s), unit > 0 else { return 0 }
         let freeKW = max(0, site.capacityKW - Economy.siteLoadKW(s, site.id))
         var n = min(Double(Economy.allocationLimit(a, s)), max(0, s.cash) / unit, freeKW / max(0.001, Economy.chipKW(a)))
+        // 3.9: your own fab line takes six months of output per order and holds twelve (what buyHardware checks).
+        if AlienFab.isAlienChip(a.id) { n = min(n, Double(min(AlienFab.maxOrder(s), AlienFab.backlogRoom(s)))) }
         n = max(0, n.rounded(.down))
         let step = max(1, a.minOrder)
         return Int(n) / step * step
@@ -285,11 +287,18 @@ extension GameState {
         return nil
     }
 
-    /// 3.9: truck every chip sitting at a site that isn't open yet to open sites with room (most room first). Returns what moved.
-    mutating func relocateWaitingChips() -> (moved: Int, cost: Double, why: String?) {
+    /// 3.9: truck every chip sitting at a site that isn't open yet to open sites with room (most room first). Returns what
+    /// moved and where. Sites opening within `skipDays` keep their chips: trucking them out and back costs more than the wait.
+    mutating func relocateWaitingChips(skipDays: Int = 30) -> (moved: Int, cost: Double, why: String?, to: [String: Int], kept: [Site]) {
         var moved = 0, cost = 0.0
         var why: String? = nil
-        let waitingSites = sites.filter { !$0.isReady(date) }.map(\.id)
+        var to: [String: Int] = [:]
+        let notOpen = sites.filter { site in !site.isReady(date) && owned.contains { $0.siteID == site.id } }
+        let kept = notOpen.filter { GameCalendar.daysBetween(date, $0.ready) <= skipDays }
+        let waitingSites = notOpen.filter { s in !kept.contains { $0.id == s.id } }.map(\.id)
+        if waitingSites.isEmpty, let k = kept.first {
+            why = "\(k.name) opens \(k.ready.gameShort) (in \(GameCalendar.daysBetween(date, k.ready)) days): moving its chips out and back would cost more than waiting."
+        }
         for b in owned where waitingSites.contains(b.siteID) {
             guard let a = HardwareCatalog.get(b.accelID) else { continue }
             var left = b.count
@@ -303,8 +312,9 @@ extension GameState {
                 if c > cash { why = "Moving them costs \(Fmt.money(c))."; break }
                 if let e = moveHardware(batchID: b.id, count: n, to: best.0.id) { why = e; break }
                 moved += n; cost += c; left -= n
+                to[best.0.name, default: 0] += n
             }
         }
-        return (moved, cost, why)
+        return (moved, cost, why, to, kept)
     }
 }

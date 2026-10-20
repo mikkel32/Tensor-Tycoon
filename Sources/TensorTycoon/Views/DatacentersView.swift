@@ -60,7 +60,7 @@ private struct PowerDashboard: View {
         VStack(alignment: .leading, spacing: 12) {
             KPIRow {
                 StatTile(title: "Online", value: Fmt.watts(p.onlineKW * 1000),
-                         detail: "\(Fmt.watts(p.chipKW * 1000)) chips · \(Fmt.watts(p.freeKW * 1000)) free", symbol: "bolt.fill", tint: .yellow)
+                         detail: "\(Fmt.watts(p.chipKW * 1000)) chips\(p.reservedKW > 0 ? " · \(Fmt.watts(p.reservedKW * 1000)) reserved" : "") · \(Fmt.watts(p.freeKW * 1000)) free", symbol: "bolt.fill", tint: .yellow)
                 StatTile(title: "On the way", value: Fmt.watts(p.pipelineKW * 1000),
                          detail: "\(Fmt.watts(p.buildingKW * 1000)) building · \(Fmt.watts(p.leasePendingKW * 1000)) leased", symbol: "hammer.fill", tint: .orange)
                 StatTile(title: "Power contracts", value: Fmt.watts((p.ppaOnlineMW + p.onsiteOnlineMW) * 1e6),
@@ -70,9 +70,9 @@ private struct PowerDashboard: View {
             }
             Card {
                 CardHeader("Company power", symbol: "bolt.horizontal.fill",
-                           subtitle: "IT capacity: what your chips use, what you sublet, what's free, and what's coming. Facility draw today ≈ \(Fmt.watts(p.facilityMW * 1e6)) with cooling.\(Power.gridMultiplier(s) > 1.005 ? " Strained grids: grid power costs \(Fmt.trim(Power.gridMultiplier(s), 2))× — power deals are the hedge." : "")")
+                           subtitle: "IT capacity at open sites: chips you own (at full load), room held for orders on their way, what you sublet, what's free, and what's coming. Facility draw today ≈ \(Fmt.watts(p.facilityMW * 1e6)) with cooling, at how busy your chips actually are.\(Power.gridMultiplier(s) > 1.005 ? " Strained grids: grid power costs \(Fmt.trim(Power.gridMultiplier(s), 2))× — power deals are the hedge." : "")")
                 GWBar(segments: [
-                    (p.chipKW, Color.blue, "Your chips"), (p.subleasedKW, Color.purple, "Sublet"), (p.freeKW, Color.green, "Free"),
+                    (p.chipKW, Color.blue, "Your chips"), (p.reservedKW, Color.teal, "Reserved for orders"), (p.subleasedKW, Color.purple, "Sublet"), (p.freeKW, Color.green, "Free"),
                     (p.buildingKW, Color.orange, "Building"), (p.leasePendingKW, Color.yellow, "Leased, not handed over"), (p.plannedKW, Color.gray, "Later phases"),
                 ])
             }
@@ -175,6 +175,9 @@ private struct QuoteTile: View {
             }
             .buttonStyle(.borderedProminent)
             .disabled(q.upfront > state.cash)
+            if q.upfront > state.cash {
+                Text("Needs \(Fmt.money(q.upfront)) up front; you have \(Fmt.money(state.cash)).").font(.caption).foregroundStyle(.orange)
+            }
         }
         .padding(12)
         .background(Theme.insetFill, in: .rect(cornerRadius: Theme.Radius.inset))
@@ -330,10 +333,17 @@ private struct SiteCard: View {
                     }
                 }
                 if site.kind == .colo || site.kind == .datacenter {
+                    // 3.9: switch only to grid or to power the site holds (a delivering PPA in its region, a running plant on it).
+                    let deals = PowerDeal.allCases.filter { $0.available(s) && (site.kind == .datacenter || $0.siteCapMW == 0 || $0 == .nuclear) }
+                    let usable = deals.filter { $0 == site.powerDeal || Power.dealBlocker(site, $0, s) == nil }
                     Picker("Power", selection: Binding(get: { site.powerDeal }, set: { d in store.act("Power: \(d.rawValue)") { $0.setPowerDeal(site.id, d) } })) {
-                        ForEach(PowerDeal.allCases.filter { $0.available(s) && (site.kind == .datacenter || $0.siteCapMW == 0 || $0 == .nuclear) }) { d in
+                        ForEach(usable) { d in
                             Text(d.rawValue).tag(d)
                         }
+                    }
+                    if usable.count < deals.count {
+                        Text("Other power sources open up here once you hold them: a purchase agreement delivering in \(site.location.name), or turbines or reactors running on this site\(site.kind == .datacenter ? "" : " (cages: agreements only)"). Sign them on the Power tab.")
+                            .font(.caption2).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     }
                     if !site.isTermLease { ExpandRow(site: site, state: s, expandKW: $expandKW) }
                     if site.kind == .datacenter && ready { UpgradeRow(site: site, state: s) }
@@ -366,7 +376,9 @@ private struct SiteCard: View {
                 store.act(site.kind == .colo ? "Lease ended" : "Site sold") { $0.sellSite(site.id) }
             }
         } message: {
-            Text(batches.isEmpty ? "This can't be undone." : "Move or sell the chips housed here first.")
+            Text(!batches.isEmpty ? "Move or sell the chips housed here first."
+                 : (site.kind == .colo && site.subleasedKW > 0 ? "\(site.subleaseTenant) rents space here until \(site.subleaseEnd?.gameShort ?? "later"): buy them out first."
+                    : (site.kind == .colo && site.deposit > 0 ? "Your \(Fmt.money(site.deposit)) deposit comes back against the fee. This can't be undone." : "This can't be undone.")))
         }
         .popover(item: $moving) { b in MoveChipsPanel(batch: b, state: s) }
     }
@@ -494,10 +506,12 @@ private struct ExpandRow: View {
                     Spacer()
                     Text(cost(s)).font(.caption).foregroundStyle(.secondary)
                 }
-                Text("Room for \(Fmt.watts(headroom * 1000)) more\(site.kind == .datacenter && Campus.phases(mw: expandKW / 1000) > 1 ? " · built in \(Campus.phases(mw: expandKW / 1000)) phases" : "")")
+                Text("Room for \(Fmt.watts(headroom * 1000)) more\(site.kind == .datacenter && Campus.phases(mw: expandKW / 1000) > 1 ? " · built in \(Campus.phases(mw: expandKW / 1000)) phases" : "")\(site.kind == .datacenter && (site.expanding > 0 || site.plannedKW > 0 || !site.isReady(s.date)) ? " · queued after the phases already planned, each paid as it starts" : "")")
                     .font(.caption2).foregroundStyle(.tertiary)
             }
         }
+        // 3.9: the picker could sit on a size bigger than the room left (a blank picker and a dead button).
+        .onAppear { if !options.contains(where: { $0.1 == expandKW }), let o = options.last { expandKW = o.1 } }
     }
 
     private func cost(_ s: GameState) -> String {
@@ -556,24 +570,35 @@ private struct SubleaseRow: View {
                       systemImage: "person.2.badge.key.fill")
                     .font(.caption).foregroundStyle(.purple)
                 Spacer()
-                Button("Buy out tenant") { store.act("Sublease ended") { $0.endSublease(site.id) } }.font(.caption).buttonStyle(.borderless)
+                // 3.9: the buy-out is charged at once, so the button names it.
+                Button("Buy out tenant (\(Fmt.money(site.subleasedKW * site.subleaseRate * 3)))") { store.act("Sublease ended") { $0.endSublease(site.id) } }
+                    .font(.caption).buttonStyle(.borderless)
+                    .help("Three months of the tenant's rent, paid now")
             }
         } else if site.isReady(s.date) && free >= 100 {
             let kw = max(100, free * share)
+            // 3.9: a sublet can't outlast your own lease (DCMarket.subleaseYears): offer only terms that fit, and quote the real one.
+            let maxYears = DCMarket.subleaseYears(site, 10, s)
+            let terms = Array(Set([1, 3, 5, 10].filter { $0 <= maxYears } + [maxYears])).sorted()
+            let term = DCMarket.subleaseYears(site, years, s)
             HStack {
                 Text("Sublet").font(.caption)
                 Picker("", selection: $share) {
                     Text("25%").tag(0.25); Text("50%").tag(0.5); Text("All free").tag(1.0)
                 }
                 .labelsHidden().frame(width: 90)
-                Picker("", selection: $years) {
-                    Text("1 yr").tag(1); Text("3 yrs").tag(3); Text("5 yrs").tag(5); Text("10 yrs").tag(10)
+                Picker("", selection: Binding(get: { term }, set: { years = $0 })) {
+                    ForEach(terms, id: \.self) { y in Text("\(y) yr\(y == 1 ? "" : "s")").tag(y) }
                 }
                 .labelsHidden().frame(width: 80)
-                Button("Sublet \(Fmt.watts(kw * 1000))") { store.act("Space sublet") { $0.sublease(site.id, kw: kw, years: years) } }
+                Button("Sublet \(Fmt.watts(kw * 1000))") { store.act("Space sublet") { $0.sublease(site.id, kw: kw, years: term) } }
                     .font(.caption)
                 Spacer()
-                Text("+\(Fmt.money(DCMarket.subleaseRate(site, kw: kw, years: years, s) * kw))/mo").font(.caption).foregroundStyle(.secondary)
+                Text("+\(Fmt.money(DCMarket.subleaseRate(site, kw: kw, years: term, s) * kw))/mo").font(.caption).foregroundStyle(.secondary)
+            }
+            if let end = site.leaseEnd {
+                Text("Your lease runs to \(end.gameShort), so a tenant signs for \(maxYears) year\(maxYears == 1 ? "" : "s") at most. While they're here you can't end the lease\(GameCalendar.daysBetween(s.date, end) < 365 ? ", and it rolls over a year at a time" : "").")
+                    .font(.caption2).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             if site.kind == .datacenter && site.stake == 0 && load(s) == 0 {
                 Button("Lease the whole campus to a hyperscaler (10 yrs, +\(Fmt.money(DCMarket.subleaseRate(site, kw: site.capacityKW, years: 10, s) * 1.05 * site.capacityKW))/mo)") {
@@ -602,23 +627,29 @@ private struct MoveChipsPanel: View {
         let s = state
         let a = HardwareCatalog.get(batch.accelID)
         let targets = s.sites.filter { $0.id != batch.siteID && $0.kind != .garage }
+        let limit = destID.flatMap { id in s.sites.first { $0.id == id } }.map { fit(to: $0, s) }
         VStack(alignment: .leading, spacing: 10) {
             Text("Move \(a?.name ?? batch.accelID)").font(.title3.weight(.bold))
             Picker("To", selection: $destID) {
                 Text("Choose a site…").tag(UUID?.none)
                 ForEach(targets) { t in
                     let free = t.capacityKW - Economy.siteLoadKW(s, t.id)
-                    Text("\(t.name) — \(Fmt.watts(max(0, free) * 1000)) free\(t.isReady(s.date) ? "" : " (being built)")").tag(UUID?.some(t.id))
+                    Text("\(t.name) — \(Fmt.watts(max(0, free) * 1000)) free · fits \(Fmt.int(fit(to: t, s).n))\(t.isReady(s.date) ? "" : " (opens \(t.ready.gameShort))")").tag(UUID?.some(t.id))
                 }
             }
             HStack {
                 Text("Chips")
                 Spacer()
-                QuantityPicker(value: $qty, range: 1...max(1, batch.count), presets: [1, 64, 512, 4096, 32_768, 262_144])
+                QuantityPicker(value: $qty, range: 1...max(1, limit?.n ?? batch.count), presets: [1, 64, 512, 4096, 32_768, 262_144])
             }
             if let a {
                 Text("Logistics \(Fmt.money(Double(max(qty, 0)) * Campus.moveCostPerChip(a))) · needs \(Fmt.watts(Economy.chipKW(a) * Double(max(qty, 0)) * 1000)) at the destination")
                     .font(.caption).foregroundStyle(.secondary)
+            }
+            if let limit, limit.n < batch.count {
+                Label(limit.n == 0 ? "None can go there: \(limit.why)." : "At most \(Fmt.int(limit.n)) of \(Fmt.int(batch.count)) can go there: \(limit.why).",
+                      systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
             }
             Button {
                 guard let destID else { return }
@@ -627,11 +658,34 @@ private struct MoveChipsPanel: View {
                 Label("Move", systemImage: "box.truck.fill").frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
-            .disabled(destID == nil || qty < 1)
+            .disabled(destID == nil || qty < 1 || (limit.map { qty > $0.n } ?? false))
         }
         .padding(16)
         .frame(width: 400)
         .onAppear { qty = batch.count }
+        // 3.9: default to what fits at the destination, not the whole batch (the engine refuses more).
+        .onChange(of: destID) { _, id in
+            if let d = id.flatMap({ id in s.sites.first { $0.id == id } }) { qty = max(1, min(batch.count, fit(to: d, s).n)) }
+        }
+    }
+
+    /// 3.9: how many of this batch can move to `dest` (what moveHardware accepts): cooling, free power, idle chips
+    /// for a site not open yet, and cash for the trucking.
+    private func fit(to dest: Site, _ s: GameState) -> (n: Int, why: String) {
+        guard let a = HardwareCatalog.get(batch.accelID) else { return (0, "unknown chip") }
+        if a.tdpW > dest.maxChipTDP { return (0, "\(dest.name) can't power \(Int(a.tdpW)) W parts") }
+        if a.liquid && !dest.cooling.supportsLiquidChips { return (0, "\(dest.name) is air-cooled") }
+        var out = (n: batch.count, why: "")
+        let power = Int(max(0, dest.capacityKW - Economy.siteLoadKW(s, dest.id)) / max(0.001, Economy.chipKW(a)))
+        if power < out.n { out = (power, "power free there") }
+        let fromReady = s.sites.first { $0.id == batch.siteID }?.isReady(s.date) ?? false
+        if fromReady && !dest.isReady(s.date) {
+            let idle = Economy.pool(s, a.id)?.free ?? 0
+            if idle < out.n { out = (idle, "only idle chips can go to a site that isn't open yet") }
+        }
+        let cash = Int(max(0, s.cash) / Campus.moveCostPerChip(a))
+        if cash < out.n { out = (cash, "trucking costs \(Fmt.money(Campus.moveCostPerChip(a))) a chip") }
+        return out
     }
 }
 
@@ -751,7 +805,9 @@ private struct LeaseCard: View {
                         Label("Sign the lease", systemImage: "signature").frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
-                    .disabled(mw > maxMW || (toOwn && years < 5))
+                    .disabled(mw > maxMW || (toOwn && years < 5) || rate * mw * 1000 > s.cash)
+                    if toOwn && years < 5 { Text("Lease-to-own needs a term of at least 5 years.").font(.caption).foregroundStyle(.orange) }
+                    if rate * mw * 1000 > s.cash { Text("The deposit is more than your cash (\(Fmt.money(s.cash))).").font(.caption).foregroundStyle(.orange) }
                 }
                 .frame(width: 320)
             }
@@ -898,8 +954,7 @@ private struct ContractsCard: View {
                         Pill(text: "Online \(c.online.gameShort)", color: .orange)
                     }
                     if !(c.isOnline(s.date) && c.kind.onSite) {
-                        Button(c.isOnline(s.date) ? "Break…" : "Cancel") { store.act("Contract cancelled") { $0.cancelPower(c.id) } }
-                            .buttonStyle(.borderless).font(.caption)
+                        CancelPowerButton(contract: c, state: s, title: c.isOnline(s.date) ? "Break…" : "Cancel…")
                     }
                 }
             }
@@ -935,11 +990,50 @@ private struct QueueCard: View {
                     Spacer()
                     Text(c.isOnline(s.date) ? "Connected" : "Connects \(c.online.gameShort)").font(.caption).foregroundStyle(.secondary)
                     if !c.isOnline(s.date) {
-                        Button("Leave queue") { store.act("Left the queue") { $0.cancelPower(c.id) } }.buttonStyle(.borderless).font(.caption)
+                        CancelPowerButton(contract: c, state: s, title: "Leave queue…")
                     }
                 }
             }
         }
+    }
+}
+
+/// 3.9: cancelling or breaking a power contract says what it costs and asks first (it used to act in one click).
+private struct CancelPowerButton: View {
+    @Environment(GameStore.self) private var store
+    let contract: PowerContract
+    let state: GameState
+    let title: String
+    @State private var confirm = false
+
+    var body: some View {
+        let c = contract
+        let cost = Power.cancelCost(c, state)
+        Button(title) { confirm = true }
+            .buttonStyle(.borderless).font(.caption)
+            .confirmationDialog(c.kind == .interconnect ? "Leave the grid queue?" : (c.isOnline(state.date) ? "Break this \(c.kind.rawValue.lowercased())?" : "Cancel this \(c.kind.rawValue.lowercased())?"),
+                                isPresented: $confirm, titleVisibility: .visible) {
+                Button(cost.fee > 0 ? "Break it and pay \(Fmt.money(cost.fee))" : (cost.lost > 0 ? "Walk away and lose \(Fmt.money(cost.lost))" : "Cancel it"), role: .destructive) {
+                    store.act(c.kind == .interconnect ? "Left the queue" : "Contract cancelled") { $0.cancelPower(c.id) }
+                }
+                Button("Keep it", role: .cancel) {}
+            } message: {
+                Text(message(c, cost))
+            }
+    }
+
+    private func message(_ c: PowerContract, _ cost: (fee: Double, lost: Double, refund: Double)) -> String {
+        let size = Fmt.watts(c.mw * 1e6)
+        if cost.fee > 0 {
+            return "Breaking a running \(size) agreement costs a quarter of a year's contract value: \(Fmt.money(cost.fee)), paid now\(cost.fee > state.cash ? " (you have \(Fmt.money(state.cash)))" : ""). Your sites go back to grid prices."
+        }
+        if c.kind == .interconnect {
+            return "Your \(Fmt.money(cost.lost)) queue deposit for \(size) is forfeit, and rejoining later starts the wait again."
+        }
+        if cost.lost > 0 {
+            return "\(Fmt.money(c.capex)) was paid for this \(size) plant. What's been built is lost; the unbuilt equipment resells for \(Fmt.money(cost.refund)). You lose \(Fmt.money(cost.lost))."
+        }
+        return "Nothing has been paid on this \(size) agreement yet, so walking away is free."
     }
 }
 
@@ -1138,6 +1232,7 @@ struct BuildSiteSheet: View {
 private struct SiteOverviewCard: View {
     @Environment(GameStore.self) private var store
     let state: GameState
+    @State private var plan: (moved: Int, cost: Double, why: String?, to: [String: Int], kept: [Site])?
 
     var body: some View {
         let s = state
@@ -1148,14 +1243,19 @@ private struct SiteOverviewCard: View {
             CardHeader("Site overview", symbol: "list.bullet.rectangle.fill",
                        subtitle: "Power, chips, rent and what's arriving at each site.")
             if waiting > 0 {
+                let opening = rows.filter { $0.waiting > 0 }.map { "\($0.site.name) opens \($0.site.ready.gameShort) (\(Agenda.daysText(GameCalendar.daysBetween(s.date, $0.site.ready))))" }
                 HStack {
-                    Label("\(Fmt.int(waiting)) chips sit at sites that aren't open yet and do no work.", systemImage: "exclamationmark.triangle.fill")
-                        .font(.callout.weight(.semibold)).foregroundStyle(.orange)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Label("\(Fmt.int(waiting)) chips sit at sites that aren't open yet and do no work.", systemImage: "exclamationmark.triangle.fill")
+                            .font(.callout.weight(.semibold)).foregroundStyle(.orange)
+                        Text(opening.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary)
+                    }
                     Spacer()
-                    Button("Move them to open sites", systemImage: "box.truck.fill") {
-                        var r: (moved: Int, cost: Double, why: String?) = (0, 0, nil)
-                        store.act("Chips moved") { r = $0.relocateWaitingChips(); return r.moved == 0 ? (r.why ?? "No open site has room.") : nil }
-                        if r.moved > 0, let why = r.why { store.show("Moved \(Fmt.int(r.moved)); \(why)", error: false) }
+                    // 3.9: price the move first (a dry run on a copy) and ask; sites opening within 30 days are left alone.
+                    Button("Move them to open sites…", systemImage: "box.truck.fill") {
+                        var copy = s
+                        let r = copy.relocateWaitingChips()
+                        if r.moved == 0 { store.show(r.why ?? "No open site has room.", error: true) } else { plan = (r.moved, r.cost, r.why, r.to, r.kept) }
                     }
                     .buttonStyle(.borderedProminent)
                 }
@@ -1177,6 +1277,21 @@ private struct SiteOverviewCard: View {
                         Text(r.arrivals.isEmpty ? "nothing" : r.arrivals.prefix(3).map { "\($0.label) \($0.date.gameShort)" }.joined(separator: "; ")).font(.caption)
                     }
                 }
+            }
+        }
+        .confirmationDialog("Move \(Fmt.int(plan?.moved ?? 0)) chips for \(Fmt.money(plan?.cost ?? 0))?",
+                            isPresented: Binding(get: { plan != nil }, set: { if !$0 { plan = nil } }), titleVisibility: .visible) {
+            Button("Move them") {
+                var r: (moved: Int, cost: Double, why: String?, to: [String: Int], kept: [Site]) = (0, 0, nil, [:], [])
+                store.act("Chips moved") { r = $0.relocateWaitingChips(); return r.moved == 0 ? (r.why ?? "No open site has room.") : nil }
+                if r.moved > 0, let why = r.why { store.show("Moved \(Fmt.int(r.moved)); \(why)", error: false) }
+            }
+            Button("Leave them", role: .cancel) {}
+        } message: {
+            if let p = plan {
+                let to = p.to.sorted { $0.value > $1.value }.map { "\(Fmt.int($0.value)) to \($0.key)" }.joined(separator: ", ")
+                let kept = p.kept.map { "\($0.name) opens \($0.ready.gameShort)" }.joined(separator: ", ")
+                Text("Trucking, re-racking and burn-in: \(Fmt.money(p.cost)). \(to).\(kept.isEmpty ? "" : " Left where they are, opening within 30 days: \(kept).")\(p.why.map { " \($0)" } ?? "") Chips that move stay at their new site when the old one opens; moving them back costs trucking again.")
             }
         }
     }

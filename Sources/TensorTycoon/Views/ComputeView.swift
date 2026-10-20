@@ -75,23 +75,7 @@ struct ComputeView: View {
                 Card {
                     CardHeader("Cloud rentals", symbol: "cloud")
                     if s.rentals.isEmpty { NextStep("Nothing rented. Rent cloud chips by the hour, or reserve them for a year or three at a discount.", action: "Hardware Store", screen: .hardware) }
-                    ForEach(s.rentals) { r in
-                        if let a = HardwareCatalog.get(r.accelID) {
-                            HStack {
-                                Photo(key: a.image).frame(width: 44, height: 30).clipShape(.rect(cornerRadius: 6)).acceleratorPhotoLabel(a)
-                                VStack(alignment: .leading, spacing: 1) {
-                                    Text("\(Fmt.int(r.count))× \(a.name)").font(.callout.weight(.semibold))
-                                    Text("\(r.term.rawValue) · \(Fmt.price(r.hourly))/hr · \(Fmt.money(r.hourly * 24 * 30.4 * Double(r.count)))/mo\(r.end.map { " · ends \($0.gameShort)" } ?? "")")
-                                        .font(.caption).foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                Button(r.end == nil ? "Release" : "Break lease") {
-                                    store.act("Rental cancelled") { $0.cancelRental(r.id) }
-                                }
-                                .help(r.end == nil ? "Stop paying for these chips" : "Costs 50% of the remaining contract")
-                            }
-                        }
-                    }
+                    ForEach(s.rentals) { r in RentalRow(rental: r, state: s) }
                 }
                 Card {
                     CardHeader("Owned hardware", symbol: "shippingbox")
@@ -164,12 +148,55 @@ private struct PoolRow: View, Equatable {
     }
 }
 
+/// One cloud rental. 3.9: breaking a reservation shows its penalty and asks first (it used to charge in one click).
+private struct RentalRow: View {
+    @Environment(GameStore.self) private var store
+    let rental: Rental
+    let state: GameState
+    @State private var confirmBreak = false
+
+    var body: some View {
+        let r = rental
+        if let a = HardwareCatalog.get(r.accelID) {
+            let penalty = Economy.breakPenalty(r, state)
+            HStack {
+                Photo(key: a.image).frame(width: 44, height: 30).clipShape(.rect(cornerRadius: 6)).acceleratorPhotoLabel(a)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("\(Fmt.int(r.count))× \(a.name)").font(.callout.weight(.semibold))
+                    Text("\(r.term.rawValue) · \(Fmt.price(r.hourly))/hr · \(Fmt.money(r.hourly * 24 * 30.4 * Double(r.count)))/mo\(r.end.map { " · ends \($0.gameShort)" } ?? "")")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                if r.end == nil {
+                    Button("Release") { store.act("Rental cancelled") { $0.cancelRental(r.id) } }
+                        .help("Stop paying for these chips")
+                } else {
+                    Button("Break lease…") { confirmBreak = true }
+                        .help("Costs \(Fmt.money(penalty)): half the rent left on the contract")
+                }
+            }
+            .confirmationDialog("Break the \(a.name) reservation?", isPresented: $confirmBreak, titleVisibility: .visible) {
+                Button("Break it and pay \(Fmt.money(penalty))", role: .destructive) { store.act("Rental cancelled") { $0.cancelRental(r.id) } }
+                Button("Keep it", role: .cancel) {}
+            } message: {
+                Text("\(Fmt.int(r.count)) chips reserved until \(r.end?.gameShort ?? "—"). Breaking it now costs half the rent left: \(Fmt.money(penalty)), paid at once\(penalty > state.cash ? " (you have \(Fmt.money(state.cash)))" : ""). Letting it run out costs nothing extra.")
+            }
+        }
+    }
+}
+
 private struct OwnedRow: View {
     @Environment(GameStore.self) private var store
     let batch: OwnedBatch
     let state: GameState
     @State private var sellQty = 1
     @State private var confirming = false
+
+    /// Chips of this batch that can be sold now: all of them at a site not open yet, otherwise the type's idle chips.
+    private var sellable: Int {
+        let waiting = !(state.sites.first { $0.id == batch.siteID }?.isReady(state.date) ?? true)
+        return waiting ? batch.count : min(batch.count, Economy.pool(state, batch.accelID)?.free ?? 0)
+    }
 
     var body: some View {
         if let a = HardwareCatalog.get(batch.accelID) {
@@ -187,18 +214,25 @@ private struct OwnedRow: View {
                     }
                 }
                 Spacer()
-                Button("Sell…") { confirming = true }
+                Button("Sell…") { sellQty = min(max(1, sellQty), max(1, sellable)); confirming = true }
             }
             .popover(isPresented: $confirming) {
+                // 3.9: only idle chips can be sold (sellHardware), so the picker stops there and says so.
+                let n = min(sellQty, sellable)
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Sell \(a.name)").font(.headline)
-                    QuantityPicker(value: $sellQty, range: 1...batch.count)
-                    Text("You'd get \(Fmt.money(unit * Double(sellQty)))").font(.callout)
-                    Button("Sell \(sellQty)") {
-                        store.act("Sold") { $0.sellHardware(batchID: batch.id, count: sellQty) }
-                        confirming = false
+                    Text(sellable >= batch.count ? "All \(Fmt.int(batch.count)) are idle and can be sold."
+                         : "\(Fmt.int(sellable)) of these \(Fmt.int(batch.count)) are idle. Busy chips can't be sold: free them up on the Compute page first.")
+                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    if sellable > 0 {
+                        QuantityPicker(value: $sellQty, range: 1...max(1, sellable))
+                        Text("You'd get \(Fmt.money(unit * Double(n)))").font(.callout)
+                        Button("Sell \(Fmt.int(n))") {
+                            store.act("Sold") { $0.sellHardware(batchID: batch.id, count: n) }
+                            confirming = false
+                        }
+                        .buttonStyle(.borderedProminent)
                     }
-                    .buttonStyle(.borderedProminent)
                 }
                 .padding(16)
                 .frame(width: 320)
