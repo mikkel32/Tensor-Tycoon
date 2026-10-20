@@ -162,6 +162,8 @@ struct WaferBooking: Codable, Identifiable, Hashable {
     var end: Date
     /// The product these wafers go to.
     var designID: UUID?
+    /// 3.8: the up-front month, credited against the final month's bill. -1 = an older save: one month, as paid.
+    @D var deposit: Double = -1
 
     func active(_ d: Date) -> Bool { start <= d && d < end }
 }
@@ -205,6 +207,8 @@ struct SupplyContract: Codable, Identifiable, Hashable {
     @D var buildCost: Double = 0
     /// Your own line: build cost still to pay before it opens.
     @D var unpaid: Double = 0
+    /// 3.8: the up-front month, credited against the final month's bill (-1 = an older save: one month, as paid).
+    @D var deposit: Double = -1
 
     func active(_ d: Date) -> Bool { start <= d && (own || d < end) }
 }

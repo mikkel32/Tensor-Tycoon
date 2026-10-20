@@ -17,6 +17,11 @@ extension GameState {
         if AlienFab.isAlienChip(a.id) && count > AlienFab.maxOrder(self) {
             return "Your fab line makes \(Fmt.count(max(alienFab.capacityMonth, AlienFab.pilotCapacity))) chips a month: order up to \(Fmt.int(AlienFab.maxOrder(self))) (six months) at a time, or expand the line."
         }
+        if AlienFab.isAlienChip(a.id) && count > AlienFab.backlogRoom(self) {
+            let room = AlienFab.backlogRoom(self)
+            return "Your fab line already has \(Fmt.int(AlienFab.openBacklog(self))) chips queued, and it holds twelve months of output (\(Fmt.int(AlienFab.maxBacklog(self)))). More orders would push every delivery back. "
+                + (room > 0 ? "Order up to \(Fmt.int(room)), wait for deliveries, or expand the line." : "Wait for deliveries or expand the line.")
+        }
         if count > limit { return "\(a.vendor.rawValue) will only allocate \(Fmt.int(limit)) units to a company your size right now. A supply agreement raises this." }
         let needKW = Economy.chipKW(a) * Double(count)
         let freeKW = site.capacityKW - Economy.siteLoadKW(self, siteID)
@@ -46,7 +51,9 @@ extension GameState {
     mutating func sellHardware(batchID: UUID, count: Int) -> String? {
         guard let i = owned.firstIndex(where: { $0.id == batchID }), let a = HardwareCatalog.get(owned[i].accelID) else { return "Not found." }
         let n = min(count, owned[i].count)
-        let free = Economy.pool(self, a.id)?.free ?? 0
+        // 3.8: chips at a site still under construction aren't in any pool, so none of them is allocated.
+        let waiting = !(sites.first { $0.id == owned[i].siteID }?.isReady(date) ?? true)
+        let free = waiting ? owned[i].count : (Economy.pool(self, a.id)?.free ?? 0)
         if n > free { return "Only \(free) of these chips are unallocated. Free some up first." }
         let unit = Economy.resaleValue(a, self, unitCost: owned[i].unitCost, purchased: owned[i].purchased)
         cash += unit * Double(n)
@@ -204,8 +211,8 @@ extension GameState {
         let b = bonuses
         if d.name.trimmingCharacters(in: .whitespaces).isEmpty { return "Name your model." }
         if d.chips <= 0 { return "Allocate some chips." }
-        let free = Economy.freeChips(self, d.accelID)
-        if d.chips > free { return "Only \(free) free \(a.name) chips. Buy, rent, or free some up." }
+        let free = recallLeased(d.accelID, needing: d.chips)
+        if d.chips > free { return "Only \(free) free \(a.name) chips.\(leasedNote(d.accelID)) Buy, rent, or free some up." }
         if d.precision == .fp8 && !b.has(.fp8Training) { return "Research FP8 Training first." }
         if d.precision == .fp4 && !b.has(.fp4Training) { return "Research FP4 Training first." }
         if !a.supportsTraining(d.precision) { return "\(a.name) has no \(d.precision.short) tensor cores." }
@@ -272,8 +279,8 @@ extension GameState {
     mutating func setRunStatus(_ id: UUID, _ status: RunStatus) -> String? {
         guard let i = runs.firstIndex(where: { $0.id == id }) else { return "Not found." }
         if status == .running && runs[i].status == .paused {
-            let free = Economy.freeChips(self, runs[i].design.accelID)
-            if free < runs[i].design.chips { return "Need \(runs[i].design.chips) free chips, have \(free)." }
+            let free = recallLeased(runs[i].design.accelID, needing: runs[i].design.chips)
+            if free < runs[i].design.chips { return "Need \(runs[i].design.chips) free chips, have \(free).\(leasedNote(runs[i].design.accelID))" }
             runs[i].status = runs[i].flopsDone >= runs[i].flopsTotal ? .postTraining : .running
             runs[i].note = "Resumed \(date.gameShort)."
             return nil
@@ -304,8 +311,8 @@ extension GameState {
         let b = bonuses
         guard b.has(.proxyLadder) else { return "Research Predictable Scaling to run scaling ladders." }
         guard let a = HardwareCatalog.get(d.accelID) else { return "Pick hardware." }
-        let free = Economy.freeChips(self, d.accelID)
-        if d.chips > free { return "Only \(free) free \(a.name) chips." }
+        let free = recallLeased(d.accelID, needing: d.chips)
+        if d.chips > free { return "Only \(free) free \(a.name) chips.\(leasedNote(d.accelID))" }
         let target = Physics.pretrainFLOPs(d)
         var ladder = d
         ladder.name = "\(d.name) ladder"
@@ -411,8 +418,8 @@ extension GameState {
     mutating func deploy(_ id: UUID, accelID: String, chips: Int) -> String? {
         guard let i = models.firstIndex(where: { $0.id == id }) else { return "Not found." }
         let current = models[i].deployments.first { $0.accelID == accelID }?.chips ?? 0
-        let free = Economy.freeChips(self, accelID) + current
-        if chips > free { return "Only \(free) chips available." }
+        let free = recallLeased(accelID, needing: chips - current) + current
+        if chips > free { return "Only \(free) chips available.\(leasedNote(accelID))" }
         models[i].deployments.removeAll { $0.accelID == accelID }
         if chips > 0 { models[i].deployments.append(Deployment(accelID: accelID, chips: chips)) }
         return nil

@@ -103,7 +103,7 @@ struct ComputeView: View {
                                 VStack(alignment: .leading, spacing: 1) {
                                     Text("\(Fmt.int(o.count))× \(a.name)").font(.callout.weight(.semibold))
                                     if o.made != nil {
-                                        Text("From your fab line · \(Fmt.int(o.delivered ?? 0)) delivered so far, more every week · rest by \(o.arrives.gameShort)")
+                                        Text("From your fab line · \(Fmt.int(o.delivered ?? 0)) delivered so far, next chips \(AlienFab.nextShipment(o, s).gameShort), the rest by \(o.arrives.gameShort)")
                                             .font(.caption).foregroundStyle(.orange)
                                     } else {
                                         Text("In transit · arrives \(o.arrives.gameShort)").font(.caption).foregroundStyle(.orange)

@@ -121,8 +121,8 @@ enum AlienPath {
         var deploy = Stage(id: "deploy", title: "Install alien chips", symbol: "server.rack", status: .locked, detail: "Waiting for a chip.")
         if let chip = best, let a = HardwareCatalog.get(chip.id) {
             let (site, fits) = s.bestSite(for: a, count: 1)
-            deploy.detail = "\(Fmt.int(ownedAlien)) installed\(onOrder.isEmpty ? "" : " · \(Fmt.int(onOrder.reduce(0) { $0 + $1.count })) on order") · \(Fmt.watts(Economy.chipKW(a) * 1000)) each, air-cooled"
-            if let next = onOrder.map(\.arrives).min() { deploy.eta = next }
+            deploy.detail = "\(Fmt.int(ownedAlien)) installed\(onOrder.isEmpty ? "" : " · \(Fmt.int(onOrder.reduce(0) { $0 + $1.count })) on order, all in by \(onOrder.map(\.arrives).max()!.gameShort)") · \(Fmt.watts(Economy.chipKW(a) * 1000)) each, air-cooled"
+            if let next = onOrder.map({ AlienFab.nextShipment($0, s) }).min() { deploy.eta = next }
             if site == nil || fits < 1 {
                 deploy.status = ownedAlien > 0 ? .done : .blocked
                 deploy.blocker = site == nil ? "None of your sites can take \(Int(a.tdpW)) W parts (a garage or office can't). Lease a colocation cage — ready in 30 days."
@@ -167,7 +167,7 @@ enum AlienPath {
             train.actionTitle = "Model Lab"
         } else if !onOrder.isEmpty {
             train.status = .locked
-            train.detail = "First alien chips arrive \(onOrder.map(\.arrives).min()!.gameShort)."
+            train.detail = "First alien chips arrive \(onOrder.map { AlienFab.nextShipment($0, s) }.min()!.gameShort); everything ordered is in by \(onOrder.map(\.arrives).max()!.gameShort)."
         }
         out.append(train)
 

@@ -28,14 +28,26 @@ enum AlienFab {
     /// Your own orders are being made.
     static func busy(_ s: GameState) -> Bool { s.orders.contains { isAlienChip($0.accelID) && $0.count > 0 } }
 
-    /// Chips a day the line makes for you (a quarter goes to merchant contracts while a sales line is open).
+    /// Chips a day the line sets aside for merchant customers: a quarter at most, and only what they actually want
+    /// (3.8: an idle sales line used to take 25% of the line for nothing).
+    static func merchantReservePerDay(_ s: GameState) -> Double {
+        let lines = s.chipLines.filter { $0.active && isAlienChip($0.chipID) }
+        guard !lines.isEmpty else { return 0 }
+        let want = lines.reduce(0.0) { acc, l in
+            guard let chip = HardwareCatalog.get(l.chipID) else { return acc }
+            return acc + ChipBusiness.demand(chip: chip, price: l.price, sellToRivals: l.sellToRivals, s)
+        }
+        return min(max(s.alienFab.capacityMonth, 1_000) / 30.4 * 0.25, want)
+    }
+
+    /// Chips a day the line makes for you (merchant customers take only what they're buying, up to a quarter).
     static func ownPerDay(_ s: GameState) -> Double {
-        max(s.alienFab.capacityMonth, 1_000) / 30.4 * (activeMerchantLines(s) > 0 ? 0.75 : 1)
+        max(s.alienFab.capacityMonth, 1_000) / 30.4 - merchantReservePerDay(s)
     }
 
     /// Chips a day merchant customers can get (all of it when you're not making your own).
     static func merchantPerDay(_ s: GameState) -> Double {
-        s.alienFab.capacityMonth / 30.4 * (busy(s) ? 0.25 : 1)
+        busy(s) ? merchantReservePerDay(s) : s.alienFab.capacityMonth / 30.4
     }
 
     /// One alien sales line's share of the merchant output.
@@ -70,6 +82,28 @@ enum AlienFab {
 
     /// Biggest order the line takes at once.
     static func maxOrder(_ s: GameState) -> Int { Int(max(s.alienFab.capacityMonth, pilotCapacity) * maxOrderMonths) }
+
+    /// When an order's next chips reach you: shipDays after ordering for the first batch, then the next weekly
+    /// ship day. (`arrives` is the "all delivered by" date, not this.)
+    static func nextShipment(_ o: HardwareOrder, _ s: GameState) -> Date {
+        let ready = GameCalendar.addDays(o.ordered, shipDays)
+        if (o.delivered ?? 0) == 0 { return min(max(ready, s.date), max(o.arrives, s.date)) }
+        var d = max(ready, GameCalendar.addDays(s.date, 1))
+        for _ in 0..<7 where GameCalendar.components(d).day % 7 != 0 { d = GameCalendar.addDays(d, 1) }
+        return min(d, max(o.arrives, GameCalendar.addDays(s.date, 1)))
+    }
+
+    /// Chips queued across all open orders: one order is capped by `maxOrder`, but repeated orders stretch everyone's wait.
+    static func openBacklog(_ s: GameState) -> Int {
+        Int(s.orders.filter { isAlienChip($0.accelID) }.reduce(0) { $0 + toMake($1) }.rounded(.up))
+    }
+
+    /// 3.8: the most the line holds in its queue at once (12 months of output). A backlog already past it stays,
+    /// but blocks new orders until it falls under.
+    static func maxBacklog(_ s: GameState) -> Int { Int(max(s.alienFab.capacityMonth, pilotCapacity) * 12) }
+
+    /// How many more chips the line takes right now.
+    static func backlogRoom(_ s: GameState) -> Int { max(0, maxBacklog(s) - openBacklog(s)) }
 
     /// Book an order on the line; returns days until all of it is delivered.
     static func book(_ s: inout GameState, count: Int) -> Int {
@@ -139,7 +173,7 @@ enum AlienFab {
         guard let a = HardwareCatalog.get(chipID), let price = a.price, price > 0 else { return 0 }
         let cash = Int(max(0, s.cash) / 3 / price)
         let line = Int(max(s.alienFab.capacityMonth, pilotCapacity) * 2)
-        var n = min(cash, line)
+        var n = min(cash, line, backlogRoom(s))
         if !ignoringSites { n = min(n, s.bestSite(for: a, count: 1).fits) }
         return n >= 1_000 ? n / 100 * 100 : n
     }

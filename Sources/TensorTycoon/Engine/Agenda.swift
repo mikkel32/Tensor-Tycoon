@@ -167,7 +167,8 @@ enum Agenda {
 
         for o in s.orders {
             let name = HardwareCatalog.get(o.accelID)?.name ?? o.accelID
-            add(Upcoming(id: "order-\(o.id)", date: o.arrives, title: "\(Fmt.int(o.count))× \(name) arrive",
+            add(Upcoming(id: "order-\(o.id)", date: o.made != nil ? AlienFab.nextShipment(o, s) : o.arrives,
+                         title: o.made != nil ? "First of \(Fmt.int(o.count))× \(name) arrive" : "\(Fmt.int(o.count))× \(name) arrive",
                          detail: s.sites.first { $0.id == o.siteID }.map { "Delivered to \($0.name)" } ?? "Hardware order",
                          symbol: "shippingbox.fill", tone: .good, screen: .compute))
         }

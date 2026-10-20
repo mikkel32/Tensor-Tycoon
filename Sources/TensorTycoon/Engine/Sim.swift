@@ -127,7 +127,7 @@ enum Sim {
         guard !arrived.isEmpty else { return }
         s.orders.removeAll(where: due)
         // Remember what was ordered when: vendors allocate per quarter.
-        let cutoff = GameCalendar.addDays(s.date, -120)
+        let cutoff = GameCalendar.addDays(s.date, -240)
         s.orderLog.removeAll { $0.ordered < cutoff }
         s.orderLog += arrived.map { OrderStamp(accelID: $0.accelID, count: $0.count, ordered: $0.ordered) }
         for o in arrived {
