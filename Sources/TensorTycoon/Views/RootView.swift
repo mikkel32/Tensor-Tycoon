@@ -187,6 +187,7 @@ struct ScreenRouter: View {
         case .govContracts: GovMarketView()   // 3.9: government contract marketplace
         case .government: GovRelationsView()   // 3.9: government relations
         case .spotlight: SpotlightView()   // 3.9: hype, launch events, viral moments
+        case .arena: ArenaView()   // 3.9: the live model arena
         }
     }
 }

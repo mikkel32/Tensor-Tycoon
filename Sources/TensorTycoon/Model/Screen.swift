@@ -21,6 +21,7 @@ enum Screen: String, CaseIterable, Identifiable, Hashable {
     case govContracts   // 3.9: government contract marketplace
     case government   // 3.9: government relations
     case spotlight   // 3.9: hype, launch events, viral moments
+    case arena   // 3.9: the live model arena
 
     var id: String { rawValue }
 
@@ -73,6 +74,7 @@ enum Screen: String, CaseIterable, Identifiable, Hashable {
         case .govContracts: "Gov Contracts"
         case .government: "Government Relations"
         case .spotlight: "Spotlight"
+        case .arena: "Model Arena"
         }
     }
 
@@ -125,6 +127,7 @@ enum Screen: String, CaseIterable, Identifiable, Hashable {
         case .govContracts: "doc.text.magnifyingglass"
         case .government: "building.columns"
         case .spotlight: "megaphone.fill"
+        case .arena: "figure.fencing"
         }
     }
 
@@ -133,7 +136,7 @@ enum Screen: String, CaseIterable, Identifiable, Hashable {
     static let sections: [(String, [Screen])] = [
         ("Company", [.dashboard, .progression, .operations, .strategy, .security, .government, .world, .nations, .news, .pulse, .spotlight]),
         ("Build AI", [.lab, .training, .models, .families, .rsi, .swarms, .xeno]),
-        ("Evaluate", [.leaderboard, .milestones, .events, .rivals, .benchmarks]),
+        ("Evaluate", [.leaderboard, .arena, .milestones, .events, .rivals, .benchmarks]),
         ("Infrastructure", [.hardware, .partners, .compute, .datacenters, .silicon]),
         ("R&D", [.research, .science, .team, .data]),
         ("Business", [.market, .products, .advancedProjects, .govContracts, .semiconductors, .chipSales, .finance, .funding, .corporate]),

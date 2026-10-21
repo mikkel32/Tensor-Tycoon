@@ -1552,6 +1552,8 @@ struct GameState: Codable {
     @D var drama: DramaState = DramaState()   // 3.9: dramatic events with choices (Drama)
     /// 3.9: the hype meter, launch events and developer days, viral moments and conference prestige (Hype, Stage).
     @D var hype: HypeState = HypeState()
+    /// 3.9: the live model arena: ratings, the battle feed and the weekly table (Arena).
+    @D var arena: ArenaState = ArenaState()
 
     var totalShares: Double {
         founderShares + employeePoolShares + publicShares + holdings.reduce(0) { $0 + $1.shares }

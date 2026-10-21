@@ -295,6 +295,7 @@ enum Alerts {
         GovMarket.anchorKind: 0, GovMarket.yearEndKind: 0, GovMarket.protestKind: 0,   // 3.9: not now, decline, accept the debrief
         "gov_invite": 1, "gov_subpoena": 0, "gov_policy": 9, "gov_policy0": 0, "gov_institute": 1, "gov_scandal": 2,   // 3.9: government relations (neutral answers)
         Hype.viralUpKind: 1, Hype.viralDownKind: 2, Hype.noShowKind: 0,   // 3.9: let it run, say nothing, postpone
+        Arena.pledgeKind: 1,   // 3.9: no arena goal unless you ask for one
     ].merging(Drama.inboxDefaults) { a, _ in a }   // 3.9: dramatic events
 
     static func isUrgent(_ d: Decision) -> Bool { inboxDefaults[d.kind] == nil }

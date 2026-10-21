@@ -94,6 +94,7 @@ enum Leaderboard {
 
     static func entries(_ s: GameState, set: [Benchmark]? = nil, includeUnreleased: Bool = true) -> [Entry] {
         let set = set ?? indexSet(s)
+        let live = Arena.liveRatings(s)   // 3.9: the live arena's rating where a model has played
         var out: [Entry] = []
         out.reserveCapacity(120)
         for comp in s.competitors {
@@ -101,7 +102,7 @@ enum Leaderboard {
             for m in comp.models + comp.openModels {
                 let p = profile(m, def: def, boost: Competitors.boost(s, comp.id, at: m.date.decimalYear))
                 out.append(Entry(id: m.id.uuidString, lab: def.name, labID: comp.id, model: m.name, date: m.date, c: m.c, profile: p,
-                                 index: BenchmarkCatalog.index(p, set: set), arena: competitorArena(m),
+                                 index: BenchmarkCatalog.index(p, set: set), arena: live[m.id.uuidString] ?? competitorArena(m),
                                  horizon: BenchmarkCatalog.taskHorizonMinutes(p), price: m.price * (1 - comp.priceCut), tps: m.tps,
                                  open: m.open, isPlayer: false, reasoning: m.reasoning, released: true, paramsB: m.paramsB))
             }
@@ -109,7 +110,7 @@ enum Leaderboard {
         for m in s.models where (includeUnreleased || m.released) && !m.preview || (m.preview && m.released) {
             let p = profile(m)
             out.append(Entry(id: m.id.uuidString, lab: s.companyName, labID: "player", model: m.name, date: m.created, c: m.c, profile: p,
-                             index: BenchmarkCatalog.index(p, set: set), arena: playerArena(m),
+                             index: BenchmarkCatalog.index(p, set: set), arena: live[m.id.uuidString] ?? playerArena(m),
                              horizon: BenchmarkCatalog.taskHorizonMinutes(p), price: m.released && m.api ? m.apiPrice : nil,
                              tps: m.tps > 0 ? m.tps : nil, open: m.openWeights, isPlayer: true, reasoning: m.reasoning,
                              released: m.released, paramsB: m.design.paramsB))

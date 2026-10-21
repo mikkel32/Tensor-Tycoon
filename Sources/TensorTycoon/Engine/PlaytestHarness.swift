@@ -532,6 +532,11 @@ enum PTPlay {
                 if s.orgs.isEmpty, s.year >= 2024, let m = s.models.filter({ !$0.retired && $0.released }).max(by: { Swarms.quality($0, s) < Swarms.quality($1, s) }),
                    let pool = Economy.pools(s).filter({ $0.total > 0 && $0.accel.cls != .consumer && Economy.canRent($0.accel, s) }).max(by: { $0.total < $1.total }) {
                     ensureFree(&s, &bot, pool.accel.id, 4 * Physics.chipsPerReplica(m, accel: pool.accel, precision: m.servingPrecision, bonuses: b))
+                // A fleet the bot keeps busy seldom has a quarter of a pool free on the day it looks: rent the first team's chips.
+                if s.orgs.isEmpty, s.year >= 2024, s.cash > 5e8, let m = s.releasedModels.max(by: { $0.c < $1.c }) {
+                    let a = Silicon.reference(s)
+                    let copy = Physics.chipsPerReplica(m, accel: a, precision: m.servingPrecision, bonuses: s.bonuses)
+                    if copy > 0 && copy <= 10_000 { ensureFree(&s, &bot, a.id, 4 * copy) }
                 }
                 AgentOrgs.botAct(&s)
             }
