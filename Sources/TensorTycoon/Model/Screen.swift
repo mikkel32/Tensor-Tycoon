@@ -24,6 +24,7 @@ enum Screen: String, CaseIterable, Identifiable, Hashable {
     case arena   // 3.9: the live model arena
     case legacy   // 3.9: endings and legacy
     case worldMap   // 3.9: the world map
+    case challenges   // 3.9: grand challenges and open source
 
     var id: String { rawValue }
 
@@ -79,6 +80,7 @@ enum Screen: String, CaseIterable, Identifiable, Hashable {
         case .arena: "Model Arena"
         case .legacy: "Legacy & Endings"
         case .worldMap: "World Map"
+        case .challenges: "Challenges & Open Source"
         }
     }
 
@@ -134,6 +136,7 @@ enum Screen: String, CaseIterable, Identifiable, Hashable {
         case .arena: "figure.fencing"
         case .legacy: "book.closed.fill"
         case .worldMap: "map.fill"
+        case .challenges: "rosette"
         }
     }
 
@@ -142,7 +145,7 @@ enum Screen: String, CaseIterable, Identifiable, Hashable {
     static let sections: [(String, [Screen])] = [
         ("Company", [.dashboard, .progression, .operations, .strategy, .security, .government, .world, .nations, .news, .pulse, .spotlight, .legacy, .worldMap]),
         ("Build AI", [.lab, .training, .models, .families, .rsi, .swarms, .xeno]),
-        ("Evaluate", [.leaderboard, .arena, .milestones, .events, .rivals, .benchmarks]),
+        ("Evaluate", [.leaderboard, .arena, .milestones, .events, .rivals, .benchmarks, .challenges]),
         ("Infrastructure", [.hardware, .partners, .compute, .datacenters, .silicon]),
         ("R&D", [.research, .science, .team, .data]),
         ("Business", [.market, .products, .advancedProjects, .govContracts, .semiconductors, .chipSales, .finance, .funding, .corporate]),

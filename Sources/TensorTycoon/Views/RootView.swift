@@ -190,6 +190,7 @@ struct ScreenRouter: View {
         case .arena: ArenaView()   // 3.9: the live model arena
         case .legacy: LegacyView()   // 3.9: endings and legacy
         case .worldMap: WorldMapView()   // 3.9: the world map
+        case .challenges: ChallengesView()   // 3.9: grand challenges and open source
         }
     }
 }
@@ -251,6 +252,7 @@ struct Sidebar: View {
         case .families: s.families.jobs.filter(\.paused).count   // 3.5: model families
         case .govContracts: GovMarket.badge(s)   // 3.9
         case .government: s.decisions.filter { $0.kind.hasPrefix(GovRelations.prefix) }.count   // 3.9
+        case .challenges: s.challenges.editions.filter { $0.status == .open }.count   // 3.9: entries open
         default: 0
         }
     }

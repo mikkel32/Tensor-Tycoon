@@ -1560,6 +1560,8 @@ struct GameState: Codable {
     @D var endings: EndingsState = EndingsState()
     /// 3.9: the world map's memory of your expansion (WorldMap).
     @D var worldMap: WorldMapState = WorldMapState()
+    /// 3.9: grand challenges entered and decided, and the open-source community (GrandChallenges, OpenSource).
+    @D var challenges: ChallengesState = ChallengesState()
 
     var totalShares: Double {
         founderShares + employeePoolShares + publicShares + holdings.reduce(0) { $0 + $1.shares }

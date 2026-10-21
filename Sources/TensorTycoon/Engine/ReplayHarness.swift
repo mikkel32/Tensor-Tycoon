@@ -219,6 +219,7 @@ enum ReplayHarness {
             if gov > 0 { GovMarketHarness.tick(&s, auto: gov > 1); continue }
             report(s)
             GovHarness.daily(s, dayNo: dayNo)   // 3.9
+            OpenLab.replayReport(&s, day: dayNo)   // 3.9: REPLAY_CHALLENGES=1
             if dayNo % 30 == 0 { moneyLine(s); forecastLines(s) }
             if endings { EndingsHarness.watch(s); if dayNo % 30 == 0 { print(EndingsHarness.line(s)) } }   // 3.9
             if map { mapLines(s, day: dayNo, last: day == days - 1) }

@@ -217,6 +217,7 @@ extension Screen {
         case .arena: .arenaElo
         case .legacy: nil   // 3.9: endings and legacy
         case .worldMap: .regulation   // 3.9: export controls
+        case .challenges: .openWeights   // 3.9
         }
     }
 }

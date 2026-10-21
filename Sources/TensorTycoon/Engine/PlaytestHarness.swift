@@ -481,6 +481,7 @@ enum PTPlay {
         case Launches.decisionKind: return 1   // 3.7: let it ride
         case Semis.rivalKind: return 1   // 3.9: don't arm rival labs with your chips
         case let k where k.hasPrefix(Endings.prefix): return Alerts.inboxDefault(dd, s)   // 3.9: endings — play on, as an unanswered offer would
+        case GrandChallenges.entryKind, GrandChallenges.pushKind, OpenSource.scrutinyKind: return OpenLab.botChoice(dd, s)   // 3.9
         default: return 0
         }
     }

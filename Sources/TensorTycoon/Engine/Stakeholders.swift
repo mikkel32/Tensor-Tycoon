@@ -76,6 +76,7 @@ enum Stakeholders {
             add("Safety team", min(4, safety * 40))
             let morale = s.employees.isEmpty ? 70 : s.employees.reduce(0) { $0 + $1.morale } / Double(s.employees.count)
             add("Staff morale", clamp((morale - 70) * 0.2, -5, 5))
+            add("Open-source community", OpenSource.standing(s, .researchers))   // 3.9
         case .developers:
             let api = s.releasedModels.filter(\.api)
             if api.isEmpty {
@@ -87,6 +88,7 @@ enum Stakeholders {
             let open = s.releasedModels.filter { $0.openWeights && GameCalendar.daysBetween($0.releaseDate ?? $0.created, s.date) < 730 }
             if open.contains(where: { $0.c >= frontier - 0.6 }) { add("Open weights near the frontier", 7) } else if !open.isEmpty { add("Open weights", 4) }
             add("Reliability", clamp((s.reliability - 0.95) * 80, -8, 2))
+            add("Open-source community", OpenSource.standing(s, .developers))   // 3.9
         case .investors:
             return (Board.confidenceTarget(s), [Part(label: "Growth, your models and runway (the board)", value: Board.confidenceTarget(s) - 50)])
         case .governments:

@@ -299,6 +299,7 @@ enum Alerts {
         Arena.pledgeKind: 1,   // 3.9: no arena goal unless you ask for one
         "end_treaty_invite": 2, "end_treaty_draft": 1, "end_treaty": 0, "end_state_golden": 1, "end_state_emergency": 1, "end_state_ultimatum": 0,
         "end_outcompeted": 0, "end_giant": 0, "end_brink": 0, "end_averted": 0,   // 3.9: endings — never the option that ends the game
+        GrandChallenges.entryKind: 2, GrandChallenges.pushKind: 1, OpenSource.scrutinyKind: 1,   // 3.9: pass, hold course, a short statement
     ].merging(Drama.inboxDefaults) { a, _ in a }   // 3.9: dramatic events
 
     static func isUrgent(_ d: Decision) -> Bool { inboxDefaults[d.kind] == nil }

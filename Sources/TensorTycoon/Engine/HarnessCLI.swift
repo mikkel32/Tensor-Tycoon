@@ -34,6 +34,7 @@ enum HarnessCLI {
         if let r = rest(after: "--replay-save") { return ReplayHarness.main(r) }
         if let a = rest(after: "--founding") { return FoundingHarness.main(a) }   // 3.9: founding contracts by era and country
         if let r = rest(after: "--endings-check") { return EndingsHarness.main(r) }   // 3.9: endings and legacy
+        if let a = rest(after: "--challenges") { return ChallengeHarness.main(a) }   // 3.9: grand challenges and open source
         if args.contains("--forecast-check") { BalanceHarness.forecastCheck(); return 0 }
         if args.contains("--photo-check") { return PhotoHarness.main() }   // 3.4: photo credits and honest labels
         if let era = arg(after: "--strategy", "2022") { BalanceHarness.strategy(era: era); return 0 }
