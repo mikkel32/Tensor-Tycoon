@@ -297,6 +297,8 @@ enum Alerts {
         "gov_invite": 1, "gov_subpoena": 0, "gov_policy": 9, "gov_policy0": 0, "gov_institute": 1, "gov_scandal": 2,   // 3.9: government relations (neutral answers)
         Hype.viralUpKind: 1, Hype.viralDownKind: 2, Hype.noShowKind: 0,   // 3.9: let it run, say nothing, postpone
         Arena.pledgeKind: 1,   // 3.9: no arena goal unless you ask for one
+        "end_treaty_invite": 2, "end_treaty_draft": 1, "end_treaty": 0, "end_state_golden": 1, "end_state_emergency": 1, "end_state_ultimatum": 0,
+        "end_outcompeted": 0, "end_giant": 0, "end_brink": 0, "end_averted": 0,   // 3.9: endings — never the option that ends the game
     ].merging(Drama.inboxDefaults) { a, _ in a }   // 3.9: dramatic events
 
     static func isUrgent(_ d: Decision) -> Bool { inboxDefaults[d.kind] == nil }

@@ -23,6 +23,7 @@ enum ReplayHarness {
         HardwareCatalog.register(s.customChips)
         var answer = true
         var gov = 0   // 3.9: gov prints the government marketplace, gov:auto also plays it (GovMarketHarness)
+        var endings = ProcessInfo.processInfo.environment["REPLAY_ENDINGS"] != nil, retire = false   // 3.9: endings and legacy
         var pending: [String] = []   // train:<n>[@<day>]
         for t in techs {
             // cash:<amount> sets cash; noanswer leaves decisions to the inbox defaults; defer:<n> defers every leased tranche n times.
@@ -36,6 +37,7 @@ enum ReplayHarness {
             if t == "stars:raid" { Stars.replayRaid = true; continue }
             if t == "stars:tired" { Stars.replayTired = true; continue }   // test: wear every star out on day one
             if t.hasPrefix("stars:answer:") { Stars.replayAnswer = Int(t.dropFirst(13)) ?? -1; continue }   // answer star decisions with option n
+            if t == "endings" || t == "retire" { endings = true; retire = retire || t == "retire"; continue }   // 3.9
             if t == "probe:training" { TrainingProbe.run(s); continue }   // 3.9: Model Lab and training checks
             if t == "nowaiver" { for i in s.corp.debts.indices { s.corp.debts[i].waiverUntil = nil }; continue }
             if t.hasPrefix("defer:") {
@@ -214,10 +216,12 @@ enum ReplayHarness {
             report(s)
             GovHarness.daily(s, dayNo: dayNo)   // 3.9
             if dayNo % 30 == 0 { moneyLine(s); forecastLines(s) }
+            if endings { EndingsHarness.watch(s); if dayNo % 30 == 0 { print(EndingsHarness.line(s)) } }   // 3.9
         }
         GovHarness.summary(s)   // 3.9
         if let g = s.gameOver { print("GAME OVER: \(g)") }
         if ProcessInfo.processInfo.environment["REPLAY_HYPE"] != nil { HypeHarness.summary(s) }   // 3.9
+        if endings { EndingsHarness.summary(&s, retire: retire) }   // 3.9: endings and legacy
         if !s.opsLog.isEmpty { print("delegate log (newest first):"); for l in s.opsLog.prefix(25) { print("  \(l)") } }
         if !s.ops.tally.isEmpty { print("delegate tally: \(s.ops.tally.sorted { $0.key < $1.key }.map { "\($0.key) \($0.value) (\(Fmt.money(s.ops.moved[$0.key] ?? 0)))" }.joined(separator: ", "))") }
         return 0

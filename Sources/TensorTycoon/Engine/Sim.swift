@@ -66,6 +66,7 @@ enum Sim {
         Alerts.daily(&s)
         Alerts.applyStandingAnswers(&s)
         Alerts.expireInbox(&s)
+        Endings.daily(&s)   // 3.9: endings and legacy
     }
 
     // MARK: - News helper

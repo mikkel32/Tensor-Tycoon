@@ -18,6 +18,8 @@ struct NewGameSettings {
     /// 3.5: headquarters (CountryCatalog). The US / San Francisco default changes nothing.
     var hqCountry = "us"
     var hqCity = "sf"
+    /// 3.9: New Game+ legacy perks (LegacyPerk raw values) unlocked by earlier endings.
+    var legacyPerks: [String] = []
 
     /// First name of the Mac's user account, so the founder defaults to the player.
     static var defaultFounder: String {
@@ -176,6 +178,7 @@ enum NewGame {
                                    body: "The best model in the world scores \(Fmt.score(top.index)) on the Intelligence Index. That's the bar.",
                                    category: .competitor))
         }
+        Legacy.apply(&s, settings.legacyPerks)   // 3.9: New Game+ legacy perks
         HQ.found(&s)   // 3.5
         FoundingContracts.found(&s)   // 3.9: the founding government award
         Books.open(&s)   // 3.8: the first month reconciles against the cash the company starts with

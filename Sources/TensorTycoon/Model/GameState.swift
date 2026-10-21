@@ -1556,6 +1556,8 @@ struct GameState: Codable {
     @D var arena: ArenaState = ArenaState()
     /// 3.9: star researchers: personalities, bidding wars, sabbaticals, alumni and prizes (Stars).
     @D var stars: StarsState = StarsState()
+    /// 3.9: endings and legacy — the chronicle, the treaty / state-pressure / outcompeted arcs, the ending and its score (Endings).
+    @D var endings: EndingsState = EndingsState()
 
     var totalShares: Double {
         founderShares + employeePoolShares + publicShares + holdings.reduce(0) { $0 + $1.shares }

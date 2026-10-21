@@ -147,6 +147,8 @@ struct MainMenuView: View {
 
             FoundingKitPicker(kit: $settings.kit, mode: $settings.kitMode, difficulty: settings.difficulty)   // 3.5
 
+            LegacyPerkPicker(perks: $settings.legacyPerks)   // 3.9: New Game+
+
             VStack(alignment: .leading, spacing: 8) {
                 Text("Logo").font(.subheadline.weight(.semibold))
                 HStack(spacing: 8) {

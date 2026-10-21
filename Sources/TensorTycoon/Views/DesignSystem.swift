@@ -215,6 +215,7 @@ extension Screen {
         case .team, .news, .achievements, .credits, .help, .events, .advancedProjects, .semiconductors, .science, .progression, .spotlight: nil
         case .govContracts: nil   // 3.9
         case .arena: .arenaElo
+        case .legacy: nil   // 3.9: endings and legacy
         }
     }
 }

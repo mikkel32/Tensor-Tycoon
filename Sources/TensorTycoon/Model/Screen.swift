@@ -22,6 +22,7 @@ enum Screen: String, CaseIterable, Identifiable, Hashable {
     case government   // 3.9: government relations
     case spotlight   // 3.9: hype, launch events, viral moments
     case arena   // 3.9: the live model arena
+    case legacy   // 3.9: endings and legacy
 
     var id: String { rawValue }
 
@@ -75,6 +76,7 @@ enum Screen: String, CaseIterable, Identifiable, Hashable {
         case .government: "Government Relations"
         case .spotlight: "Spotlight"
         case .arena: "Model Arena"
+        case .legacy: "Legacy & Endings"
         }
     }
 
@@ -128,13 +130,14 @@ enum Screen: String, CaseIterable, Identifiable, Hashable {
         case .government: "building.columns"
         case .spotlight: "megaphone.fill"
         case .arena: "figure.fencing"
+        case .legacy: "book.closed.fill"
         }
     }
 
     /// The sidebar. The Rivals hub has one entry; `.competitors`, `.rivalWatch` and `.industry` open its Labs, Watch and
     /// Industry tabs (links from alerts, briefings and the Chief of Staff still use them).
     static let sections: [(String, [Screen])] = [
-        ("Company", [.dashboard, .progression, .operations, .strategy, .security, .government, .world, .nations, .news, .pulse, .spotlight]),
+        ("Company", [.dashboard, .progression, .operations, .strategy, .security, .government, .world, .nations, .news, .pulse, .spotlight, .legacy]),
         ("Build AI", [.lab, .training, .models, .families, .rsi, .swarms, .xeno]),
         ("Evaluate", [.leaderboard, .arena, .milestones, .events, .rivals, .benchmarks]),
         ("Infrastructure", [.hardware, .partners, .compute, .datacenters, .silicon]),
