@@ -6,7 +6,9 @@ extension GameState {
     /// Employees in a role who work for the company: people seconded to a government programme work for the programme
     /// (and the contract pays for them), so they don't count toward MFU, safety, research and the rest while they're on it.
     func staff(_ role: Role) -> [Employee] {
-        advanced.seconded.isEmpty ? employees.filter { $0.role == role } : employees.filter { $0.role == role && !advanced.seconded.contains($0.id) }
+        let away = Stars.away(self)   // 3.9: stars on sabbatical
+        return advanced.seconded.isEmpty && away.isEmpty ? employees.filter { $0.role == role }
+            : employees.filter { $0.role == role && !advanced.seconded.contains($0.id) && !away.contains($0.id) }
     }
 
     /// The same as a skill-weighted head count (a skill-50 employee counts as one).

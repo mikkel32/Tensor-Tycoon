@@ -65,6 +65,7 @@ struct TeamView: View {
             }
 
             SatelliteOfficesCard(state: s)   // 3.4 overhaul: offices in other cities
+            StarsPanel()   // 3.9: star researchers and the talent wars
             NotablePeopleCard()   // 3.4: your people the industry knows by name
             HStack {
                 Text("Candidates").font(.title3.weight(.semibold))

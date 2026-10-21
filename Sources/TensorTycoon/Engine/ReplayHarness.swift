@@ -27,6 +27,10 @@ enum ReplayHarness {
             // cash:<amount> sets cash; noanswer leaves decisions to the inbox defaults; defer:<n> defers every leased tranche n times.
             if t.hasPrefix("cash:") { s.cash = Double(t.dropFirst(5)) ?? s.cash; print("cash set to \(Fmt.money(s.cash))"); continue }
             if t == "noanswer" { answer = false; continue }
+            if t == "stars:hire" { Stars.replayHire = true; continue }   // 3.9: see Stars.replayDay
+            if t == "stars:raid" { Stars.replayRaid = true; continue }
+            if t == "stars:tired" { Stars.replayTired = true; continue }   // test: wear every star out on day one
+            if t.hasPrefix("stars:answer:") { Stars.replayAnswer = Int(t.dropFirst(13)) ?? -1; continue }   // answer star decisions with option n
             if t == "probe:training" { TrainingProbe.run(s); continue }   // 3.9: Model Lab and training checks
             if t == "nowaiver" { for i in s.corp.debts.indices { s.corp.debts[i].waiverUntil = nil }; continue }
             if t.hasPrefix("defer:") {
@@ -194,6 +198,7 @@ enum ReplayHarness {
                 guard let d = s.decisions.first else { break }
                 s.resolveDecision(d.id, option: 0)
             }
+            Stars.replayDay(&s)
             Sim.advanceDay(&s)
             report(s)
             if dayNo % 30 == 0 { moneyLine(s); forecastLines(s) }
@@ -280,6 +285,7 @@ enum ReplayHarness {
             for i in Advisor.items(s, pools: pools) { print("    ADVISOR[\(i.level)] \(i.title) — \(i.detail)\(i.fix == nil ? "" : "  [\(i.fixLabel)]")") }
         }
         if ProcessInfo.processInfo.environment["REPLAY_SAFETY"] != nil { print("    SAFETY \(Fmt.trim(s.safetyScore, 1)) (carried adjustment \(Fmt.trim(s.safetyAdjust, 2))) · \(s.security.title)") }
+        if ProcessInfo.processInfo.environment["REPLAY_STARS"] != nil { Stars.replayLines(s) }   // 3.9
         for a in s.alerts where a.date == s.date { print("    ALERT\(a.critical ? "!" : ""): \(a.title) — \(a.body)") }
         for n in s.news.prefix(12) where n.date == s.date && (n.title.hasPrefix("Inbox:") || n.title.contains("ovenant") || n.title.contains("enalty")) {
             print("    NEWS: \(n.title) — \(n.body)")

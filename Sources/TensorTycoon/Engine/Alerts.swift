@@ -290,6 +290,7 @@ enum Alerts {
         "sci_report": 0,   // 3.6: science labs (patent and license)
         Families.decisionKind: 0,   // 3.5: model families — route free chat users to a cheaper tier
         Nations.poachKind: 0,   // 3.7: match a rival's offer to one of your researchers
+        Stars.offerKind: 3, Stars.burnoutKind: 1, Stars.boomerangKind: 1, Stars.raidKind: 1,   // 3.9: talk, lighten the load, pass, walk away
         Launches.decisionKind: 1,   // 3.7: a weak launch — let it ride
     ]
 
