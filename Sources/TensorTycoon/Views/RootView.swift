@@ -184,6 +184,7 @@ struct ScreenRouter: View {
         case .families: FamiliesView()   // 3.5: model families
         case .nations: NationsView()   // 3.7: national AI strategies and economies
         case .progression: ProgressionView()   // 3.7: company stages and launches
+        case .challenges: ChallengesView()   // 3.9: grand challenges and open source
         }
     }
 }
@@ -243,6 +244,7 @@ struct Sidebar: View {
         case .semiconductors: s.decisions.filter { Semis.kinds.contains($0.kind) }.count   // 3.5
         case .science: Science.pending(s).count   // 3.6
         case .families: s.families.jobs.filter(\.paused).count   // 3.5: model families
+        case .challenges: s.challenges.editions.filter { $0.status == .open }.count   // 3.9: entries open
         default: 0
         }
     }

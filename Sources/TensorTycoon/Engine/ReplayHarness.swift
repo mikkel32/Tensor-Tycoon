@@ -196,6 +196,7 @@ enum ReplayHarness {
             }
             Sim.advanceDay(&s)
             report(s)
+            OpenLab.replayReport(&s, day: dayNo)   // 3.9: REPLAY_CHALLENGES=1
             if dayNo % 30 == 0 { moneyLine(s); forecastLines(s) }
         }
         if let g = s.gameOver { print("GAME OVER: \(g)") }

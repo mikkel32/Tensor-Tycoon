@@ -479,6 +479,7 @@ enum PTPlay {
         case Science.decisionKind: return scienceChoice(dd, s)   // 3.6
         case Launches.decisionKind: return 1   // 3.7: let it ride
         case Semis.rivalKind: return 1   // 3.9: don't arm rival labs with your chips
+        case GrandChallenges.entryKind, GrandChallenges.pushKind, OpenSource.scrutinyKind: return OpenLab.botChoice(dd, s)   // 3.9
         default: return 0
         }
     }

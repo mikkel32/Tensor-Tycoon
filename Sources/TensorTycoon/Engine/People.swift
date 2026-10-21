@@ -463,6 +463,7 @@ enum Events {
             Victory.resolve(&s, d, option: option)
         case ("moonshot", _): Moonshots.resolve(&s, d, option: option)   // 3.4: late game
         case ("fun_cfp", _), ("fun_keynote", _): Fun.resolve(&s, d, option: option)   // 3.5: fun systems
+        case (GrandChallenges.entryKind, _), (GrandChallenges.pushKind, _), (OpenSource.scrutinyKind, _): OpenLab.resolve(&s, d, option: option)   // 3.9
         case (AdvancedProjects.secrecyKind, _): AdvancedProjects.resolveSecrecy(&s, d, option: option)   // 3.5
         case ("corp_funding", _), ("corp_covenant", _), ("corp_downgrade", _), ("corp_audit", _):   // 3.5: corporate
             Corporate.resolve(&s, d, option: option)

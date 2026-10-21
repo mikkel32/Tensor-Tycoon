@@ -32,6 +32,7 @@ enum HarnessCLI {
         }
         // 3.8: play a real save forward day by day (see ReplayHarness).
         if let r = rest(after: "--replay-save") { return ReplayHarness.main(r) }
+        if let a = rest(after: "--challenges") { return ChallengeHarness.main(a) }   // 3.9: grand challenges and open source
         if args.contains("--forecast-check") { BalanceHarness.forecastCheck(); return 0 }
         if args.contains("--photo-check") { return PhotoHarness.main() }   // 3.4: photo credits and honest labels
         if let era = arg(after: "--strategy", "2022") { BalanceHarness.strategy(era: era); return 0 }

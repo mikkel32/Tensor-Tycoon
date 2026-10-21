@@ -211,6 +211,7 @@ extension Screen {
         case .products: .productLines
         case .pulse: .pulse
         case .families: .distillation
+        case .challenges: .openWeights   // 3.9
         case .team, .news, .achievements, .credits, .help, .events, .advancedProjects, .semiconductors, .science, .progression: nil
         }
     }

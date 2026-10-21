@@ -441,7 +441,7 @@ enum Launches {
         let frontier = Macro.frontier(s.year)
         let open = s.models.filter { $0.released && !$0.retired && $0.openWeights }.map(\.c).max().map { 40 * clamp(1 + $0 - frontier, 0, 1) } ?? 0
         let devs = s.world.ready ? s.world.developers : 50
-        let target = clamp(open + 150 * s.apiShareNow + 0.4 * (devs - 50), 0, 100)
+        let target = clamp(open + 150 * s.apiShareNow + 0.4 * (devs - 50) + OpenSource.ecosystemLift(s), 0, 100)   // 3.9: open-source tools
         let e = s.marketMoves.devEcosystem
         s.marketMoves.devEcosystem = e + (target - e) * (target > e ? 0.1 : 0.03)
     }
