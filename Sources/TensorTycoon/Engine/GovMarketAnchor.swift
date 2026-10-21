@@ -61,7 +61,7 @@ extension GovMarket {
                                        detail: "\(o.title). Up to \(years) years (\(o.payment == .invoice ? "a base period and \(o.options) option\(o.options == 1 ? "" : "s"), renewed each budget year" : "\(years) yearly reporting periods")), \(pay). Needs \(staffText(anchorStaff(o, scale: scale, cap: cap))) on it\(o.defence ? "; defence work" : "")."))
         }
         let c = HQ.country(s)
-        Events.addDecision(&s, kind: anchorKind, title: "Your first government contract",
+        Events.addDecision(&s, kind: anchorKind, title: s.founding.current == nil ? "Your first government contract" : "A multi-year government contract",
                            body: "Two \(c.adjective) public buyers want to work with \(s.companyName). \(offers[0].pitch) Or: \(offers[1].pitch.prefix(1).lowercased() + offers[1].pitch.dropFirst()) A contract like this gives you a budget you can count on, a past-performance record for bigger bids, and a customer who will call when year-end money turns up — at the cost of the people you put on it.",
                            image: homeImage(s), options: opts, amount: 0, ref: (amounts + [String(cap)]).joined(separator: "|"))
     }

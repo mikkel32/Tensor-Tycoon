@@ -514,10 +514,19 @@ enum GovMarket {
         if s.govMarket.salt.isEmpty { s.govMarket.salt = String(s.rng.state ^ 0x60F_3A2C, radix: 36) }
         for cal in relevantCalendars(s) { s.govMarket.fiscal[cal] = fiscal(s, cal, at: s.date, agency: cal == "eu" ? "ereo" : "").phase.rawValue }
         post(&s)
-        if !s.govMarket.anchorOffered { offerAnchor(&s) }
+        if anchorDue(s) { offerAnchor(&s) }
+    }
+
+    /// 3.9: the founding award (FoundingContracts) is the lab's first government contract; the anchor contract follows
+    /// once that has run its course (finished, ended or declined), so a new lab isn't handed two at once.
+    static func anchorDue(_ s: GameState) -> Bool {
+        guard !s.govMarket.anchorOffered else { return false }
+        guard let c = s.founding.current else { return true }
+        return ![FCStatus.offered, .active, .stopWork].contains(c.status)
     }
 
     static func monthly(_ s: inout GameState) {
+        if anchorDue(s) { offerAnchor(&s) }
         anchorMonth(&s)
         followOns(&s)
         // Decided opportunities move to the record.
