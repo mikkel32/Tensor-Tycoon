@@ -81,7 +81,11 @@ extension ScenarioHarness {
         // 5. Facilities: a Secret lab and restricted compute at the campus (sized to the work), then a certified environment.
         guard let site = siteID else { r.expect("datacenter site exists", false); return r }
         let loadBefore = Economy.siteLoadKW(s, site)
-        let computeSize = AdvancedProjects.sizes(.restrictedCompute, s.year).first { $0 >= sol.computeH100e } ?? (sol.computeH100e / 32).rounded(.up) * 32
+        // The preset size that covers the work, unless it outgrows the campus (presets grow with the year): then exactly what's needed.
+        let exact = (sol.computeH100e / 32).rounded(.up) * 32
+        let preset = AdvancedProjects.sizes(.restrictedCompute, s.year).first { $0 >= sol.computeH100e } ?? exact
+        let roomKW = (s.sites.first { $0.id == site }?.capacityKW ?? 0) - loadBefore
+        let computeSize = AdvancedProjects.quote(.restrictedCompute, level: 2, capacity: preset, s.year).kw <= roomKW ? preset : exact
         let desks = AdvancedProjects.sizes(.secureLab, s.year).first { $0 >= Double(sol.staffTotal) } ?? 120
         let e1 = s.buildFacility(.secureLab, level: 2, capacity: desks, site: site)
         let e2 = s.buildFacility(.restrictedCompute, level: 2, capacity: computeSize, site: site)
@@ -204,8 +208,9 @@ extension ScenarioHarness {
             _ = s.autoStaffProgramme(id)
         }
         guard let p = s.advanced.programmes.first(where: { $0.id == id }) else { r.expect("programme still on the books", false); return r }
-        // This lab has no other government work: every dollar of contract revenue in its books is this programme's.
-        contractRevenue = s.history.reduce(0) { $0 + $1.revContracts } + s.month.revContracts
+        // This lab has no other government work: every dollar of contract revenue in its books is this programme's (3.9: once
+        // its founding award is taken out).
+        contractRevenue = s.history.reduce(0) { $0 + $1.revContracts } + s.month.revContracts - s.founding.lifetimePaid
         r.note("\(s.date.gameShort): \(p.status.title) at \(p.stage.title) after \(p.months) months (\(p.mobilisingMonths) mobilising), \(p.reworks) reworks · revenue \(Fmt.money(p.revenue)) · direct \(Fmt.money(p.direct)) · allocated \(Fmt.money(p.allocated)) · P&L \(AdvancedProjects.signed(p.profit)) · growth \(AdvancedProjects.signedPct(p.growth - 1))")
         for e in p.history.suffix(14) { r.note("  log \(e.date.gameShort): \(e.text)") }
         r.expect("stages advanced to delivery", maxStage >= .completion && p.status == .completed, "reached \(maxStage.title), \(p.status.title)")

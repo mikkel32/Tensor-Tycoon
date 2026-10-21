@@ -33,6 +33,7 @@ struct DashboardView: View {
                 NeedsYouCard(needs: needs, stepsLeft: stepsLeft)
                 GettingStarted(state: s, steps: steps)
                 FoundingKitCard(state: s)   // 3.5
+                FoundingContractDashboardCard(state: s)   // 3.9
             } right: {
                 ComingUpCard(items: upcoming, today: s.date)
                 SinceLastMonthCard(state: s)

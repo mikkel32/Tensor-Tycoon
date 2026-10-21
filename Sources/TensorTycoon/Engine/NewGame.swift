@@ -177,6 +177,7 @@ enum NewGame {
                                    category: .competitor))
         }
         HQ.found(&s)   // 3.5
+        FoundingContracts.found(&s)   // 3.9: the founding government award
         Books.open(&s)   // 3.8: the first month reconciles against the cash the company starts with
         s.unreadNews = s.news.count
         return s

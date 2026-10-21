@@ -473,6 +473,7 @@ enum Events {
         case ("board_ouster", _), ("exclusive_supply", _), ("swarm_audit", _), ("merger_offer", _), ("spinoff", _), ("sovereign_deal", _), ("talent_raid", _),
              ("distill_campaign", _), ("eval_escape", _), ("insider_caught", _):
             StrategyEvents.resolve(&s, d, option: option)
+        case (let k, _) where FoundingContracts.kinds.contains(k): FoundingContracts.resolve(&s, d, option: option)   // 3.9
         case ("acquisition", 0):
             s.exitValue = d.amount
             s.gameOver = "Acquired for \(Fmt.money(d.amount)) on \(s.date.gameShort). Your stake: \(Fmt.money(d.amount * s.founderStake))."
