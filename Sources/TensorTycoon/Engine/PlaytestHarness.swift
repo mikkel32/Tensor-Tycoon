@@ -526,7 +526,14 @@ enum PTPlay {
             }
             if bot.flags.contains("science") { science(&s) }   // 3.6: science labs (only with the flag)
             if bot.flags.contains("semis") { Semis.botAct(&s) }   // 3.9: a chip business (design, foundry, packaging, fleet, sales)
-            if bot.flags.contains("orgs") { AgentOrgs.botAct(&s) }   // 3.9: one AI organisation of sensible size
+            if bot.flags.contains("orgs") {   // 3.9: one AI organisation of sensible size
+                // A busy fleet rarely has a whole copy of the model free: rent one for the first team when cash allows.
+                if s.orgs.isEmpty, s.year >= 2024, s.cash > 1e9, let m = s.models.filter({ !$0.retired && $0.released }).max(by: { Swarms.quality($0, s) < Swarms.quality($1, s) }),
+                   Swarms.quality(m, s) >= 0.05, let p = Economy.pools(s).filter({ $0.accel.cls != .consumer && $0.total > 0 }).max(by: { $0.total < $1.total }) {
+                    ensureFree(&s, &bot, p.accel.id, Physics.chipsPerReplica(m, accel: p.accel, precision: m.servingPrecision, bonuses: s.bonuses))
+                }
+                AgentOrgs.botAct(&s)
+            }
         }
         if bot.flags.contains("data") { dataBot(&s) }   // data economy: datasets, annotation, synthetic data, processing (only with the flag)
     }
