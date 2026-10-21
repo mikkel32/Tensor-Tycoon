@@ -32,6 +32,10 @@ enum ReplayHarness {
             if GovHarness.parse(t, &s) { continue }   // 3.9: government relations
             if DramaHarness.arg(t, &s) { continue }   // 3.9: drama, drama:all, drama:list, drama:fire:<id>
             if t.hasPrefix("hype:") { HypeHarness.arg(&s, t); continue }   // 3.9: hype, launch events
+            if t == "stars:hire" { Stars.replayHire = true; continue }   // 3.9: see Stars.replayDay
+            if t == "stars:raid" { Stars.replayRaid = true; continue }
+            if t == "stars:tired" { Stars.replayTired = true; continue }   // test: wear every star out on day one
+            if t.hasPrefix("stars:answer:") { Stars.replayAnswer = Int(t.dropFirst(13)) ?? -1; continue }   // answer star decisions with option n
             if t == "probe:training" { TrainingProbe.run(s); continue }   // 3.9: Model Lab and training checks
             if t == "nowaiver" { for i in s.corp.debts.indices { s.corp.debts[i].waiverUntil = nil }; continue }
             if t.hasPrefix("defer:") {
@@ -204,6 +208,7 @@ enum ReplayHarness {
                 s.resolveDecision(d.id, option: GovHarness.option(d))
             }
             if ProcessInfo.processInfo.environment["REPLAY_CONTRACT"] == "play" { FoundingContracts.assist(&s) }   // 3.9
+            Stars.replayDay(&s)
             Sim.advanceDay(&s)
             if gov > 0 { GovMarketHarness.tick(&s, auto: gov > 1); continue }
             report(s)
@@ -298,6 +303,7 @@ enum ReplayHarness {
         if ProcessInfo.processInfo.environment["REPLAY_SAFETY"] != nil { print("    SAFETY \(Fmt.trim(s.safetyScore, 1)) (carried adjustment \(Fmt.trim(s.safetyAdjust, 2))) · \(s.security.title)") }
         if ProcessInfo.processInfo.environment["REPLAY_CONTRACT"] != nil { for l in FoundingContracts.replayLines(s) { print(l) } }   // 3.9
         DramaHarness.report(s)   // 3.9: dramatic events as they fire and resolve
+        if ProcessInfo.processInfo.environment["REPLAY_STARS"] != nil { Stars.replayLines(s) }   // 3.9
         for a in s.alerts where a.date == s.date { print("    ALERT\(a.critical ? "!" : ""): \(a.title) — \(a.body)") }
         for n in s.news.prefix(12) where n.date == s.date && (n.title.hasPrefix("Inbox:") || n.title.contains("ovenant") || n.title.contains("enalty")) {
             print("    NEWS: \(n.title) — \(n.body)")

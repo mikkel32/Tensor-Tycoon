@@ -62,6 +62,7 @@ enum Sim {
         checkSolvency(&s)
         Fun.daily(&s)   // 3.5: conferences, challenges, hackathons, scenarios
         Hype.daily(&s)   // 3.9: hype, launch events, viral moments
+        Stars.daily(&s)   // 3.9: star researchers (new stars, sabbaticals ending)
         Alerts.daily(&s)
         Alerts.applyStandingAnswers(&s)
         Alerts.expireInbox(&s)

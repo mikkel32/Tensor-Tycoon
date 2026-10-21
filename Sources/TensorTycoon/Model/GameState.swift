@@ -1554,6 +1554,8 @@ struct GameState: Codable {
     @D var hype: HypeState = HypeState()
     /// 3.9: the live model arena: ratings, the battle feed and the weekly table (Arena).
     @D var arena: ArenaState = ArenaState()
+    /// 3.9: star researchers: personalities, bidding wars, sabbaticals, alumni and prizes (Stars).
+    @D var stars: StarsState = StarsState()
 
     var totalShares: Double {
         founderShares + employeePoolShares + publicShares + holdings.reduce(0) { $0 + $1.shares }

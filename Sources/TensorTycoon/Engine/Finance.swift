@@ -251,6 +251,7 @@ enum Monthly {
         s.safetyLastClose = max(0.01, s.safetyScore)   // never 0, which means "not tracked yet"
 
         People.monthly(&s)
+        Stars.monthly(&s)   // 3.9: star researchers and the talent wars
         Competitors.monthly(&s)
         Events.monthly(&s)
         Board.monthly(&s)

@@ -109,7 +109,7 @@ enum People {
             risk *= HQ.poachFactor(s, office: e.office)   // 3.5: big labs abroad recruit harder where pay is lower
             risk *= AdvancedProjects.poachFactor(s, s.employees[i].id)   // 3.8: defence contractors want cleared staff
             if s.employees[i].talent == .loyal { risk = 0 }
-            if s.rng.chance(risk) { poached.append(s.employees[i]) }
+            if s.rng.chance(risk), !Stars.intercept(&s, s.employees[i]) { poached.append(s.employees[i]) }   // 3.9: stars get a bidding war instead
         }
         // Mentors lift everyone; divas grate on their peers.
         let mentors = s.employees.filter { $0.talent == .mentor }.count
@@ -443,6 +443,7 @@ enum Events {
                 s.brand = max(0, s.brand - 6)
                 Sim.news(&s, "You lost the trade-secret case", "Damages of \(Fmt.money(d.amount * 2)). Brand −6.", .policy, important: true, good: false)
             }
+        case (Stars.offerKind, _), (Stars.burnoutKind, _), (Stars.boomerangKind, _), (Stars.raidKind, _): Stars.resolve(&s, d, option: option)   // 3.9: stars
         case (Nations.poachKind, _):   // 3.7: a rival answers your launch by hiring
             Nations.resolvePoach(&s, d, option: option)
         case ("hq_grant", _), ("hq_partner", _), ("hq_contract", _):   // 3.5: headquarters
