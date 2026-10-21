@@ -1550,6 +1550,8 @@ struct GameState: Codable {
     /// 3.9: public affairs, hearings, promises, export licences and the policy calendar (GovRelations).
     @D var gov: GovState = GovState()
     @D var drama: DramaState = DramaState()   // 3.9: dramatic events with choices (Drama)
+    /// 3.9: the hype meter, launch events and developer days, viral moments and conference prestige (Hype, Stage).
+    @D var hype: HypeState = HypeState()
 
     var totalShares: Double {
         founderShares + employeePoolShares + publicShares + holdings.reduce(0) { $0 + $1.shares }

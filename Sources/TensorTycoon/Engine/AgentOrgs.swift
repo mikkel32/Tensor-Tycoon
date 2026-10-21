@@ -931,10 +931,25 @@ extension AgentOrgs {
             if members(o, s).isEmpty { _ = botStaff(&s, o.id, m) }
             return
         }
-        guard let (accel, chips, agents) = botTeam(s, m) else { return }
+        guard let (accel, chips, agents) = botTeam(s, m) ?? botRentTeam(&s, m) else { return }
         guard s.foundOrg(kind: .software, name: "", objective: "", modelID: m.id, accelID: accel, chips: chips, agents: agents,
                          autonomy: 1, oversight: 0.1, verification: 0.1, budgetMonthly: 0) == nil, let o = s.orgs.last else { return }
         botSupervise(&s, o.id, m, accel: accel, agents: agents)
+    }
+
+    /// 3.9: when every chip is busy serving (a rented fleet sized to demand), rent a small team's worth (1,000 agents,
+    /// what any stage may run) on demand on the pool it serves from, when that's under a tenth of the fleet.
+    static func botRentTeam(_ s: inout GameState, _ m: AIModel) -> (accel: String, chips: Int, agents: Int)? {
+        let b = s.bonuses
+        guard let pool = Economy.pools(s).filter({ $0.accel.cls != .consumer && $0.inference > 0 }).max(by: { $0.inference < $1.inference }) else { return nil }
+        let a = pool.accel
+        let copy = Physics.chipsPerReplica(m, accel: a, precision: m.servingPrecision, bonuses: b)
+        let per = Swarms.chipsNeeded(m, accelID: a.id, agents: 1_000, s, b)
+        guard per > 0, per < Int.max / 8 else { return nil }
+        let chips = max(copy, per)
+        guard chips <= pool.inference / 10, s.rentHardware(a.id, count: max(0, chips - pool.free), term: .onDemand) == nil else { return nil }
+        let agents = min(1_000, Int(Swarms.capacityAgents(m, accelID: a.id, chips: chips, s, b)))
+        return agents >= 100 ? (a.id, chips, agents) : nil
     }
 
     /// A team of sensible size for the bot: a quarter of the best free pool, at least one copy of the model, ten

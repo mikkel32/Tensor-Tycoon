@@ -212,7 +212,7 @@ extension Screen {
         case .pulse: .pulse
         case .families: .distillation
         case .government: .politicalCapital   // 3.9
-        case .team, .news, .achievements, .credits, .help, .events, .advancedProjects, .semiconductors, .science, .progression: nil
+        case .team, .news, .achievements, .credits, .help, .events, .advancedProjects, .semiconductors, .science, .progression, .spotlight: nil
         case .govContracts: nil   // 3.9
         }
     }

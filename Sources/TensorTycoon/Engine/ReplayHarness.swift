@@ -31,6 +31,7 @@ enum ReplayHarness {
             if t == "gov" || t == "gov:auto" { gov = t == "gov" ? 1 : 2; continue }
             if GovHarness.parse(t, &s) { continue }   // 3.9: government relations
             if DramaHarness.arg(t, &s) { continue }   // 3.9: drama, drama:all, drama:list, drama:fire:<id>
+            if t.hasPrefix("hype:") { HypeHarness.arg(&s, t); continue }   // 3.9: hype, launch events
             if t == "probe:training" { TrainingProbe.run(s); continue }   // 3.9: Model Lab and training checks
             if t == "nowaiver" { for i in s.corp.debts.indices { s.corp.debts[i].waiverUntil = nil }; continue }
             if t.hasPrefix("defer:") {
@@ -194,6 +195,7 @@ enum ReplayHarness {
         for day in 0..<days where s.gameOver == nil {
             dayNo += 1
             for spec in pending where spec.hasSuffix("@\(day)") { planAndStart(spec) }
+            HypeHarness.tick(&s, day: day)   // 3.9: hype:…@<day>
             for _ in 0..<10 where answer {
                 guard let d = s.decisions.first else { break }
                 GovHarness.decision(d, s)   // 3.9
@@ -208,6 +210,7 @@ enum ReplayHarness {
         }
         GovHarness.summary(s)   // 3.9
         if let g = s.gameOver { print("GAME OVER: \(g)") }
+        if ProcessInfo.processInfo.environment["REPLAY_HYPE"] != nil { HypeHarness.summary(s) }   // 3.9
         if !s.opsLog.isEmpty { print("delegate log (newest first):"); for l in s.opsLog.prefix(25) { print("  \(l)") } }
         if !s.ops.tally.isEmpty { print("delegate tally: \(s.ops.tally.sorted { $0.key < $1.key }.map { "\($0.key) \($0.value) (\(Fmt.money(s.ops.moved[$0.key] ?? 0)))" }.joined(separator: ", "))") }
         return 0
@@ -288,6 +291,7 @@ enum ReplayHarness {
         if ProcessInfo.processInfo.environment["REPLAY_ADVISOR"] != nil {
             for i in Advisor.items(s, pools: pools) { print("    ADVISOR[\(i.level)] \(i.title) — \(i.detail)\(i.fix == nil ? "" : "  [\(i.fixLabel)]")") }
         }
+        if ProcessInfo.processInfo.environment["REPLAY_HYPE"] != nil { HypeHarness.report(s) }   // 3.9
         if ProcessInfo.processInfo.environment["REPLAY_SAFETY"] != nil { print("    SAFETY \(Fmt.trim(s.safetyScore, 1)) (carried adjustment \(Fmt.trim(s.safetyAdjust, 2))) · \(s.security.title)") }
         if ProcessInfo.processInfo.environment["REPLAY_CONTRACT"] != nil { for l in FoundingContracts.replayLines(s) { print(l) } }   // 3.9
         DramaHarness.report(s)   // 3.9: dramatic events as they fire and resolve

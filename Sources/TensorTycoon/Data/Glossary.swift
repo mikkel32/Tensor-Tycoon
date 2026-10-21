@@ -534,6 +534,9 @@ enum ScreenGuide {
         case .progression:   // 3.7: company stages and launches
             Hint(title: "Progression", text: "How big a company you've become — Garage to Civilisational — and what it takes to grow: capability, revenue, compute and headcount. Each promotion unlocks a power. Below it, every launch you've made and its report.",
                       firstStep: "Look at the criterion furthest from its bar: that's what holds your next promotion back.", term: nil)
+        case .spotlight:   // 3.9: hype, launch events, viral moments
+            Hint(title: "Spotlight", text: "Hype is how much the world is waiting for your next thing. Teasers, papers, wins, viral moments and shows raise it; a launch spends it as a day-one rush. Promise more than the model delivers and the reviews say \"overhyped\".",
+                      firstStep: "Book a launch event a few weeks before your next model finishes, and close the run of show on your best segment.", term: nil)
         default:
             nil
         }

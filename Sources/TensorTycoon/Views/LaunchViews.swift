@@ -43,6 +43,12 @@ struct LaunchPlanPicker: View {
             }
             .padding(8)
             .background(Theme.insetFill, in: .rect(cornerRadius: Theme.Radius.inset))
+            // 3.9: what the hype adds (a stealth drop or tester-only release keeps it for later).
+            Label(plan.strategy == .stealth || plan.strategy == .limitedAccess
+                  ? "Hype \(Int(s.hype.meter)) (\(Hype.mood(s.hype.meter).lowercased())): kept for later — a quiet release doesn't spend it."
+                  : "Hype \(Int(s.hype.meter)) (\(Hype.mood(s.hype.meter).lowercased())): +\(Int((Hype.boostNow(s) * 100).rounded()))% day-one demand on top of the plan, if the model lives up to it.",
+                  systemImage: "flame.fill")
+                .font(.caption).foregroundStyle(SpotlightStyle.heat(s.hype.meter))
             if let e = Launches.blocker(plan, s), !plan.isDefault {
                 Label(e, systemImage: "exclamationmark.triangle.fill").font(.caption).foregroundStyle(.orange)
             } else if Launches.cost(plan, s) > 0 {

@@ -447,6 +447,7 @@ extension GameState {
             SafetyFramework.onRelease(&self, i)
             if by != "family" { RivalIntel.playerReleased(&self, name: models[i].name, index: models[i].index, plan: plan) }   // 3.8: not for auto-released tiers
             Launches.launched(&self, i, plan: plan, rank: rank, previousBest: previousBest, gain: gain, cost: spent, by: by)   // 3.7
+            if by != "family" { Hype.launched(&self, i, plan: plan, rank: rank, previousBest: previousBest) }   // 3.9: spend the hype
         }
         models[i].api = api
         if publishWeights && !models[i].openWeights {

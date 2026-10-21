@@ -186,6 +186,7 @@ struct ScreenRouter: View {
         case .progression: ProgressionView()   // 3.7: company stages and launches
         case .govContracts: GovMarketView()   // 3.9: government contract marketplace
         case .government: GovRelationsView()   // 3.9: government relations
+        case .spotlight: SpotlightView()   // 3.9: hype, launch events, viral moments
         }
     }
 }
