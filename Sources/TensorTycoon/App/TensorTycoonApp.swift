@@ -24,6 +24,7 @@ struct TensorTycoonApp: App {
         if let i = args.firstIndex(of: "--update-selftest") {
             exit(UpdateSelfTest.run(pretending: i + 1 < args.count ? args[i + 1] : "0.0.1"))
         }
+        if let i = args.firstIndex(of: "--render-map") { exit(MainActor.assumeIsolated { WorldMapRender.main(Array(args.dropFirst(i + 1))) }) }   // 3.9
         // Headless checks (saves, balance, playtests, scenarios): see HarnessCLI.
         if let code = HarnessCLI.run(args) { exit(code) }
     }

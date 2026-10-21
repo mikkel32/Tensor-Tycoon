@@ -1544,6 +1544,8 @@ struct GameState: Codable {
     @D var launchDefault: LaunchPlan = LaunchPlan()
     /// Your company stage, when each was reached and the powers it unlocked (Progression).
     @D var progression: ProgressionState = ProgressionState()
+    /// 3.9: the world map's memory of your expansion (WorldMap).
+    @D var worldMap: WorldMapState = WorldMapState()
 
     var totalShares: Double {
         founderShares + employeePoolShares + publicShares + holdings.reduce(0) { $0 + $1.shares }

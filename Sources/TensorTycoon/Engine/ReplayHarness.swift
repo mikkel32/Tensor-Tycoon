@@ -22,11 +22,14 @@ enum ReplayHarness {
         BenchmarkCatalog.resetCache()
         HardwareCatalog.register(s.customChips)
         var answer = true
+        var map = ProcessInfo.processInfo.environment["REPLAY_MAP"] != nil   // 3.9: `map` prints the world map as it changes
         var pending: [String] = []   // train:<n>[@<day>]
         for t in techs {
             // cash:<amount> sets cash; noanswer leaves decisions to the inbox defaults; defer:<n> defers every leased tranche n times.
             if t.hasPrefix("cash:") { s.cash = Double(t.dropFirst(5)) ?? s.cash; print("cash set to \(Fmt.money(s.cash))"); continue }
             if t == "noanswer" { answer = false; continue }
+            if t == "map" { map = true; continue }
+            if WorldMap.harnessAction(&s, t) { continue }   // map:build / map:office / map:power
             if t == "probe:training" { TrainingProbe.run(s); continue }   // 3.9: Model Lab and training checks
             if t == "nowaiver" { for i in s.corp.debts.indices { s.corp.debts[i].waiverUntil = nil }; continue }
             if t.hasPrefix("defer:") {
@@ -175,6 +178,7 @@ enum ReplayHarness {
         }
         startDate = s.date
         report(s)
+        if map { WorldMap.report(s, full: true).forEach { print($0) } }
         func planAndStart(_ spec: String) {
             let props = RunPlanner.proposals(s)
             if props.isEmpty { print("no proposal: \(RunPlanner.shortfall(s) ?? "nothing to plan")") }
@@ -197,6 +201,7 @@ enum ReplayHarness {
             Sim.advanceDay(&s)
             report(s)
             if dayNo % 30 == 0 { moneyLine(s); forecastLines(s) }
+            if map { mapLines(s, day: dayNo, last: day == days - 1) }
         }
         if let g = s.gameOver { print("GAME OVER: \(g)") }
         if !s.opsLog.isEmpty { print("delegate log (newest first):"); for l in s.opsLog.prefix(25) { print("  \(l)") } }
@@ -205,6 +210,12 @@ enum ReplayHarness {
     }
 
     nonisolated(unsafe) private static var announced = Set<String>()
+    /// 3.9: the map's summary every 30 days, new milestones and continent news as they land, and every pin at the end.
+    private static func mapLines(_ s: GameState, day: Int, last: Bool) {
+        for m in s.worldMap.log where m.date == s.date { print("    MAP MILESTONE \(m.date.gameShort): \(m.text)") }
+        for n in s.news.prefix(6) where n.date == s.date && n.title.contains("first datacenter in") { print("    MAP NEWS: \(n.title) — \(n.body)") }
+        if day % 30 == 0 || last { WorldMap.report(s, full: last).forEach { print($0) } }
+    }
     nonisolated(unsafe) private static var startDate = Date.distantPast
     /// Month-to-date revenue by segment and costs, plus prices: where the money comes from and goes.
     private static func moneyLine(_ s: GameState) {
