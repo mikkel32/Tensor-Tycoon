@@ -29,6 +29,7 @@ enum ReplayHarness {
             if t.hasPrefix("cash:") { s.cash = Double(t.dropFirst(5)) ?? s.cash; print("cash set to \(Fmt.money(s.cash))"); continue }
             if t == "noanswer" { answer = false; continue }
             if t == "gov" || t == "gov:auto" { gov = t == "gov" ? 1 : 2; continue }
+            if GovHarness.parse(t, &s) { continue }   // 3.9: government relations
             if t == "probe:training" { TrainingProbe.run(s); continue }   // 3.9: Model Lab and training checks
             if t == "nowaiver" { for i in s.corp.debts.indices { s.corp.debts[i].waiverUntil = nil }; continue }
             if t.hasPrefix("defer:") {
@@ -194,14 +195,17 @@ enum ReplayHarness {
             for spec in pending where spec.hasSuffix("@\(day)") { planAndStart(spec) }
             for _ in 0..<10 where answer {
                 guard let d = s.decisions.first else { break }
-                s.resolveDecision(d.id, option: 0)
+                GovHarness.decision(d, s)   // 3.9
+                s.resolveDecision(d.id, option: GovHarness.option(d))
             }
             if ProcessInfo.processInfo.environment["REPLAY_CONTRACT"] == "play" { FoundingContracts.assist(&s) }   // 3.9
             Sim.advanceDay(&s)
             if gov > 0 { GovMarketHarness.tick(&s, auto: gov > 1); continue }
             report(s)
+            GovHarness.daily(s, dayNo: dayNo)   // 3.9
             if dayNo % 30 == 0 { moneyLine(s); forecastLines(s) }
         }
+        GovHarness.summary(s)   // 3.9
         if let g = s.gameOver { print("GAME OVER: \(g)") }
         if !s.opsLog.isEmpty { print("delegate log (newest first):"); for l in s.opsLog.prefix(25) { print("  \(l)") } }
         if !s.ops.tally.isEmpty { print("delegate tally: \(s.ops.tally.sorted { $0.key < $1.key }.map { "\($0.key) \($0.value) (\(Fmt.money(s.ops.moved[$0.key] ?? 0)))" }.joined(separator: ", "))") }

@@ -64,7 +64,9 @@ extension ScenarioHarness {
         var started = 0
         for (k, n) in sol.staff.sorted(by: { $0.key < $1.key }) { if let role = Role(rawValue: k) { started += s.clearPeople(role, n + 1, level: 2) } }
         r.expect("Secret investigations started", started >= sol.staffTotal, "\(started) for a team of \(sol.staffTotal)")
-        let campusKW = ((sol.computeH100e * World.kwPerH100e(s.year) * 1.3 + 3_000) / 1_000).rounded(.up) * 1_000
+        // 3.9: sized for the restricted-compute step actually built (the next size up can be 3× the work), not just the work.
+        let step = AdvancedProjects.sizes(.restrictedCompute, s.year).first { $0 >= sol.computeH100e } ?? sol.computeH100e
+        let campusKW = ((max(sol.computeH100e, step) * World.kwPerH100e(s.year) * 1.3 + 3_000) / 1_000).rounded(.up) * 1_000
         let siteErr = s.buildSite(kind: .datacenter, locationID: "texas", capacityKW: campusKW, cooling: .air, power: .grid, name: "Abilene Secure Campus")
         r.expect("datacenter site under construction", siteErr == nil, siteErr ?? "")
         let siteID = s.sites.last { $0.name == "Abilene Secure Campus" }?.id

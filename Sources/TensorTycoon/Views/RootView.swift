@@ -185,6 +185,7 @@ struct ScreenRouter: View {
         case .nations: NationsView()   // 3.7: national AI strategies and economies
         case .progression: ProgressionView()   // 3.7: company stages and launches
         case .govContracts: GovMarketView()   // 3.9: government contract marketplace
+        case .government: GovRelationsView()   // 3.9: government relations
         }
     }
 }
@@ -245,6 +246,7 @@ struct Sidebar: View {
         case .science: Science.pending(s).count   // 3.6
         case .families: s.families.jobs.filter(\.paused).count   // 3.5: model families
         case .govContracts: GovMarket.badge(s)   // 3.9
+        case .government: s.decisions.filter { $0.kind.hasPrefix(GovRelations.prefix) }.count   // 3.9
         default: 0
         }
     }

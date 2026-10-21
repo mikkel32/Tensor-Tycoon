@@ -52,6 +52,7 @@ enum Sim {
         Semis.daily(&s)   // 3.5: semiconductors (nothing until you hire a team or book capacity)
         if GameCalendar.components(s.date).day % 7 == 5 { Pulse.weekly(&s) }   // 3.4: industry chatter and buzz
         Launches.daily(&s)   // 3.7: launch reports and rivals' lagged answers
+        GovRelations.daily(&s)   // 3.9: hearings, the policy calendar, export licences
         if GameCalendar.components(s.date).day % 7 == 1 { Progression.weekly(&s) }   // 3.7: company stages
 
         if s.date.ym != oldMonth { Monthly.close(&s) }
