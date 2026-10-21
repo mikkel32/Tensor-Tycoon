@@ -517,16 +517,11 @@ enum GovMarket {
         if anchorDue(s) { offerAnchor(&s) }
     }
 
-    /// 3.9: the founding award (FoundingContracts) is the lab's first government contract; the anchor contract follows
-    /// once that has run its course (finished, ended or declined), so a new lab isn't handed two at once.
-    static func anchorDue(_ s: GameState) -> Bool {
-        guard !s.govMarket.anchorOffered else { return false }
-        guard let c = s.founding.current else { return true }
-        return ![FCStatus.offered, .active, .stopWork].contains(c.status)
-    }
+    /// 3.9: offered once, when the marketplace opens. Next to a founding award (FoundingContracts) it reads as an extra,
+    /// optional multi-year deal; "Not now" is the default, so ignoring it changes nothing.
+    static func anchorDue(_ s: GameState) -> Bool { !s.govMarket.anchorOffered }
 
     static func monthly(_ s: inout GameState) {
-        if anchorDue(s) { offerAnchor(&s) }
         anchorMonth(&s)
         followOns(&s)
         // Decided opportunities move to the record.
