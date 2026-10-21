@@ -19,6 +19,12 @@ enum Stars {
     /// A per-game hashed roll: a star's personality is a function of who they are, not of the day they were noticed.
     static func roll(_ s: GameState, _ key: String) -> Double { Cast.roll(s, "stars|\(key)") }
 
+    /// Hashed dice for one decision (keyed by game, day and purpose): the star system leaves the game's RNG alone, so
+    /// adding it doesn't reshuffle every other system's luck.
+    static func dice(_ s: GameState, _ key: String) -> GameRNG {
+        GameRNG(seed: UInt64(roll(s, "\(key)|\(RivalIntel.dayIndex(s.date))") * 9_007_199_254_740_992))
+    }
+
     static func isStar(_ e: Employee) -> Bool { e.star || e.skill >= 88 }
 
     static func index(_ s: GameState, _ id: String) -> Int? { s.stars.profiles.firstIndex { $0.id == id } }
@@ -170,6 +176,7 @@ enum Stars {
 
     /// One month in a star's life: wear, wants, renown, their cluster bill and maybe a breakthrough.
     static func tick(_ s: inout GameState, _ i: Int, running: Int) {
+        var d = dice(s, "tick|\(s.stars.profiles[i].id)")
         let p = s.stars.profiles[i]
         guard let ei = employeeIndex(s, p.id) else { return }
         s.stars.profiles[i].renown = clamp(p.renown * 0.99 + max(0, s.employees[ei].skill - 85) / 20, 0, 100)
@@ -204,12 +211,13 @@ enum Stars {
         let pp = s.stars.profiles[i]
         var chance = 0.05 + (pp.computeBudget > 0 ? 0.04 : 0) + (dreamPartner(s, pp) ? 0.03 : 0)
         chance *= s.employees[ei].morale / 80 * (pp.fatigue >= 75 ? 0.5 : 1) * (pp.mandate ? 1.3 : 1) * s.employees[ei].skill / 92
-        if s.rng.chance(chance) { breakthrough(&s, i) }
+        if d.chance(chance) { breakthrough(&s, i) }
     }
 
     static func breakthrough(_ s: inout GameState, _ i: Int) {
+        var d = dice(s, "bt|\(s.stars.profiles[i].id)")
         let p = s.stars.profiles[i]
-        let result = s.rng.pick(p.specialty.results)
+        let result = d.pick(p.specialty.results)
         s.stars.profiles[i].breakthroughs += 1
         let name = p.name
         if p.mandate || p.specialty == .markets {
@@ -222,7 +230,7 @@ enum Stars {
         }
         let researchers = max(3, s.staff(.researcher).count)
         let share = clamp(3 / Double(researchers), 0.12, 1)
-        var days = s.rng.range(4, 10)
+        var days = d.range(4, 10)
         let head = s.researchQueue.first
         let onRoadmap = head.flatMap { ResearchCatalog.byID[$0]?.category } == p.specialty.category && p.specialty.category != nil
         if onRoadmap { days *= 1.5 }
@@ -315,6 +323,7 @@ enum Stars {
     }
 
     static func chemistryMonth(_ s: inout GameState) {
+        var d = dice(s, "chem")
         let ps = s.stars.profiles.filter { $0.sabbaticalUntil == nil }
         guard ps.count >= 2 else { return }
         var delta: [String: Double] = [:]
@@ -326,11 +335,11 @@ enum Stars {
                 if c >= 0.6 {
                     // Dream pairs make each other better.
                     for id in [ps[i].id, ps[j].id] { if let e = employeeIndex(s, id) { s.employees[e].skill = min(99, s.employees[e].skill + 0.15) } }
-                    if s.rng.chance(0.08), let a = index(s, ps[i].id), let b = index(s, ps[j].id) {
+                    if d.chance(0.08), let a = index(s, ps[i].id), let b = index(s, ps[j].id) {
                         beat(&s, a, "Wrote a paper with \(ps[j].name) that both call their best work.", tone: 1)
                         beat(&s, b, "Wrote a paper with \(ps[i].name) that both call their best work.", tone: 1)
                     }
-                } else if c <= -0.4, s.rng.chance(0.12), let a = index(s, ps[i].id), let b = index(s, ps[j].id) {
+                } else if c <= -0.4, d.chance(0.12), let a = index(s, ps[i].id), let b = index(s, ps[j].id) {
                     beat(&s, a, "Clashed with \(ps[j].name) over who gets credit.", tone: -1)
                     beat(&s, b, "Clashed with \(ps[i].name) over who gets credit.", tone: -1)
                     delta[ps[i].id, default: 0] -= 3
@@ -347,9 +356,10 @@ enum Stars {
     // MARK: Burnout and sabbaticals
 
     static func burnoutCheck(_ s: inout GameState) {
+        var d = dice(s, "burn")
         guard !s.decisions.contains(where: { $0.kind == burnoutKind }) else { return }
         for p in s.stars.profiles.sorted(by: { $0.id < $1.id }) where p.sabbaticalUntil == nil && p.fatigue >= 85 && s.stars.offer?.star != p.id {
-            guard s.rng.chance(0.4), let e = s.employees.first(where: { $0.id.uuidString == p.id }) else { continue }
+            guard d.chance(0.4), let e = s.employees.first(where: { $0.id.uuidString == p.id }) else { continue }
             s.stars.burnouts += 1
             if let i = index(s, p.id) { beat(&s, i, "Hit a wall after months of crunch.", tone: -1) }
             Events.addDecision(&s, kind: burnoutKind, title: "\(p.name) is burning out",
@@ -378,6 +388,7 @@ enum Stars {
     }
 
     static func backFromSabbatical(_ s: inout GameState, _ i: Int) {
+        var d = dice(s, "back|\(s.stars.profiles[i].id)")
         s.stars.profiles[i].sabbaticalUntil = nil
         s.stars.profiles[i].fatigue = min(s.stars.profiles[i].fatigue, 10)
         if let e = employeeIndex(s, s.stars.profiles[i].id) {
@@ -386,7 +397,7 @@ enum Stars {
         }
         beat(&s, i, "Came back from sabbatical rested.", tone: 1)
         Sim.news(&s, "\(s.stars.profiles[i].name) is back", "Rested after three months away, and back at full speed.", .company, good: true)
-        if s.rng.chance(0.4) { breakthrough(&s, i) }
+        if d.chance(0.4) { breakthrough(&s, i) }
     }
 
     // MARK: Bidding wars (rivals after your stars)
@@ -406,6 +417,7 @@ enum Stars {
     }
 
     static func poachCheck(_ s: inout GameState) {
+        var d = dice(s, "poach")
         guard s.stars.offer == nil, !s.decisions.contains(where: { $0.kind == offerKind || $0.kind == raidKind }), s.decisions.count < 5 else { return }
         if let last = s.stars.lastOffer, GameCalendar.daysBetween(last, s.date) < 90 { return }
         let labs = rivals(s)
@@ -416,7 +428,7 @@ enum Stars {
             var risk = 0.03 * p.personality.poachability * (1 + p.renown / 60) * clamp(1.6 - e.morale / 100, 0.5, 1.4) * era
             if recentAward(s, p) { risk *= 1.6 }
             if p.unmetMonths >= 3 { risk *= 1.3 }
-            guard s.rng.chance(risk) else { continue }
+            guard d.chance(risk) else { continue }
             startOffer(&s, p, e, labs: labs)
             return
         }
@@ -434,20 +446,21 @@ enum Stars {
     }
 
     static func startOffer(_ s: inout GameState, _ p: StarProfile, _ e: Employee, labs: [CompetitorState]) {
+        var d = dice(s, "offer|\(p.id)")
         // Richer, better-known labs bid more often.
         let weights = labs.map { max(1, $0.brand) * (1 + log10(1 + max(0, $0.valuation) / 1e9)) }
-        var u = s.rng.unit() * weights.reduce(0, +)
+        var u = d.unit() * weights.reduce(0, +)
         var lab = labs[0]
         for (k, w) in weights.enumerated() { u -= w; if u <= 0 { lab = labs[k]; break } }
         // Priced off the market for someone like them, at least a real raise, never more than 2.5× what they make.
-        var mult = s.rng.range(1.4, 2.2)
-        if s.year >= 2025, p.renown >= 40 { mult *= s.rng.range(1.3, 2) }   // the 2025 packages for the best-known names
+        var mult = d.range(1.4, 2.2)
+        if s.year >= 2025, p.renown >= 40 { mult *= d.range(1.3, 2) }   // the 2025 packages for the best-known names
         let market = People.marketSalary(s, e) * (s.year > 2024.5 && e.role == .researcher ? 4 : 1)
-        let salary = (min(e.salary * 2.5, max(e.salary * s.rng.range(1.25, 1.5), market * mult)) / 1_000).rounded() * 1_000
-        let equity = (lab.valuation > 1e9 || s.rng.chance(0.6)) ? (e.salary * s.rng.range(1, 3) / 1_000).rounded() * 1_000 : 0
-        let title = p.title.isEmpty && (p.ambition == .lead || p.personality == .showman || s.rng.chance(0.3))
-            ? (e.role == .researcher && s.rng.chance(0.5) ? "Chief Scientist" : p.specialty.head) : ""
-        let compute = p.computeBudget == 0 && (p.ambition == .compute || p.personality == .builder || s.rng.chance(0.3))
+        let salary = (min(e.salary * 2.5, max(e.salary * d.range(1.25, 1.5), market * mult)) / 1_000).rounded() * 1_000
+        let equity = (lab.valuation > 1e9 || d.chance(0.6)) ? (e.salary * d.range(1, 3) / 1_000).rounded() * 1_000 : 0
+        let title = p.title.isEmpty && (p.ambition == .lead || p.personality == .showman || d.chance(0.3))
+            ? (e.role == .researcher && d.chance(0.5) ? "Chief Scientist" : p.specialty.head) : ""
+        let compute = p.computeBudget == 0 && (p.ambition == .compute || p.personality == .builder || d.chance(0.3))
         s.stars.offer = StarOffer(star: p.id, name: p.name, lab: lab.id, salary: salary, equity: equity, title: title, compute: compute, started: s.date)
         if let i = index(s, p.id) { s.stars.profiles[i].lastOffer = s.date }
         s.stars.wars += 1
@@ -581,6 +594,7 @@ enum Stars {
 
     /// Your counter-offer: from the decision's packages or the Stars panel's own mix.
     static func counter(_ s: inout GameState, _ levers: Set<StarLever>) {
+        var d = dice(s, "counter|\(s.stars.offer?.star ?? "")|\(s.stars.offer?.round ?? 0)")
         guard let o = s.stars.offer, !o.outgoing, let i = index(s, o.star), let ei = employeeIndex(s, o.star) else { clearOffer(&s); return }
         let odds = stayOdds(s, levers) ?? 0
         let lab = labName(s, o.lab)
@@ -588,7 +602,7 @@ enum Stars {
         for l in StarLever.allCases where levers.contains(l) {
             if let g = grant(&s, i, ei, l, offer: o) { given.append(g) }
         }
-        if s.rng.chance(odds) {
+        if d.chance(odds) {
             s.employees[ei].morale = min(100, s.employees[ei].morale + 10)
             s.stars.profiles[i].renown = min(100, s.stars.profiles[i].renown + 3)
             s.stars.profiles[i].offersFended += 1
@@ -600,7 +614,7 @@ enum Stars {
             s.stars.lastOffer = s.date
             return
         }
-        if o.round < maxRounds && s.rng.chance(0.2) {
+        if o.round < maxRounds && d.chance(0.2) {
             // They won't go higher, and your star doesn't want to leave without a better offer.
             s.stars.warsWon += 1
             beat(&s, i, "Stayed when \(lab) wouldn't go any higher.", tone: 1)
@@ -614,10 +628,10 @@ enum Stars {
             // They go higher.
             var next = o
             next.round += 1
-            next.salary = (max(o.salary, s.employees[ei].salary) * s.rng.range(1.15, 1.3) / 1_000).rounded() * 1_000
-            if next.equity == 0 { next.equity = (s.employees[ei].salary * s.rng.range(1, 2) / 1_000).rounded() * 1_000 }
+            next.salary = (max(o.salary, s.employees[ei].salary) * d.range(1.15, 1.3) / 1_000).rounded() * 1_000
+            if next.equity == 0 { next.equity = (s.employees[ei].salary * d.range(1, 2) / 1_000).rounded() * 1_000 }
             if next.title.isEmpty && s.stars.profiles[i].title.isEmpty { next.title = s.employees[ei].role == .researcher ? "Chief Scientist" : s.stars.profiles[i].specialty.head }
-            if !next.compute && s.stars.profiles[i].computeBudget == 0 && s.rng.chance(0.5) { next.compute = true }
+            if !next.compute && s.stars.profiles[i].computeBudget == 0 && d.chance(0.5) { next.compute = true }
             next.decision = nil
             if let d = o.decision { s.decisions.removeAll { $0.id == d } }
             s.stars.offer = next
@@ -707,6 +721,7 @@ enum Stars {
     // MARK: Boomerangs
 
     static func boomerangCheck(_ s: inout GameState) {
+        var d = dice(s, "boom")
         guard !s.decisions.contains(where: { $0.kind == boomerangKind }) else { return }
         for k in s.stars.alumni.indices {
             let a = s.stars.alumni[k]
@@ -716,7 +731,7 @@ enum Stars {
             let weak = rival.map { !$0.alive || $0.brand < s.brand - 10 } ?? false
             var p = 0.025 * (weak ? 3 : 1) * (a.amicable ? 1.6 : 1) * (a.personality == .maverick ? 1.4 : 1)
             if s.brand > labBrand(s, a.lab) { p *= 1.3 }
-            guard s.rng.chance(p) else { continue }
+            guard d.chance(p) else { continue }
             s.stars.alumni[k].asked = true
             let salary = (max(a.salary * 1.1, People.marketSalary(s, role: a.role, skill: a.skill, office: "", star: true, relocated: false)) / 1_000).rounded() * 1_000
             let tech = rivalTech(s, a.lab)
@@ -743,6 +758,7 @@ enum Stars {
     }
 
     static func rehire(_ s: inout GameState, _ k: Int, salary: Double) {
+        var d = dice(s, "rehire|\(s.stars.alumni[k].id)")
         let a = s.stars.alumni[k]
         guard let desk = freeDesk(s) else {
             Sim.news(&s, "No desk for \(a.name)", "Every office is full, so they stayed at \(labName(s, a.lab)). Add desks on the Team page.", .company, good: false)
@@ -772,9 +788,9 @@ enum Stars {
         if let tech = rivalTech(s, a.lab) {
             s.exoticOwned.append(tech)
             extra = " They brought \(ResearchCatalog.byID[tech]?.name ?? "a secret technique") with them: research it on the Research page."
-            if s.rng.chance(0.15) {
+            if d.chance(0.15) {
                 let amount = clamp(max(salary * 4, s.valuation * 0.001), 2e6, 1e9)
-                s.pendingSuits.append(PendingSuit(lab: a.lab, tech: tech, due: GameCalendar.addDays(s.date, s.rng.int(30, 180)), amount: amount))
+                s.pendingSuits.append(PendingSuit(lab: a.lab, tech: tech, due: GameCalendar.addDays(s.date, d.int(30, 180)), amount: amount))
             }
         }
         Sim.news(&s, "\(a.name) returns", "A boomerang: back from \(labName(s, a.lab)) after \(months) months.\(extra)", .company, important: true, good: true)
@@ -854,14 +870,15 @@ enum Stars {
     }
 
     static func startRaid(_ s: inout GameState, _ m: CastMember, mult: Double, levers: Set<StarLever>, round: Int = 1) -> String? {
+        var d = dice(s, "raid|\(m.id)|\(round)")
         if round == 1, let why = raidBlocker(s) { return why }
         let cost = raidCost(s, m, mult: mult, levers: levers)
         if cost.signing > s.cash { return "The signing bonus is \(Fmt.money(cost.signing)); you have \(Fmt.money(max(0, s.cash)))." }
         s.stars.lastRaid = s.date
         let odds = raidOdds(s, m, mult: mult, levers: levers, round: round)
         let lab = labName(s, m.org)
-        if s.rng.chance(odds) { landRaid(&s, m, cost: cost, levers: levers); return nil }
-        if round < 2 && s.rng.chance(0.6) {
+        if d.chance(odds) { landRaid(&s, m, cost: cost, levers: levers); return nil }
+        if round < 2 && d.chance(0.6) {
             // Their lab counters; you can go higher once.
             let higher = mult * 1.3
             let o2 = raidOdds(s, m, mult: higher, levers: levers, round: 2)
@@ -948,9 +965,10 @@ enum Stars {
     }
 
     static func lovelaceAward(_ s: inout GameState, _ year: Int) {
+        var d = dice(s, "lovelace|\(year)")
         guard !s.stars.awards.contains(where: { $0.prize == lovelace && $0.year == year }) else { return }
-        if let (p, odds) = prizeOutlook(s, lovelace), odds > 0, s.rng.chance(odds) {
-            win(&s, p, prize: lovelace, year: year, citation: "for \(s.rng.pick(p.specialty.results)) and the ideas behind it", brand: 5)
+        if let (p, odds) = prizeOutlook(s, lovelace), odds > 0, d.chance(odds) {
+            win(&s, p, prize: lovelace, year: year, citation: "for \(d.pick(p.specialty.results)) and the ideas behind it", brand: 5)
             return
         }
         // Someone else's year: the field's best-known researcher who hasn't won it.
@@ -958,27 +976,28 @@ enum Stars {
         let field = s.cast.filter { $0.active && !won.contains($0.name) && $0.org != "player" && [.scientist, .academic, .researcher].contains($0.castKind) && $0.stature >= 0.35 }
             .sorted { ($0.stature, $0.id) > ($1.stature, $1.id) }.prefix(6)
         guard !field.isEmpty else { return }
-        let m = s.rng.pick(Array(field))
+        let m = d.pick(Array(field))
         let focus = castSpecialty(m).field
         s.stars.awards.insert(StarAward(prize: lovelace, year: year, winner: m.name, org: m.org, citation: "for foundational work on \(focus)"), at: 0)
         Sim.news(&s, "\(m.name) wins the \(year) \(lovelace)", "Computing's highest honour, with a $1M purse, goes to \(m.name) (\(Cast.orgName(m.org, s, short: true).isEmpty ? "independent" : Cast.orgName(m.org, s, short: true))) for foundational work on \(focus).", .research)
     }
 
     static func stockholmPrize(_ s: inout GameState, _ year: Int) {
+        var d = dice(s, "stockholm|\(year)")
         guard s.year >= 2024, !s.stars.awards.contains(where: { $0.prize == stockholm && $0.year == year }) else { return }
-        if let (p, odds) = prizeOutlook(s, stockholm), odds > 0, s.rng.chance(odds) {
+        if let (p, odds) = prizeOutlook(s, stockholm), odds > 0, d.chance(odds) {
             let sci = StarSpecialty.science.results
-            win(&s, p, prize: stockholm, year: year, citation: "for \(s.science.discoveries.last?.title.lowercased() ?? s.rng.pick(sci))", brand: 8)
+            win(&s, p, prize: stockholm, year: year, citation: "for \(s.science.discoveries.last?.title.lowercased() ?? d.pick(sci))", brand: 8)
             return
         }
         // Most years the science prize goes to science without AI in it (no news); now and then to an AI researcher.
-        guard s.rng.chance(0.25) else { return }
+        guard d.chance(0.25) else { return }
         let won = Set(s.stars.awards.filter { $0.prize == stockholm }.map(\.winner))
         let field = s.cast.filter { $0.active && !won.contains($0.name) && $0.org != "player" && [.scientist, .academic, .leader].contains($0.castKind) && $0.stature >= 0.5 }
             .sorted { ($0.stature, $0.id) > ($1.stature, $1.id) }.prefix(4)
         guard !field.isEmpty else { return }
-        let m = s.rng.pick(Array(field))
-        let cite = s.rng.pick(StarSpecialty.science.results)
+        let m = d.pick(Array(field))
+        let cite = d.pick(StarSpecialty.science.results)
         s.stars.awards.insert(StarAward(prize: stockholm, year: year, winner: m.name, org: m.org, citation: "for \(cite)"), at: 0)
         Sim.news(&s, "\(m.name) shares the \(year) \(stockholm)", "The Stockholm committee honours AI work again: \(cite). 11 million kronor and a lot of attention for \(Cast.orgName(m.org, s, short: true).isEmpty ? "the field" : Cast.orgName(m.org, s, short: true)).", .research)
     }
@@ -1010,18 +1029,20 @@ enum Stars {
 
     /// A laureate on staff keeps bringing stars to the door for a year.
     static func halo(_ s: inout GameState) {
-        guard let until = s.stars.haloUntil, until > s.date, s.rng.chance(0.35) else { return }
-        var c = People.makeCandidate(&s, role: s.rng.chance(0.7) ? .researcher : .mlEngineer, star: true)
+        var d = dice(s, "halo")
+        guard let until = s.stars.haloUntil, until > s.date, d.chance(0.35) else { return }
+        var c = People.makeCandidate(&s, role: d.chance(0.7) ? .researcher : .mlEngineer, star: true)
         c.bio += " Wants to work with your prize-winning team."
         s.candidates.insert(c, at: 0)
     }
 
     /// Veterans who keep delivering become stars in their own right.
     static func risingStar(_ s: inout GameState) {
+        var d = dice(s, "rising")
         guard let i = s.employees.indices.first(where: { k in
             let e = s.employees[k]
             return !e.star && e.skill >= 82 && e.morale >= 60 && GameCalendar.daysBetween(e.hired, s.date) >= 730
-        }), s.rng.chance(0.03) else { return }
+        }), d.chance(0.03) else { return }
         s.employees[i].star = true
         Sim.news(&s, "\(s.employees[i].name) is becoming a star", "Two years of strong work and a few talks people still mention: rivals are starting to call. See them on the Team page.", .company, good: true)
     }
@@ -1029,6 +1050,7 @@ enum Stars {
     // MARK: Decisions
 
     static func resolve(_ s: inout GameState, _ d: Decision, option: Int) {
+        var dc = dice(s, "resolve|\(d.kind)|\(d.ref)")
         switch d.kind {
         case offerKind:
             guard let o = s.stars.offer, o.star == d.ref, !o.outgoing, let p = s.stars.profiles.first(where: { $0.id == o.star }) else { return }
@@ -1043,7 +1065,7 @@ enum Stars {
                 s.employees[ei].morale = min(100, s.employees[ei].morale + 5)
                 beat(&s, i, "Got a lighter load to recover.")
             default:
-                if s.rng.chance(0.35), let lab = rivals(s).sorted(by: { $0.brand > $1.brand }).first {
+                if dc.chance(0.35), let lab = rivals(s).sorted(by: { $0.brand > $1.brand }).first {
                     // They walk into the first lab that calls; any other war in progress carries on.
                     let pending = s.stars.offer?.star == d.ref ? nil : s.stars.offer
                     let lastOffer = s.stars.lastOffer
