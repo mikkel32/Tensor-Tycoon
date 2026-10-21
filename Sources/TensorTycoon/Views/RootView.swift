@@ -184,6 +184,7 @@ struct ScreenRouter: View {
         case .families: FamiliesView()   // 3.5: model families
         case .nations: NationsView()   // 3.7: national AI strategies and economies
         case .progression: ProgressionView()   // 3.7: company stages and launches
+        case .govContracts: GovMarketView()   // 3.9: government contract marketplace
         }
     }
 }
@@ -243,6 +244,7 @@ struct Sidebar: View {
         case .semiconductors: s.decisions.filter { Semis.kinds.contains($0.kind) }.count   // 3.5
         case .science: Science.pending(s).count   // 3.6
         case .families: s.families.jobs.filter(\.paused).count   // 3.5: model families
+        case .govContracts: GovMarket.badge(s)   // 3.9
         default: 0
         }
     }

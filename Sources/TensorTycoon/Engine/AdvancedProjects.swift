@@ -1381,7 +1381,7 @@ enum AdvancedProjects {
     static func offerFollowOn(_ s: inout GameState, _ i: Int) {
         let p = s.advanced.programmes[i]
         let sol = p.sol
-        guard let a = sol.agencyDef, let t = sol.templateDef, rating(s, a.id) >= 1 else { return }
+        guard let a = sol.agencyDef, let t = sol.templateDef, rating(s, a.id) >= 1, !t.id.hasPrefix("gm_") else { return }   // 3.9: GovMarket invites its own follow-ons
         var next = t
         if t.id == "seedling" {
             if let target = AgencyCatalog.templateByID[sol.target] {
@@ -1731,7 +1731,7 @@ enum AdvancedProjects {
             if let sw = s.advanced.programmes[i].swarm, !s.swarms.contains(where: { $0.id == sw }) { s.advanced.programmes[i].swarm = nil }
             on.formUnion(s.advanced.programmes[i].staff)
         }
-        s.advanced.seconded = on
+        s.advanced.seconded = on.union(GovMarket.committed(s).intersection(ids))   // 3.9: anchor contract team and proposal leads
         s.advanced.clearances.removeAll { !ids.contains($0.employee) }
     }
 

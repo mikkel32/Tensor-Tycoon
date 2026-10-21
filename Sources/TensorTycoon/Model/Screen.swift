@@ -18,6 +18,7 @@ enum Screen: String, CaseIterable, Identifiable, Hashable {
     case families   // 3.5: model families
     case nations   // 3.7: national AI strategies and economies
     case progression   // 3.7: company stages and launches
+    case govContracts   // 3.9: government contract marketplace
 
     var id: String { rawValue }
 
@@ -67,6 +68,7 @@ enum Screen: String, CaseIterable, Identifiable, Hashable {
         case .families: "Model Families"
         case .nations: "Nations"
         case .progression: "Progression"
+        case .govContracts: "Gov Contracts"
         }
     }
 
@@ -116,6 +118,7 @@ enum Screen: String, CaseIterable, Identifiable, Hashable {
         case .families: "square.stack.3d.down.right.fill"
         case .nations: "globe.europe.africa.fill"
         case .progression: "stairs"
+        case .govContracts: "doc.text.magnifyingglass"
         }
     }
 
@@ -127,7 +130,7 @@ enum Screen: String, CaseIterable, Identifiable, Hashable {
         ("Evaluate", [.leaderboard, .milestones, .events, .rivals, .benchmarks]),
         ("Infrastructure", [.hardware, .partners, .compute, .datacenters, .silicon]),
         ("R&D", [.research, .science, .team, .data]),
-        ("Business", [.market, .products, .advancedProjects, .semiconductors, .chipSales, .finance, .funding, .corporate]),
+        ("Business", [.market, .products, .advancedProjects, .govContracts, .semiconductors, .chipSales, .finance, .funding, .corporate]),
         ("More", [.help, .achievements, .credits]),
     ]
 }

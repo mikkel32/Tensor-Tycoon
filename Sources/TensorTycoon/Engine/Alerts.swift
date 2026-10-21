@@ -292,6 +292,7 @@ enum Alerts {
         Nations.poachKind: 0,   // 3.7: match a rival's offer to one of your researchers
         Launches.decisionKind: 1,   // 3.7: a weak launch — let it ride
         FoundingContracts.offerKind: 0, FoundingContracts.phaseKind: 0, FoundingContracts.extensionKind: 0,   // 3.9: sign the standard scope; ask for the free extension
+        GovMarket.anchorKind: 0, GovMarket.yearEndKind: 0, GovMarket.protestKind: 0,   // 3.9: not now, decline, accept the debrief
     ]
 
     static func isUrgent(_ d: Decision) -> Bool { inboxDefaults[d.kind] == nil }

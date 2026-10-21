@@ -48,6 +48,7 @@ enum Sim {
         World.daily(&s)   // 3.4: world and stakeholders
         AdvancedProjects.daily(&s)   // 3.5: advanced projects
         FoundingContracts.daily(&s)   // 3.9: the founding government contract
+        GovMarket.daily(&s)   // 3.9: government contract marketplace
         Semis.daily(&s)   // 3.5: semiconductors (nothing until you hire a team or book capacity)
         if GameCalendar.components(s.date).day % 7 == 5 { Pulse.weekly(&s) }   // 3.4: industry chatter and buzz
         Launches.daily(&s)   // 3.7: launch reports and rivals' lagged answers
