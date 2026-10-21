@@ -3,12 +3,12 @@ import Foundation
 /// 3.9: hype. A meter (0–100) of how much the world is waiting for your next thing:
 ///  • It rests near a level your brand sets and moves with what you do: teasers, papers and awards on the conference
 ///    circuit, challenge wins, hackathon hits, viral moments, and the shows you put on (Stage).
-///  • A launch spends it: the model gets a day-one rush (up to +55% demand on its chat and API traffic, halving every
-///    12 days) and the press reads it — unless the model falls well short of the promise, when "overhyped" costs brand.
+///  • A launch spends it: the model gets a day-one rush (up to +55% demand on its chat and API traffic, +66% after a
+///    perfect show, halving every 12 days) and the press reads it — unless the model falls well short of the promise, when "overhyped" costs brand.
 ///  • Viral moments (a meme, a clip, a backlash) arrive weekly at odds that rise with hype and users; the bad ones ask
 ///    how you answer, and the inbox never spends money for you.
 ///  • Conference prestige brings researchers to your door each month; a recruiting booth brings more.
-/// Rolls are hashed (never the game's RNG) except where a candidate is made, as every hire in the game is.
+/// Rolls are hashed, never the game's RNG (candidates come from a side stream seeded by a hashed roll).
 enum Hype {
     static let boostHalfLife = 12.0
     static let teaserCooldown = 14
@@ -242,7 +242,7 @@ enum Hype {
         guard open < GameState.driveRoleCap else { return }
         var names: [String] = []
         for _ in 0..<min(n, GameState.driveRoleCap - open) {
-            var c = People.makeCandidate(&s, role: .researcher)
+            var c = candidate(&s, role: .researcher, key: "apply|\(RivalIntel.dayIndex(s.date))|\(names.count)")
             c.skill = min(97, (max(c.skill, 58) + 3 + s.hype.prestige / 6).rounded())   // people who read your papers are good
             c.sourced = true
             c.bio += " Applied after one of your conference talks."
@@ -252,6 +252,16 @@ enum Hype {
         }
         Sim.news(&s, "Your papers bring in applicants", "\(names.joined(separator: " and ")) applied \(why). They're on the Team page for 45 days.",
                  .research, good: true)
+    }
+
+    /// A candidate made as the job market makes them, from a side stream seeded by `key`, so hype's applicants don't
+    /// shift the game's own random draws (and with them every later hire and roll).
+    static func candidate(_ s: inout GameState, role: Role, key: String) -> Candidate {
+        let saved = s.rng
+        s.rng = GameRNG(seed: UInt64(roll(s, "cand|\(key)") * 9.007e15) | 1)
+        let c = People.makeCandidate(&s, role: role)
+        s.rng = saved
+        return c
     }
 
     // MARK: Recruiting booths
@@ -296,7 +306,7 @@ enum Hype {
         s.hype.boothsRun += 1
         var names: [String] = []
         for role in [Role.researcher, .researcher, .mlEngineer] {
-            var c = People.makeCandidate(&s, role: role)
+            var c = candidate(&s, role: role, key: "booth|\(v.id)|\(year)|\(names.count)")
             c.skill = min(96, (c.skill + 4 + s.hype.prestige / 12).rounded())
             c.sourced = true
             c.bio += " Met your team at \(v.short) \(year)."
@@ -372,10 +382,11 @@ enum Viral {
         fire(&s, def, model: best, key: key)
     }
 
-    /// This week's chance of a moment (with a released model): about one a quarter for a quiet lab, one a month at fever pitch.
+    /// This week's chance of a moment (with a released model): a couple a year for a quiet lab, one every two months
+    /// or so at fever pitch with a big chat app.
     static func odds(_ s: GameState) -> Double {
         guard !s.releasedModels.isEmpty else { return 0 }
-        return 0.03 + 0.17 * s.hype.meter / 100 + 0.04 * clamp(log10(max(1, s.consumerUsers)) / 9, 0, 1) + (s.brand > 60 ? 0.015 : 0)
+        return 0.015 + 0.09 * s.hype.meter / 100 + 0.03 * clamp(log10(max(1, s.consumerUsers)) / 9, 0, 1) + (s.brand > 60 ? 0.01 : 0)
     }
 
     /// How far a moment travels: more users and more fame, more views.
@@ -392,25 +403,26 @@ enum Viral {
         moment.model = m.name
         if def.positive {
             let h = 7 * impact
-            let b = 1.2 * impact
+            let b = 0.8 * impact
             moment.hypeDelta = h
             moment.brandDelta = b
             Hype.add(&s, h, "Viral: \(moment.hashtag)")
             Fun.brand(&s, b)
-            s.hype.viralBoost = max(s.hype.viralBoost * 0.3, 0.18 * impact)
+            s.hype.viralBoost = max(s.hype.viralBoost * 0.3, 0.12 * impact)
             s.hype.viralDate = s.date
             Stakeholders.move(&s, ["public": 0.5 * impact], "\(moment.hashtag) went viral")
             if def.id == "devtrend" || def.id == "student" {
                 s.marketMoves.devEcosystem = min(100, s.marketMoves.devEcosystem + 2 * impact)
                 Stakeholders.move(&s, ["developers": 0.8 * impact], "\(moment.hashtag) trended among developers")
             }
+            // Only a big one is worth asking about ads for; the rest is just a good week.
             let cost = adCost(s)
-            Events.addDecision(&s, kind: Hype.viralUpKind, title: "Viral: \(moment.title)",
+            if impact >= 1 { Events.addDecision(&s, kind: Hype.viralUpKind, title: "Viral: \(moment.title)",
                                body: "\(moment.detail) \(Fmt.count(v)) views and climbing. Brand +\(Fmt.trim(b, 1)), hype +\(Fmt.trim(h, 1)).",
                                image: ImagePicker.pick(.events, seed: moment.title),
-                               options: [DecisionOption(label: "Ride the wave (\(Fmt.money(cost)) of ads)", detail: "Put money behind it while everyone's watching: the chat app's lift nearly doubles."),
+                               options: [DecisionOption(label: "Ride the wave (\(Fmt.money(cost)) of ads)", detail: "Put money behind it while everyone's watching: the chat app's lift grows by more than half."),
                                          DecisionOption(label: "Let it run", detail: "Enjoy it. It fades in a couple of weeks.")],
-                               amount: cost, ref: moment.id.uuidString)
+                               amount: cost, ref: moment.id.uuidString) }
         } else {
             moment.hypeDelta = 2
             Hype.add(&s, 2, "Backlash: \(moment.hashtag) (attention is attention)")
@@ -445,7 +457,7 @@ enum Viral {
             }
             s.cash -= d.amount
             s.month.costMarketing += d.amount
-            s.hype.viralBoost *= 1.8
+            s.hype.viralBoost *= 1.6
             Hype.add(&s, 4, "Ads behind \(tag)")
             if let i { s.hype.viral[i].response = "Rode the wave"; s.hype.viral[i].hypeDelta += 4 }
             Sim.news(&s, "You put \(Fmt.money(d.amount)) behind \(tag)", "Ads ride the moment while it lasts: more sign-ups on the chat app for the next few weeks.", .company)
