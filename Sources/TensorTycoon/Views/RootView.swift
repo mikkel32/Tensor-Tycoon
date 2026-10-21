@@ -189,6 +189,7 @@ struct ScreenRouter: View {
         case .spotlight: SpotlightView()   // 3.9: hype, launch events, viral moments
         case .arena: ArenaView()   // 3.9: the live model arena
         case .legacy: LegacyView()   // 3.9: endings and legacy
+        case .worldMap: WorldMapView()   // 3.9: the world map
         }
     }
 }

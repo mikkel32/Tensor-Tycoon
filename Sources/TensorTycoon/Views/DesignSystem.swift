@@ -216,6 +216,7 @@ extension Screen {
         case .govContracts: nil   // 3.9
         case .arena: .arenaElo
         case .legacy: nil   // 3.9: endings and legacy
+        case .worldMap: .regulation   // 3.9: export controls
         }
     }
 }

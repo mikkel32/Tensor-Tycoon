@@ -262,6 +262,7 @@ enum Monthly {
         Xeno.rivalDiscovery(&s)
         World.monthly(&s)   // 3.4: world and stakeholders
         Nations.monthly(&s)   // 3.7: national strategies and economies, rival specialisations and answers
+        WorldMap.monthly(&s)   // 3.9: world map — new places and continents
 
         Crises.monthly(&s)   // 3.8: corrections, credit crunches and rate shocks start and end
 

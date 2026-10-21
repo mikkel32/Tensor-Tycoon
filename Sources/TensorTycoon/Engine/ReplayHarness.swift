@@ -24,6 +24,7 @@ enum ReplayHarness {
         var answer = true
         var gov = 0   // 3.9: gov prints the government marketplace, gov:auto also plays it (GovMarketHarness)
         var endings = ProcessInfo.processInfo.environment["REPLAY_ENDINGS"] != nil, retire = false   // 3.9: endings and legacy
+        var map = ProcessInfo.processInfo.environment["REPLAY_MAP"] != nil   // 3.9: `map` prints the world map as it changes
         var pending: [String] = []   // train:<n>[@<day>]
         for t in techs {
             // cash:<amount> sets cash; noanswer leaves decisions to the inbox defaults; defer:<n> defers every leased tranche n times.
@@ -38,6 +39,8 @@ enum ReplayHarness {
             if t == "stars:tired" { Stars.replayTired = true; continue }   // test: wear every star out on day one
             if t.hasPrefix("stars:answer:") { Stars.replayAnswer = Int(t.dropFirst(13)) ?? -1; continue }   // answer star decisions with option n
             if t == "endings" || t == "retire" { endings = true; retire = retire || t == "retire"; continue }   // 3.9
+            if t == "map" { map = true; continue }
+            if WorldMap.harnessAction(&s, t) { continue }   // map:build / map:office / map:power
             if t == "probe:training" { TrainingProbe.run(s); continue }   // 3.9: Model Lab and training checks
             if t == "nowaiver" { for i in s.corp.debts.indices { s.corp.debts[i].waiverUntil = nil }; continue }
             if t.hasPrefix("defer:") {
@@ -187,6 +190,7 @@ enum ReplayHarness {
         }
         startDate = s.date
         report(s)
+        if map { WorldMap.report(s, full: true).forEach { print($0) } }
         func planAndStart(_ spec: String) {
             let props = RunPlanner.proposals(s)
             if props.isEmpty { print("no proposal: \(RunPlanner.shortfall(s) ?? "nothing to plan")") }
@@ -217,6 +221,7 @@ enum ReplayHarness {
             GovHarness.daily(s, dayNo: dayNo)   // 3.9
             if dayNo % 30 == 0 { moneyLine(s); forecastLines(s) }
             if endings { EndingsHarness.watch(s); if dayNo % 30 == 0 { print(EndingsHarness.line(s)) } }   // 3.9
+            if map { mapLines(s, day: dayNo, last: day == days - 1) }
         }
         GovHarness.summary(s)   // 3.9
         if let g = s.gameOver { print("GAME OVER: \(g)") }
@@ -228,6 +233,12 @@ enum ReplayHarness {
     }
 
     nonisolated(unsafe) private static var announced = Set<String>()
+    /// 3.9: the map's summary every 30 days, new milestones and continent news as they land, and every pin at the end.
+    private static func mapLines(_ s: GameState, day: Int, last: Bool) {
+        for m in s.worldMap.log where m.date == s.date { print("    MAP MILESTONE \(m.date.gameShort): \(m.text)") }
+        for n in s.news.prefix(6) where n.date == s.date && n.title.contains("first datacenter in") { print("    MAP NEWS: \(n.title) — \(n.body)") }
+        if day % 30 == 0 || last { WorldMap.report(s, full: last).forEach { print($0) } }
+    }
     nonisolated(unsafe) private static var startDate = Date.distantPast
     /// Month-to-date revenue by segment and costs, plus prices: where the money comes from and goes.
     private static func moneyLine(_ s: GameState) {

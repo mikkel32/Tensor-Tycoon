@@ -1558,6 +1558,8 @@ struct GameState: Codable {
     @D var stars: StarsState = StarsState()
     /// 3.9: endings and legacy — the chronicle, the treaty / state-pressure / outcompeted arcs, the ending and its score (Endings).
     @D var endings: EndingsState = EndingsState()
+    /// 3.9: the world map's memory of your expansion (WorldMap).
+    @D var worldMap: WorldMapState = WorldMapState()
 
     var totalShares: Double {
         founderShares + employeePoolShares + publicShares + holdings.reduce(0) { $0 + $1.shares }
