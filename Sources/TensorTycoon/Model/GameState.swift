@@ -1544,6 +1544,8 @@ struct GameState: Codable {
     @D var launchDefault: LaunchPlan = LaunchPlan()
     /// Your company stage, when each was reached and the powers it unlocked (Progression).
     @D var progression: ProgressionState = ProgressionState()
+    /// 3.9: the live model arena: ratings, the battle feed and the weekly table (Arena).
+    @D var arena: ArenaState = ArenaState()
 
     var totalShares: Double {
         founderShares + employeePoolShares + publicShares + holdings.reduce(0) { $0 + $1.shares }

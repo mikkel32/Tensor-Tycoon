@@ -18,6 +18,7 @@ enum Screen: String, CaseIterable, Identifiable, Hashable {
     case families   // 3.5: model families
     case nations   // 3.7: national AI strategies and economies
     case progression   // 3.7: company stages and launches
+    case arena   // 3.9: the live model arena
 
     var id: String { rawValue }
 
@@ -67,6 +68,7 @@ enum Screen: String, CaseIterable, Identifiable, Hashable {
         case .families: "Model Families"
         case .nations: "Nations"
         case .progression: "Progression"
+        case .arena: "Model Arena"
         }
     }
 
@@ -116,6 +118,7 @@ enum Screen: String, CaseIterable, Identifiable, Hashable {
         case .families: "square.stack.3d.down.right.fill"
         case .nations: "globe.europe.africa.fill"
         case .progression: "stairs"
+        case .arena: "figure.fencing"
         }
     }
 
@@ -124,7 +127,7 @@ enum Screen: String, CaseIterable, Identifiable, Hashable {
     static let sections: [(String, [Screen])] = [
         ("Company", [.dashboard, .progression, .operations, .strategy, .security, .world, .nations, .news, .pulse]),
         ("Build AI", [.lab, .training, .models, .families, .rsi, .swarms, .xeno]),
-        ("Evaluate", [.leaderboard, .milestones, .events, .rivals, .benchmarks]),
+        ("Evaluate", [.leaderboard, .arena, .milestones, .events, .rivals, .benchmarks]),
         ("Infrastructure", [.hardware, .partners, .compute, .datacenters, .silicon]),
         ("R&D", [.research, .science, .team, .data]),
         ("Business", [.market, .products, .advancedProjects, .semiconductors, .chipSales, .finance, .funding, .corporate]),

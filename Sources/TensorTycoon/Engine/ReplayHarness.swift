@@ -84,6 +84,7 @@ enum ReplayHarness {
                 } else { print("no fixable advisor item \(id)") }
                 continue
             }
+            if t.hasPrefix("arena:") { Arena.harnessArg(&s, t); continue }   // 3.9: arena:test:<model>, arena:preview:<model>, arena:release:<model>@<day>
             if t == "auto:price" { s.autoSubPrice = true; continue }
             if t == "evenshortage" { s.evenShortage = true; continue }
             // 3.9: relax prints the security confirmation text and drops a level; safety:<n> bumps the score as a decision would.
@@ -190,6 +191,7 @@ enum ReplayHarness {
         for day in 0..<days where s.gameOver == nil {
             dayNo += 1
             for spec in pending where spec.hasSuffix("@\(day)") { planAndStart(spec) }
+            Arena.harnessDay(&s, day)   // 3.9: scheduled arena steps
             for _ in 0..<10 where answer {
                 guard let d = s.decisions.first else { break }
                 s.resolveDecision(d.id, option: 0)
@@ -279,6 +281,7 @@ enum ReplayHarness {
         if ProcessInfo.processInfo.environment["REPLAY_ADVISOR"] != nil {
             for i in Advisor.items(s, pools: pools) { print("    ADVISOR[\(i.level)] \(i.title) — \(i.detail)\(i.fix == nil ? "" : "  [\(i.fixLabel)]")") }
         }
+        if ProcessInfo.processInfo.environment["REPLAY_ARENA"] != nil { Arena.report(s) }   // 3.9: the live model arena
         if ProcessInfo.processInfo.environment["REPLAY_SAFETY"] != nil { print("    SAFETY \(Fmt.trim(s.safetyScore, 1)) (carried adjustment \(Fmt.trim(s.safetyAdjust, 2))) · \(s.security.title)") }
         for a in s.alerts where a.date == s.date { print("    ALERT\(a.critical ? "!" : ""): \(a.title) — \(a.body)") }
         for n in s.news.prefix(12) where n.date == s.date && (n.title.hasPrefix("Inbox:") || n.title.contains("ovenant") || n.title.contains("enalty")) {

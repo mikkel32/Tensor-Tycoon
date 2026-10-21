@@ -109,8 +109,8 @@ extension GlossaryTerm {
         case .arenaElo:
             GlossaryEntry(title: "LMArena Elo", category: .race,
                           definition: "A chat-preference rating in the style of LMArena: people compare two answers and pick the one they like.",
-                          detail: "It follows capability but also rewards chat skill and style, so a friendlier model can out-rate a smarter one.",
-                          screen: .leaderboard, aliases: ["elo", "arena", "chat rating"])
+                          detail: "It follows capability but also rewards chat skill and style, so a friendlier model can out-rate a smarter one. From 2023 the Model Arena plays it live: daily battles in five categories move each rating, and a top rank lifts your API and chat demand.",
+                          screen: .arena, aliases: ["elo", "arena", "chat rating", "LMArena", "Chatbot Arena"])
 
         // MARK: Training
         case .forecast:
@@ -531,6 +531,9 @@ enum ScreenGuide {
         case .semiconductors:
             Hint(title: "Semiconductors", text: "Make your own accelerators: a design team designs a chip for a process node and tapes it out, then wafers, advanced packaging and HBM turn into chips you keep or sell. Every number shows where it comes from.",
                       firstStep: "Hire a design team on the Design tab, then start a design on a node a foundry already offers.", term: nil)
+        case .arena:   // 3.9: the live model arena
+            Hint(title: "Model Arena", text: "Crowds compare two anonymous answers and vote. Every day your released models and the rivals' battle in writing, coding, math, vision and agents; ratings follow real capability plus luck, and a top-10 table comes out weekly.",
+                      firstStep: "Find your best model in the table. A trained model you haven't released can go on anonymously under a codename to see where it stands.", term: .arenaElo)
         case .progression:   // 3.7: company stages and launches
             Hint(title: "Progression", text: "How big a company you've become — Garage to Civilisational — and what it takes to grow: capability, revenue, compute and headcount. Each promotion unlocks a power. Below it, every launch you've made and its report.",
                       firstStep: "Look at the criterion furthest from its bar: that's what holds your next promotion back.", term: nil)

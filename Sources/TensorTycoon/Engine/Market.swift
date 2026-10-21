@@ -181,7 +181,7 @@ enum Market {
             let penalty = Physics.servingPenalty(m)   // 3.4: QAT-trained models lose less
             snap.api.append(MarketProduct(id: m.id.uuidString, lab: "player", labName: s.companyName, name: m.name,
                                           c: m.c - penalty, price: m.apiPrice,
-                                          tps: max(m.tps, 1), brand: s.brand * (0.7 + 0.3 * s.reliability) * (m.design.mode == .finetune ? 0.8 : 1) * Families.brandMult(s, m.id), open: m.openWeights,
+                                          tps: max(m.tps, 1), brand: s.brand * (0.7 + 0.3 * s.reliability) * (m.design.mode == .finetune ? 0.8 : 1) * Families.brandMult(s, m.id) * Arena.pull(s, m.id), open: m.openWeights,
                                           reasoning: m.reasoning, isPlayer: true, modelID: m.id,
                                           scores: shifted(s.domainScores[m.id.uuidString], -penalty), familyID: Families.family(of: m.id, s)?.id))
         }
@@ -189,7 +189,7 @@ enum Market {
            let id = s.chatModelID, let m = s.models.first(where: { $0.id == id && $0.released && !$0.retired }) {
             snap.consumer.append(MarketProduct(id: "player-chat", lab: "player", labName: s.companyName, name: "\(s.companyName) Chat",
                                                c: Families.chatQuality(s, m), price: s.chatPrice, tps: max(m.tps, 1),
-                                               brand: s.brand * (0.6 + 0.4 * s.reliability) * (1 + b.consumerDemand),
+                                               brand: s.brand * (0.6 + 0.4 * s.reliability) * (1 + b.consumerDemand) * Arena.pull(s, m.id),   // 3.9: arena rank
                                                open: false, reasoning: m.reasoning, isPlayer: true, modelID: m.id))
         }
 

@@ -211,6 +211,7 @@ extension Screen {
         case .products: .productLines
         case .pulse: .pulse
         case .families: .distillation
+        case .arena: .arenaElo
         case .team, .news, .achievements, .credits, .help, .events, .advancedProjects, .semiconductors, .science, .progression: nil
         }
     }
