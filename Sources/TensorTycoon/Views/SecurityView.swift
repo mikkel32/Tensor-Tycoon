@@ -26,6 +26,7 @@ struct SecurityView: View {
             }
             LobbyCard(state: s)
             BillsCard(state: s)
+            GovRelationsLinkCard(state: s)   // 3.9
         }
     }
 }

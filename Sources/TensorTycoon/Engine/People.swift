@@ -346,6 +346,7 @@ enum Events {
             if let why = Acquisitions.blocker(c, s) { return why }
             let cashPart = d.amount * (d.kind == "merger_offer" ? 0.5 : 0.7)
             return cashPart > s.cash ? "The cash part is \(Fmt.money(cashPart)); you have \(Fmt.money(max(0, s.cash))). Raise money first." : nil
+        case (let k, _) where k.hasPrefix(GovRelations.prefix): return GovRelations.optionBlocker(d, option, s)   // 3.9
         default:
             return nil
         }
@@ -470,6 +471,7 @@ enum Events {
         case (Semis.shockKind, _): Semis.resolveShock(&s, d, option: option)
         case (Semis.orderKind, _), (Semis.rivalKind, _): Semis.resolveOrder(&s, d, option: option)
         case ("sci_report", _): Science.resolve(&s, d, option: option)   // 3.6: science labs
+        case (let k, _) where k.hasPrefix(GovRelations.prefix): GovRelations.resolve(&s, d, option: option)   // 3.9: government relations
         case ("board_ouster", _), ("exclusive_supply", _), ("swarm_audit", _), ("merger_offer", _), ("spinoff", _), ("sovereign_deal", _), ("talent_raid", _),
              ("distill_campaign", _), ("eval_escape", _), ("insider_caught", _):
             StrategyEvents.resolve(&s, d, option: option)

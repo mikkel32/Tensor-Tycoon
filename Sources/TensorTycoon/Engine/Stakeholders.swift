@@ -64,6 +64,7 @@ enum Stakeholders {
             add("Reliability", clamp((s.reliability - 0.95) * 60, -6, 2))
             add("Public-service programmes", AdvancedProjects.publicTrustBonus(s))   // disaster response, emissions data
             add("Blamed for AI job losses", -min(6, automationShare(s) * max(0, s.world.jobPressure - 0.5) * 4))
+            add("Public affairs and promises", GovRelations.trustBonus(s))   // 3.9
         case .researchers:
             add("Publication policy", s.publication == .open ? 8 : (s.publication == .secret ? -8 : 0))
             if let best = s.releasedModels.map(\.c).max() {
@@ -109,6 +110,7 @@ enum Stakeholders {
         if let until = s.world.ties[r.rawValue], until > s.date { add("Sovereign AI deal", 5) }
         add("Government programmes", AdvancedProjects.standingBonus(s, r))   // 3.5
         add("National partnerships", HQ.partnershipStanding(s, r))   // 3.4 overhaul: compute centres and chairs you fund
+        add("Public affairs and promises", GovRelations.standingBonus(s, r))   // 3.9
         return (clamp(50 + parts.reduce(0) { $0 + $1.value }, 5, 95), parts)
     }
 

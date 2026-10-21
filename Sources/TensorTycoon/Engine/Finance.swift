@@ -179,6 +179,7 @@ enum Monthly {
         Semis.monthly(&s)   // 3.5: semiconductors
         SecurityOps.monthly(&s)
         Policy.monthly(&s)
+        GovRelations.monthly(&s)   // 3.9: public affairs, promises, rivals, safety institutes, hearing invitations
         RivalIntel.monthly(&s)
         HQ.monthly(&s)   // 3.5: grants, partnerships and contracts from home
         if s.publication == .secret { s.brand = max(0, s.brand - 0.25) }

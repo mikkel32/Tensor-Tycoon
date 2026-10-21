@@ -291,6 +291,7 @@ enum Alerts {
         Families.decisionKind: 0,   // 3.5: model families — route free chat users to a cheaper tier
         Nations.poachKind: 0,   // 3.7: match a rival's offer to one of your researchers
         Launches.decisionKind: 1,   // 3.7: a weak launch — let it ride
+        "gov_invite": 1, "gov_subpoena": 0, "gov_policy": 9, "gov_policy0": 0, "gov_institute": 1, "gov_scandal": 2,   // 3.9: government relations (neutral answers)
     ]
 
     static func isUrgent(_ d: Decision) -> Bool { inboxDefaults[d.kind] == nil }

@@ -8,6 +8,7 @@ extension GameState {
         guard let a = HardwareCatalog.get(accelID), count > 0 else { return "Unknown hardware." }
         guard Economy.canBuy(a, self), let unit = Economy.price(a, self) else { return "\(a.name) isn't for sale right now." }
         if let why = Partners.blocker(a, self) { return why }
+        if let why = GovRelations.exportBlocker(a, count: count, siteID: siteID, self) { return why }   // 3.9: export licences
         guard let site = sites.first(where: { $0.id == siteID }) else { return "Pick a site." }
         if a.tdpW > site.maxChipTDP { return "\(site.name) can't power or cool \(Int(a.tdpW)) W parts. Use a colocation cage or datacenter." }
         if a.liquid && !site.cooling.supportsLiquidChips { return "\(a.name) needs liquid cooling. \(site.name) is air-cooled." }
