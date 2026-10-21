@@ -255,6 +255,7 @@ enum Monthly {
         StrategyEvents.monthly(&s)
         Cast.monthly(&s)   // 3.4: careers
         Victory.monthly(&s)
+        Endings.monthly(&s)   // 3.9: endings and legacy
         Xeno.rivalDiscovery(&s)
         World.monthly(&s)   // 3.4: world and stakeholders
         Nations.monthly(&s)   // 3.7: national strategies and economies, rival specialisations and answers

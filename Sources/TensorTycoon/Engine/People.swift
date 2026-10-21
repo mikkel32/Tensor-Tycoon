@@ -461,6 +461,7 @@ enum Events {
             RivalEconomy.resolveFireSale(&s, d, option: option)
         case ("victory", _):
             Victory.resolve(&s, d, option: option)
+        case let (k, _) where k.hasPrefix(Endings.prefix): Endings.resolve(&s, d, option: option)   // 3.9: endings and legacy
         case ("moonshot", _): Moonshots.resolve(&s, d, option: option)   // 3.4: late game
         case ("fun_cfp", _), ("fun_keynote", _): Fun.resolve(&s, d, option: option)   // 3.5: fun systems
         case (AdvancedProjects.secrecyKind, _): AdvancedProjects.resolveSecrecy(&s, d, option: option)   // 3.5

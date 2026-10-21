@@ -22,11 +22,13 @@ enum ReplayHarness {
         BenchmarkCatalog.resetCache()
         HardwareCatalog.register(s.customChips)
         var answer = true
+        var endings = ProcessInfo.processInfo.environment["REPLAY_ENDINGS"] != nil, retire = false   // 3.9: endings and legacy
         var pending: [String] = []   // train:<n>[@<day>]
         for t in techs {
             // cash:<amount> sets cash; noanswer leaves decisions to the inbox defaults; defer:<n> defers every leased tranche n times.
             if t.hasPrefix("cash:") { s.cash = Double(t.dropFirst(5)) ?? s.cash; print("cash set to \(Fmt.money(s.cash))"); continue }
             if t == "noanswer" { answer = false; continue }
+            if t == "endings" || t == "retire" { endings = true; retire = retire || t == "retire"; continue }   // 3.9
             if t == "probe:training" { TrainingProbe.run(s); continue }   // 3.9: Model Lab and training checks
             if t == "nowaiver" { for i in s.corp.debts.indices { s.corp.debts[i].waiverUntil = nil }; continue }
             if t.hasPrefix("defer:") {
@@ -197,8 +199,10 @@ enum ReplayHarness {
             Sim.advanceDay(&s)
             report(s)
             if dayNo % 30 == 0 { moneyLine(s); forecastLines(s) }
+            if endings { EndingsHarness.watch(s); if dayNo % 30 == 0 { print(EndingsHarness.line(s)) } }   // 3.9
         }
         if let g = s.gameOver { print("GAME OVER: \(g)") }
+        if endings { EndingsHarness.summary(&s, retire: retire) }   // 3.9: endings and legacy
         if !s.opsLog.isEmpty { print("delegate log (newest first):"); for l in s.opsLog.prefix(25) { print("  \(l)") } }
         if !s.ops.tally.isEmpty { print("delegate tally: \(s.ops.tally.sorted { $0.key < $1.key }.map { "\($0.key) \($0.value) (\(Fmt.money(s.ops.moved[$0.key] ?? 0)))" }.joined(separator: ", "))") }
         return 0

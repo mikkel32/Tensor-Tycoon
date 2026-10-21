@@ -212,6 +212,7 @@ extension Screen {
         case .pulse: .pulse
         case .families: .distillation
         case .team, .news, .achievements, .credits, .help, .events, .advancedProjects, .semiconductors, .science, .progression: nil
+        case .legacy: nil   // 3.9: endings and legacy
         }
     }
 }

@@ -291,6 +291,8 @@ enum Alerts {
         Families.decisionKind: 0,   // 3.5: model families — route free chat users to a cheaper tier
         Nations.poachKind: 0,   // 3.7: match a rival's offer to one of your researchers
         Launches.decisionKind: 1,   // 3.7: a weak launch — let it ride
+        "end_treaty_invite": 2, "end_treaty_draft": 1, "end_treaty": 0, "end_state_golden": 1, "end_state_emergency": 1, "end_state_ultimatum": 0,
+        "end_outcompeted": 0, "end_giant": 0, "end_brink": 0, "end_averted": 0,   // 3.9: endings — never the option that ends the game
     ]
 
     static func isUrgent(_ d: Decision) -> Bool { inboxDefaults[d.kind] == nil }

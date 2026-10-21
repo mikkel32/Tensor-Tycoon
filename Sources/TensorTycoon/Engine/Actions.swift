@@ -899,6 +899,7 @@ extension GameState {
         let decision = decisions.first { $0.id == id }   // 3.4: world and stakeholders
         Events.resolve(&self, id, option: option)
         if let decision { Stakeholders.decided(&self, decision, option: option) }
+        if let decision { Endings.decided(&self, decision, option: option) }   // 3.9: endings and legacy
     }
 
     // MARK: Training checkpoints

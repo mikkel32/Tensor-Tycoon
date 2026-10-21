@@ -96,7 +96,7 @@ struct GameShell: View {
             }
         }
         .sheet(isPresented: Binding(get: { store.state?.gameOver != nil }, set: { _ in })) {
-            GameOverSheet()
+            EpilogueSheet()   // 3.9: the epilogue replaces the plain game-over card
                 .interactiveDismissDisabled()
         }
         .overlay {
@@ -184,6 +184,7 @@ struct ScreenRouter: View {
         case .families: FamiliesView()   // 3.5: model families
         case .nations: NationsView()   // 3.7: national AI strategies and economies
         case .progression: ProgressionView()   // 3.7: company stages and launches
+        case .legacy: LegacyView()   // 3.9: endings and legacy
         }
     }
 }
