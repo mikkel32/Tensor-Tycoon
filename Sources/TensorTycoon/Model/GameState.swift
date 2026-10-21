@@ -1544,6 +1544,7 @@ struct GameState: Codable {
     @D var launchDefault: LaunchPlan = LaunchPlan()
     /// Your company stage, when each was reached and the powers it unlocked (Progression).
     @D var progression: ProgressionState = ProgressionState()
+    @D var govMarket: GovMarketState = GovMarketState()   // 3.9: government contract marketplace
 
     var totalShares: Double {
         founderShares + employeePoolShares + publicShares + holdings.reduce(0) { $0 + $1.shares }

@@ -22,11 +22,13 @@ enum ReplayHarness {
         BenchmarkCatalog.resetCache()
         HardwareCatalog.register(s.customChips)
         var answer = true
+        var gov = 0   // 3.9: gov prints the government marketplace, gov:auto also plays it (GovMarketHarness)
         var pending: [String] = []   // train:<n>[@<day>]
         for t in techs {
             // cash:<amount> sets cash; noanswer leaves decisions to the inbox defaults; defer:<n> defers every leased tranche n times.
             if t.hasPrefix("cash:") { s.cash = Double(t.dropFirst(5)) ?? s.cash; print("cash set to \(Fmt.money(s.cash))"); continue }
             if t == "noanswer" { answer = false; continue }
+            if t == "gov" || t == "gov:auto" { gov = t == "gov" ? 1 : 2; continue }
             if t == "probe:training" { TrainingProbe.run(s); continue }   // 3.9: Model Lab and training checks
             if t == "nowaiver" { for i in s.corp.debts.indices { s.corp.debts[i].waiverUntil = nil }; continue }
             if t.hasPrefix("defer:") {
@@ -195,6 +197,7 @@ enum ReplayHarness {
                 s.resolveDecision(d.id, option: 0)
             }
             Sim.advanceDay(&s)
+            if gov > 0 { GovMarketHarness.tick(&s, auto: gov > 1); continue }
             report(s)
             if dayNo % 30 == 0 { moneyLine(s); forecastLines(s) }
         }

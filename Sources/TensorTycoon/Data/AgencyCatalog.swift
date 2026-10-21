@@ -230,7 +230,7 @@ enum AgencyCatalog {
                   country: "ro", lever: .sovereign),
     ]
 
-    static let byID: [String: AgencyDef] = Dictionary(uniqueKeysWithValues: all.map { ($0.id, $0) })
+    static let byID: [String: AgencyDef] = Dictionary(uniqueKeysWithValues: (all + GovMarketCatalog.agencies).map { ($0.id, $0) })   // 3.9: small-award buyers too
 
     static let templates: [ProgrammeTemplate] = [
         // Seedlings: small first contracts any capable lab can win (Phase I style).
@@ -498,7 +498,7 @@ enum AgencyCatalog {
                           effects: [.securityCost(0.12), .safety(1)], unlock: nil, discovery: "autonomous red-team agents", field: "Security",
                           image: "dc_servers", reward: "cheaper security and a better safety record", topic: "Cyber defence",
                           facility: .certified, sciField: .software),
-    ]
+    ] + GovMarketCatalog.templates   // 3.9: how won small awards run (no agency posts them here)
 
     static let templateByID: [String: ProgrammeTemplate] = Dictionary(uniqueKeysWithValues: templates.map { ($0.id, $0) })
 }
