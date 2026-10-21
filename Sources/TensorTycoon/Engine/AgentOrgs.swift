@@ -946,7 +946,9 @@ extension AgentOrgs {
         let copy = Physics.chipsPerReplica(m, accel: a, precision: m.servingPrecision, bonuses: b)
         let per = Swarms.chipsNeeded(m, accelID: a.id, agents: 10_000, s, b)
         guard per > 0, per < Int.max / 8 else { return nil }
-        let chips = min(pool.free / 4, max(copy, per))
+        // 3.9: at least one copy when the pool has one free (a quarter of a nearly full fleet is often less than a copy,
+        // so whether the bot ever founded an organisation came down to luck).
+        let chips = min(pool.free, max(copy, min(pool.free / 4, per)))
         guard chips >= copy else { return nil }
         let agents = min(10_000, Int(Swarms.capacityAgents(m, accelID: a.id, chips: chips, s, b)))
         return agents >= 100 ? (a.id, chips, agents) : nil

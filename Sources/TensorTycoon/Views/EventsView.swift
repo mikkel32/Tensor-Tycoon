@@ -73,6 +73,7 @@ struct EventsView: View {
                 PapersCard(state: s)
                 ContestsCard(state: s)
             }
+            DramaCard(state: s)   // 3.9: dramatic events
             ConferenceHistoryCard(state: s)
             RecordsCard(state: s)
         }

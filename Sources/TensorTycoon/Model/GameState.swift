@@ -1549,6 +1549,7 @@ struct GameState: Codable {
     @D var govMarket: GovMarketState = GovMarketState()   // 3.9: government contract marketplace
     /// 3.9: public affairs, hearings, promises, export licences and the policy calendar (GovRelations).
     @D var gov: GovState = GovState()
+    @D var drama: DramaState = DramaState()   // 3.9: dramatic events with choices (Drama)
 
     var totalShares: Double {
         founderShares + employeePoolShares + publicShares + holdings.reduce(0) { $0 + $1.shares }

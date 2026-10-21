@@ -30,6 +30,7 @@ enum ReplayHarness {
             if t == "noanswer" { answer = false; continue }
             if t == "gov" || t == "gov:auto" { gov = t == "gov" ? 1 : 2; continue }
             if GovHarness.parse(t, &s) { continue }   // 3.9: government relations
+            if DramaHarness.arg(t, &s) { continue }   // 3.9: drama, drama:all, drama:list, drama:fire:<id>
             if t == "probe:training" { TrainingProbe.run(s); continue }   // 3.9: Model Lab and training checks
             if t == "nowaiver" { for i in s.corp.debts.indices { s.corp.debts[i].waiverUntil = nil }; continue }
             if t.hasPrefix("defer:") {
@@ -289,6 +290,7 @@ enum ReplayHarness {
         }
         if ProcessInfo.processInfo.environment["REPLAY_SAFETY"] != nil { print("    SAFETY \(Fmt.trim(s.safetyScore, 1)) (carried adjustment \(Fmt.trim(s.safetyAdjust, 2))) · \(s.security.title)") }
         if ProcessInfo.processInfo.environment["REPLAY_CONTRACT"] != nil { for l in FoundingContracts.replayLines(s) { print(l) } }   // 3.9
+        DramaHarness.report(s)   // 3.9: dramatic events as they fire and resolve
         for a in s.alerts where a.date == s.date { print("    ALERT\(a.critical ? "!" : ""): \(a.title) — \(a.body)") }
         for n in s.news.prefix(12) where n.date == s.date && (n.title.hasPrefix("Inbox:") || n.title.contains("ovenant") || n.title.contains("enalty")) {
             print("    NEWS: \(n.title) — \(n.body)")

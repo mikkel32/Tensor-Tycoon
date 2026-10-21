@@ -44,6 +44,7 @@ enum Sim {
         RivalIntel.daily(&s)
         Finance.daily(&s)
         Events.daily(&s)
+        Drama.daily(&s)   // 3.9: dramatic events with choices
         if GameCalendar.components(s.date).day % 7 == 3 { BenchLife.weekly(&s) }
         World.daily(&s)   // 3.4: world and stakeholders
         AdvancedProjects.daily(&s)   // 3.5: advanced projects

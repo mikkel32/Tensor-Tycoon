@@ -294,7 +294,7 @@ enum Alerts {
         FoundingContracts.offerKind: 0, FoundingContracts.phaseKind: 0, FoundingContracts.extensionKind: 0,   // 3.9: sign the standard scope; ask for the free extension
         GovMarket.anchorKind: 0, GovMarket.yearEndKind: 0, GovMarket.protestKind: 0,   // 3.9: not now, decline, accept the debrief
         "gov_invite": 1, "gov_subpoena": 0, "gov_policy": 9, "gov_policy0": 0, "gov_institute": 1, "gov_scandal": 2,   // 3.9: government relations (neutral answers)
-    ]
+    ].merging(Drama.inboxDefaults) { a, _ in a }   // 3.9: dramatic events
 
     static func isUrgent(_ d: Decision) -> Bool { inboxDefaults[d.kind] == nil }
 
