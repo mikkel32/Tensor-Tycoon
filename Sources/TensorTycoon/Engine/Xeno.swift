@@ -17,9 +17,7 @@ enum Xeno {
     /// Legibility after your interpretability research.
     static func legibility(_ a: AlienArch, _ s: GameState) -> Double { min(0.95, a.legibility + s.bonuses.legibility) }
 
-    /// One-time cost to tape out an alien chip. The agents already wrote the RTL.
-    static func fabCost(_ s: GameState) -> Double { 2.5e8 }
-
+    /// Base design time for a chip revision (AlienFab.revisionDays scales it).
     static func fabDays(_ s: GameState, _ b: ResearchBonuses) -> Double {
         150 * (1 - 0.35 * s.swarmSilicon) * (b.has(.customSilicon) ? 1 : 1.3) * max(0.4, 1 - s.traits.chipDesign - b.chipDesign)
             * (s.signatureAt(.forge, 5) ? 0.6 : 1) * (XenoScience.megaDone(s, "xeno_foundry") ? 0.5 : 1)
@@ -32,23 +30,9 @@ enum Xeno {
             s.xenoInsight += s.xenoInsightToday
             if s.xenoInsight >= insightNeeded(s) { XenoScience.discover(&s, b) }
         }
-        for i in s.alienArchs.indices where s.alienArchs[i].fabbing {
-            s.alienArchs[i].fabDaysLeft -= 1
-            // A tape-out that somehow lost its clock (NaN) finishes rather than waiting forever.
-            guard s.alienArchs[i].fabDaysLeft <= 0 || !s.alienArchs[i].fabDaysLeft.isFinite else { continue }
-            // Chips nobody can read are harder to bring up (3.5: legibility matters).
-            let respinP = (0.06 + 0.12 * (1 - legibility(s.alienArchs[i], s))) * (1 - 0.5 * s.swarmSilicon)
-            if s.alienArchs[i].fabRespins < 2 && s.rng.chance(respinP) {
-                s.alienArchs[i].fabRespins += 1
-                s.alienArchs[i].fabDaysLeft = 60 * (1 - 0.35 * s.swarmSilicon)
-                s.alienArchs[i].fabTotal += s.alienArchs[i].fabDaysLeft
-                Sim.news(&s, "\(s.alienArchs[i].name) chip needs a respin",
-                         "First silicon works, but a clock-domain bug the agents didn't anticipate halves yields. Two more months.",
-                         .hardware, image: "wafer", important: true, good: false)
-                continue
-            }
-            finishFab(&s, i)
-        }
+        // An alien architecture's chip goes into production as soon as it's found: no tape-out to pay for or wait on
+        // (saves with one under way or never started get theirs today).
+        for i in s.alienArchs.indices where s.alienArchs[i].chipID == nil { finishFab(&s, i) }
         AlienFab.daily(&s, b)
     }
 
@@ -190,20 +174,11 @@ enum Xeno {
 // MARK: - Player actions
 
 extension GameState {
+    /// Puts an architecture's chip into production now (the daily run does this on its own the day it's found).
     mutating func fabAlienChip(_ id: UUID) -> String? {
         guard let i = alienArchs.firstIndex(where: { $0.id == id }) else { return "Not found." }
         if alienArchs[i].chipID != nil { return "This chip is already in production." }
-        if alienArchs[i].fabbing { return "The tape-out is already under way." }
-        let cost = Xeno.fabCost(self)
-        if cost > cash { return "Masks, packaging and bring-up cost \(Fmt.money(cost))." }
-        cash -= cost
-        month.capex += cost
-        alienArchs[i].fabbing = true
-        alienArchs[i].fabDaysLeft = Xeno.fabDays(self, bonuses)
-        alienArchs[i].fabTotal = alienArchs[i].fabDaysLeft
-        Sim.news(&self, "Taping out the \(alienArchs[i].name) chip",
-                 "The swarm's RTL went to the foundry. \(Fmt.money(cost)), first chips in about \(Int(alienArchs[i].fabDaysLeft / 30) + 1) months.",
-                 .hardware, image: "wafer", important: true)
+        Xeno.finishFab(&self, i)
         return nil
     }
 
@@ -224,7 +199,7 @@ extension GameState {
         let note: String
         switch policy {
         case .exclusive: note = alienArchs[i].licensedOnce ? "No new licenses — but existing licensees keep what they learned." : "Nobody else gets it."
-        case .sellChips: note = alienArchs[i].chipID == nil ? "Tape out the chip to start selling." : "Set prices and fab capacity in Chip & Cloud Sales."
+        case .sellChips: note = alienArchs[i].chipID == nil ? "The chip goes into production tomorrow; then set prices and fab capacity in Chip & Cloud Sales." : "Set prices and fab capacity in Chip & Cloud Sales."
         case .license: note = "Big players will send offers over the coming months."
         }
         Sim.news(&self, "\(alienArchs[i].name): \(policy.rawValue.lowercased())", note, .company)

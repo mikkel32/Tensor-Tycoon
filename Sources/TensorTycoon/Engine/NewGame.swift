@@ -196,8 +196,6 @@ enum NewGame {
             PublicProgram.found(&s, mandate: settings.publicMandate)
             // The first candidate pool is drawn before the programme is activated; public appointments never carry equity.
             for i in s.candidates.indices { s.candidates[i].equity = 0 }
-        } else {
-            Board.refill(&s)
         }
         Cast.seed(&s)   // 3.4: the people of AI
         s.market.interestRate = Macro.historicalRate(y) ?? 3.4

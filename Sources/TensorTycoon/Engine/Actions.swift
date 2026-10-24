@@ -711,6 +711,22 @@ extension GameState {
         for i in employees.indices { employees[i].morale = max(0, employees[i].morale - 2) }   // 3.9: clamped
     }
 
+    /// Lets everyone go at once, or everyone in one role: three months' severance each and a single morale hit for
+    /// whoever stays (the same one an office closure costs). Returns how many left.
+    @discardableResult
+    mutating func fireAll(role: Role? = nil) -> Int {
+        let leaving = employees.filter { role == nil || $0.role == role }
+        guard !leaving.isEmpty else { return 0 }
+        let severance = leaving.reduce(0) { $0 + $1.salary * 0.25 }
+        for e in leaving { letGo(e.id) }
+        let hit = HQ.closureMoraleHit(laidOff: leaving.count, remaining: employees.count)
+        for i in employees.indices { employees[i].morale = max(0, employees[i].morale - hit) }
+        let who = role.map { "\(leaving.count) \($0.title.lowercased())\(leaving.count == 1 ? "" : "s")" } ?? "all \(leaving.count) staff"
+        Sim.news(&self, "\(companyName) lets \(who) go", "\(Fmt.money(severance)) in severance\(employees.isEmpty ? "." : "; morale among the \(employees.count) who stay falls \(Int(hit.rounded())) points.")",
+                 .company, important: true, good: false)
+        return leaving.count
+    }
+
     /// Severance and the departure itself, without the morale hit (the caller sizes that). False when not found.
     @discardableResult
     mutating func letGo(_ id: UUID) -> Bool {

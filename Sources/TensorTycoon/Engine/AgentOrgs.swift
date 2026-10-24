@@ -778,7 +778,6 @@ extension GameState {
     mutating func formOrg(fromSwarm id: UUID) -> String? {
         guard let i = swarms.firstIndex(where: { $0.id == id }), swarms[i].orgID == nil else { return "Not found." }
         if orgs.count >= AgentOrgs.maxOrgs { return "You can run at most \(AgentOrgs.maxOrgs) organisations." }
-        if swarms[i].agents > Progression.orgAgentCap, let why = Progression.blocker(self, .bigOrgs) { return why }   // 3.8: Hyperscaler
         let sw = swarms[i]
         let org = AgentOrg(name: sw.mission.orgTitle, kind: sw.mission, objective: sw.mission.defaultObjective, founded: date,
                            autonomy: sw.autonomy, oversight: sw.oversight, verification: 0.1, budgetMonthly: 0)
@@ -800,10 +799,6 @@ extension GameState {
         guard let oi = orgs.firstIndex(where: { $0.id == orgID }) else { return "Not found." }
         let o = orgs[oi]
         if swarms.filter({ $0.orgID == orgID }).count >= AgentOrgs.maxTeams { return "An organisation has at most \(AgentOrgs.maxTeams) teams." }
-        if Progression.orgAgents(self, orgID) + agents > Progression.orgAgentCap, let why = Progression.blocker(self, .bigOrgs) {   // 3.8: Hyperscaler
-            let room = max(0, Progression.orgAgentCap - Progression.orgAgents(self, orgID))
-            return "\(why) " + (room > 0 ? "This organisation has room for \(Fmt.int(room)) more agents." : "This organisation is full.")
-        }
         let modelName = models.first { $0.id == modelID }?.name ?? "Agent"
         let trimmed = name.trimmingCharacters(in: .whitespaces)
         let teamName = trimmed.isEmpty ? "\(modelName) \(role.title.lowercased())" : trimmed
@@ -874,10 +869,6 @@ extension GameState {
     /// 3.9: a team can move to another model or other hardware (a team whose chips are gone could never run again).
     mutating func tuneOrgTeam(_ id: UUID, agents: Int, chips: Int, modelID: UUID? = nil, accelID: String? = nil) -> String? {
         guard let sw = swarms.first(where: { $0.id == id }) else { return "Not found." }
-        if let org = sw.orgID, agents > sw.agents, Progression.orgAgents(self, org) - sw.agents + agents > Progression.orgAgentCap,
-           let why = Progression.blocker(self, .bigOrgs) {   // 3.8: Hyperscaler
-            return "\(why) This organisation has room for \(Fmt.int(max(0, Progression.orgAgentCap - Progression.orgAgents(self, org) + sw.agents))) agents in this team."
-        }
         return tuneSwarm(id, agents: agents, chips: chips, mission: sw.mission, autonomy: sw.autonomy, oversight: sw.oversight, modelID: modelID, accelID: accelID)
     }
 
@@ -937,8 +928,8 @@ extension AgentOrgs {
         botSupervise(&s, o.id, m, accel: accel, agents: agents)
     }
 
-    /// 3.9: when every chip is busy serving (a rented fleet sized to demand), rent a small team's worth (1,000 agents,
-    /// what any stage may run) on demand on the pool it serves from, when that's under a tenth of the fleet.
+    /// 3.9: when every chip is busy serving (a rented fleet sized to demand), rent a small team's worth (1,000 agents)
+    /// on demand on the pool it serves from, when that's under a tenth of the fleet.
     static func botRentTeam(_ s: inout GameState, _ m: AIModel) -> (accel: String, chips: Int, agents: Int)? {
         let b = s.bonuses
         guard let pool = Economy.pools(s).filter({ $0.accel.cls != .consumer && $0.inference > 0 }).max(by: { $0.inference < $1.inference }) else { return nil }

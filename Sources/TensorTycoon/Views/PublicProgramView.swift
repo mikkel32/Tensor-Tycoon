@@ -33,6 +33,8 @@ struct PublicProgramView: View {
                     }
                 }
 
+                HowItWorksCard(state: s)
+
                 CardGrid(minWidth: 270, maxColumns: 4) {
                     Card {
                         CardHeader("Annual authorisation", symbol: "banknote.fill", subtitle: "Before quarterly performance adjustments")
@@ -70,10 +72,10 @@ struct PublicProgramView: View {
                         }
                         .buttonStyle(.borderedProminent)
                         .help("Every 60 days. Costs programme funds; improves oversight and public trust.")
-                        Button("Request supplemental appropriation", systemImage: "banknote") {
-                            store.act("Supplemental appropriation approved") { $0.requestPublicSupplement() }
-                        }
-                        .help("Once per calendar year. Releases 12% of annual authorisation, adjusted for oversight, and costs 6 confidence.")
+                        Button("Ask for funding", systemImage: "hand.raised.fill") { store.open(.publicFunding) }
+                            .help("Once a quarter, on Funding & Commissions: the committee pays for the progress you've made since your last request.")
+                        Button("Agency orders", systemImage: "building.2.fill") { store.open(.publicFunding) }
+                            .help("Models built for government agencies, paid to build and to run.")
                         Text(p.lastTransparency.map { "Last transparency report \($0.gameShort)." } ?? "No transparency report published yet.")
                             .font(.caption2).foregroundStyle(.secondary)
                     }
@@ -182,6 +184,45 @@ struct PublicProgramView: View {
         } message: {
             Text("The current mission is replaced. This has a 45-day cooldown and requires at least 12 oversight confidence.")
         }
+    }
+}
+
+/// 3.10: the whole loop on one card, so a new director knows what to do first.
+private struct HowItWorksCard: View {
+    @Environment(GameStore.self) private var store
+    let state: GameState
+
+    var body: some View {
+        let s = state
+        let p = s.publicProgram
+        let missions = p.missions.filter { $0.status == .active }
+        Card {
+            CardHeader("How your programme works", symbol: "questionmark.circle.fill", subtitle: "You don't raise money or answer to investors: you deliver, and the government pays")
+            EqualColumns(minWidth: 210, spacing: 12, maxColumns: 4) {
+                step(1, "calendar", .blue, "Budget every quarter",
+                     "\(Fmt.money(PublicProgram.nextTranche(s))) arrives \(p.lastTranche.map { "on \(GameCalendar.addDays($0, 90).gameShort)" } ?? "each quarter"). Spend it on people, chips and training runs.", nil)
+                step(2, "target", .purple, "Deliver missions",
+                     missions.isEmpty ? "Two missions are issued at a time." : "Now: " + missions.map(\.title).joined(separator: "; ") + ". Each pays on delivery and counts toward promotion.", nil)
+                step(3, "hand.raised.fill", .green, "Ask for more money",
+                     "Once a quarter, show the committee your progress. Your case today: \(Int(PublicFunding.score(s)))/100.", ("Funding requests", .publicFunding))
+                step(4, "building.2.fill", .orange, "Build for agencies",
+                     Commissions.open(s).isEmpty && Commissions.active(s).isEmpty ? "Ministries order models made for them; the first order arrives soon." : "\(Commissions.open(s).count) waiting, \(Commissions.active(s).count) being built.", ("Agency orders", .publicFunding))
+            }
+        }
+    }
+
+    private func step(_ n: Int, _ symbol: String, _ tint: Color, _ title: String, _ text: String, _ link: (String, Screen)?) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text("\(n)").font(.callout.weight(.bold)).foregroundStyle(.white).frame(width: 24, height: 24).background(tint, in: .circle)
+                Label(title, systemImage: symbol).font(.callout.weight(.semibold)).foregroundStyle(tint)
+            }
+            Text(text).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            if let link { Button(link.0) { store.open(link.1) }.buttonStyle(.link).font(.caption) }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .background(Theme.insetFill, in: .rect(cornerRadius: Theme.Radius.inset))
     }
 }
 

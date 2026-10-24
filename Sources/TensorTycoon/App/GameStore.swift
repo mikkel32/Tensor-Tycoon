@@ -321,6 +321,8 @@ final class GameStore {
         case .rivalWatch: rivalsTab = .watch; screen = .rivals
         case .industry: rivalsTab = .industry; screen = .rivals
         case .competitors: rivalsTab = .labs; screen = .rivals
+        // 3.10: a government branch's money lives on Funding & Commissions (alerts and tips still link to Funding).
+        case .funding where state?.isPublicProgram == true: screen = .publicFunding
         default: screen = s
         }
     }

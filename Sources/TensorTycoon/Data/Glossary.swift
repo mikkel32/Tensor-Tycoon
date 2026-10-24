@@ -302,8 +302,8 @@ extension GlossaryTerm {
                           detail: "Rewinding replaces the game in progress: everything since that autosave is lost.",
                           screen: .operations, aliases: ["autosave", "undo", "load"])
         case .board:
-            GlossaryEntry(title: "Board goals and confidence", category: .company,
-                          definition: "The board sets three goals at a time, each with a deadline. Hitting one pays a milestone tranche, culture points and board confidence.",
+            GlossaryEntry(title: "Board confidence", category: .company,
+                          definition: "How much the board believes in you. It follows revenue growth, how your best model sits against the frontier, and your runway. The board sets no goals.",
                           detail: "Confidence moves how investors price your rounds. If it collapses while investors control the board, they can replace you as CEO.",
                           screen: .strategy, aliases: ["board", "goals", "objectives", "confidence", "culture points"])
         case .researchPoints:

@@ -4,6 +4,7 @@ struct TeamView: View {
     @Environment(GameStore.self) private var store
     @State private var roleFilter: Role? = nil
     @State private var firing: Employee?
+    @State private var firingAll = false
     @State private var driveRole: Role = .sales
 
     var body: some View {
@@ -109,6 +110,12 @@ struct TeamView: View {
                     }
                     .help("Everyone paid under 85% of the market rate for their role, skill and office. Underpaid people lose morale every month and get poached.")
                 }
+                if !s.employees.isEmpty {
+                    let n = s.employees.filter { roleFilter == nil || $0.role == roleFilter }.count
+                    Button(roleFilter.map { "Let all \(n) \($0.title.lowercased())\(n == 1 ? "" : "s") go…" } ?? "Let everyone go…", role: .destructive) { firingAll = true }
+                        .disabled(n == 0)
+                        .help("Lay off \(roleFilter == nil ? "the whole team" : "everyone shown") at once: three months' salary each in severance.")
+                }
             }
             if s.employees.isEmpty {
                 Text("It's just you. Hire from the candidates above: researchers speed up research, an ML engineer makes training more efficient.").foregroundStyle(.secondary)
@@ -173,6 +180,22 @@ struct TeamView: View {
         } message: {
             Text("Three months of salary in severance, and everyone else's morale dips a little.")
         }
+        .confirmationDialog(layoffTitle(s), isPresented: $firingAll, titleVisibility: .visible) {
+            Button(roleFilter == nil ? "Let everyone go" : "Let them go", role: .destructive) {
+                let role = roleFilter
+                store.mutate { _ = $0.fireAll(role: role) }
+                firingAll = false
+            }
+            Button("Cancel", role: .cancel) { firingAll = false }
+        } message: {
+            let leaving = s.employees.filter { roleFilter == nil || $0.role == roleFilter }
+            Text("\(Fmt.money(leaving.reduce(0) { $0 + $1.salary * 0.25 })) in severance (three months' salary each)\(leaving.count < s.employees.count ? ", and morale falls for the \(s.employees.count - leaving.count) who stay" : ""). Research, training and serving lose whatever these people added.")
+        }
+    }
+
+    private func layoffTitle(_ s: GameState) -> String {
+        let n = s.employees.filter { roleFilter == nil || $0.role == roleFilter }.count
+        return roleFilter.map { "Let all \(n) \($0.title.lowercased())\(n == 1 ? "" : "s") go?" } ?? "Let all \(n) staff go?"
     }
 }
 

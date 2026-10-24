@@ -350,6 +350,12 @@ enum FoundingKit {
         case "million": QuestReward(cash: 0.15, brand: 5, culture: 1)
         case "top10": QuestReward(brand: 5, culture: 1)
         case "profit": QuestReward(culture: 1, confidence: 8)
+        // 3.10: a government branch's opening
+        case "commission": QuestReward(culture: 1)
+        case "mission": QuestReward(researchDays: 10)
+        case "bid": QuestReward(culture: 1)
+        case "agency": QuestReward(cash: 0.10, culture: 1)
+        case "level2": QuestReward(culture: 2)
         default: nil
         }
     }

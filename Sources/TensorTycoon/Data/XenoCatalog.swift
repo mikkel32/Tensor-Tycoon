@@ -130,7 +130,7 @@ enum XenoCatalog {
     static let megaProjects: [Mega] = [
         Mega(id: "xeno_foundry", name: "Xeno Foundry", symbol: "building.2.crop.circle.fill",
              blurb: "A fab built to the alien chip's own process rules, run by the agents that designed it.",
-             effect: "Alien chips cost 60% less to make, and tape-outs take half as long.",
+             effect: "Alien chips cost 60% less to make, and new chip versions take half as long to design.",
              requirement: "An alien chip in production", costShare: 0.004, minCost: 2e9, days: 300),
         Mega(id: "babel", name: "Project Babel", symbol: "character.book.closed.fill",
              blurb: "A translation layer between alien representations and human concepts.",

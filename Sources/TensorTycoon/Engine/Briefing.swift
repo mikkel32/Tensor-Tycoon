@@ -221,9 +221,6 @@ enum Briefing {
             risks.append(BriefingLine(text: "\(Fmt.int(r.count))× \(HardwareCatalog.get(r.accelID)?.name ?? r.accelID) reservation ends \(e.gameShort).",
                                       good: false, screen: Screen.compute.rawValue))
         }
-        for o in s.objectives where !o.done && !o.failed && GameCalendar.daysBetween(end, o.deadline) <= 60 && o.progress < 0.7 {
-            risks.append(BriefingLine(text: "Board goal due \(o.deadline.gameShort): \(o.title) (\(Int(o.progress * 100))%).", good: false, screen: Screen.strategy.rawValue))
-        }
         for b in s.bills where b.stance == 0 && GameCalendar.daysBetween(end, b.vote) <= 45 && GameCalendar.daysBetween(end, b.vote) >= 0 {
             risks.append(BriefingLine(text: "\(PolicyCatalog.byID[b.id]?.title ?? b.id) goes to a vote \(b.vote.gameShort) and you haven't taken a side.",
                                       good: nil, screen: Screen.security.rawValue))

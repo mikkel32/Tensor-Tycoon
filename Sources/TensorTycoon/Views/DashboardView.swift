@@ -152,9 +152,15 @@ private struct TodayHeader: View {
                              tint: s.cash >= 0 ? .green : .red, term: .runway, screen: .finance)
                 HeadlineTile(title: "Revenue run-rate", value: d.runRate >= 1 ? "\(Fmt.money(d.runRate))/yr" : "$0", detail: revenueDetail(s, change),
                              symbol: "chart.line.uptrend.xyaxis", tint: .blue, term: .runRate, screen: .market, trend: change)
-                HeadlineTile(title: "Valuation", value: Fmt.money(s.valuation),
-                             detail: s.isPublic ? "Public · \(Fmt.price(s.sharePrice)) a share" : "Private mark · you own \(Fmt.pct(s.founderStake))",
-                             symbol: "building.columns.fill", tint: .purple, term: .valuation, screen: .funding)
+                if s.isPublicProgram {
+                    HeadlineTile(title: "Annual budget", value: Fmt.money(PublicProgram.authorisedBudget(s)),
+                                 detail: "Funding case \(Int(PublicFunding.score(s)))/100 · \(PublicFunding.readyOn(s).map { "next request \($0.gameShort)" } ?? "a request can go in now")",
+                                 symbol: "building.columns.fill", tint: .purple, term: .board, screen: .publicFunding)
+                } else {
+                    HeadlineTile(title: "Valuation", value: Fmt.money(s.valuation),
+                                 detail: s.isPublic ? "Public · \(Fmt.price(s.sharePrice)) a share" : "Private mark · you own \(Fmt.pct(s.founderStake))",
+                                 symbol: "building.columns.fill", tint: .purple, term: .valuation, screen: .funding)
+                }
             }
         }
     }

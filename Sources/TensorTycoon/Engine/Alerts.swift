@@ -5,7 +5,7 @@ import Foundation
 /// and resolve themselves with their default answer when they expire.
 enum AlertKind: String, Codable, CaseIterable, Identifiable, Sendable {
     case cashNegative, bankruptcySoon, termSheet, offerExpiring, runPaused, rivalPassed, rivalLaunch
-    case boardGoalDue, billVote, slaBreach, overCapacity, swarmAlignment, priceWar, rentalExpiring
+    case billVote, slaBreach, overCapacity, swarmAlignment, priceWar, rentalExpiring
     case inbox, milestone, briefing
     case world   // 3.4: world and stakeholders
     case advanced   // 3.5: advanced projects
@@ -23,7 +23,6 @@ enum AlertKind: String, Codable, CaseIterable, Identifiable, Sendable {
         case .runPaused: "A training run stalls"
         case .rivalPassed: "A rival takes #1 from you"
         case .rivalLaunch: "A rival release beats your best model"
-        case .boardGoalDue: "A board goal is due and behind"
         case .billVote: "A bill vote is coming and you haven't picked a side"
         case .slaBreach: "An enterprise contract is breaching its SLA"
         case .overCapacity: "A model is badly over capacity"
@@ -47,7 +46,6 @@ enum AlertKind: String, Codable, CaseIterable, Identifiable, Sendable {
         case .termSheet, .offerExpiring: "banknote.fill"
         case .runPaused: "pause.circle.fill"
         case .rivalPassed, .rivalLaunch: "binoculars.fill"
-        case .boardGoalDue: "person.3.fill"
         case .billVote: "building.columns.fill"
         case .slaBreach: "briefcase.fill"
         case .overCapacity: "flame.fill"
@@ -125,10 +123,12 @@ enum Alerts {
         let today = s.date
         // Money
         if s.cash < 0 && s.daysNegativeCash == 1 {
-            raise(&s, .cashNegative, title: "You're out of cash", body: "Raise money, borrow, sell hardware or cut costs. Bankruptcy in 60 days if cash stays negative.",
+            raise(&s, .cashNegative, title: "You're out of cash",
+                  body: s.isPublicProgram ? "In 14 days the oversight committee covers it with an emergency appropriation (oversight −15 and probation; a second within a year ends the programme). Cut costs, deliver a mission or ask for funding first."
+                                          : "Raise money, borrow, sell hardware or cut costs. Bankruptcy in 60 days if cash stays negative.",
                   screen: .funding, critical: true, cooldown: 20)
         }
-        if s.cash < 0 && s.daysNegativeCash == 30 {
+        if s.cash < 0 && s.daysNegativeCash == 30 && !s.isPublicProgram {
             raise(&s, .bankruptcySoon, title: "30 days to bankruptcy", body: "Cash has been negative for a month. Creditors take everything in 30 days.",
                   screen: .funding, critical: true, cooldown: 20)
         }
@@ -167,10 +167,6 @@ enum Alerts {
                   screen: .datacenters, critical: rent > rev * 0.5, cooldown: 365)
         }
         runway(&s)
-        // Board goals
-        for o in s.objectives where !o.done && !o.failed && GameCalendar.daysBetween(today, o.deadline) == 30 && o.progress < 0.7 {
-            raise(&s, .boardGoalDue, key: o.id.uuidString, title: "Board goal due in 30 days", body: "\(o.title) — \(Int(o.progress * 100))% done.", screen: .strategy, cooldown: 60)
-        }
         // Bills you haven't taken a side on
         for b in s.bills where b.stance == 0 && GameCalendar.daysBetween(today, b.vote) == 14 {
             let title = PolicyCatalog.byID[b.id]?.title ?? b.id

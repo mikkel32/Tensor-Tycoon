@@ -66,13 +66,13 @@ enum Progression {
 
     /// Things you can't do until a stage: each gated action checks `blocker` and says which stage it needs.
     enum Feature: String, CaseIterable, Sendable {
-        case termLoans, classified, regional, chipTeams, fabs, institutes, bigOrgs, lateMoonshots
+        case termLoans, classified, regional, chipTeams, fabs, institutes, lateMoonshots
 
         var stage: CompanyStage {
             switch self {
             case .termLoans: .scaleUp
             case .classified, .regional, .chipTeams: .frontierLab
-            case .fabs, .institutes, .bigOrgs: .hyperscaler
+            case .fabs, .institutes: .hyperscaler
             case .lateMoonshots: .civilisational
             }
         }
@@ -85,7 +85,6 @@ enum Progression {
             case .chipTeams: "Chip design teams"
             case .fabs: "Fabs of your own"
             case .institutes: "Science institutes"
-            case .bigOrgs: "AI organisations at scale"
             case .lateMoonshots: "The last moonshots"
             }
         }
@@ -98,7 +97,6 @@ enum Progression {
             case .chipTeams: "Hire teams of chip architects and design accelerators of your own."
             case .fabs: "Build fabs instead of booking foundry wafers."
             case .institutes: "Run a third science lab and beyond: a research institute across fields."
-            case .bigOrgs: "AI organisations of more than \(Fmt.int(Progression.orgAgentCap)) agents."
             case .lateMoonshots: "Backers bring you the last grand challenges: a formally verified internet core, whole-cell simulation, reversing cellular aging."
             }
         }
@@ -112,7 +110,6 @@ enum Progression {
             case .chipTeams: "hire a chip design team"
             case .fabs: "build a fab of your own"
             case .institutes: "run more than two science labs"
-            case .bigOrgs: "run an AI organisation of more than \(Fmt.int(Progression.orgAgentCap)) agents"
             case .lateMoonshots: "be offered the last moonshots"
             }
         }
@@ -125,7 +122,6 @@ enum Progression {
             case .chipTeams: "memorychip.fill"
             case .fabs: "circle.grid.cross.fill"
             case .institutes: "flask.fill"
-            case .bigOrgs: "person.3.sequence.fill"
             case .lateMoonshots: "moon.stars.fill"
             }
         }
@@ -136,14 +132,11 @@ enum Progression {
             case .classified: .advancedProjects
             case .chipTeams, .fabs: .semiconductors
             case .institutes: .science
-            case .bigOrgs: .swarms
             case .lateMoonshots: .research
             }
         }
     }
 
-    /// Agents an AI organisation may have before the Hyperscaler stage.
-    static let orgAgentCap = 1_000
     /// Moonshots first offered from this year are the very-late ones (Civilisational).
     static let lateMoonshotYear = 2031.5
 
@@ -191,7 +184,6 @@ enum Progression {
         if !s.semi.teams.isEmpty || !s.semi.designs.isEmpty { g.insert(Feature.chipTeams.rawValue) }
         if !s.semi.fabs.isEmpty { g.insert(Feature.fabs.rawValue) }
         if s.science.labs.count > 2 { g.insert(Feature.institutes.rawValue) }
-        if s.orgs.contains(where: { orgAgents(s, $0.id) > orgAgentCap }) { g.insert(Feature.bigOrgs.rawValue) }
         if s.moonshots.contains(where: { isLateMoonshot($0.id) }) { g.insert(Feature.lateMoonshots.rawValue) }
         s.progression.grandfathered = g
         s.progression.grandfatheredSlots = s.corp.subs.filter(\.separate).count   // 3.9: a folded-in division holds no slot

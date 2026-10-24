@@ -283,7 +283,7 @@ enum AchievementCatalog {
         Achievement(id: "landlord", title: "Neocloud", detail: "Lease 10,000 accelerators to other companies.", symbol: "cloud.fill"),
         Achievement(id: "liquid_billionaire", title: "Liquid Billionaire", detail: "Cash out $1B of your own shares.", symbol: "dollarsign.circle.fill"),
         Achievement(id: "consolidator", title: "Consolidator", detail: "Acquire a rival AI lab.", symbol: "building.2.crop.circle.fill"),
-        Achievement(id: "board_favorite", title: "Board Favorite", detail: "Complete 5 board goals.", symbol: "person.crop.rectangle.stack.fill"),
+        Achievement(id: "board_favorite", title: "Board Favorite", detail: "Keep the board euphoric (confidence 80+).", symbol: "person.crop.rectangle.stack.fill"),
         Achievement(id: "culture", title: "Culture Eats Strategy", detail: "Adopt a tier-4 culture perk.", symbol: "theatermasks.fill"),
         Achievement(id: "fort_knox", title: "Fort Knox", detail: "Reach security level SL4.", symbol: "lock.shield.fill"),
         Achievement(id: "kingmaker", title: "Kingmaker", detail: "Back the winning side on three AI bills.", symbol: "building.columns.fill"),

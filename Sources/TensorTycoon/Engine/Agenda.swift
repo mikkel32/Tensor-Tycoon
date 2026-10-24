@@ -21,7 +21,7 @@ enum Agenda {
     /// Advice items that already cover an alert kind, by ID prefix (Advisor.items).
     static let coveredBy: [AlertKind: String] = [
         .cashNegative: "cash", .bankruptcySoon: "cash", .termSheet: "offers", .offerExpiring: "offers", .runPaused: "run-",
-        .boardGoalDue: "goal", .slaBreach: "sla-", .overCapacity: "capacity-", .swarmAlignment: "swarm-align",
+        .slaBreach: "sla-", .overCapacity: "capacity-", .swarmAlignment: "swarm-align",
         .priceWar: "pricewar-", .rentalExpiring: "rental-",
     ]
 
@@ -131,13 +131,6 @@ enum Agenda {
             add(Upcoming(id: "rival-\(r.id)", date: o.center, title: "\(r.project.name) from \(r.lab)",
                          detail: "Rumoured launch · forecast index \(Fmt.score(o.index)) (\(Fmt.score(o.indexLow))–\(Fmt.score(o.indexHigh))), \(versus)",
                          symbol: "binoculars.fill", tone: tone, screen: .rivalWatch, window: RivalIntel.windowText(o), labID: r.id))
-        }
-
-        for o in s.objectives where !o.done && !o.failed {
-            let behind = o.progress < 0.7 && GameCalendar.daysBetween(today, o.deadline) < 60
-            add(Upcoming(id: "goal-\(o.id)", date: o.deadline, title: "Board goal: \(o.title)",
-                         detail: "\(Int((o.progress * 100).rounded()))% done" + (o.rewardCash > 0 ? " · pays \(Fmt.money(Board.reward(o, s)))" : ""),
-                         symbol: o.kind.symbol, tone: behind ? .warning : .neutral, screen: .strategy))
         }
 
         for bill in s.bills {

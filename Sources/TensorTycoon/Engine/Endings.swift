@@ -787,12 +787,11 @@ enum Endings {
             ("Achievements", "\(s.achievements.count) × 40", Double(s.achievements.count) * 40),
             ("Victories", "\(s.victories.count) × 1,000", Double(s.victories.count) * 1_000),
             ("Best model", "index \(Fmt.score(s.models.map(\.index).max() ?? 0)) × 8", (s.models.map(\.index).max() ?? 0) * 8),
-            ("Board goals met", "\(s.objectivesCompleted) × 25", Double(s.objectivesCompleted) * 25),
             ("Moonshots", "\(Moonshots.succeeded(s)) × 150", Double(Moonshots.succeeded(s)) * 150),
             ("Frontier research", "\(min(s.programLevelsTotal, 250)) levels × 4", Double(min(s.programLevelsTotal, 250)) * 4),
             ("Safety record", "\(Int(s.safetyScore)) × 3", s.safetyScore * 3),
             ("Weights stolen", "\(s.thefts) × −60", -Double(s.thefts) * 60),
-        ]
+        ] + (s.objectivesCompleted > 0 ? [("Board goals met", "\(s.objectivesCompleted) × 25", Double(s.objectivesCompleted) * 25)] : [])
         let raw = parts.reduce(0) { $0 + $1.2 }
         let penalty = s.gameOver != nil && s.exitValue == nil && !s.keptStake
         let legacy = max(0, Int(raw * (penalty ? 0.6 : 1)))

@@ -94,8 +94,8 @@ extension BalanceHarness {
         let alien = ForecastEngine.forecast(d, state: s, dataSources: s.dataSources.sorted())
         print("forecast c: transformer \(Fmt.trim(plain.c, 2)) → alien \(Fmt.trim(alien.c, 2)); safety \(Int(plain.safety)) → \(Int(alien.safety))")
 
-        // Tape out the chip
-        if let e = s.fabAlienChip(arch.id) { print("fab error: \(e)"); return }
+        // The chip goes into production the day the architecture is found (no tape-out)
+        if s.alienArchs[0].chipID == nil, let e = s.fabAlienChip(arch.id) { print("fab error: \(e)"); return }
         day = 0
         while s.alienArchs[0].chipID == nil && day < 600 {
             Sim.advanceDay(&s)

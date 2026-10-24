@@ -53,8 +53,11 @@ enum EraGuide {
         let soon = EventCatalog.historical.filter { $0.date > s.date && $0.date < GameCalendar.addMonths(s.date, foresight ? 48 : 24) }
             .prefix(foresight ? 10 : 5).map { (date: $0.date, title: $0.title) }
         return Intro(title: era.title, date: era.subtitle, image: era.image, blurb: era.blurb, world: world, coming: Array(soon),
-                     plan: plan(era.id), steps: steps(s), kit: FoundingKit.cards(s.kit))
+                     plan: s.isPublicProgram ? publicPlan : plan(era.id), steps: steps(s), kit: FoundingKit.cards(s.kit))
     }
+
+    /// 3.10: how to open as a government AI branch, in any era.
+    static let publicPlan = "You run a government AI branch: no investors and no shares. Your budget arrives every quarter. Deliver the two public missions for results payments and promotions, accept the orders agencies send and build them models, and once a quarter take your progress to the committee on Funding & Commissions to ask for more."
 
     /// How to open in each era.
     static func plan(_ era: String) -> String {
@@ -72,6 +75,7 @@ enum EraGuide {
 
     /// The opening checklist, in the order that makes sense for this era.
     static func steps(_ s: GameState) -> [Step] {
+        if s.isPublicProgram { return publicSteps(s) }
         let y = s.year
         var out: [Step] = [
             Step(title: "Queue research", detail: "The research director keeps it full; pick a focus.",
@@ -104,6 +108,34 @@ enum EraGuide {
                             screen: .leaderboard, done: s.history.contains { $0.rank > 0 && $0.rank <= 10 }, key: "top10"))
             out.append(Step(title: "First profitable month", detail: "Revenue beats running costs for a whole month.",
                             screen: .finance, done: s.history.contains { $0.revenue > 0 && $0.revenue > $0.opex }, key: "profit"))
+        }
+        return out
+    }
+
+    /// 3.10: a government branch's opening: research, a model, missions, an agency order and its first funding request.
+    static func publicSteps(_ s: GameState) -> [Step] {
+        let p = s.publicProgram
+        var out: [Step] = [
+            Step(title: "Queue research", detail: "Finished research is the first thing the committee looks for. Pick a focus.",
+                 screen: .research, done: !s.researchQueue.isEmpty || s.researched.count > 15, key: "research"),
+            Step(title: "Train your first model", detail: "Design it in the Model Lab; the forecast tells you what you'll get.",
+                 screen: .lab, done: !s.runs.isEmpty, key: "train"),
+            Step(title: "Grow the team", detail: "Researchers speed up research; ML engineers make training cheaper.",
+                 screen: .team, done: s.employees.count >= 6, key: "hire"),
+            Step(title: "Accept an agency order", detail: "Ministries order models built for them, paid to build and to run.",
+                 screen: .publicFunding, done: p.commissions.contains { $0.accepted != nil }, key: "commission"),
+            Step(title: "Deliver a public mission", detail: "The Public Programme page shows your two missions and what each needs.",
+                 screen: .publicProgram, done: p.completedMissions > 0, key: "mission"),
+            Step(title: "Ask for funding", detail: "When your progress case reaches 30, ask the committee for a top-up.",
+                 screen: .publicFunding, done: !p.requests.isEmpty, key: "bid"),
+        ]
+        if FoundingKit.questsActive(s) {
+            out.append(Step(title: "Open an RL lab", detail: "Reinforcement learning sharpens reasoning and agents. Build it on the Research page.",
+                            screen: .research, done: s.rlLabLevel > 0, key: "rl"))
+            out.append(Step(title: "Deliver an agency model", detail: "Hand a model that clears the bar to the agency that ordered it.",
+                            screen: .publicFunding, done: p.commissionsDelivered > 0, key: "agency"))
+            out.append(Step(title: "Become a National programme", detail: "Three delivered missions, with oversight and safety high enough, expands the programme.",
+                            screen: .publicProgram, done: p.level >= 2, key: "level2"))
         }
         return out
     }

@@ -1,6 +1,6 @@
 import Foundation
 
-/// 3.5: the alien fab line and chip generations. Your first alien tape-out opens a pilot line that makes every alien
+/// 3.5: the alien fab line and chip generations. Your first alien chip opens a pilot line that makes every alien
 /// chip you own: your open orders share it and arrive as they're made (the first chips about two weeks after you
 /// order, like any GPU), merchant customers get what's left, and you buy more capacity with money. Each architecture's chip can be revised
 /// twice (v2, v3) for bigger leaps; chips nobody fully understands throw errata.
@@ -234,7 +234,7 @@ enum AlienFab {
 
     /// Why the line can't expand right now, or nil.
     static func expansionBlocker(_ s: GameState, units: Double) -> String? {
-        if !s.alienFab.exists { return "Tape out an alien chip first: that opens your pilot line." }
+        if !s.alienFab.exists { return "Your pilot line opens with your first alien chip, the day after an architecture is found." }
         if s.alienFab.pendingCapacity > 0 { return "An expansion is already ramping (online \(s.alienFab.pendingReady?.gameShort ?? "soon"))." }
         if units < 1_000 { return "Expand by at least 1,000 chips a month." }
         let cost = expansionCost(s, units: units)
@@ -263,7 +263,8 @@ enum AlienFab {
             decodeEff: 0.85 + 0.03 * Double(v - 1), scaleUp: 1_024 * v, generation: arch.generation, alien: true)
     }
 
-    static func revisionCost(_ a: AlienArch, _ s: GameState) -> Double { Xeno.fabCost(s) * (a.chipVersion >= 2 ? 4 : 2) }
+    /// Masks, packaging and bring-up for a new chip version: $500M for v2, $1B for v3.
+    static func revisionCost(_ a: AlienArch, _ s: GameState) -> Double { 2.5e8 * (a.chipVersion >= 2 ? 4 : 2) }
 
     /// Designing a revision takes longer the less of the architecture your people can follow.
     static func revisionDays(_ a: AlienArch, _ s: GameState, _ b: ResearchBonuses) -> Double {
@@ -276,7 +277,7 @@ enum AlienFab {
     }
 
     static func revisionBlocker(_ a: AlienArch, _ s: GameState) -> String? {
-        if a.chipVersion == 0 { return a.fabbing ? "v1 is still taping out." : "Tape out v1 first." }
+        if a.chipVersion == 0 { return "v1 goes into production with the next day." }
         if a.chipVersion >= maxVersion { return "v\(maxVersion) is as far as this architecture goes. A new architecture is the next leap." }
         if a.revising { return "v\(a.chipVersion + 1) is already in design." }
         let cost = revisionCost(a, s)
@@ -515,13 +516,9 @@ enum AlienFab {
     /// Saves with an alien program in progress: repair inconsistent states so nothing waits forever, give existing
     /// alien chips their fab line, and fold merchant capacity reserved per alien chip into it.
     static func migrate(_ s: inout GameState) {
-        let b = s.bonuses
         var changed = false
         for i in s.alienArchs.indices {
             var a = s.alienArchs[i]
-            if a.fabbing && (!a.fabDaysLeft.isFinite || a.fabDaysLeft > 1_000) { a.fabDaysLeft = 60 }
-            if a.fabbing && a.fabTotal <= 0 { a.fabTotal = max(a.fabDaysLeft, Xeno.fabDays(s, b)) }
-            if !a.fabbing && a.chipID == nil && a.fabDaysLeft > 0 { a.fabbing = true; a.fabTotal = max(a.fabTotal, a.fabDaysLeft) }
             if a.fabbing && a.chipID != nil { a.fabbing = false; a.fabDaysLeft = 0 }
             if a.revising && (!a.reviseDaysLeft.isFinite || a.reviseDaysLeft > 2_000) { a.reviseDaysLeft = 60 }
             if let id = a.chipID {

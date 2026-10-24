@@ -73,6 +73,119 @@ struct PublicAuditRecord: Codable, Hashable, Identifiable {
     var good: Bool?
 }
 
+// MARK: - 3.10: funding requests and agency commissions
+
+/// How big a funding request is: a one-off share of the year's authorisation, a lasting rise in the base budget, and
+/// the strength of case (0–100) the committee wants to see for it in full.
+enum FundingAsk: String, Codable, CaseIterable, Identifiable, Sendable {
+    case modest, expansion, moonshot
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .modest: "Top-up"
+        case .expansion: "Expansion"
+        case .moonshot: "Moonshot"
+        }
+    }
+    var symbol: String {
+        switch self {
+        case .modest: "plus.circle.fill"
+        case .expansion: "arrow.up.right.circle.fill"
+        case .moonshot: "sparkles"
+        }
+    }
+    /// One-off payment, as a share of the annual authorisation.
+    var oneOff: Double {
+        switch self {
+        case .modest: 0.15
+        case .expansion: 0.30
+        case .moonshot: 0.60
+        }
+    }
+    /// Lasting rise in the base annual budget.
+    var raise: Double {
+        switch self {
+        case .modest: 0
+        case .expansion: 0.10
+        case .moonshot: 0.25
+        }
+    }
+    /// Strength of case needed for the full amount.
+    var bar: Double {
+        switch self {
+        case .modest: 30
+        case .expansion: 55
+        case .moonshot: 80
+        }
+    }
+}
+
+struct FundingRequest: Codable, Hashable, Identifiable {
+    var id: String
+    var date: Date
+    var ask: FundingAsk
+    var score: Double
+    /// Share of the ask approved (0 = turned down).
+    var fraction: Double
+    var amount: Double
+    /// Rise in the base annual budget, as a share.
+    var raise: Double
+}
+
+/// What the programme had at its last approved request (or its founding): the next case is judged on what's new.
+struct ProgressSnapshot: Codable, Hashable {
+    var date: Date
+    var researched: Int
+    var models: Int
+    var bestC: Double
+    var missions: Int
+    var missed: Int
+    var commissions: Int
+    var security: Int
+}
+
+enum CommissionStatus: String, Codable, Sendable {
+    case offered, active, inService, completed, failed, declined, expired, cancelled
+}
+
+/// 3.10: a government agency's order for a model built for it: trained after you accept, meeting its bar in one
+/// capability domain, and sometimes evaluated, kept internal, released with open weights or run under a security level.
+struct AgencyCommission: Codable, Hashable, Identifiable {
+    var id: String
+    var agency: String
+    var symbol: String
+    var title: String
+    var detail: String
+    var domain: CapDomain
+    var capabilityMin: Double
+    /// Points against today's frontier reference in `domain` (Capabilities.edge).
+    var domainEdgeMin: Double
+    var safetyMin: Double = 0
+    var needsEvaluation = false
+    /// The programme's security level the agency requires (0 = none).
+    var securityMin = 0
+    var openWeights = false
+    /// Never released publicly: the agency runs it on its own systems.
+    var internalOnly = false
+    /// Contract value: 20% on acceptance, 80% on delivery.
+    var value: Double
+    /// Paid monthly for `serviceMonths` once delivered.
+    var serviceYearly: Double
+    var serviceMonths = 24
+    var deliveryDays: Int
+    var offered: Date
+    var expires: Date
+    var accepted: Date? = nil
+    var due: Date? = nil
+    var status: CommissionStatus = .offered
+    var modelID: UUID? = nil
+    var modelName = ""
+    var delivered: Date? = nil
+    var serviceUntil: Date? = nil
+    var paid: Double = 0
+    var closed: Date? = nil
+}
+
 /// Persisted state for a government AI branch. Older saves decode an inactive programme unchanged.
 struct PublicProgramState: Codable, Hashable, DefaultValue {
     static var defaultValue: PublicProgramState { PublicProgramState() }
@@ -102,4 +215,13 @@ struct PublicProgramState: Codable, Hashable, DefaultValue {
     /// Emergency appropriations after running out of cash (PublicProgram.solvency), and the last one.
     @D var rescues: Int = 0
     @D var lastRescue: Date? = nil
+    // 3.10: funding requests backed by progress, and models built for agencies.
+    @D var requests: [FundingRequest] = []
+    @D var lastRequest: Date? = nil
+    @D var evidence: ProgressSnapshot? = nil
+    @D var commissions: [AgencyCommission] = []
+    @D var commissionSequence: Int = 0
+    @D var lastCommissionOffer: Date? = nil
+    @D var commissionsDelivered: Int = 0
+    @D var commissionsFailed: Int = 0
 }

@@ -212,7 +212,7 @@ extension Screen {
         case .government: .politicalCapital   // 3.9
         case .team, .news, .achievements, .credits, .help, .events, .advancedProjects, .semiconductors, .science, .progression, .spotlight: nil
         case .govContracts: nil   // 3.9
-        case .publicProgram: .board   // the oversight that replaces the board
+        case .publicProgram, .publicFunding: .board   // the oversight that replaces the board
         case .arena: .arenaElo
         case .legacy: nil   // 3.9: endings and legacy
         case .worldMap: .regulation   // 3.9: export controls

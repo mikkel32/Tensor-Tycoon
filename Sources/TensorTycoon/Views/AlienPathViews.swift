@@ -87,9 +87,6 @@ private struct AlienStageRow: View {
         switch action {
         case .swarms:
             Button(title) { store.open(.swarms) }
-        case .tapeOut(let id):
-            Button(title) { store.act("Tape-out started") { $0.fabAlienChip(id) } }
-                .buttonStyle(.borderedProminent).disabled(stage.status == .blocked)
         case .expandFab:
             Button(title) { store.act("Fab expansion started") { $0.expandAlienFab(units: AlienFabCard.defaultExpansion(s)) } }
                 .help("Add \(Fmt.count(AlienFabCard.defaultExpansion(s))) chips a month for \(Fmt.money(AlienFab.expansionCost(s, units: AlienFabCard.defaultExpansion(s)))). More options in the fab card below.")

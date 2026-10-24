@@ -17,7 +17,6 @@ enum SaveMigration {
             s.backgroundID = FounderBackground.none.rawValue
             s.culturePoints = 2 + s.achievements.count
             s.boardConfidence = 60
-            Board.refill(&s)
         }
         // Saves from before the research director (3.3): turn it on, keeping whatever was already queued.
         if s.researchFocus.isEmpty {
@@ -88,6 +87,7 @@ enum SaveMigration {
         Corporate.migrate(&s)   // 3.8: covenant cycle
         DCMarket.migrateDeposits(&s)   // 3.8: refundable lease deposits
         FoundingContracts.migrate(&s)   // 3.9: older saves are offered one founding award, once
+        s.objectives.removeAll { !$0.done && !$0.failed }   // 3.10: the board no longer sets goals; open ones are withdrawn
     }
 
     /// Decodes a save, migrates it and plays 90 days on a copy, resolving decisions with their first option

@@ -1,12 +1,12 @@
 import Foundation
 
-/// 3.5: the alien-tech path as a timeline — search, tape-out, fab line, deploy, train, sell or license, next
+/// 3.5: the alien-tech path as a timeline — search, chip, fab line, deploy, train, sell or license, next
 /// generation — each with its status, an ETA, what's blocking it and the action that moves it on.
 enum AlienPath {
     enum Status: String { case done, active, ready, blocked, locked }
 
     enum Action: Equatable {
-        case swarms, tapeOut(UUID), expandFab, leaseCage(String), order(String), modelLab, chipSales, license(UUID), revise(UUID), study
+        case swarms, expandFab, leaseCage(String), order(String), modelLab, chipSales, license(UUID), revise(UUID), study
     }
 
     struct Stage: Identifiable {
@@ -73,26 +73,14 @@ enum AlienPath {
         }
         out.append(search)
 
-        let arch = s.alienArchs.last { $0.chipID == nil } ?? s.alienArchs.max { $0.chipPerf < $1.chipPerf }
+        let arch = s.alienArchs.max { $0.chipPerf < $1.chipPerf }
         let haveChip = s.customChips.contains(where: \.alien)
 
-        // 2. Tape-out
-        var tape = Stage(id: "tapeout", title: "Tape out the chip", symbol: "cpu", status: .locked, detail: "Needs an architecture first.")
-        if let fabbing = s.alienArchs.first(where: \.fabbing) {
-            let total = max(fabbing.fabTotal, fabbing.fabDaysLeft, 1)
-            let p = clamp(1 - fabbing.fabDaysLeft / total, 0, 1)
-            let phase = p < 0.35 ? "Masks and tape-out" : (p < 0.7 ? "First silicon" : (p < 0.9 ? "Bring-up" : "Volume ramp"))
+        // 2. The chip: in production the day its architecture is found (no tape-out).
+        var tape = Stage(id: "tapeout", title: "Alien chip in production", symbol: "cpu", status: .locked, detail: "Comes with the first architecture.")
+        if let a = s.alienArchs.first(where: { $0.chipID == nil }) {
             tape.status = .active
-            tape.detail = "\(fabbing.name) v1 · \(phase)\(fabbing.fabRespins > 0 ? " · \(fabbing.fabRespins) respin\(fabbing.fabRespins == 1 ? "" : "s")" : "")"
-            tape.eta = eta(s, days: fabbing.fabDaysLeft)
-            tape.progress = p
-        } else if let a = arch, a.chipID == nil {
-            let cost = Xeno.fabCost(s)
-            tape.status = cost > s.cash ? .blocked : .ready
-            tape.detail = "\(a.name): \(Fmt.money(cost)), about \(Int(Xeno.fabDays(s, b) / 30) + 1) months. Respins get likelier the less of it you understand."
-            tape.blocker = cost > s.cash ? "Needs \(Fmt.money(cost)) in cash (you have \(Fmt.money(s.cash)))." : nil
-            tape.action = .tapeOut(a.id)
-            tape.actionTitle = "Tape out"
+            tape.detail = "\(a.name) v1 goes into production with the next day."
         } else if haveChip {
             tape.status = .done
             let chips = s.customChips.filter(\.alien)

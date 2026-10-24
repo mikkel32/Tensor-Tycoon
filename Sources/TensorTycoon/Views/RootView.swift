@@ -142,6 +142,7 @@ struct ScreenRouter: View {
         switch screen {
         case .dashboard: DashboardView()
         case .publicProgram: PublicProgramView()
+        case .publicFunding: PublicFundingView()
         case .operations: OperationsView()
         case .strategy: StrategyView()
         case .security: SecurityView()
@@ -218,7 +219,7 @@ struct Sidebar: View {
 
             ForEach(Screen.sections, id: \.0) { section in
                 Section(section.0) {
-                    ForEach(section.1.filter { $0 != .publicProgram || s.isPublicProgram }) { screen in
+                    ForEach(section.1.filter { $0.shown(in: s) }) { screen in
                         Label(screen.title, systemImage: screen.symbol)
                             .badge(badge(for: screen, s))
                             .tag(screen)
@@ -234,6 +235,7 @@ struct Sidebar: View {
         case .news: s.unreadNews
         case .dashboard: s.decisions.filter { !Alerts.isUrgent($0) }.count + s.briefings.prefix(1).filter { !$0.seen }.count
         case .publicProgram: s.publicProgram.probation ? 1 : s.decisions.filter { $0.kind == "public_review" }.count
+        case .publicFunding: Commissions.open(s).count + (s.isPublicProgram && PublicFunding.readyOn(s) == nil && PublicFunding.outcome(.modest, s).fraction >= 1 ? 1 : 0)
         case .rivals: s.rumors.prefix(30).filter { $0.kind == "imminent" && GameCalendar.daysBetween($0.date, s.date) <= 10 }.count
         case .training: s.runs.filter { $0.status == .running || $0.status == .postTraining }.count
         case .models: s.models.filter { !$0.released && !$0.retired }.count

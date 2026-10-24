@@ -33,6 +33,7 @@ enum PublicProgram {
         s.publicProgram.lastReview = s.date
         s.boardConfidence = 70
         fillMissions(&s)
+        s.publicProgram.evidence = PublicFunding.snapshot(s)
         note(&s, "Established under the \(mandate.title) mandate with two opening public missions.", good: true)
     }
 
@@ -173,6 +174,9 @@ enum PublicProgram {
             payTranche(&s)
         }
         if s.publicProgram.lastTranche == nil { s.publicProgram.lastTranche = s.date }
+        // 3.10: the funding case counts from the programme's founding (or, for older saves, from today).
+        if s.publicProgram.evidence == nil { s.publicProgram.evidence = PublicFunding.snapshot(s) }
+        Commissions.daily(&s)
         reviewIfNeeded(&s)
     }
 
@@ -188,6 +192,7 @@ enum PublicProgram {
         if s.publicProgram.oversight < 30 { s.publicProgram.probation = true }
         if s.publicProgram.oversight >= 45 { s.publicProgram.probation = false }
         s.boardConfidence = s.publicProgram.oversight
+        Commissions.monthly(&s)
         checkPromotion(&s)
     }
 
@@ -381,24 +386,6 @@ extension GameState {
         Stakeholders.move(&self, ["public": 2, "researchers": 1], "Public AI transparency report")
         PublicProgram.note(&self, "Transparency report published for \(Fmt.money(cost)): oversight +5 and public trust improved.", good: true)
         Sim.news(&self, "Public AI transparency report", "Model evaluations, mission delivery and programme spending are now on the public record.", .policy, good: true)
-        return nil
-    }
-
-    mutating func requestPublicSupplement() -> String? {
-        guard isPublicProgram else { return "Only a government AI branch can request an appropriation supplement." }
-        let year = GameCalendar.components(date).year
-        guard publicProgram.supplementalYear != year else { return "A supplemental request was already made this calendar year." }
-        guard publicProgram.oversight >= 35 else { return "Oversight will not consider a supplement below 35 confidence." }
-        let amount = PublicProgram.authorisedBudget(self) * 0.12 * clamp(publicProgram.oversight / 70, 0.6, 1.25)
-        publicProgram.supplementalYear = year
-        publicProgram.lastSupplemental = date
-        publicProgram.oversight = clamp(publicProgram.oversight - 6, 0, 100)
-        boardConfidence = publicProgram.oversight
-        cash += amount
-        month.revContracts += amount
-        publicProgram.totalReceived += amount
-        PublicProgram.note(&self, "Supplemental appropriation approved: \(Fmt.money(amount)); oversight -6.", good: true)
-        Sim.news(&self, "Supplemental appropriation approved", "\(Fmt.money(amount)) is released for urgent programme needs. Using this annual exception costs oversight confidence.", .policy, good: true)
         return nil
     }
 

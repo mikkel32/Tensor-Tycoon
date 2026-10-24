@@ -149,8 +149,13 @@ extension ScenarioHarness {
         r.expect("dies made before packaging started were kept for it, not dumped", kgdBeforePacking >= 0 && kgdBeforePacking < 0.05 * max(1, bankAtPackStart),
                  "bank \(Fmt.count(bankAtPackStart)) dies (target \(Fmt.count(targetAtPackStart))) when packaging started, \(Fmt.count(max(0, kgdBeforePacking))) sold as known-good die")
         let bankNow = pA.dieBank.reduce(0, +), target = Semis.dieBankTarget(pA, s)
-        r.expect("with packaging short, the bank holds about two months of packaging and sells the rest", bankNow <= target * 1.6 + 30.4 * Semis.dieUseDay(pA, s) && pA.kgdSold > 0,
-                 "bank \(Fmt.count(bankNow)) dies vs target \(Fmt.count(target)); \(Fmt.count(pA.kgdSold)) sold to other packagers")
+        // The surplus over the target sells at half of it a month, so while dies arrive faster than packaging takes them
+        // the bank settles about two months of that excess above the target (how much excess depends on the wafers run).
+        let use = Semis.dieUseDay(pA, s)
+        let inflow = Semis.sources(pA, s).reduce(0) { $0 + $1.wafersDay * $1.yield.diesPerWafer * $1.yield.good }
+        let settle = target + 2 * 30.4 * max(0, inflow - use)
+        r.expect("with packaging short, the bank holds about two months of packaging and sells the rest", bankNow <= max(target * 1.6, settle * 1.15) + 30.4 * use && pA.kgdSold > 0,
+                 "bank \(Fmt.count(bankNow)) dies vs target \(Fmt.count(target)), settling near \(Fmt.count(settle)) at today's flow; \(Fmt.count(pA.kgdSold)) sold to other packagers")
         let boundMonth = s.semi.history.first?.chips ?? 0
         // Fix the constraint: more packaging (a six-month contract, whose deposit comes back when it ends).
         let extra = (needSlots * 0.9 / 100).rounded() * 100

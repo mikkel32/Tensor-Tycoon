@@ -31,15 +31,11 @@ extension BalanceHarness {
                          Fmt.money(Economy.payrollYear(s)) as NSString, s.brand, Economy.loanQuotes(s).map(\.rate).min() ?? 0))
         }
 
-        print("\n== Board goals over 3 years (idle frontier lab, 2026) ==")
+        print("\n== Board confidence over 3 years (idle frontier lab, 2026; the board sets no goals) ==")
         var (s, _) = frontierLab(year: 2026, chips: 20_000)
         s.boardConfidence = 60
-        s.objectives = []
-        Board.refill(&s)
-        for o in s.objectives { print("  new: \(o.title) by \(o.deadline.gameShort) · reward \(Fmt.money(o.rewardCash)) + \(o.rewardPoints) CP") }
         for _ in 0..<(365 * 3) { Sim.advanceDay(&s); s.decisions.removeAll(); s.gameOver = nil }
-        print("  completed \(s.objectivesCompleted), failed \(s.objectivesFailed), confidence \(Int(s.boardConfidence)) (\(Board.mood(s.boardConfidence))), culture points \(s.culturePoints)")
-        for o in s.objectives.suffix(6) { print("  \(o.done ? "✓" : (o.failed ? "✗" : "…")) \(o.title) (\(Int(o.progress * 100))%)") }
+        print("  goals set \(s.objectives.count), confidence \(Int(s.boardConfidence)) (\(Board.mood(s.boardConfidence))), culture points \(s.culturePoints)")
 
         print("\n== Acquisitions (2026 frontier lab worth ~\(Fmt.money(frontierLab(year: 2026, chips: 1).0.valuation))) ==")
         var (lab, _) = frontierLab(year: 2026, chips: 50_000)

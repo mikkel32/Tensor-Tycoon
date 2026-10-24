@@ -63,7 +63,11 @@ enum Advisor {
 
         // Money
         if s.cash < 0 {
-            add("cash", .urgent, "exclamationmark.octagon.fill", "Out of cash", "Raise money, borrow, sell hardware or cut costs within \(60 - s.daysNegativeCash) days.", .funding)
+            add("cash", .urgent, "exclamationmark.octagon.fill", "Out of cash", s.isPublicProgram
+                ? "An emergency appropriation in \(max(0, 14 - s.daysNegativeCash)) days costs oversight and probation. Cut costs or ask for funding."
+                : "Raise money, borrow, sell hardware or cut costs within \(60 - s.daysNegativeCash) days.", .funding)
+        } else if s.isPublicProgram, let months = Treasury.runwayMonths(s), months < 4 {
+            add("runway", .urgent, "hourglass", "\(Fmt.trim(months, 1)) months of reserves", "Ask the committee for funding, or cut costs before the next quarterly budget.", .publicFunding)
         } else if let months = Treasury.runwayMonths(s), months < 4 {
             add("runway", .urgent, "hourglass", "\(Fmt.trim(months, 1)) months of runway", "Start a fundraise now — rounds take weeks.", .funding,
                 fix: s.raising || s.isPublic ? nil : .raise(0.15), "Start raising")
@@ -75,11 +79,7 @@ enum Advisor {
                 left == 0 ? "The first one expires today." : "The first one expires in \(left) day\(left == 1 ? "" : "s").", .funding)
         }
         if s.boardConfidence < 25 && !s.founderControls {
-            add("board", .urgent, "person.crop.circle.badge.exclamationmark", "The board is losing faith (\(Int(s.boardConfidence))/100)", "Hit a board goal or you may be replaced.", .strategy)
-        }
-        if let o = s.objectives.filter({ !$0.done && !$0.failed }).min(by: { $0.deadline < $1.deadline }),
-           GameCalendar.daysBetween(s.date, o.deadline) < 60, o.progress < 0.7 {
-            add("goal", .warning, o.kind.symbol, "Board goal due \(o.deadline.gameShort)", o.title, .strategy)
+            add("board", .urgent, "person.crop.circle.badge.exclamationmark", "The board is losing faith (\(Int(s.boardConfidence))/100)", "Grow revenue, keep up with the frontier and keep some runway, or you may be replaced.", .strategy)
         }
 
         // Inbox: offers waiting for an answer
@@ -349,9 +349,6 @@ enum Advisor {
         }
         if XenoScience.hasUndeciphered(s) && s.xenoStudyShare <= 0 {
             add("xeno-study", .info, "eye.trianglebadge.exclamationmark", "Nobody is studying your alien tech", "Put some research into decoding it: stronger effects, fewer anomalies.", .xeno)
-        }
-        if let a = s.alienArchs.first(where: { $0.chipID == nil && !$0.fabbing }) {
-            add("xeno-fab", .info, "atom", "\(a.name) chip isn't taped out", "It costs a few percent of a GPU to make.", .xeno)
         }
         let offers = s.alienArchs.reduce(0) { $0 + $1.offers.count }
         if offers > 0 {

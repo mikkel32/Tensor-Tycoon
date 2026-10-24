@@ -221,9 +221,7 @@ private struct FoundOrgCard: View {
     @State private var verification = 0.1
     @State private var funded = true
 
-    /// 3.9: before Hyperscaler a new organisation holds at most `orgAgentCap` agents.
-    private var cap: Int? { Progression.blocker(state, .bigOrgs) == nil ? nil : Progression.orgAgentCap }
-    private var agents: Int { max(1, min(Int(pow(10, agentsLog).rounded()), cap ?? .max)) }
+    private var agents: Int { max(1, Int(pow(10, agentsLog).rounded())) }
 
     var body: some View {
         let s = state
@@ -253,7 +251,7 @@ private struct FoundOrgCard: View {
                         if let m = models.first(where: { $0.id == modelID }) {
                             AgentProfile(model: m, state: s, kind: kind)
                         }
-                        TeamSizeControls(state: s, model: models.first { $0.id == modelID }, maxAgents: cap, agentsLog: $agentsLog, accelID: $accelID, chips: $chips)
+                        TeamSizeControls(state: s, model: models.first { $0.id == modelID }, agentsLog: $agentsLog, accelID: $accelID, chips: $chips)
                         OversightControls(state: s, models: models.filter { $0.id == modelID }, autonomy: $autonomy, oversight: $oversight, verification: $verification)
                         Toggle("Fund tools and equipment fully", isOn: $funded)
                             .help("Each organisation needs money for tools, data, lab time and equipment. Without it, output falls (up to 30% for labs and fabs).")
@@ -266,8 +264,6 @@ private struct FoundOrgCard: View {
         }
         .onAppear {
             if modelID == nil { modelID = models.first?.id }
-            // 3.9: leave room under the cap for the ~5% supervisor team the org chart suggests.
-            if cap != nil && agentsLog == 3 { agentsLog = log10(950) }
             let d = store.derived
             if accelID.isEmpty, let p = d.pools.max(by: { Double($0.free) * $0.accel.best < Double($1.free) * $1.accel.best }) {
                 accelID = p.accel.id
@@ -404,40 +400,25 @@ private struct TeamSizeControls: View {
     let state: GameState
     /// 3.9: the model the team will run, to size the chips when the hardware changes.
     var model: AIModel? = nil
-    /// 3.9: agents this team may have (the organisation cap before Hyperscaler); nil for no cap.
-    var maxAgents: Int? = nil
     @Binding var agentsLog: Double
     @Binding var accelID: String
     @Binding var chips: Int
 
     var body: some View {
         let d = store.derived
-        let top = maxAgents.map { log10(Double(max(1, $0))) } ?? 9
+        let top = 9.0
         VStack(alignment: .leading, spacing: 8) {
-            if let maxAgents, maxAgents < 10 {
-                Text(maxAgents < 1 ? "This organisation is at its \(Fmt.int(Progression.orgAgentCap))-agent limit." : "Room for \(Fmt.int(maxAgents)) more agents.")
-                    .font(.callout).foregroundStyle(.orange)
-            } else {
-                HStack {
-                    Text("Agents")
-                    Slider(value: Binding(get: { min(agentsLog, top) }, set: { agentsLog = $0 }), in: 1...max(1.01, top))
-                    Text(Fmt.int(Int(pow(10, min(agentsLog, top)).rounded()))).font(.callout.monospacedDigit().weight(.semibold)).frame(width: 120, alignment: .trailing)
-                }
-                HStack(spacing: 6) {
-                    ForEach([2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0].filter { $0 <= top + 1e-9 }, id: \.self) { v in
-                        Button(Fmt.count(pow(10, v), decimals: 0)) { agentsLog = v }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
-                    }
-                    if let maxAgents, top < 9 {
-                        Button("Max (\(Fmt.int(maxAgents)))") { agentsLog = top }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
-                    }
-                }
+            HStack {
+                Text("Agents")
+                Slider(value: Binding(get: { min(agentsLog, top) }, set: { agentsLog = $0 }), in: 1...top)
+                Text(Fmt.int(Int(pow(10, min(agentsLog, top)).rounded()))).font(.callout.monospacedDigit().weight(.semibold)).frame(width: 120, alignment: .trailing)
             }
-            if maxAgents != nil, let why = Progression.blocker(state, .bigOrgs) {
-                Text("\(why) Until then an organisation has at most \(Fmt.int(Progression.orgAgentCap)) agents across its teams.").font(.caption2).foregroundStyle(.secondary)
+            HStack(spacing: 6) {
+                ForEach([2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0], id: \.self) { v in
+                    Button(Fmt.count(pow(10, v), decimals: 0)) { agentsLog = v }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                }
             }
             HStack {
                 Picker("Hardware", selection: $accelID) {
@@ -652,11 +633,10 @@ private struct TeamBox: View {
         let s = state
         let model = s.models.first { $0.id == sw.modelID }
         let accel = HardwareCatalog.get(sw.accelID)
-        // 3.9: chips the team can have on the chosen hardware, and agents under the organisation cap.
+        // 3.9: chips the team can have on the chosen hardware.
         let accelID = accelChoice.isEmpty ? sw.accelID : accelChoice
         let maxChips = store.derived.free(accelID) + (sw.paused || accelID != sw.accelID ? 0 : sw.chips)
-        let cap: Int? = sw.orgID.flatMap { org in Progression.blocker(s, .bigOrgs) == nil ? nil : Progression.orgAgentCap - Progression.orgAgents(s, org) + sw.agents }
-        let agents = max(1, min(Int(pow(10, agentsLog).rounded()), cap ?? .max))
+        let agents = max(1, Int(pow(10, agentsLog).rounded()))
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
                 Image(systemName: sw.role.symbol).foregroundStyle(sw.role == .supervisors ? .orange : .accentColor)
@@ -694,12 +674,10 @@ private struct TeamBox: View {
             }
             .controlSize(.small)
             if editing {
-                let top = cap.map { log10(Double(max(1, $0))) } ?? 9
                 HStack {
-                    Slider(value: Binding(get: { min(agentsLog, top) }, set: { agentsLog = $0 }), in: 0...max(0.01, top))
+                    Slider(value: Binding(get: { min(agentsLog, 9) }, set: { agentsLog = $0 }), in: 0...9)
                     Text(Fmt.int(agents)).font(.caption.monospacedDigit()).frame(width: 60)
                 }
-                if let cap { Text("At most \(Fmt.int(cap)) agents in this team: the organisation's \(Fmt.int(Progression.orgAgentCap))-agent limit until Hyperscaler.").font(.caption2).foregroundStyle(.secondary) }
                 Picker("Model", selection: $modelChoice) {
                     ForEach(s.models.filter { !$0.retired || $0.id == sw.modelID }.sorted { Swarms.agenticX($0) > Swarms.agenticX($1) }) { m in
                         Text("\(m.name)\(m.retired ? " (retired)" : "") · \(Swarms.tier(Swarms.quality(m, s)))").tag(UUID?.some(m.id))
@@ -946,9 +924,7 @@ private struct AddTeamPanel: View {
         let s = state
         let b = store.derived.bonuses
         let models = s.models.filter { !$0.retired }.sorted { Swarms.agenticX($0) > Swarms.agenticX($1) }
-        // 3.9: before Hyperscaler the organisation's agents are capped; the controls stay inside what's left.
-        let cap: Int? = Progression.blocker(s, .bigOrgs) == nil ? nil : max(0, Progression.orgAgentCap - Progression.orgAgents(s, o.id))
-        let agents = max(1, min(Int(pow(10, agentsLog).rounded()), cap ?? .max))
+        let agents = max(1, Int(pow(10, agentsLog).rounded()))
         HStack(alignment: .top, spacing: 18) {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
@@ -969,7 +945,7 @@ private struct AddTeamPanel: View {
                     }
                 }
                 if let m = models.first(where: { $0.id == modelID }) { AgentProfile(model: m, state: s, kind: o.kind) }
-                TeamSizeControls(state: s, model: models.first { $0.id == modelID }, maxAgents: cap, agentsLog: $agentsLog, accelID: $accelID, chips: $chips)
+                TeamSizeControls(state: s, model: models.first { $0.id == modelID }, agentsLog: $agentsLog, accelID: $accelID, chips: $chips)
             }
             .frame(maxWidth: .infinity)
             VStack(alignment: .leading, spacing: 8) {
@@ -1000,9 +976,6 @@ private struct AddTeamPanel: View {
         .onAppear {
             if modelID == nil { modelID = models.first?.id }
             let d = store.derived
-            if let cap = Progression.blocker(s, .bigOrgs) == nil ? nil : max(1, Progression.orgAgentCap - Progression.orgAgents(s, o.id)), pow(10, agentsLog) > Double(cap) {
-                agentsLog = log10(Double(cap))
-            }
             if accelID.isEmpty, let p = d.pools.max(by: { Double($0.free) * $0.accel.best < Double($1.free) * $1.accel.best }) {
                 accelID = p.accel.id
                 chips = TeamSizeControls.fit(models.first { $0.id == modelID }, accelID: p.accel.id, agents: Int(pow(10, agentsLog).rounded()), s, d)

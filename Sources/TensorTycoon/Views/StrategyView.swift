@@ -17,7 +17,7 @@ struct StrategyView: View {
                     VStack(alignment: .trailing, spacing: 2) {
                         Text("Culture points").font(.caption).opacity(0.8)
                         Text("\(s.culturePoints)").font(TypeRamp.bannerMetric)
-                        Text("Earned from achievements, board goals and anniversaries").font(.caption2).opacity(0.8)
+                        Text(s.isPublicProgram ? "Earned from achievements, public missions and anniversaries" : "Earned from achievements and anniversaries").font(.caption2).opacity(0.8)
                     }
                 }
             }
@@ -36,7 +36,7 @@ struct StrategyView: View {
             }
 
             VictoryCard(state: s)
-            if s.isPublicProgram { PublicMandateCard(state: s) } else { ObjectivesCard(state: s) }
+            if s.isPublicProgram { PublicMandateCard(state: s) }
             CultureTree(state: s)
             TraitEffectsCard(traits: s.traits)
         }
@@ -140,61 +140,12 @@ private struct BoardCard: View {
             Meter(value: c / 100, tint: tint, height: 8)
             SpecRow(label: "Effect on round pricing", value: "×\(Fmt.trim(Board.valuationFactor(s), 2))")
             SpecRow(label: "Your stake", value: Fmt.pct(s.founderStake))
-            SpecRow(label: "Goals met / missed", value: "\(s.objectivesCompleted) / \(s.objectivesFailed)")
             if !s.founderControls && c < 30 {
                 Label("Below 20 confidence the board may move to replace you.", systemImage: "exclamationmark.triangle.fill")
                     .font(.caption).foregroundStyle(.red)
             }
-            Text("Confidence follows revenue growth, how close you are to the frontier and your runway. Hitting goals helps most.")
+            Text("Confidence follows revenue growth, how close you are to the frontier and your runway. The board sets no goals; run the company your way.")
                 .font(.caption2).foregroundStyle(.tertiary)
-        }
-    }
-}
-
-private struct ObjectivesCard: View {
-    @Environment(GameStore.self) private var store
-    let state: GameState
-
-    var body: some View {
-        let s = state
-        let active = s.objectives.filter { !$0.done && !$0.failed }
-        let closed = s.objectives.filter { $0.done || $0.failed }.suffix(5).reversed()
-        Card {
-            CardHeader(title: "Board goals", symbol: "flag.checkered", subtitle: "Hit them for a milestone tranche, culture points and board confidence. Checked at month end.") { HelpButton(term: .board) }
-            if active.isEmpty {
-                Text("The board will set new goals at the end of the month.").font(.callout).foregroundStyle(.secondary)
-            }
-            ForEach(active) { o in
-                HStack(alignment: .center, spacing: 12) {
-                    Image(systemName: o.kind.symbol).font(.title3).foregroundStyle(Color.accentColor).frame(width: 28)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(o.title).font(.callout.weight(.semibold))
-                        Text("\(o.detail) Due \(o.deadline.gameShort).").font(.caption).foregroundStyle(.secondary)
-                        Meter(value: Board.progress(o, s), tint: .accentColor, height: 6)
-                    }
-                    VStack(alignment: .trailing, spacing: 2) {
-                        Text("+\(Fmt.money(o.done || o.failed ? o.rewardCash : Board.reward(o, s)))").font(.callout.monospacedDigit().weight(.semibold)).foregroundStyle(.green)
-                        Text("+\(o.rewardPoints) CP · +\(Int(o.rewardConfidence)) confidence").font(.caption2).foregroundStyle(.secondary)
-                        Button("Ask for another") { store.act("New goal set") { $0.rerollObjective(o.id) } }
-                            .buttonStyle(.link).font(.caption)
-                            .disabled(s.rerollReadyOn != nil)
-                            .help(s.rerollReadyOn.map { "The board just rewrote a goal — ask again after \($0.gameShort)." } ?? "Costs 4 board confidence. Once every 60 days.")
-                    }
-                    .frame(width: 200, alignment: .trailing)
-                }
-                .padding(.vertical, 2)
-            }
-            if !closed.isEmpty {
-                Divider()
-                ForEach(Array(closed)) { o in
-                    HStack {
-                        Image(systemName: o.done ? "checkmark.circle.fill" : "xmark.circle.fill").foregroundStyle(o.done ? .green : .red)
-                        Text(o.title).font(.caption)
-                        Spacer()
-                        Text(o.deadline.gameShort).font(.caption2).foregroundStyle(.tertiary)
-                    }
-                }
-            }
         }
     }
 }

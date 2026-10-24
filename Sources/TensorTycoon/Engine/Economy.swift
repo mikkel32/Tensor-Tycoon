@@ -181,9 +181,13 @@ enum Economy {
         return min(0.6, 0.2 * deal)
     }
 
+    /// Consumer and workstation cards sell through retail and distributors, so an order is limited by your power, space
+    /// and cash rather than a vendor allocation.
+    static let retailOrderCap = 1_000_000
+
     /// Max chips you can order now: your share of the vendor's quarterly output, less what you ordered in the last 90 days.
     static func allocationLimit(_ a: Accelerator, _ s: GameState) -> Int {
-        if a.cls == .consumer || a.cls == .workstation { return 2_000 }
+        if a.cls == .consumer || a.cls == .workstation { return retailOrderCap }
         if a.vendor == .custom { return Semis.isSemiChip(a.id) ? Semis.available(a.id, s) : 20_000_000 }
         // 3.8: the window is at least the chip's lead time, so chips still in transit count against the allowance.
         let cutoff = GameCalendar.addDays(s.date, -max(90, leadTimeDays(a, s)))

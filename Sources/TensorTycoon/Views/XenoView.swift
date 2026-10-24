@@ -393,29 +393,9 @@ private struct AlienArchCard: View {
                 Button("In the store") { store.focusAccelID = chip.id; store.open(.hardware) }
                     .buttonStyle(.link)
             }
-        } else if a.fabbing {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text("Taping out the \(a.name) chip").font(.callout.weight(.semibold))
-                    if a.fabRespins > 0 { Pill(text: "\(a.fabRespins) respin\(a.fabRespins == 1 ? "" : "s")", color: .orange) }
-                    Spacer()
-                    Text("~\(Int(a.fabDaysLeft / 30) + 1) months left").font(.caption.monospacedDigit())
-                }
-                Meter(value: 1 - a.fabDaysLeft / max(1, a.fabTotal > 0 ? a.fabTotal : Xeno.fabDays(s, store.derived.bonuses)), tint: .purple, height: 8)
-            }
         } else {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("The chip exists only as RTL").font(.callout.weight(.semibold))
-                    Text("Tape it out for \(Fmt.money(Xeno.fabCost(s))) — about \(Int(Xeno.fabDays(s, store.derived.bonuses) / 30) + 1) months. A chip-design swarm makes it faster; the better you understand it, the fewer respins.\(s.alienFab.exists ? "" : " Your first alien chip opens your own fab line.")")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                Spacer()
-                Button("Tape out") { store.act("Tape-out started") { $0.fabAlienChip(a.id) } }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(Xeno.fabCost(s) > s.cash)
-                    .help(Xeno.fabCost(s) > s.cash ? "Needs \(Fmt.money(Xeno.fabCost(s))) in cash." : "Send the swarm's RTL to the foundry.")
-            }
+            Text("The \(a.name) chip goes into production with the next day\(s.alienFab.exists ? "" : ", and opens your own fab line").")
+                .font(.callout).foregroundStyle(.secondary)
         }
     }
 
