@@ -14,7 +14,7 @@ extension ScenarioHarness {
         let start = s.date
         let t0 = ProcessInfo.processInfo.systemUptime
         var subsTried: [String] = [], forks: [String] = [], partnerships: [String] = [], campus: UUID? = nil
-        var worstJump = 1.0, jumpMonth = "", roundJump = 1.0, peakAgents = 0
+        var worstJump = 1.0, jumpMonth = "", roundJump = 1.0, roundDetail = "", peakAgents = 0
 
         let kinds: [(SubsidiaryKind, String)] = [(.robotics, "fr"), (.consulting, "us"), (.energy, "fr"), (.cloud, "us")]
         for _ in 0..<(7 * 12) where s.gameOver == nil {
@@ -23,7 +23,14 @@ extension ScenarioHarness {
             if before > 1e8 && s.valuation > 0 {
                 // A priced round or the IPO re-marks the company at once; between them the mark moves gradually.
                 let jump = max(s.valuation / before, before / s.valuation)
-                if s.rounds.count > rounds { roundJump = max(roundJump, jump) }
+                if s.rounds.count > rounds, let r = s.rounds.last {
+                    // The round's own price against the mark before it; the mark can keep drifting after the round.
+                    let remark = max(r.preMoney / before, before / r.preMoney)
+                    if remark > roundJump {
+                        roundJump = remark
+                        roundDetail = "\(r.name) \(r.date.gameShort): mark \(Fmt.money(before)) a month before, pre-money \(Fmt.money(r.preMoney))"
+                    }
+                }
                 else if jump > worstJump { worstJump = jump; jumpMonth = s.date.gameMonth }
             }
             peakAgents = max(peakAgents, s.orgs.reduce(0) { $0 + Progression.orgAgents(s, $1.id) })
@@ -124,7 +131,7 @@ extension ScenarioHarness {
         r.expect("every month's books reconcile", worst.map { abs($0.amount) <= Books.tolerance(s.cash) } ?? true,
                  worst.map { "worst \(Fmt.money($0.amount)) in \($0.month.gameMonth)" } ?? "none unexplained")
         r.expect("between rounds, valuation moves sanely month to month (under ×2)", worstJump < 2, "largest move ×\(Fmt.trim(worstJump, 2)) (\(jumpMonth))")
-        r.expect("a priced round re-marks at most 6×", roundJump <= 6.05, "largest re-mark ×\(Fmt.trim(roundJump, 2))")
+        r.expect("a priced round re-marks at most 6× (pre-money against the mark before it)", roundJump <= 6.05, "largest re-mark ×\(Fmt.trim(roundJump, 2))\(roundDetail.isEmpty ? "" : " (\(roundDetail))")")
         r.expect("revenue lines are never negative", s.history.allSatisfy { $0.revenue >= 0 && $0.revAPI >= 0 && $0.revEnterprise >= 0 })
         r.expect("subsidiary books are finite", s.corp.subs.allSatisfy { $0.cash.isFinite && $0.valuation.isFinite })
 
