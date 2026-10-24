@@ -32,6 +32,7 @@ enum HarnessCLI {
         }
         // 3.8: play a real save forward day by day (see ReplayHarness).
         if let r = rest(after: "--replay-save") { return ReplayHarness.main(r) }
+        if let r = rest(after: "--public-check") { return PublicProgramHarness.main(r) }   // government AI-branch careers
         if let a = rest(after: "--founding") { return FoundingHarness.main(a) }   // 3.9: founding contracts by era and country
         if let r = rest(after: "--endings-check") { return EndingsHarness.main(r) }   // 3.9: endings and legacy
         if let a = rest(after: "--challenges") { return ChallengeHarness.main(a) }   // 3.9: grand challenges and open source

@@ -51,5 +51,7 @@ jobs:
         run: .build/release/TensorTycoon --ventures 2026
       - name: Strategy check (traits, board, acquisitions, security, policy)
         run: .build/release/TensorTycoon --strategy 2022
+      - name: Public programme check (government AI branch, missions, appropriations)
+        run: .build/release/TensorTycoon --public-check 4 | grep -v "^  ✓"
       - name: Balance playthrough
         run: .build/release/TensorTycoon --simulate 2022 | tail -60

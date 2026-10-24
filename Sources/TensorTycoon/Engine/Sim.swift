@@ -608,6 +608,7 @@ enum Sim {
     // MARK: - Solvency
 
     static func checkSolvency(_ s: inout GameState) {
+        if s.isPublicProgram { PublicProgram.solvency(&s); return }   // appropriations, not creditors
         if s.cash < 0 {
             s.daysNegativeCash += 1
             if s.daysNegativeCash == 1 {

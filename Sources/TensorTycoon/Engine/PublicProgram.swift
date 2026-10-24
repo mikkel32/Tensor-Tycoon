@@ -27,7 +27,7 @@ enum PublicProgram {
         s.publicProgram.active = true
         s.publicProgram.mandate = mandate
         s.publicProgram.level = 1
-        s.publicProgram.annualBudget = max(8_000_000, s.cash * 4)
+        s.publicProgram.annualBudget = max(12_000_000, s.cash * 4)
         s.publicProgram.oversight = 70
         s.publicProgram.lastTranche = s.date
         s.publicProgram.lastReview = s.date
@@ -45,7 +45,8 @@ enum PublicProgram {
         case .nationalSecurity: orders = [.security, .train, .evaluate, .safety, .research, .release]
         }
         let active = Set(p.missions.filter { $0.status == .active }.map(\.kind))
-        guard let kind = (0..<orders.count).lazy.map({ orders[(sequence + $0) % orders.count] }).first(where: { !active.contains($0) }) else { return nil }
+        guard let kind = (0..<orders.count).lazy.map({ orders[(sequence + $0) % orders.count] })
+            .first(where: { !active.contains($0) && feasible($0, s) }) else { return nil }
         let id = "public-\(sequence + 1)"
         let level = clamp(p.level, 1, 4)
         let frontier = Macro.frontier(s.year)
@@ -90,12 +91,13 @@ enum PublicProgram {
             title = "Publish open weights"
             detail = "Release a new model with open weights so outside researchers can inspect and build on the work."
         case .safety:
-            target = min(95, 55 + Double(level) * 5)
+            // A step up from where the programme is today (era baselines differ widely), steeper at higher levels.
+            target = min(95, (s.safetyScore + 6 + 2 * Double(level)).rounded())
             days = 210
             title = "Raise the safety baseline to \(Int(target))"
             detail = "Reach a programme-wide safety score of \(Int(target)) before the deadline."
         case .security:
-            target = Double(min(4, level + 1))
+            target = Double(min(5, s.security.rawValue + 1))
             days = 240
             title = "Accredit security level \(Int(target))"
             detail = "Raise the programme's security level to SL\(Int(target)) and protect public AI infrastructure."
@@ -104,6 +106,18 @@ enum PublicProgram {
         return PublicMission(id: id, kind: kind, title: title, detail: detail, issued: s.date,
                              due: GameCalendar.addDays(s.date, days), target: target, baseline: baseline,
                              capabilityMin: capability, researchID: researchID, reward: reward)
+    }
+
+    /// Missions the programme can actually deliver today: evaluations need Dangerous-Capability Evals researched, and a
+    /// security mission needs a next level that exists and can be built this year (SL5 not before 2026).
+    static func feasible(_ kind: PublicMissionKind, _ s: GameState) -> Bool {
+        switch kind {
+        case .evaluate: return s.researched.contains("evals_rsp")
+        case .security:
+            guard let next = SecurityLevel(rawValue: s.security.rawValue + 1) else { return false }
+            return next != .sl5 || s.year >= 2026
+        default: return true
+        }
     }
 
     static func fillMissions(_ s: inout GameState) {
@@ -258,6 +272,41 @@ enum PublicProgram {
             note(&s, "Programme reorganised: oversight +7 and both missions replaced.", good: nil)
         }
         s.boardConfidence = s.publicProgram.oversight
+    }
+
+    /// A public programme isn't repossessed by creditors. When its cash runs out the oversight committee covers the
+    /// deficit plus a quarter's spending with an emergency appropriation, at a price: −15 oversight and probation. A
+    /// second rescue within a year, or one asked for with oversight under 15, winds the programme up instead.
+    static func solvency(_ s: inout GameState) {
+        guard s.cash < 0 else {
+            s.daysNegativeCash = 0
+            return
+        }
+        s.daysNegativeCash += 1
+        if s.daysNegativeCash == 1 {
+            Sim.news(&s, "⚠️ \(s.companyName) is out of cash", "Payroll and bills exceed the appropriation. The oversight committee will step in within two weeks: cut costs or deliver a mission first, because an emergency appropriation costs confidence and puts the programme on probation.",
+                     .policy, image: "gov_capitol", important: true, good: false)
+        }
+        guard s.daysNegativeCash >= 14 else { return }
+        let recent = s.publicProgram.lastRescue.map { GameCalendar.daysBetween($0, s.date) < 365 } ?? false
+        if recent || s.publicProgram.oversight < 15 {
+            let why = recent ? "a second emergency appropriation within a year" : "oversight confidence of \(Int(s.publicProgram.oversight))/100"
+            Endings.end(&s, .bankrupt, "Bankrupt on \(s.date.gameShort): after \(why), the oversight committee wound up \(s.companyName). Its models and staff moved to other public agencies.")
+            return
+        }
+        let amount = -s.cash + authorisedBudget(s) / 4
+        s.cash += amount
+        s.month.revContracts += amount
+        s.publicProgram.totalReceived += amount
+        s.publicProgram.rescues += 1
+        s.publicProgram.lastRescue = s.date
+        s.publicProgram.oversight = clamp(s.publicProgram.oversight - 15, 0, 100)
+        s.publicProgram.probation = true
+        s.boardConfidence = s.publicProgram.oversight
+        s.daysNegativeCash = 0
+        note(&s, "Emergency appropriation of \(Fmt.money(amount)) after running out of cash: oversight −15 and probation. A second one within a year winds the programme up.", good: false)
+        Sim.news(&s, "Emergency appropriation: \(Fmt.money(amount))", "The oversight committee covered \(s.companyName)'s deficit and a quarter's spending. Confidence falls by 15 and the programme is on probation; a second rescue within a year would end it.",
+                 .policy, image: "gov_capitol", important: true, good: false)
     }
 
     static func checkPromotion(_ s: inout GameState) {
