@@ -49,7 +49,7 @@ struct PublicProgramView: View {
                         HStack {
                             Text("\(Int(p.oversight))/100").font(.title2.weight(.bold).monospacedDigit())
                             Spacer()
-                            if p.probation { Pill("Probation", tone: .bad) } else { Pill("Active oversight", tone: .good) }
+                            if p.probation { Pill(text: "Probation", color: .red) } else { Pill(text: "Active oversight", color: .green) }
                         }
                         Meter(value: p.oversight / 100, tint: p.oversight >= 60 ? .green : p.oversight >= 35 ? .orange : .red, height: 9)
                         Text("Safety, delivery streaks, cash, public trust and transparency move confidence. Reviews begin below 45.")
@@ -74,7 +74,7 @@ struct PublicProgramView: View {
                             store.act("Supplemental appropriation approved") { $0.requestPublicSupplement() }
                         }
                         .help("Once per calendar year. Releases 12% of annual authorisation, adjusted for oversight, and costs 6 confidence.")
-                        Text(p.lastTransparency.map { "Last transparency report \($0.gameShort)." } : "No transparency report published yet.")
+                        Text(p.lastTransparency.map { "Last transparency report \($0.gameShort)." } ?? "No transparency report published yet.")
                             .font(.caption2).foregroundStyle(.secondary)
                     }
                 }

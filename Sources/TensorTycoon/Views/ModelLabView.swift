@@ -254,7 +254,7 @@ struct ModelLabView: View {
                 Image(systemName: "shippingbox.and.arrow.backward.fill").font(.title2).foregroundStyle(.indigo)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(selected.map { "Blueprint loaded: \($0.name)" } ?? "Reusable training blueprints").font(.callout.weight(.semibold))
-                    Text(selected.map { "Launching keeps its supervision policy and links the measured outcome. Edit the current form, then update it or save a new variant." }
+                    Text(selected.map { _ in "Launching keeps its supervision policy and links the measured outcome. Edit the current form, then update it or save a new variant." }
                          ?? "Save the complete design and launch settings. A blueprint can be launched repeatedly from Training without consuming draft IDs while SwiftUI draws.")
                         .font(.caption).foregroundStyle(.secondary)
                 }

@@ -42,7 +42,7 @@ struct BlueprintLibrary: View {
                                         .help("Delete blueprint; existing runs and measured outcomes are kept")
                                 }
                                 .controlSize(.small)
-                                Text(bp.lastUsed.map { "Last used \($0.gameShort)" } : "Not launched yet")
+                                Text(bp.lastUsed.map { "Last used \($0.gameShort)" } ?? "Not launched yet")
                                     .font(.caption2).foregroundStyle(.tertiary)
                             }
                         }
@@ -219,7 +219,7 @@ struct TrainingOutcomeInsights: View {
     var body: some View {
         let recent = Array(state.trainingOutcomes.suffix(6).reversed())
         Card {
-            CardHeader(title: "Measured outcomes → better forecasts", symbol: "chart.xyaxis.line",
+            CardHeader("Measured outcomes → better forecasts", symbol: "chart.xyaxis.line",
                        subtitle: "Bounded evidence from completed full runs · incident and learning-rate effects removed from recipe residuals")
             if recent.isEmpty {
                 Text("Complete a full training run to record its actual capability against the launch forecast. One result is shown here but never moves a forecast; correction starts at two comparable runs and uncertainty falls only after three.")

@@ -187,12 +187,13 @@ enum PublicProgram {
         s.publicProgram.oversight = clamp(s.publicProgram.oversight + 4, 0, 100)
         s.cash += mission.reward
         s.month.revContracts += mission.reward
+        s.publicProgram.totalReceived += mission.reward
         s.culturePoints += 1
         note(&s, "Mission delivered: \(mission.title). \(Fmt.money(mission.reward)) results payment and +1 culture point.", good: true)
         Stakeholders.move(&s, ["public": 1.5, "researchers": mission.kind == .openWeights || mission.kind == .research ? 1 : 0],
                           "Public mission delivered: \(mission.title)")
         Sim.news(&s, "Public mission delivered", "\(mission.title). Oversight releases \(Fmt.money(mission.reward)) in results funding; confidence rises and the programme earns a culture point.",
-                 .policy, image: "capitol", important: true, good: true)
+                 .policy, image: "gov_capitol", important: true, good: true)
         checkPromotion(&s)
     }
 
@@ -213,10 +214,11 @@ enum PublicProgram {
         s.publicProgram.lastTranche = s.date
         s.cash += amount
         s.month.revContracts += amount
+        s.publicProgram.totalReceived += amount
         note(&s, "Quarterly appropriation received: \(Fmt.money(amount)).", good: true)
         Sim.news(&s, "Quarterly appropriation: \(Fmt.money(amount))",
                  "The \(levelNames[clamp(s.publicProgram.level, 1, 4)]) receives its quarterly tranche. Delivery, oversight, existing reserves and probation all affect the release.",
-                 .policy, image: "capitol", good: true)
+                 .policy, image: "gov_capitol", good: true)
     }
 
     static func reviewIfNeeded(_ s: inout GameState) {
@@ -225,7 +227,7 @@ enum PublicProgram {
         s.publicProgram.lastReview = s.date
         Events.addDecision(&s, kind: "public_review", title: "Oversight review of \(s.companyName)",
                            body: "Confidence is \(Int(s.publicProgram.oversight))/100. The committee wants a credible response before the next appropriation.",
-                           image: "capitol",
+                           image: "gov_capitol",
                            options: [DecisionOption(label: "Accept an independent audit", detail: "Oversight +10; active mission deadlines move out 30 days while the audit runs."),
                                      DecisionOption(label: "Commit to a delivery plan", detail: "Oversight +5 immediately; no deadline extension."),
                                      DecisionOption(label: "Reorganise the programme", detail: "Oversight +7; replace both active missions and lose 5 days on their deadlines.")])
@@ -273,7 +275,7 @@ enum PublicProgram {
         note(&s, "Promoted to \(levelNames[next]): larger authorisation, infrastructure support and +2 culture points.", good: true)
         Sim.news(&s, "Programme expanded: \(levelNames[next])",
                  "After \(required) delivered missions, the mandate expands. Annual authorisation is now \(Fmt.money(authorisedBudget(s))); new compute and facilities support arrives.",
-                 .policy, image: "capitol", important: true, good: true)
+                 .policy, image: "gov_capitol", important: true, good: true)
     }
 
     static func grantSupport(_ s: inout GameState, level: Int) {
@@ -345,6 +347,7 @@ extension GameState {
         boardConfidence = publicProgram.oversight
         cash += amount
         month.revContracts += amount
+        publicProgram.totalReceived += amount
         PublicProgram.note(&self, "Supplemental appropriation approved: \(Fmt.money(amount)); oversight -6.", good: true)
         Sim.news(&self, "Supplemental appropriation approved", "\(Fmt.money(amount)) is released for urgent programme needs. Using this annual exception costs oversight confidence.", .policy, good: true)
         return nil

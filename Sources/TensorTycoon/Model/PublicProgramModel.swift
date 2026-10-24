@@ -97,4 +97,6 @@ struct PublicProgramState: Codable, Hashable, DefaultValue {
     @D var lastReroll: Date? = nil
     @D var logSequence: Int = 0
     @D var history: [PublicAuditRecord] = []
+    /// Appropriations, results payments and supplements received over the programme's life.
+    @D var totalReceived: Double = 0
 }
