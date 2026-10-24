@@ -11,6 +11,8 @@ struct NewGameSettings {
     var doctrine: LabDoctrine = .balanced
     var background: FounderBackground = .researcher
     var signature: SignatureSecret = .cortex
+    var origin: FoundingOrigin = .startup
+    var publicMandate: PublicMandate = .digitalServices
     // 3.5: founding kit
     var kit: [String] = []
     var kitMode: KitMode = .standard
@@ -38,6 +40,12 @@ enum NewGame {
     }
 
     private static func build(_ settings: NewGameSettings, seed: UInt64) -> GameState {
+        var settings = settings
+        let publicStart = settings.origin == .government
+        if publicStart {
+            // Public institutions cannot take private money or ownership cards through the founding-kit back door.
+            settings.kit = settings.kit.filter { FoundingKit.byID[$0]?.category != .money }
+        }
         let era = Era.all.first { $0.id == settings.eraID } ?? Era.all[2]
         let start = era.start
         var s = GameState(companyName: settings.companyName.isEmpty ? "Tensor Labs" : settings.companyName,
@@ -100,44 +108,72 @@ enum NewGame {
             if a.available <= start.ym { s.availableHardware.insert(a.id) }
         }
 
-        // The garage
-        let garage = Site(name: "\(s.founderName)'s garage", kind: .garage, locationID: HQ.garageLocation(settings), capacityKW: 4,
+        if publicStart { s.cash *= 0.84 }   // a smaller opening float, followed by recurring appropriations
+
+        // The garage, or a small public AI office with a more useful opening cluster.
+        let garage = Site(name: publicStart ? "\(s.companyName) Public AI Office" : "\(s.founderName)'s garage",
+                          kind: publicStart ? .office : .garage, locationID: HQ.garageLocation(settings), capacityKW: publicStart ? 48 : 4,
                           cooling: .air, powerDeal: .grid, opened: start, ready: start, capex: 0, monthlyFee: 0)
         s.sites = [garage]
 
         // Starter hardware appropriate for the era
-        let starter: (String, Int)
+        var starter: (String, Int)
         switch era.id {
         case "2017": starter = ("p40", 4)
         case "2020": starter = ("titan_v", 4)
         case "2022": starter = ("rtx3090", 4)
         default: starter = ("rtx5090", 4)
         }
+        if publicStart { starter.1 = 16 }
         if let a = HardwareCatalog.get(starter.0) {
             s.owned = [OwnedBatch(accelID: a.id, count: starter.1, siteID: garage.id, purchased: start, unitCost: a.price ?? 1000)]
         }
 
-        // Founding team
-        s.employees = [
-            Employee(name: "\(s.rng.pick(NameBank.first)) \(s.rng.pick(NameBank.last))", role: .researcher, skill: 58,
-                     salary: (Macro.salary(.researcher, y) * 0.8 * HQ.salaryFactor(s) / 1000).rounded() * 1000, morale: 85, hired: start, equity: 1.5),
-            Employee(name: "\(s.rng.pick(NameBank.first)) \(s.rng.pick(NameBank.last))", role: .mlEngineer, skill: 52,
-                     salary: (Macro.salary(.mlEngineer, y) * 0.8 * HQ.salaryFactor(s) / 1000).rounded() * 1000, morale: 85, hired: start, equity: 1.0),
-        ]
+        // Founding team. Private starts keep their original draws and order; public servants receive salaries, not equity.
+        if publicStart {
+            func civilServant(_ role: Role, _ skill: Double) -> Employee {
+                Employee(name: "\(s.rng.pick(NameBank.first)) \(s.rng.pick(NameBank.last))", role: role, skill: skill,
+                         salary: (Macro.salary(role, y) * 0.85 * HQ.salaryFactor(s) / 1000).rounded() * 1000,
+                         morale: 85, hired: start, equity: 0)
+            }
+            s.employees = [civilServant(.researcher, 58), civilServant(.mlEngineer, 52),
+                           civilServant(.data, 50), civilServant(.safety, 54)]
+        } else {
+            s.employees = [
+                Employee(name: "\(s.rng.pick(NameBank.first)) \(s.rng.pick(NameBank.last))", role: .researcher, skill: 58,
+                         salary: (Macro.salary(.researcher, y) * 0.8 * HQ.salaryFactor(s) / 1000).rounded() * 1000, morale: 85, hired: start, equity: 1.5),
+                Employee(name: "\(s.rng.pick(NameBank.first)) \(s.rng.pick(NameBank.last))", role: .mlEngineer, skill: 52,
+                         salary: (Macro.salary(.mlEngineer, y) * 0.8 * HQ.salaryFactor(s) / 1000).rounded() * 1000, morale: 85, hired: start, equity: 1.0),
+            ]
+        }
         People.refreshCandidates(&s)
 
         FoundingKit.preSeed(&s, settings)   // 3.5: founding kit
-        // Seed round that funded the starting cash
-        s.founderShares = 9_000_000
-        s.employeePoolShares = 1_000_000
-        let seedPre = Macro.seedValuation(y) * 0.6 * HQ.investorFactor(s, value: 0)
+        // Seed round for a startup; an appropriated public programme has no cap table or seed investor.
         let raised = s.cash
-        let newShares = 10_000_000 * raised / seedPre
-        let lead = s.rng.pick(NameBank.investors.filter { !$0.contains("strategic") && !$0.contains("Sovereign") && !$0.contains("Mega") })
-        s.holdings = [Holding(name: lead, shares: newShares)]
-        s.rounds = [FundingRound(name: "Seed", date: start, amount: raised, preMoney: seedPre,
-                                 lead: lead, percent: raised / (seedPre + raised))]
-        s.lastRaise = start
+        var seedPre = 0.0
+        var lead = ""
+        if publicStart {
+            s.founderShares = 1
+            s.employeePoolShares = 0
+            s.holdings = []
+            s.rounds = []
+            s.lastRaise = nil
+            s.founderCash = 0
+            s.isPublic = false
+            s.publicShares = 0
+            seedPre = s.cash * 3   // institutional scale only; never a personal-wealth or empire-victory input
+        } else {
+            s.founderShares = 9_000_000
+            s.employeePoolShares = 1_000_000
+            seedPre = Macro.seedValuation(y) * 0.6 * HQ.investorFactor(s, value: 0)
+            let newShares = 10_000_000 * raised / seedPre
+            lead = s.rng.pick(NameBank.investors.filter { !$0.contains("strategic") && !$0.contains("Sovereign") && !$0.contains("Mega") })
+            s.holdings = [Holding(name: lead, shares: newShares)]
+            s.rounds = [FundingRound(name: "Seed", date: start, amount: raised, preMoney: seedPre,
+                                     lead: lead, percent: raised / (seedPre + raised))]
+            s.lastRaise = start
+        }
         s.cloudCredits = 0
 
         BenchmarkCatalog.resetCache()
@@ -156,7 +192,13 @@ enum NewGame {
             s.researched.insert("custom_silicon")
             s.researchQueue.removeAll { $0 == "custom_silicon" }
         }
-        Board.refill(&s)
+        if publicStart {
+            PublicProgram.found(&s, mandate: settings.publicMandate)
+            // The first candidate pool is drawn before the programme is activated; public appointments never carry equity.
+            for i in s.candidates.indices { s.candidates[i].equity = 0 }
+        } else {
+            Board.refill(&s)
+        }
         Cast.seed(&s)   // 3.4: the people of AI
         s.market.interestRate = Macro.historicalRate(y) ?? 3.4
         World.bootstrap(&s)   // 3.4: the world as it stands on the start date
@@ -167,8 +209,13 @@ enum NewGame {
         Sim.news(&s, "Project \(settings.signature.codename): your founding secret",
                  "\(settings.signature.blurb) Level 1 is already working for you; put research into it to unlock levels 2–5.",
                  .research, image: "wafer_closeup", important: true, good: true)
-        Sim.news(&s, "Welcome to \(s.companyName)", "\(era.blurb) You have \(Fmt.money(s.cash)) from your \(s.rounds[0].name.lowercased()) round led by \(lead), a garage with \(starter.1)× \(HardwareCatalog.get(starter.0)?.name ?? "GPUs") and a tiny team. Build something people want.",
-                 .company, image: era.image, important: true, good: true)
+        if publicStart {
+            Sim.news(&s, "Welcome to public service", "\(era.blurb) \(s.companyName) begins as a \(PublicProgram.levelNames[1].lowercased()) under the \(settings.publicMandate.title) mandate, with \(Fmt.money(s.cash)) in opening reserves, \(starter.1)× \(HardwareCatalog.get(starter.0)?.name ?? "GPUs") and a four-person public AI team. Deliver missions to earn appropriations and expand the programme.",
+                     .policy, image: era.image, important: true, good: true)
+        } else {
+            Sim.news(&s, "Welcome to \(s.companyName)", "\(era.blurb) You have \(Fmt.money(s.cash)) from your \(s.rounds[0].name.lowercased()) round led by \(lead), a garage with \(starter.1)× \(HardwareCatalog.get(starter.0)?.name ?? "GPUs") and a tiny team. Build something people want.",
+                     .company, image: era.image, important: true, good: true)
+        }
         for e in EventCatalog.historical where e.date < start && e.date > GameCalendar.addDays(start, -120) {
             s.news.append(NewsItem(date: e.date, title: e.title, body: e.body, category: e.category, image: ImagePicker.illustrate(e.image, title: e.title, category: e.category)))
         }
@@ -180,7 +227,7 @@ enum NewGame {
         }
         Legacy.apply(&s, settings.legacyPerks)   // 3.9: New Game+ legacy perks
         HQ.found(&s)   // 3.5
-        FoundingContracts.found(&s)   // 3.9: the founding government award
+        if !publicStart { FoundingContracts.found(&s) }   // a public branch already has its own founding mandate
         Books.open(&s)   // 3.8: the first month reconciles against the cash the company starts with
         s.unreadNews = s.news.count
         return s

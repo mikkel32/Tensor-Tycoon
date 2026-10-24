@@ -43,6 +43,7 @@ enum Sim {
         Capabilities.daily(&s)   // 3.4: domain scores, milestones, product lines
         RivalIntel.daily(&s)
         Finance.daily(&s)
+        PublicProgram.daily(&s)
         Events.daily(&s)
         Drama.daily(&s)   // 3.9: dramatic events with choices
         if GameCalendar.components(s.date).day % 7 == 3 { BenchLife.weekly(&s) }

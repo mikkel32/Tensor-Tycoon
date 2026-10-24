@@ -42,6 +42,9 @@ struct Forecast {
     var ladderCovered = false
     var tokensPerParam: Double = 0
     var optimalTokensPerParam: Double = 20
+    var learningCorrection: Double = 0
+    var learningSamples: Int = 0
+    var learningUncertaintyCut: Double = 0
 }
 
 enum ForecastEngine {
@@ -403,13 +406,29 @@ enum ForecastEngine {
             drivers.append(ForecastDriver(name: "Uncharted regime", value: uncharted, kind: .penalty,
                                           detail: "More than \(Fmt.trim(alienFreeLead, 1)) past the best model anyone has without alien tech (\(Fmt.trim(alienReference(s), 2))), nobody has the evals, data or hyperparameters for where you are: each further step is worth less"))
         }
+        // Completed comparable runs provide conservative, bounded empirical evidence. This is applied after scaling
+        // ladders so their tuned-hyperparameter gain and the measured recipe correction remain separately inspectable.
+        let learning = TrainingSystems.evidence(d, state: s, flops: pre)
+        f.learningCorrection = learning.correction
+        f.learningSamples = learning.samples
+        f.learningUncertaintyCut = learning.uncertaintyCut
+        if learning.samples > 0 {
+            f.notes.append("Recipe evidence: \(learning.samples) comparable completed run\(learning.samples == 1 ? "" : "s")")
+        }
+        if abs(learning.correction) > 0.0001 {
+            c += learning.correction
+            drivers.append(ForecastDriver(name: "Measured recipe outcomes", value: learning.correction,
+                                          kind: learning.correction >= 0 ? .gain : .penalty,
+                                          detail: "Shrunk toward zero, weighted by compute distance and capped at ±0.08"))
+        }
+        if learning.uncertaintyCut > 0 { f.sigma *= 1 - learning.uncertaintyCut }
         f.c = c
         f.bugRisk = bugRisk(d, state: s, covered: covered, novelCount: novel.count)
         f.drivers = drivers
         // Predicted final loss: algorithmic and data gains act like extra compute.
         let unique2 = max(unique, 1e-9)
         let lRaw = loss(paramsB: d.activeParamsB, tokensT: effectiveTokens(d.tokensT, unique: unique2))
-        f.finalLoss = E + (lRaw - E) * pow(10, -gamma * (f.algo + f.data))
+        f.finalLoss = E + (lRaw - E) * pow(10, -gamma * (f.algo + f.data + learning.correction))
         return f
     }
 

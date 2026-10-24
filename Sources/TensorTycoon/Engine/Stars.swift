@@ -526,7 +526,7 @@ enum Stars {
         if p.computeBudget > 0 { x += w(.compute) * 1.5 }
         if p.mandate { x += w(.mandate) * 2 }
         if levers.contains(.salary) { x += w(.salary) * (6 * log2(max(1, o.salary / max(1, e.salary))) + 1) }
-        if levers.contains(.equity) { x += w(.equity) * 3 }
+        if !s.isPublicProgram, levers.contains(.equity) { x += w(.equity) * 3 }
         if levers.contains(.title) && p.title.isEmpty { x += w(.title) * 3.5 }
         if levers.contains(.compute) && p.computeBudget == 0 && fits(p, .compute) { x += w(.compute) * 3.5 }
         if levers.contains(.mandate) && !p.mandate && fits(p, .mandate) { x += w(.mandate) * 3.5 }
@@ -567,7 +567,11 @@ enum Stars {
         options.append(work.isEmpty
             ? DecisionOption(label: "Make it about the work", detail: "They already have everything you could offer here. \(odds([]))")
             : DecisionOption(label: "Make it about the work", detail: "Offer \(workText). \(odds(work))"))
-        options.append(DecisionOption(label: "Everything", detail: "Match the money, \(Fmt.money(equityValue(s, o, e))) in stock\(work.isEmpty ? "" : " and \(workText)"). \(odds([.salary, .equity] + work))"))
+        let everything: [StarLever] = s.isPublicProgram ? [.salary] + work : [.salary, .equity] + work
+        let everythingText = s.isPublicProgram
+            ? "Match the money\(work.isEmpty ? "" : " and \(workText)"). Public appointments use salary, responsibility and research resources — never equity."
+            : "Match the money, \(Fmt.money(equityValue(s, o, e))) in stock\(work.isEmpty ? "" : " and \(workText)")."
+        options.append(DecisionOption(label: "Everything", detail: "\(everythingText) \(odds(everything))"))
         options.append(DecisionOption(label: "Talk to them", detail: "No new money: remind them why they joined. \(odds([])) If not, \(lab) may come back with more."))
         options.append(DecisionOption(label: "Let them go gracefully", detail: "A send-off and a reference. Gracious exits come back more often."))
         Events.addDecision(&s, kind: offerKind, title: "\(lab) is trying to hire \(p.name)\(round)", body: body, image: "sf_skyline", options: options, ref: o.star)
@@ -696,6 +700,7 @@ enum Stars {
             s.employees[ei].salary = to
             return "a raise to \(Fmt.money(to))/yr"
         case .equity:
+            guard !s.isPublicProgram else { return nil }
             let value = equityValue(s, offer, s.employees[ei])
             let pct = clamp(value / max(1e7, s.valuation) * 100, 0.001, 1)
             s.employeePoolShares += s.totalShares * pct / 100
@@ -851,7 +856,7 @@ enum Stars {
         let pers = castPersonality(m)
         let w = pers.weight
         var pull = w(.salary) * 6 * log2(max(1, mult))
-        if levers.contains(.equity) { pull += w(.equity) * 3 }
+        if !s.isPublicProgram, levers.contains(.equity) { pull += w(.equity) * 3 }
         if levers.contains(.title) { pull += w(.title) * 4 }
         if levers.contains(.compute) { pull += w(.compute) * 4 }
         if levers.contains(.mandate) { pull += w(.mandate) * 4 }
@@ -865,7 +870,7 @@ enum Stars {
 
     static func raidCost(_ s: GameState, _ m: CastMember, mult: Double, levers: Set<StarLever>) -> (salary: Double, signing: Double, equity: Double) {
         let salary = (raidBaseSalary(s, m) * mult / 1_000).rounded() * 1_000
-        let equity = levers.contains(.equity) ? min(salary * 2, max(0, s.valuation) * 0.01) : 0
+        let equity = !s.isPublicProgram && levers.contains(.equity) ? min(salary * 2, max(0, s.valuation) * 0.01) : 0
         return (salary, salary * 0.15, equity)
     }
 
@@ -1055,7 +1060,13 @@ enum Stars {
         case offerKind:
             guard let o = s.stars.offer, o.star == d.ref, !o.outgoing, let p = s.stars.profiles.first(where: { $0.id == o.star }) else { return }
             s.stars.offer?.decision = nil   // it's already off the list
-            if option == 4 { defect(&s, amicable: true, why: "") } else { counter(&s, Set(levers(option, p))) }
+            if option == 4 {
+                defect(&s, amicable: true, why: "")
+            } else {
+                var selected = Set(levers(option, p))
+                if s.isPublicProgram { selected.remove(.equity) }
+                counter(&s, selected)
+            }
         case burnoutKind:
             guard let i = index(s, d.ref), let ei = employeeIndex(s, d.ref) else { return }
             switch option {
@@ -1166,6 +1177,7 @@ enum Stars {
 extension GameState {
     /// Give a star one thing now (outside a bidding war).
     mutating func starGrant(_ id: String, _ lever: StarLever) -> String? {
+        guard !isPublicProgram || lever != .equity else { return "Public servants receive salaries and research resources, not equity." }
         guard let i = Stars.index(self, id), let ei = Stars.employeeIndex(self, id) else { return "They're no longer here." }
         if lever == .equity, Stars.equityValue(self, nil, employees[ei]) <= 0 { return "Your company has no valuation to grant stock against." }
         guard let what = Stars.grant(&self, i, ei, lever, offer: nil) else { return "They already have that." }
@@ -1196,6 +1208,8 @@ extension GameState {
     /// Counter the rival's offer with your own mix of levers (the Stars panel's builder).
     mutating func starCounter(_ levers: Set<StarLever>) -> String? {
         guard let o = stars.offer, !o.outgoing else { return "No bidding war in progress." }
+        var levers = levers
+        if isPublicProgram { levers.remove(.equity) }
         if levers.contains(.equity), let e = employees.first(where: { $0.id.uuidString == o.star }), Stars.equityValue(self, o, e) > 0, valuation <= 0 { return "No valuation to grant stock against." }
         if let d = o.decision { decisions.removeAll { $0.id == d } }
         stars.offer?.decision = nil

@@ -33,7 +33,7 @@ enum People {
         if isStar && s.year > 2024.5 && r == .researcher { salary *= s.rng.range(3, 12) }   // 2025 talent wars
         let equity = isStar ? s.rng.range(0.05, 0.6) : s.rng.range(0, 0.05)
         let name = "\(s.rng.pick(NameBank.first)) \(s.rng.pick(NameBank.last))"
-        var c = Candidate(name: name, role: r, skill: skill.rounded(), salary: (salary / 1000).rounded() * 1000, equity: equity,
+        var c = Candidate(name: name, role: r, skill: skill.rounded(), salary: (salary / 1000).rounded() * 1000, equity: s.isPublicProgram ? 0 : equity,
                           star: isStar, expires: GameCalendar.addDays(s.date, 45), bio: s.rng.pick(bios[r] ?? [""]))
         // Stars always bring something special; one in seven others do too.
         if isStar || s.rng.chance(0.15) {
@@ -257,7 +257,7 @@ enum Events {
         }
 
         // Acquisition offer
-        if !s.isPublic && s.valuation > 1.5e9 && s.rng.chance(0.04) {
+        if !s.isPublic && !s.isPublicProgram && s.valuation > 1.5e9 && s.rng.chance(0.04) {
             let price = s.valuation * s.rng.range(1.2, 1.7)
             addDecision(&s, kind: "acquisition", title: "Acquisition offer from a big-tech giant",
                         body: "They'll buy \(s.companyName) for \(Fmt.money(price)). Your \(Fmt.pct(s.founderStake)) stake would be worth \(Fmt.money(price * s.founderStake)).",
@@ -416,7 +416,7 @@ enum Events {
             }
             if !s.exoticOwned.contains(d.ref) { s.exoticOwned.append(d.ref) }
             var hire = Employee(name: "\(s.rng.pick(NameBank.first)) \(s.rng.pick(NameBank.last))", role: .researcher, skill: 82,
-                                salary: d.amount, morale: 80, hired: s.date, equity: 0.2)
+                                salary: d.amount, morale: 80, hired: s.date, equity: s.isPublicProgram ? 0 : 0.2)
             if !hqRoom, let sat { hire.office = sat.id.uuidString }
             s.employees.append(hire)
             Sim.news(&s, "New hire brings \(ResearchCatalog.byID[d.ref]?.name ?? "a secret technique")", "You can now research it on the Research page.", .research, good: true)
@@ -464,6 +464,8 @@ enum Events {
             RivalEconomy.resolveStake(&s, d, option: option)
         case ("fire_sale", _):
             RivalEconomy.resolveFireSale(&s, d, option: option)
+        case ("public_review", _):
+            PublicProgram.resolveReview(&s, option: option)
         case ("victory", _):
             Victory.resolve(&s, d, option: option)
         case let (k, _) where k.hasPrefix(Endings.prefix): Endings.resolve(&s, d, option: option)   // 3.9: endings and legacy
@@ -485,6 +487,7 @@ enum Events {
             StrategyEvents.resolve(&s, d, option: option)
         case (let k, _) where FoundingContracts.kinds.contains(k): FoundingContracts.resolve(&s, d, option: option)   // 3.9
         case ("acquisition", 0):
+            guard !s.isPublicProgram else { break }   // public institutions are not sold as private exits
             s.exitValue = d.amount
             s.gameOver = "Acquired for \(Fmt.money(d.amount)) on \(s.date.gameShort). Your stake: \(Fmt.money(d.amount * s.founderStake))."
             Sim.news(&s, "\(s.companyName) acquired for \(Fmt.money(d.amount))", s.gameOver!, .finance, important: true, good: true)

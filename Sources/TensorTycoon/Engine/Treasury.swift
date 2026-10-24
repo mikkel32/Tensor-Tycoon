@@ -106,6 +106,7 @@ enum Treasury {
     }
 
     static func founderSaleBlocker(_ s: GameState) -> String? {
+        if s.isPublicProgram { return "A government AI branch has no founder shares to sell." }
         if let last = s.lastFounderSale, GameCalendar.daysBetween(last, s.date) < founderSaleCooldownDays {
             return "Investors allow one founder sale every six months — next window \(GameCalendar.addDays(last, founderSaleCooldownDays).gameShort)."
         }

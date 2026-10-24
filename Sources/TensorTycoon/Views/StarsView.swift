@@ -76,7 +76,7 @@ private struct BiddingWarCard: View {
             if let p { Text("\(p.personality.title): \(p.personality.blurb)").font(.caption).foregroundStyle(.secondary) }
             if let p, let e {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 200), spacing: 8)], alignment: .leading, spacing: 6) {
-                    ForEach(StarLever.allCases.filter { Stars.fits(p, $0) }) { l in
+                    ForEach(StarLever.allCases.filter { Stars.fits(p, $0) && (!s.isPublicProgram || $0 != .equity) }) { l in
                         let held = (l == .title && !p.title.isEmpty) || (l == .compute && p.computeBudget > 0) || (l == .mandate && p.mandate)
                         Toggle(isOn: Binding(get: { levers.contains(l) && !held }, set: { on in if on { levers.insert(l) } else { levers.remove(l) } })) {
                             VStack(alignment: .leading, spacing: 0) {
@@ -98,7 +98,7 @@ private struct BiddingWarCard: View {
                     Button(levers.isEmpty ? "Just talk to them" : "Send counter-offer") { store.act(nil) { $0.starCounter(levers) } }
                         .buttonStyle(.borderedProminent)
                 }
-                Text("If they turn you down, \(Stars.labName(s, o.lab)) may go higher for another round — or win. Pay rises are permanent; stock, titles and clusters stay given.")
+                Text(s.isPublicProgram ? "If they turn you down, \(Stars.labName(s, o.lab)) may go higher for another round — or win. Public retention uses pay, titles and research resources, never equity." : "If they turn you down, \(Stars.labName(s, o.lab)) may go higher for another round — or win. Pay rises are permanent; stock, titles and clusters stay given.")
                     .font(.caption2).foregroundStyle(.tertiary)
             }
         }
@@ -190,7 +190,9 @@ private struct StarCard: View {
             HStack(spacing: 10) {
                 Menu("Give…") {
                     Button("A raise to \(Fmt.money((e.salary * 1.2 / 1_000).rounded() * 1_000))/yr") { store.act("Raised \(Stars.firstName(p.name))'s pay") { $0.starGrant(p.id, .salary) } }
-                    Button("Stock worth \(Fmt.money(Stars.equityValue(s, nil, e)))") { store.act("Granted stock") { $0.starGrant(p.id, .equity) } }
+                    if !s.isPublicProgram {
+                        Button("Stock worth \(Fmt.money(Stars.equityValue(s, nil, e)))") { store.act("Granted stock") { $0.starGrant(p.id, .equity) } }
+                    }
                     if p.title.isEmpty { Button("The title \(Stars.titleFor(s, p))") { store.act("\(p.name) is now \(Stars.titleFor(s, p))") { $0.starGrant(p.id, .title) } } }
                     if !Stars.fits(p, .compute) {
                     } else if p.computeBudget == 0 {
@@ -389,7 +391,7 @@ private struct RaidRow: View {
                 Text("Pay: \(Fmt.trim(mult, 1))× → \(Fmt.money(cost.salary))/yr").font(.caption.monospacedDigit())
                 Slider(value: $mult, in: 1.2...3, step: 0.1)
             }
-            ForEach([StarLever.equity, .title, .compute, .mandate]) { l in
+            ForEach([StarLever.equity, .title, .compute, .mandate].filter { !s.isPublicProgram || $0 != .equity }) { l in
                 Toggle(isOn: Binding(get: { levers.contains(l) }, set: { on in if on { levers.insert(l) } else { levers.remove(l) } })) {
                     Text(text(l, s, cost.equity)).font(.caption)
                 }

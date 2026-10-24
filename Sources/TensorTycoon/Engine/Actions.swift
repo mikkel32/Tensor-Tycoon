@@ -648,7 +648,7 @@ extension GameState {
             exoticOwned.append(tech)
             let salary = (Macro.salary(.researcher, year) * 2.2 / 1000).rounded() * 1000
             employees.append(Employee(name: "\(rng.pick(NameBank.first)) \(rng.pick(NameBank.last))", role: .researcher, skill: 84,
-                                      salary: salary, morale: 85, hired: date, star: true, equity: 0.2))
+                                      salary: salary, morale: 85, hired: date, star: true, equity: isPublicProgram ? 0 : 0.2))
             Sim.news(&self, "You poached a \(comp.name) researcher", "They know how \(item.name) works. It's now in your research tree.", .research, important: true, good: true)
             if rng.chance(0.15) {
                 cash -= fee
@@ -693,11 +693,11 @@ extension GameState {
         if bonus > cash { return "You can't afford the signing bonus (\(Fmt.money(bonus)))." }
         cash -= bonus
         month.costPayroll += bonus
-        if c.equity > 0 {
+        if !isPublicProgram, c.equity > 0 {
             let shares = totalShares * c.equity / 100
             employeePoolShares += shares
         }
-        var e = Employee(name: c.name, role: c.role, skill: c.skill, salary: c.salary, morale: 80, hired: date, star: c.star, equity: c.equity)
+        var e = Employee(name: c.name, role: c.role, skill: c.skill, salary: c.salary, morale: 80, hired: date, star: c.star, equity: isPublicProgram ? 0 : c.equity)
         e.trait = c.trait
         e.office = c.office
         e.relocated = c.relocated
@@ -763,6 +763,7 @@ extension GameState {
     // MARK: Finance
 
     mutating func takeLoan(_ kind: LoanKind, amount: Double, months: Int) -> String? {
+        if isPublicProgram && kind == .venture { return "Venture loans with equity warrants are unavailable to a government AI branch." }
         guard let q = Economy.loanQuotes(self).first(where: { $0.kind == kind }), q.available else { return "Not available." }
         if amount <= 0 || amount > q.max + 1 { return "Max \(Fmt.money(q.max))." }
         let pay = Economy.monthlyPayment(principal: amount, annualRate: q.rate, months: months)
@@ -784,6 +785,7 @@ extension GameState {
     }
 
     mutating func startRaise(fraction: Double) -> String? {
+        if isPublicProgram { return "Government AI branches receive appropriations, not venture capital." }
         if raising { return "Already raising." }
         if isPublic { return "Public companies raise through secondary offerings." }
         if let last = lastRaise, GameCalendar.daysBetween(last, date) < 120 && !rounds.isEmpty && rounds.last!.date == last {
@@ -799,6 +801,7 @@ extension GameState {
     }
 
     mutating func acceptOffer(_ id: UUID) -> String? {
+        if isPublicProgram { return "A public programme cannot accept investor term sheets." }
         guard let o = raiseOffers.first(where: { $0.id == id }) else { return "Not found." }
         let post = o.preMoney + o.amount
         let newShares = totalShares * o.amount / o.preMoney
@@ -823,6 +826,7 @@ extension GameState {
     }
 
     mutating func ipo() -> String? {
+        if isPublicProgram { return "A government AI branch cannot hold an IPO." }
         let (ok, why) = Economy.ipoEligible(self)
         if !ok { return why }
         let v = Finance.privateValue(self)
@@ -861,6 +865,7 @@ extension GameState {
 
     /// Why a secondary offering isn't possible today (nil if it is).
     var offeringBlocker: String? {
+        if isPublicProgram { return "Public programmes do not issue shares." }
         guard isPublic else { return "Go public first." }
         if let last = shareIssues.map(\.date).max(), GameCalendar.daysBetween(last, date) < GameState.offeringCooldownDays {
             return "Investors need 90 days between offerings — next window \(GameCalendar.addDays(last, GameState.offeringCooldownDays).gameShort)."

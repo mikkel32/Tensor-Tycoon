@@ -133,6 +133,15 @@ enum Fmt {
 
     static func score(_ v: Double) -> String { String(format: "%.1f", v) }
 
+    static func odds(_ p: Double) -> String {
+        let x = clamp(p, 0, 1)
+        if x <= 0 { return "0%" }
+        if x >= 1 { return "100%" }
+        if x < 0.01 { return String(format: "%.2f%%", x * 100) }
+        if x < 0.1 { return String(format: "%.1f%%", x * 100) }
+        return "\(Int((x * 100).rounded()))%"
+    }
+
     static func days(_ d: Double) -> String {
         if d.isInfinite || d.isNaN { return "∞" }
         if d >= 730 { return "\(trim(d / 365, 1)) yrs" }

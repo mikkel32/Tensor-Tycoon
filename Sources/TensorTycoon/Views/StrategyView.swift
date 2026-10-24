@@ -32,11 +32,11 @@ struct StrategyView: View {
                     Text(s.background.blurb).font(.caption).foregroundStyle(.secondary)
                     TraitLines(pros: s.background.perks, cons: [])
                 }
-                BoardCard(state: s)
+                if s.isPublicProgram { PublicOversightCard(state: s) } else { BoardCard(state: s) }
             }
 
             VictoryCard(state: s)
-            ObjectivesCard(state: s)
+            if s.isPublicProgram { PublicMandateCard(state: s) } else { ObjectivesCard(state: s) }
             CultureTree(state: s)
             TraitEffectsCard(traits: s.traits)
         }
@@ -64,7 +64,7 @@ private struct VictoryCard: View {
         Card {
             CardHeader("Victory paths", symbol: "flag.checkered.2.crossed", subtitle: "Five ways to win. Reach one to retire as a legend — or keep going. Legacy score \(Victory.legacyScore(s))")
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 230), spacing: 12)], spacing: 12) {
-                ForEach(VictoryPath.allCases) { v in
+                ForEach(Victory.available(s)) { v in
                     let done = s.victories.contains(v.rawValue)
                     let p = done ? 1 : Victory.progress(v, s)
                     VStack(alignment: .leading, spacing: 6) {
@@ -82,6 +82,43 @@ private struct VictoryCard: View {
                     .background(Theme.insetFill, in: .rect(cornerRadius: Theme.Radius.inset))
                 }
             }
+        }
+    }
+}
+
+
+private struct PublicOversightCard: View {
+    let state: GameState
+    var body: some View {
+        let p = state.publicProgram
+        Card {
+            CardHeader("Democratic oversight", symbol: "building.columns.fill", subtitle: PublicProgram.levelNames[clamp(p.level, 1, 4)])
+            Text("No investor board can remove you. Oversight reviews respond to delivery, safety, reserves and public trust instead.")
+                .font(.caption).foregroundStyle(.secondary)
+            SpecRow(label: "Oversight confidence", value: "\(Int(p.oversight))/100")
+            SpecRow(label: "Mandate", value: p.mandate.title)
+            SpecRow(label: "Missions delivered / missed", value: "\(p.completedMissions) / \(p.failedMissions)")
+            Meter(value: p.oversight / 100, tint: p.oversight >= 45 ? .green : .orange, height: 8)
+        }
+    }
+}
+
+private struct PublicMandateCard: View {
+    @Environment(GameStore.self) private var store
+    let state: GameState
+    var body: some View {
+        let active = state.publicProgram.missions.filter { $0.status == .active }
+        Card {
+            CardHeader("Public missions", symbol: "target", subtitle: "Measured outcomes replace investor board goals")
+            ForEach(active) { mission in
+                let measured = PublicProgram.measure(mission, state)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(mission.title).font(.callout.weight(.semibold))
+                    Text("Due \(mission.due.gameShort) · \(Fmt.money(mission.reward)) results payment").font(.caption).foregroundStyle(.secondary)
+                    Meter(value: measured.progress, tint: .purple, height: 6)
+                }
+            }
+            Button("Open Public Programme") { store.open(.publicProgram) }.buttonStyle(.borderedProminent)
         }
     }
 }

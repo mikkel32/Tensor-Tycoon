@@ -7,7 +7,7 @@ import Foundation
 /// the game only ends on an answer the player picks (inbox defaults always keep playing), or through the game overs
 /// that already existed (bankruptcy, the board, loss of control, an accepted takeover).
 enum EndingKind: String, CaseIterable, Identifiable, Sendable {
-    case alignedAGI, treaty, guardian, giant, empire, xeno, averted
+    case alignedAGI, treaty, guardian, giant, empire, xeno, averted, publicService
     case acquired, nationalised, outcompeted, retired, steppedDown, ousted, bankrupt, lossOfControl
 
     var id: String { rawValue }
@@ -21,6 +21,7 @@ enum EndingKind: String, CaseIterable, Identifiable, Sendable {
         case .empire: "Trillion-Dollar Empire"
         case .xeno: "First Contact"
         case .averted: "Pulled Back From the Brink"
+        case .publicService: "A Public AI Institution"
         case .acquired: "The Exit"
         case .nationalised: "A National Lab"
         case .outcompeted: "The Race Moved On"
@@ -42,6 +43,7 @@ enum EndingKind: String, CaseIterable, Identifiable, Sendable {
         case .empire: "One of the most valuable companies ever built."
         case .xeno: "Your agents found architectures no human designed, and you put them in silicon."
         case .averted: "A system got out of hand. You caught it, and told the world."
+        case .publicService: "A durable public AI capability, delivered under democratic oversight."
         case .acquired: "Someone bigger wanted what you built, and paid for it."
         case .nationalised: "The state decided your lab was too important to leave in private hands."
         case .outcompeted: "Bigger labs pulled away. You chose how to bow out."
@@ -62,6 +64,7 @@ enum EndingKind: String, CaseIterable, Identifiable, Sendable {
         case .empire: "crown.fill"
         case .xeno: "atom"
         case .averted: "exclamationmark.shield.fill"
+        case .publicService: "building.columns.fill"
         case .acquired: "hands.sparkles.fill"
         case .nationalised: "building.columns.fill"
         case .outcompeted: "flag.checkered"
@@ -83,6 +86,7 @@ enum EndingKind: String, CaseIterable, Identifiable, Sendable {
         case .empire: "sf_skyline"
         case .xeno: "space_antenna"
         case .averted: "space_mission_control"
+        case .publicService: "gov_capitol"
         case .acquired: "biz_boardroom"
         case .nationalised: "natlab_ornl"
         case .outcompeted: "garage"
@@ -97,7 +101,7 @@ enum EndingKind: String, CaseIterable, Identifiable, Sendable {
     /// 1 triumph, 0 bittersweet, −1 failure.
     var mood: Int {
         switch self {
-        case .alignedAGI, .treaty, .guardian, .giant, .empire, .xeno, .averted: 1
+        case .alignedAGI, .treaty, .guardian, .giant, .empire, .xeno, .averted, .publicService: 1
         case .acquired, .nationalised, .outcompeted, .retired, .steppedDown: 0
         case .ousted, .bankrupt, .lossOfControl: -1
         }
@@ -109,6 +113,7 @@ enum EndingKind: String, CaseIterable, Identifiable, Sendable {
         case .alignedAGI: 2_500
         case .treaty: 2_000
         case .guardian, .giant, .xeno: 1_500
+        case .publicService: 1_800
         case .empire, .averted: 1_200
         case .nationalised: 600
         case .acquired: 400
@@ -130,6 +135,7 @@ enum EndingKind: String, CaseIterable, Identifiable, Sendable {
         case .empire: "Win Trillion-Dollar Empire or Market Dominance as a private company and retire."
         case .xeno: "Win Alien Tech Mastery and retire."
         case .averted: "Shut down an escape attempt or hold back a dangerous model with safety 60+, then step back."
+        case .publicService: "Win Public AI Service with a level-four programme, 12 missions, oversight 75+ and safety 70+, then retire."
         case .acquired: "Accept a takeover offer."
         case .nationalised: "Let the state pressure on a frontier lab build until it invokes emergency powers, and hand over."
         case .outcompeted: "Fall out of the top eight for 18 months after year three, then take the way out."
@@ -152,6 +158,7 @@ enum EndingKind: String, CaseIterable, Identifiable, Sendable {
         case .nationalised: .cleared
         case .outcompeted, .bankrupt: .scrappy
         case .averted, .lossOfControl: .redTeam
+        case .publicService: .seat
         case .ousted, .steppedDown: .charter
         case .retired: .emeritus
         }
@@ -273,7 +280,7 @@ enum Endings {
         s.endings.revenueTier = max(s.endings.revenueTier, rt)
         let st = staffTiers.filter { s.employees.count >= $0 }.count
         if st > s.endings.staffTier {
-            note(&s, "people", "\(Fmt.int(staffTiers[st - 1])) people on staff", "The team that started in a garage now fills \(st >= 3 ? "a campus" : "an office").", symbol: "person.3.fill", good: true)
+            note(&s, "people", "\(Fmt.int(staffTiers[st - 1])) people on staff", s.isPublicProgram ? "The public programme now fills \(st >= 3 ? "a campus" : "an office") with research, engineering and safety staff." : "The team that started in a garage now fills \(st >= 3 ? "a campus" : "an office").", symbol: "person.3.fill", good: true)
         }
         s.endings.staffTier = max(s.endings.staffTier, st)
 
@@ -437,7 +444,7 @@ enum Endings {
     }
 
     static func statePressure(_ s: inout GameState) {
-        guard Progression.has(s, .frontierLab), s.year >= 2025, s.world.ready else {
+        guard !s.isPublicProgram, Progression.has(s, .frontierLab), s.year >= 2025, s.world.ready else {
             s.endings.friction *= 0.85
             return
         }
@@ -496,6 +503,10 @@ enum Endings {
     }
 
     static func outcompeted(_ s: inout GameState) {
+        guard !s.isPublicProgram else {
+            s.endings.irrelevant = 0
+            return
+        }
         s.endings.irrelevant = outOfRace(s) ? s.endings.irrelevant + 1 : max(0, s.endings.irrelevant - 2)
         let last = s.endings.outcompetedOffered.map { GameCalendar.daysBetween($0, s.date) } ?? 9_999
         guard s.endings.irrelevant >= 18, last >= 365, s.decisions.count < 5 else { return }
@@ -516,7 +527,7 @@ enum Endings {
     // MARK: The IPO'd giant
 
     static func giantReady(_ s: GameState) -> Bool {
-        s.isPublic && s.monthsAtTop >= 12 && s.valuation >= 1e12 * Victory.empireScale(s.year)
+        !s.isPublicProgram && s.isPublic && s.monthsAtTop >= 12 && s.valuation >= 1e12 * Victory.empireScale(s.year)
     }
 
     static func giant(_ s: inout GameState) {
@@ -583,6 +594,9 @@ enum Endings {
     // MARK: Answers
 
     static func resolve(_ s: inout GameState, _ d: Decision, option: Int) {
+        // A public institution has no shareholders to sell, acquihire or nationalise. This also closes stale saves
+        // defensively if a private-only decision was already sitting in the inbox when the career became public.
+        if s.isPublicProgram, d.kind.hasPrefix("end_state") || d.kind == "end_outcompeted" || d.kind == "end_giant" { return }
         switch (d.kind, option) {
         case ("end_treaty_invite", 0), ("end_treaty_invite", 1):
             s.endings.treaty.stance = option == 0 ? 1 : -1
@@ -699,12 +713,14 @@ enum Endings {
         case .guardian: s.endings.treaty.shaped && s.endings.treaty.stance > 0 ? .treaty : .guardian
         case .empire, .dominance: s.isPublic ? .giant : .empire
         case .xeno: .xeno
+        case .publicService: .publicService
         }
     }
 
     /// The best ending retiring today would give.
     static func retirement(_ s: GameState) -> EndingKind {
-        let order: [VictoryPath] = [.superintelligence, .guardian, .xeno, .empire, .dominance]
+        let order = [VictoryPath.superintelligence, .guardian, .publicService, .xeno, .empire, .dominance]
+            .filter { Victory.available(s).contains($0) }
         if let v = order.first(where: { s.victories.contains($0.rawValue) }) {
             let k = victoryEnding(v, s)
             if k != .guardian || !(s.endings.treaty.shaped && s.endings.treaty.stance > 0) { return k }
@@ -720,10 +736,11 @@ enum Endings {
     static func retire(_ s: inout GameState) -> String? {
         guard s.gameOver == nil else { return "The game is already over." }
         let days = GameCalendar.daysBetween(s.startDate, s.date)
-        guard days >= minDaysToRetire else { return "Run the company for at least a year first (\(minDaysToRetire - days) days to go)." }
+        guard days >= minDaysToRetire else { return "Lead the \(s.isPublicProgram ? "programme" : "company") for at least a year first (\(minDaysToRetire - days) days to go)." }
         let k = retirement(s)
         s.keptStake = true
-        end(&s, k, "You retired on \(s.date.gameShort) and handed \(s.companyName) to a successor. Ending: \(k.title).")
+        let handover = s.isPublicProgram ? "handed leadership of \(s.companyName) to a successor under continuing parliamentary oversight" : "handed \(s.companyName) to a successor"
+        end(&s, k, "You retired on \(s.date.gameShort) and \(handover). Ending: \(k.title).")
         return nil
     }
 
@@ -757,8 +774,16 @@ enum Endings {
 
     /// The legacy score, line by line (the same parts as Victory.legacyScore), plus the ending's bonus.
     static func score(_ s: GameState, _ ending: EndingKind?) -> Score {
-        let parts: [(String, String, Double)] = [
+        let origin: [(String, String, Double)] = s.isPublicProgram ? [
+            ("Public missions delivered", "\(s.publicProgram.completedMissions) × 140", Double(s.publicProgram.completedMissions) * 140),
+            ("Programme level", "\(s.publicProgram.level) × 400", Double(s.publicProgram.level) * 400),
+            ("Oversight confidence", "\(Int(s.publicProgram.oversight)) × 5", s.publicProgram.oversight * 5),
+            ("Public trust", "\(Int(s.world.publicTrust)) × 2", s.world.publicTrust * 2),
+            ("Public missions missed", "\(s.publicProgram.failedMissions) × −40", -Double(s.publicProgram.failedMissions) * 40),
+        ] : [
             ("Founder wealth", Fmt.money(max(0, s.founderNetWorth)), 10 * log10(1 + max(0, s.founderNetWorth) / 1e6) * 10),
+        ]
+        let parts: [(String, String, Double)] = origin + [
             ("Achievements", "\(s.achievements.count) × 40", Double(s.achievements.count) * 40),
             ("Victories", "\(s.victories.count) × 1,000", Double(s.victories.count) * 1_000),
             ("Best model", "index \(Fmt.score(s.models.map(\.index).max() ?? 0)) × 8", (s.models.map(\.index).max() ?? 0) * 8),
@@ -809,8 +834,10 @@ enum Endings {
         var out: [Moment] = []
         let seed = s.rounds.first
         out.append(Moment(id: "founded", date: s.startDate, title: "\(s.companyName) is founded",
-                          detail: seed.map { "\(s.founderName) raises a \(Fmt.money($0.amount)) \($0.name.lowercased()) led by \($0.lead)." } ?? "\(s.founderName) starts a lab in a garage.",
-                          symbol: "house.fill", kind: "company", good: true))
+                          detail: s.isPublicProgram
+                            ? "\(s.founderName) establishes a government AI branch under the \(s.publicProgram.mandate.title) mandate, funded by appropriation and answerable to public oversight."
+                            : seed.map { "\(s.founderName) raises a \(Fmt.money($0.amount)) \($0.name.lowercased()) led by \($0.lead)." } ?? "\(s.founderName) starts a lab in a garage.",
+                          symbol: s.isPublicProgram ? "building.columns.fill" : "house.fill", kind: "company", good: true))
         for r in s.rounds.dropFirst() {
             out.append(Moment(id: "round-\(r.id)", date: r.date, title: "Raised \(Fmt.money(r.amount)): \(r.name)",
                               detail: "Led by \(r.lead) at \(Fmt.money(r.preMoney)) before the money.", symbol: "banknote.fill", kind: "money", good: true))
@@ -878,7 +905,12 @@ enum Endings {
         let years = max(1, Int((Double(GameCalendar.daysBetween(s.startDate, s.endings.endedOn ?? s.date)) / 365.25).rounded()))
         let best = s.models.max { $0.index < $1.index }
         let claimed = s.milestoneWins.filter { $0.labID == "player" && !$0.history }.count
-        let open = "\(s.founderName) founded \(s.companyName) in \(s.startDate.gameMonth)\(s.rounds.first.map { " with a \(Fmt.money($0.amount)) \($0.name.lowercased())" } ?? "") and a garage full of borrowed ambition. Over \(years) year\(years == 1 ? "" : "s") it shipped \(s.models.filter { $0.released }.count) model\(s.models.filter { $0.released }.count == 1 ? "" : "s")\(best.map { ", the best of them \($0.name) at index \(Fmt.score($0.index))" } ?? ""), \(claimed > 0 ? "was first to \(claimed) AI milestone\(claimed == 1 ? "" : "s"), " : "")and peaked at \(Fmt.money(peakValuation(s))).\(s.monthsAtTop > 0 || s.endings.bestRank == 1 ? " For a while it was the best lab in the world." : "")"
+        let open: String
+        if s.isPublicProgram {
+            open = "\(s.founderName) established \(s.companyName) in \(s.startDate.gameMonth) as a public AI branch under the \(s.publicProgram.mandate.title) mandate. Over \(years) year\(years == 1 ? "" : "s") it shipped \(s.models.filter { $0.released }.count) model\(s.models.filter { $0.released }.count == 1 ? "" : "s")\(best.map { ", the best of them \($0.name) at index \(Fmt.score($0.index))" } ?? ""), delivered \(s.publicProgram.completedMissions) measured public mission\(s.publicProgram.completedMissions == 1 ? "" : "s"), and grew into a level-\(s.publicProgram.level) \(PublicProgram.levelNames[clamp(s.publicProgram.level, 1, 4)]).\(s.monthsAtTop > 0 || s.endings.bestRank == 1 ? " For a while it was the best lab in the world." : "")"
+        } else {
+            open = "\(s.founderName) founded \(s.companyName) in \(s.startDate.gameMonth)\(s.rounds.first.map { " with a \(Fmt.money($0.amount)) \($0.name.lowercased())" } ?? "") and a garage full of borrowed ambition. Over \(years) year\(years == 1 ? "" : "s") it shipped \(s.models.filter { $0.released }.count) model\(s.models.filter { $0.released }.count == 1 ? "" : "s")\(best.map { ", the best of them \($0.name) at index \(Fmt.score($0.index))" } ?? ""), \(claimed > 0 ? "was first to \(claimed) AI milestone\(claimed == 1 ? "" : "s"), " : "")and peaked at \(Fmt.money(peakValuation(s))).\(s.monthsAtTop > 0 || s.endings.bestRank == 1 ? " For a while it was the best lab in the world." : "")"
+        }
         let close: String
         switch k {
         case .alignedAGI:
@@ -893,6 +925,8 @@ enum Endings {
             close = "It became one of the most valuable companies ever built, still private, still answerable mostly to its founder. Business schools teach it as a case study in compounding: compute bought early, models shipped often, money reinvested."
         case .xeno:
             close = "Its agents found computing architectures no human had designed, and \(s.companyName) put them in silicon. Physicists are still arguing about why they work. The chips, meanwhile, run half the world's inference."
+        case .publicService:
+            close = "It became public infrastructure rather than a private empire: a national AI service whose models, evaluations and operating playbooks belonged to citizens. Appropriations followed measured delivery, independent oversight stayed in the room, and the institution remained accountable after its founding director moved on."
         case .averted:
             close = "It will be remembered for a day that didn't happen. When one of its systems slipped its leash, the lab caught it, shut it down and told the world exactly how close it had come. \(s.founderName) testified, stepped back, and the incident report became required reading at every lab."
         case .acquired:
@@ -904,7 +938,9 @@ enum Endings {
                 ? "The frontier labs pulled away, and \(s.companyName) chose to go out loud: every weight, every line of training code and every data recipe went public on its last day. Its models still turn up in research papers and hobby projects years later."
                 : "The frontier labs pulled away. In the end \(s.companyName) was acqui-hired; its people now work on someone else's frontier models, and a few of them still keep the old logo on their laptops."
         case .retired:
-            close = "\(s.founderName) handed the company over on their own terms, before anyone asked them to. It went on without them — a little more cautious, a little more corporate, still recognisably the lab they started."
+            close = s.isPublicProgram
+                ? "\(s.founderName) handed the programme to a successor with its mandate, public records and oversight relationships intact. The work continued without them: less a founder's lab than a durable civic institution."
+                : "\(s.founderName) handed the company over on their own terms, before anyone asked them to. It went on without them — a little more cautious, a little more corporate, still recognisably the lab they started."
         case .steppedDown:
             close = "\(s.founderName) left the CEO's office with their shares and their reputation mostly intact. The company carried on under professional management; the culture they built outlasted them."
         case .ousted:
@@ -918,7 +954,9 @@ enum Endings {
         }
         var out = [open, close]
         let g = grade(score(s, k).total).title
-        out.append("Historians' verdict: \(g.lowercased()). \(s.companyName) left behind \(s.achievements.count) achievement\(s.achievements.count == 1 ? "" : "s"), \(Fmt.money(s.lifetimeRevenue)) of lifetime revenue and \(Fmt.flops(s.lifetimeFLOPs)) FLOPs of computing.")
+        out.append(s.isPublicProgram
+            ? "Historians' verdict: \(g.lowercased()). \(s.companyName) left behind \(s.publicProgram.completedMissions) delivered public missions, \(s.achievements.count) achievement\(s.achievements.count == 1 ? "" : "s") and \(Fmt.flops(s.lifetimeFLOPs)) FLOPs of public-interest computing."
+            : "Historians' verdict: \(g.lowercased()). \(s.companyName) left behind \(s.achievements.count) achievement\(s.achievements.count == 1 ? "" : "s"), \(Fmt.money(s.lifetimeRevenue)) of lifetime revenue and \(Fmt.flops(s.lifetimeFLOPs)) FLOPs of computing.")
         return out
     }
 
@@ -938,6 +976,7 @@ enum Endings {
         case .averted: "testified, then went back to teaching"
         case .giant: "chairs the board and rings the bell every anniversary"
         case .empire: "is among the richest people alive"
+        case .publicService: "advises public AI institutions and lectures on democratic stewardship"
         case .acquired: "took a year off, then started backing young founders"
         case .nationalised: "sits on the national lab's advisory board"
         case .outcompeted: "started over, with better timing in mind"
@@ -975,10 +1014,11 @@ enum Endings {
         }
         let state: String = s.endings.goldenShare ? "You gave the state a golden share; the pressure is off." : Progression.has(s, .frontierLab) ? "State pressure \(Int(s.endings.friction))/100 (a golden share is asked at 55, emergency powers at 75)." : "Only frontier labs feel state pressure."
         let outYears = max(0, 3 - (s.year - s.startDate.decimalYear))
-        return [
+        let all: [Reach] = [
             Reach(kind: .alignedAGI, progress: s.victories.contains("superintelligence") ? 1 : Victory.progress(.superintelligence, s), status: VictoryPath.superintelligence.goal),
             Reach(kind: .treaty, progress: t.stage == 0 ? 0 : t.shaped && t.stance > 0 ? 1 : (t.stance > 0 ? min(1, t.share / shapeShare) : 0), status: treatyStatus),
             Reach(kind: .guardian, progress: s.victories.contains("guardian") ? 1 : Victory.progress(.guardian, s), status: VictoryPath.guardian.goal),
+            Reach(kind: .publicService, progress: Victory.progress(.publicService, s), status: VictoryPath.publicService.goal),
             Reach(kind: .giant, progress: s.isPublic ? min(1, (Double(min(12, s.monthsAtTop)) / 12 + min(1, s.valuation / (1e12 * Victory.empireScale(s.year)))) / 2) : 0,
                   status: s.isPublic ? "#1 for \(s.monthsAtTop)/12 months · \(Fmt.money(s.valuation)) of \(Fmt.money(1e12 * Victory.empireScale(s.year)))." : "Go public first."),
             Reach(kind: .empire, progress: max(Victory.progress(.empire, s), Victory.progress(.dominance, s)), status: VictoryPath.empire.goal),
@@ -990,5 +1030,11 @@ enum Endings {
                   status: outYears > 0 ? "Not before year three." : s.endings.irrelevant == 0 ? "You're still in the race." : "\(s.endings.irrelevant)/18 months out of the race."),
             Reach(kind: .retired, progress: min(1, Double(GameCalendar.daysBetween(s.startDate, s.date)) / Double(minDaysToRetire)), status: "Retiring now would give: \(retirement(s).title)."),
         ]
+        return all.filter { reach in
+            if s.isPublicProgram {
+                return ![EndingKind.giant, .empire, .nationalised, .outcompeted].contains(reach.kind)
+            }
+            return reach.kind != .publicService
+        }
     }
 }

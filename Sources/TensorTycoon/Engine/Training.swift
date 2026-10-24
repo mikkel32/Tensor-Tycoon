@@ -405,6 +405,7 @@ enum Training {
     static func daily(_ s: inout GameState, _ b: ResearchBonuses) {
         Evaluations.daily(&s)
         for i in s.runs.indices where s.runs[i].status == .running || s.runs[i].status == .postTraining {
+            TrainingSystems.supervise(&s, i)
             let d = s.runs[i].design
             guard let accel = HardwareCatalog.get(d.accelID) else { continue }
             creditLR(&s.runs[i])
@@ -1156,6 +1157,7 @@ enum Training {
         }
         TrainingExperience.finished(&s, run: s.runs[i], model: model, previousBest: previousBest, rank: rank)
         Families.adopt(&s, model)   // 3.5: a run named for an existing family becomes its new flagship
+        TrainingSystems.recordOutcome(&s, run: s.runs[i], model: model)
     }
 
     // MARK: Helpers

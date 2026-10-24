@@ -3,6 +3,7 @@ import SwiftUI
 
 struct TrainingView: View {
     @Environment(GameStore.self) private var store
+    @State private var historyLimit = 12
 
     var body: some View {
         let s = store.game
@@ -13,6 +14,7 @@ struct TrainingView: View {
         let firsts = s.trainingFirsts.filter { !$0.quiet }
         Page(title: "Training Runs", subtitle: "Mission control. Watch the loss against the forecast, catch bugs, call the spikes — and find out whether you trained a genius.", screen: .training) {
             ScreenHint(.training)
+            BlueprintLibrary(state: s)
             if active.isEmpty {
                 Card {
                     EmptyStateView(symbol: "chart.line.downtrend.xyaxis", title: "Nothing training",
@@ -29,13 +31,16 @@ struct TrainingView: View {
                 } else {
                     CommandCentre(run: run, state: s, free: store.derived.free(run.design.accelID))
                         .id(run.id)
+                    RunSupervisionCard(run: run, state: s)
+                        .id("supervision-\(run.id)")
                 }
             }
             if !firsts.isEmpty { LabHistoryCard(firsts: firsts) }
+            TrainingOutcomeInsights(state: s)
             if !past.isEmpty {
                 Text("History").font(.title3.weight(.semibold)).padding(.top, 6)
                 Card {
-                    ForEach(past) { run in
+                    ForEach(Array(past.prefix(historyLimit))) { run in
                         // Finished runs open their results; cancelled runs and scaling ladders have none, so they're plain rows.
                         if run.modelID != nil {
                             Button { store.reportRunID = run.id } label: { historyRow(run, s) }
@@ -45,6 +50,17 @@ struct TrainingView: View {
                             historyRow(run, s)
                         }
                         Divider()
+                    }
+                    if past.count > historyLimit {
+                        Button("Show \(min(12, past.count - historyLimit)) more of \(past.count) runs", systemImage: "chevron.down.circle") {
+                            historyLimit += 12
+                        }
+                        .buttonStyle(.link)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                    } else if past.count > 12 {
+                        Button("Show only the latest 12", systemImage: "chevron.up.circle") { historyLimit = 12 }
+                            .buttonStyle(.link)
+                            .frame(maxWidth: .infinity, alignment: .center)
                     }
                 }
             }

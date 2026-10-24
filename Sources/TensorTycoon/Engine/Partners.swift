@@ -105,17 +105,22 @@ enum PartnerCatalog {
         if exclusive, let ex = s.partnerships.first(where: \.exclusive) { return "You're exclusive with \(ex.def.name) until \(ex.end.gameMonth)." }
         if s.partnerships.contains(where: \.exclusive) { return "Your exclusive deal doesn't allow other compute partners." }
         let need = exclusive ? def.exclusiveMinValuation : def.minValuation
-        if s.valuation < need { return "\(def.name) wants a \(Fmt.money(need)) valuation for \(exclusive ? "an exclusive" : "a preferred") deal (you're at \(Fmt.money(s.valuation)))." }
+        let scale = s.isPublicProgram ? PublicProgram.authorisedBudget(s) * 4 : s.valuation
+        if scale < need {
+            return s.isPublicProgram
+                ? "\(def.name) requires a \(Fmt.money(need)) programme scale for \(exclusive ? "an exclusive" : "a preferred") framework (you're at \(Fmt.money(scale)))."
+                : "\(def.name) wants a \(Fmt.money(need)) valuation for \(exclusive ? "an exclusive" : "a preferred") deal (you're at \(Fmt.money(s.valuation)))."
+        }
         return nil
     }
 
     static func terms(_ def: PartnerDef, exclusive: Bool, years: Int, state s: GameState) -> PartnerTerms {
-        let v = max(s.valuation, def.minValuation)
+        let v = max(s.isPublicProgram ? PublicProgram.authorisedBudget(s) * 4 : s.valuation, def.minValuation)
         let investment = (exclusive ? 0.10 : 0.03) * v * (1 + 0.05 * Double(years - 2))
-        let equity = investment / (v + investment) / (exclusive ? 1.6 : 1.3)
-        let credits = investment * def.creditsShare
+        let equity = s.isPublicProgram ? 0 : investment / (v + investment) / (exclusive ? 1.6 : 1.3)
+        let credits = investment * (s.isPublicProgram ? max(0.5, def.creditsShare) : def.creditsShare)
         return PartnerTerms(exclusive: exclusive, years: years, investment: investment, equity: equity, credits: credits,
-                            cash: investment - credits,
+                            cash: s.isPublicProgram ? 0 : investment - credits,
                             discount: exclusive ? def.exclusiveDiscount : 0.10,
                             earlyMonths: def.earlyVendors.isEmpty ? 0 : (exclusive ? 6 : 2),
                             mfuBonus: exclusive ? 0.05 : 0.02,
@@ -200,8 +205,12 @@ enum Partners {
             s.partnerContacted[def.id.rawValue] = s.date
             let t = PartnerCatalog.terms(def, exclusive: exclusive, years: 4, state: s)
             let what = exclusive ? "an exclusive partnership" : "a preferred partnership"
+            let pitch = s.isPublicProgram ? "A public procurement framework for priority compute, cloud credits and co-engineering." : def.pitch
+            let support = s.isPublicProgram
+                ? "\(Fmt.money(t.credits)) in framework cloud credits, with no cash investment or ownership"
+                : "\(Fmt.money(t.investment)) for \(Fmt.pct(t.equity, decimals: 1)) of the company\(t.credits > 0 ? " (\(Fmt.money(t.credits)) as credits)" : "")"
             Events.addDecision(&s, kind: "partner_offer", title: "\(def.name) wants \(what)",
-                               body: "\(def.pitch) Their opening offer: \(Fmt.money(t.investment)) for \(Fmt.pct(t.equity, decimals: 1)) of the company\(t.credits > 0 ? " (\(Fmt.money(t.credits)) as credits)" : ""), \(Int(t.discount * 100))% off, \(t.earlyMonths > 0 ? "\(t.earlyMonths)-month early access, " : "")and a \(Fmt.money(t.annualCommit))/yr spending commitment\(exclusive ? " — and you'd use only their hardware for 4 years" : "").",
+                               body: "\(pitch) Their opening offer: \(support), \(Int(t.discount * 100))% off, \(t.earlyMonths > 0 ? "\(t.earlyMonths)-month early access, " : "")and a \(Fmt.money(t.annualCommit))/yr spending commitment\(exclusive ? " — and you'd use only their hardware for 4 years" : "").",
                                image: def.image,
                                options: [DecisionOption(label: "Sign the \(exclusive ? "exclusive " : "")deal", detail: "4 years. Details on the Partners page."),
                                          DecisionOption(label: "Negotiate on the Partners page", detail: "Look at every partner's terms first."),
@@ -228,21 +237,25 @@ extension GameState {
         guard let def = PartnerCatalog.byID[id] else { return "Unknown partner." }
         if let why = PartnerCatalog.blocker(def, exclusive: exclusive, state: self) { return why }
         let t = PartnerCatalog.terms(def, exclusive: exclusive, years: years, state: self)
-        let newShares = totalShares * t.equity / max(0.01, 1 - t.equity)
-        holdings.append(Holding(name: "\(def.name) (strategic)", shares: newShares))
+        if t.equity > 0 {
+            let newShares = totalShares * t.equity / max(0.01, 1 - t.equity)
+            holdings.append(Holding(name: "\(def.name) (strategic)", shares: newShares))
+        }
         cash += t.cash
-        Books.post(&self, .equity, t.cash)   // 3.8: the partner's investment, cash part (credits aren't cash)
+        if t.cash != 0 { Books.post(&self, .equity, t.cash) }   // private investment only; public frameworks have no cash/equity leg
         cloudCredits += t.credits
-        valuation += t.investment
+        if !isPublicProgram { valuation += t.investment }
         partnerships.append(Partnership(partner: id, exclusive: exclusive, start: date, end: GameCalendar.addMonths(date, years * 12),
-                                        invested: t.investment, equity: t.equity, credits: t.credits, discount: t.discount,
+                                        invested: isPublicProgram ? 0 : t.investment, equity: t.equity, credits: t.credits, discount: t.discount,
                                         earlyMonths: t.earlyMonths, mfuBonus: t.mfuBonus, allocationMult: t.allocationMult,
                                         annualCommit: t.annualCommit, nextSettlement: GameCalendar.addMonths(date, 12)))
         partnerContacted[id.rawValue] = date
         Achievements.unlock(&self, "partner")
-        Sim.news(&self, "\(exclusive ? "Exclusive" : "Strategic") partnership with \(def.name)",
-                 "\(def.name) invests \(Fmt.money(t.investment)) for \(Fmt.pct(t.equity, decimals: 1)) of \(companyName)\(t.credits > 0 ? ", \(Fmt.money(t.credits)) of it as cloud credits" : ""). You get \(Int(t.discount * 100))% off, \(t.earlyMonths > 0 ? "\(t.earlyMonths)-month early access to new chips, " : "")\(Fmt.trim(t.allocationMult, 1))× allocation and co-engineering support\(exclusive ? " — in exchange for using only their hardware for \(years) years" : "").",
-                 .finance, image: def.image, important: true, good: true)
+        let terms = isPublicProgram
+            ? "\(def.name) provides \(Fmt.money(t.credits)) in framework cloud credits with no cash investment or ownership. You receive \(Int(t.discount * 100))% off, \(t.earlyMonths > 0 ? "\(t.earlyMonths)-month early access to new chips, " : "")\(Fmt.trim(t.allocationMult, 1))× allocation and co-engineering support\(exclusive ? " — in exchange for using only their hardware for \(years) years" : "")."
+            : "\(def.name) invests \(Fmt.money(t.investment)) for \(Fmt.pct(t.equity, decimals: 1)) of \(companyName)\(t.credits > 0 ? ", \(Fmt.money(t.credits)) of it as cloud credits" : ""). You get \(Int(t.discount * 100))% off, \(t.earlyMonths > 0 ? "\(t.earlyMonths)-month early access to new chips, " : "")\(Fmt.trim(t.allocationMult, 1))× allocation and co-engineering support\(exclusive ? " — in exchange for using only their hardware for \(years) years" : "")."
+        Sim.news(&self, isPublicProgram ? "\(exclusive ? "Exclusive" : "Preferred") procurement framework with \(def.name)" : "\(exclusive ? "Exclusive" : "Strategic") partnership with \(def.name)",
+                 terms, .finance, image: def.image, important: true, good: true)
         return nil
     }
 
@@ -255,7 +268,8 @@ extension GameState {
         month.costOther += penalty
         partnerships.remove(at: i)
         brand = max(0, brand - 4)
-        Sim.news(&self, "\(companyName) breaks with \(p.def.name)", "Ending the agreement early cost \(Fmt.money(penalty)). \(p.def.name) keeps its equity.",
+        let consequence = isPublicProgram ? "Only the unspent procurement commitment is charged; there is no equity or investment clawback." : "\(p.def.name) keeps its equity."
+        Sim.news(&self, "\(companyName) breaks with \(p.def.name)", "Ending the agreement early cost \(Fmt.money(penalty)). \(consequence)",
                  .finance, important: true, good: false)
         return nil
     }

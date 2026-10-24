@@ -804,7 +804,7 @@ enum RivalEconomy {
     /// When a rival raises, a big enough player may get a slice of the round.
     static func offerStake(_ s: inout GameState, _ i: Int, amount: Double, post: Double) {
         let c = s.competitors[i]
-        guard amount > 0, post > 0, s.valuation >= 1e9, s.decisions.count < 3, s.gameOver == nil,
+        guard !s.isPublicProgram, amount > 0, post > 0, s.valuation >= 1e9, s.decisions.count < 3, s.gameOver == nil,
               !s.decisions.contains(where: { $0.kind == "rival_round" }) else { return }
         let small = amount * 0.05
         guard s.cash >= small * 1.5, s.rng.chance(0.35) else { return }
@@ -821,6 +821,7 @@ enum RivalEconomy {
     }
 
     static func resolveStake(_ s: inout GameState, _ d: Decision, option: Int) {
+        guard !s.isPublicProgram else { return }
         let parts = d.ref.split(separator: "|")
         guard option < 2, parts.count == 2, let post = Double(parts[1]), let c = s.competitors.first(where: { $0.id == String(parts[0]) }) else { return }
         let invest = d.amount * (option == 0 ? 0.05 : 0.15)
@@ -888,14 +889,14 @@ enum RivalEconomy {
         Events.addDecision(&s, kind: "fire_sale", title: "\(c.def.name) is for sale — cheap",
                            body: "\(c.def.name) is weeks from running out of money. Its board will sell to you for \(Fmt.money(price)), half its last valuation, before a giant swoops in. You'd inherit its techniques, researchers, compute and users (regulators still get a say).",
                            image: "nvidia_hq",
-                           options: [DecisionOption(label: "Buy \(c.def.name)", detail: "\(Fmt.money(price * 0.7)) cash + \(Fmt.money(price * 0.3)) in new shares."),
+                           options: [DecisionOption(label: "Buy \(c.def.name)", detail: s.isPublicProgram ? "\(Fmt.money(price)) in appropriated cash; no acquisition shares." : "\(Fmt.money(price * 0.7)) cash + \(Fmt.money(price * 0.3)) in new shares."),
                                      DecisionOption(label: "Pass", detail: "Let the market decide its fate.")],
                            amount: price, ref: c.id)
     }
 
     static func resolveFireSale(_ s: inout GameState, _ d: Decision, option: Int) {
         guard option == 0 else { return }
-        if let err = s.acquireRival(d.ref, stockShare: 0.3, priceOverride: d.amount) {
+        if let err = s.acquireRival(d.ref, stockShare: s.isPublicProgram ? 0 : 0.3, priceOverride: d.amount) {
             Sim.news(&s, "The fire sale fell through", err, .competitor, good: false)
         }
     }
@@ -904,6 +905,7 @@ enum RivalEconomy {
 extension GameState {
     /// Sell your stake in a rival: full value if it's public, a 15% discount on the private secondary market.
     mutating func sellRivalStake(_ id: String) -> String? {
+        guard !isPublicProgram else { return "Public programmes do not hold private-company stakes." }
         guard let f = rivalStakes[id], f > 0, let c = competitors.first(where: { $0.id == id }) else { return "You don't own any of them." }
         let value = f * c.valuation * (c.isPublic ? 1 : 0.85)
         let cost = rivalStakeCost[id] ?? 0

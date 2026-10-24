@@ -161,7 +161,7 @@ struct Page<Content: View>: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
+            LazyVStack(alignment: .leading, spacing: 18) {
                 PageHeader(title: title, subtitle: subtitle, screen: screen)
                 content
             }

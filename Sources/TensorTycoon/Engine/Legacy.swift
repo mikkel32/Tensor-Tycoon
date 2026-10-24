@@ -84,7 +84,7 @@ enum Legacy {
             switch p {
             case .pedigree:
                 s.employees.append(Employee(name: veteranName(s, "safety"), role: .safety, skill: 86,
-                                            salary: (Macro.salary(.safety, y) * HQ.salaryFactor(s) / 1000).rounded() * 1000, morale: 90, hired: s.date, equity: 0.5))
+                                            salary: (Macro.salary(.safety, y) * HQ.salaryFactor(s) / 1000).rounded() * 1000, morale: 90, hired: s.date, equity: s.isPublicProgram ? 0 : 0.5))
                 s.safetyAdjust += 5
                 s.safetyScore = min(100, s.safetyScore + 5)
             case .seat:
@@ -94,16 +94,21 @@ enum Legacy {
                 s.brand = min(100, s.brand + 6)
                 Stakeholders.move(&s, ["public": 6], "Legacy: a trusted name from your last company")
             case .oldMoney:
-                // The extra cash comes in the seed round, on the same terms.
                 let extra = s.cash * 0.25
                 s.cash += extra
-                if !s.rounds.isEmpty { s.rounds[0].amount += extra }
-                s.valuation += extra
+                if s.isPublicProgram {
+                    // A trusted public career unlocks supplementary reserves, never an equity round.
+                    s.publicProgram.totalReceived += extra
+                } else {
+                    // The extra cash comes in the seed round, on the same terms.
+                    if !s.rounds.isEmpty { s.rounds[0].amount += extra }
+                    s.valuation += extra
+                }
             case .notebooks:
                 for e in s.researchQueue.prefix(2) { s.researchProgress[e] = max(s.researchProgress[e] ?? 0, ResearchLab.entryCost(s, e) * 0.5) }
             case .serial:
                 s.employees.append(Employee(name: veteranName(s, "cofounder"), role: .mlEngineer, skill: 80,
-                                            salary: (Macro.salary(.mlEngineer, y) * 0.8 * HQ.salaryFactor(s) / 1000).rounded() * 1000, morale: 90, hired: s.date, equity: 1.0))
+                                            salary: (Macro.salary(.mlEngineer, y) * 0.8 * HQ.salaryFactor(s) / 1000).rounded() * 1000, morale: 90, hired: s.date, equity: s.isPublicProgram ? 0 : 1.0))
                 s.culturePoints += 1
             case .cleared:
                 s.politicalCapital = max(s.politicalCapital, 15)
@@ -117,18 +122,36 @@ enum Legacy {
                 s.safetyAdjust += 3
                 s.safetyScore = min(100, s.safetyScore + 3)
             case .charter:
-                s.boardConfidence = min(100, s.boardConfidence + 15)
-                // 5% of the company moves from the employee pool to the founder, keeping the total.
-                let move = min(s.employeePoolShares, s.totalShares * 0.05)
-                s.employeePoolShares -= move
-                s.founderShares += move
+                if s.isPublicProgram {
+                    s.publicProgram.oversight = min(100, s.publicProgram.oversight + 15)
+                } else {
+                    s.boardConfidence = min(100, s.boardConfidence + 15)
+                    // 5% of the company moves from the employee pool to the founder, keeping the total.
+                    let move = min(s.employeePoolShares, s.totalShares * 0.05)
+                    s.employeePoolShares -= move
+                    s.founderShares += move
+                }
             case .emeritus:
-                s.boardConfidence = min(100, s.boardConfidence + 10)
+                if s.isPublicProgram {
+                    s.publicProgram.oversight = min(100, s.publicProgram.oversight + 10)
+                } else {
+                    s.boardConfidence = min(100, s.boardConfidence + 10)
+                }
                 s.brand = min(100, s.brand + 3)
             }
         }
+        let legacyDetails = perks.map { perk -> String in
+            guard s.isPublicProgram else { return "\(perk.title) — \(perk.detail)" }
+            switch perk {
+            case .oldMoney: return "\(perk.title) — trusted relationships unlock supplementary appropriated reserves."
+            case .charter: return "\(perk.title) — a statutory charter strengthens oversight confidence without transferring ownership."
+            case .pedigree, .serial: return "\(perk.title) — a veteran joins as a salaried public servant."
+            case .emeritus: return "\(perk.title) — an eminent public career strengthens oversight confidence and reputation."
+            default: return "\(perk.title) — \(perk.detail)"
+            }
+        }
         Sim.news(&s, "Legacy: \(perks.map(\.title).joined(separator: ", "))",
-                 "What your last company left you: " + perks.map { "\($0.title) — \($0.detail)" }.joined(separator: " "), .company, important: true, good: true)
+                 (s.isPublicProgram ? "What your earlier public career left you: " : "What your last company left you: ") + legacyDetails.joined(separator: " "), .company, important: true, good: true)
     }
 }
 

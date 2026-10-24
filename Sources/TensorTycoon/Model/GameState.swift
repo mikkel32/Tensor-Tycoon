@@ -608,6 +608,13 @@ struct TrainingRun: Codable, Identifiable, Hashable {
     @D var bugFixedPenalty: Double = 0
     /// The player was told about the bug and chose to ship it.
     @D var bugIgnored: Bool = false
+    /// The reusable blueprint this run came from, and its opt-in supervision policy.
+    @D var blueprintID: UUID? = nil
+    @D var automation: RunAutomationPolicy? = nil
+    @D var automationSpent: Double = 0
+    @D var automationActions: Int = 0
+    @D var automationDiagnostics: Int = 0
+    @D var automationMilestones: [Double] = []
 
     var schedule: LRSchedule { LRSchedule(rawValue: lr) ?? .standard }
     /// Learning-rate quality the finished model would carry if the current learning rate held to the end.
@@ -1161,6 +1168,9 @@ struct GameState: Codable {
     // Models
     var runs: [TrainingRun] = []
     var models: [AIModel] = []
+    @D var blueprints: [RunBlueprint] = []
+    @D var trainingOutcomes: [RunOutcome] = []
+    @D var recipeLearning: [RecipeLearning] = []
     var dataSources: Set<String> = ["web", "wiki", "code_open", "papers"]
 
     // Products
@@ -1547,6 +1557,8 @@ struct GameState: Codable {
     /// 3.9: the founding government contract (FoundingContracts).
     @D var founding: FoundingState = FoundingState()
     @D var govMarket: GovMarketState = GovMarketState()   // 3.9: government contract marketplace
+    /// A government AI-branch career: public missions, appropriations and oversight. Inactive in ordinary startups.
+    @D var publicProgram: PublicProgramState = PublicProgramState()
     /// 3.9: public affairs, hearings, promises, export licences and the policy calendar (GovRelations).
     @D var gov: GovState = GovState()
     @D var drama: DramaState = DramaState()   // 3.9: dramatic events with choices (Drama)
@@ -1585,7 +1597,7 @@ struct GameState: Codable {
     var founderControls: Bool { founderStake >= 0.5 }
 
     /// Your stake at today's valuation plus everything you've cashed out.
-    var founderNetWorth: Double { founderStake * valuation + founderCash }
+    var founderNetWorth: Double { isPublicProgram ? 0 : founderStake * valuation + founderCash }
 
     var year: Double { date.decimalYear }
 

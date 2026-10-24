@@ -1,7 +1,7 @@
 import Foundation
 
 enum Screen: String, CaseIterable, Identifiable, Hashable {
-    case dashboard, operations, strategy, security, lab, training, models, leaderboard, rivals, rivalWatch, benchmarks, rsi, swarms, xeno
+    case dashboard, publicProgram, operations, strategy, security, lab, training, models, leaderboard, rivals, rivalWatch, benchmarks, rsi, swarms, xeno
     case hardware, partners, compute, datacenters, silicon
     case research, team, data
     case market, industry, chipSales, competitors, finance, funding
@@ -31,6 +31,7 @@ enum Screen: String, CaseIterable, Identifiable, Hashable {
     var title: String {
         switch self {
         case .dashboard: "Dashboard"
+        case .publicProgram: "Public Programme"
         case .operations: "Operations"
         case .strategy: "Strategy & Traits"
         case .security: "Security & Policy"
@@ -87,6 +88,7 @@ enum Screen: String, CaseIterable, Identifiable, Hashable {
     var symbol: String {
         switch self {
         case .dashboard: "gauge.with.dots.needle.67percent"
+        case .publicProgram: "building.columns.fill"
         case .operations: "gearshape.2.fill"
         case .strategy: "theatermasks.fill"
         case .security: "lock.shield.fill"
@@ -143,7 +145,7 @@ enum Screen: String, CaseIterable, Identifiable, Hashable {
     /// The sidebar. The Rivals hub has one entry; `.competitors`, `.rivalWatch` and `.industry` open its Labs, Watch and
     /// Industry tabs (links from alerts, briefings and the Chief of Staff still use them).
     static let sections: [(String, [Screen])] = [
-        ("Company", [.dashboard, .progression, .operations, .strategy, .security, .government, .world, .nations, .news, .pulse, .spotlight, .legacy, .worldMap]),
+        ("Company", [.dashboard, .publicProgram, .progression, .operations, .strategy, .security, .government, .world, .nations, .news, .pulse, .spotlight, .legacy, .worldMap]),
         ("Build AI", [.lab, .training, .models, .families, .rsi, .swarms, .xeno]),
         ("Evaluate", [.leaderboard, .arena, .milestones, .events, .rivals, .benchmarks, .challenges]),
         ("Infrastructure", [.hardware, .partners, .compute, .datacenters, .silicon]),

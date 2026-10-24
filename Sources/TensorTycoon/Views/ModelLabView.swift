@@ -68,6 +68,8 @@ struct ModelLabView: View {
     @State private var lr: LRSchedule = .standard
     @State private var interval = 0.1
     @State private var autoRollback = false
+    @State private var editingBlueprint: RunBlueprint?
+    @State private var selectedBlueprintID: UUID?
     @State private var targetIndex = 50.0
     /// 3.5: the pre-training review for substantial runs.
     @State private var reviewing = false
@@ -92,6 +94,7 @@ struct ModelLabView: View {
             } else {
                 planStrip(s)
                 recipeStrip(s, b)
+                blueprintStrip(s)
                 upgradeStrip(s)
                 HStack(alignment: .top, spacing: 18) {
                     designForm(s, d, b)
@@ -114,6 +117,14 @@ struct ModelLabView: View {
         .onChange(of: store.game.date) { _, _ in if !reviewing { proposals = RunPlanner.proposals(store.game) } }
         .sheet(isPresented: $reviewing) {
             RunReviewSheet(design: $design, lr: $lr, interval: $interval, launch: launch, ladder: startLadder)
+        }
+        .sheet(item: $editingBlueprint) { bp in
+            let isNew = !store.game.blueprints.contains(where: { $0.id == bp.id })
+            BlueprintEditorSheet(blueprint: bp, isNew: isNew) { updated in
+                guard store.act(isNew ? "Blueprint saved" : "Blueprint updated", { $0.saveBlueprint(updated) }) else { return false }
+                selectedBlueprintID = isNew ? store.game.blueprints.last?.id : updated.id
+                return true
+            }
         }
         .familySheet($familySheet)
     }
@@ -209,8 +220,21 @@ struct ModelLabView: View {
     /// Training screen; the simulation doesn't wait for it.
     private func launch() {
         let d = design
-        guard store.act("Training started", { $0.startTraining(d, lr: lr, checkpointEvery: interval, autoRollback: autoRollback) }) else { return }
-        if let run = store.game.runs.last(where: { $0.design.name == d.name && $0.kind == .full }) {
+        let source = selectedBlueprintID.flatMap { id in store.game.blueprints.first(where: { $0.id == id }) }
+        let before = Set(store.game.runs.map(\.id))
+        guard store.act("Training started", { s in
+            if let error = s.startTraining(d, lr: lr, checkpointEvery: interval, autoRollback: autoRollback) { return error }
+            if let source, let ri = s.runs.lastIndex(where: { !before.contains($0.id) && $0.kind == .full }) {
+                s.runs[ri].blueprintID = source.id
+                s.runs[ri].automation = source.automation
+                if let bi = s.blueprints.firstIndex(where: { $0.id == source.id }) {
+                    s.blueprints[bi].uses += 1
+                    s.blueprints[bi].lastUsed = s.date
+                }
+            }
+            return nil
+        }) else { return }
+        if let run = store.game.runs.first(where: { !before.contains($0.id) && $0.kind == .full }) {
             store.focusRunID = run.id
             if store.showLaunchSequence, let p = run.plan, (TrainingExperience.RunScale(rawValue: p.scale) ?? .standard) >= .major {
                 store.launchRunID = run.id
@@ -220,6 +244,48 @@ struct ModelLabView: View {
         if design.generation > 0 { design.generation += 1 }
         design.helpers = []   // 3.9: those chips are now busy; the next design starts on one chip type
         store.open(.training)
+    }
+
+    @ViewBuilder
+    private func blueprintStrip(_ s: GameState) -> some View {
+        let selected = selectedBlueprintID.flatMap { id in s.blueprints.first(where: { $0.id == id }) }
+        Card {
+            HStack(spacing: 12) {
+                Image(systemName: "shippingbox.and.arrow.backward.fill").font(.title2).foregroundStyle(.indigo)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(selected.map { "Blueprint loaded: \($0.name)" } ?? "Reusable training blueprints").font(.callout.weight(.semibold))
+                    Text(selected.map { "Launching keeps its supervision policy and links the measured outcome. Edit the current form, then update it or save a new variant." }
+                         ?? "Save the complete design and launch settings. A blueprint can be launched repeatedly from Training without consuming draft IDs while SwiftUI draws.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Menu("Load blueprint") {
+                    ForEach(s.blueprints.sorted(by: { $0.name < $1.name })) { bp in
+                        Button("\(bp.name) · \(Fmt.params(bp.design.paramsB))") { loadBlueprint(bp) }
+                    }
+                }
+                .disabled(s.blueprints.isEmpty)
+                Button("Save current as blueprint") { editingBlueprint = .draft(design: design, date: s.date) }
+                if var selected {
+                    Button("Update from current form") {
+                        selected.design = design
+                        selected.lr = lr
+                        selected.checkpointEvery = interval
+                        selected.autoRollback = autoRollback
+                        editingBlueprint = selected
+                    }
+                }
+            }
+        }
+    }
+
+    private func loadBlueprint(_ bp: RunBlueprint) {
+        design = bp.design
+        lr = bp.lr
+        interval = bp.checkpointEvery
+        autoRollback = bp.autoRollback
+        selectedBlueprintID = bp.id
+        store.show("Loaded blueprint: \(bp.name)")
     }
 
     private func startLadder() {
@@ -291,6 +357,7 @@ struct ModelLabView: View {
     }
 
     private func apply(_ r: Recipe, _ s: GameState) {
+        selectedBlueprintID = nil
         let b = store.derived.bonuses
         design.mode = .scratch
         design.baseModelRef = nil

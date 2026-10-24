@@ -61,7 +61,9 @@ struct MainMenuView: View {
                     .font(.system(size: 46, weight: .black, design: .rounded))
                     .foregroundStyle(Theme.accentGradient)
             }
-            Text("Found an AI lab. Buy GPUs and rent TPUs. Train frontier models, win the benchmarks, and out-raise the giants.")
+            Text(settings.origin == .government
+                 ? "Establish a public AI branch. Deliver national missions, train rigorous models and earn durable appropriations under democratic oversight."
+                 : "Found an AI lab. Buy GPUs and rent TPUs. Train frontier models, win the benchmarks, and out-raise the giants.")
                 .font(.title3)
                 .foregroundStyle(.white.opacity(0.85))
             UpdateStatusLine()
@@ -83,14 +85,66 @@ struct MainMenuView: View {
 
     private var newCompanyCard: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("New company").font(.title2.weight(.bold))
+            Text(settings.origin == .government ? "New public programme" : "New company").font(.title2.weight(.bold))
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Career origin").font(.subheadline.weight(.semibold))
+                HStack(spacing: 12) {
+                    ForEach(FoundingOrigin.allCases) { origin in
+                        Button {
+                            settings.origin = origin
+                            if origin == .government {
+                                settings.kit.removeAll { FoundingKit.byID[$0]?.category == .money }
+                                settings.logoSymbol = "building.columns.fill"
+                            }
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: origin.symbol).font(.title2).foregroundStyle(origin == .government ? .purple : .indigo)
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(origin.title).font(.callout.weight(.semibold))
+                                    Text(origin.detail).font(.caption).foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Image(systemName: settings.origin == origin ? "checkmark.circle.fill" : "circle")
+                                    .foregroundStyle(settings.origin == origin ? Color.accentColor : .secondary)
+                            }
+                            .padding(13).frame(maxWidth: .infinity)
+                            .background(settings.origin == origin ? Color.accentColor.opacity(0.18) : Color.black.opacity(0.12), in: .rect(cornerRadius: 12))
+                            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(settings.origin == origin ? Color.accentColor : .clear))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+
+            if settings.origin == .government {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Public mandate").font(.subheadline.weight(.semibold))
+                    HStack(spacing: 10) {
+                        ForEach(PublicMandate.allCases) { mandate in
+                            Button { settings.publicMandate = mandate } label: {
+                                VStack(alignment: .leading, spacing: 5) {
+                                    Label(mandate.title, systemImage: mandate.symbol).font(.callout.weight(.semibold))
+                                    Text(mandate.detail).font(.caption).foregroundStyle(.secondary)
+                                }
+                                .padding(12).frame(maxWidth: .infinity, alignment: .leading)
+                                .background(settings.publicMandate == mandate ? Color.purple.opacity(0.2) : Color.black.opacity(0.1), in: .rect(cornerRadius: 11))
+                                .overlay(RoundedRectangle(cornerRadius: 11).strokeBorder(settings.publicMandate == mandate ? .purple : .clear))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    Text("Starts with a public AI office, a research/engineering/safety team, sixteen accelerators and two measured missions. Venture funding and ownership exits are replaced by appropriations and oversight.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
 
             HStack(spacing: 16) {
-                LabeledField(label: "Company name") {
+                LabeledField(label: settings.origin == .government ? "Programme name" : "Company name") {
                     TextField("Company", text: $settings.companyName).textFieldStyle(.roundedBorder)
                 }
-                LabeledField(label: "Your name") {
-                    TextField("Founder", text: $settings.founderName).textFieldStyle(.roundedBorder)
+                LabeledField(label: settings.origin == .government ? "Director name" : "Your name") {
+                    TextField(settings.origin == .government ? "Director" : "Founder", text: $settings.founderName).textFieldStyle(.roundedBorder)
                 }
             }
 
@@ -131,12 +185,12 @@ struct MainMenuView: View {
                         .onAppear {
                             if !Region.us.locations.contains(settings.locationID) { settings.locationID = "nova" }
                         }
-                        Text("Where your garage is. Datacenters can go anywhere later.").font(.caption).foregroundStyle(.secondary)
+                        Text(settings.origin == .government ? "Where your public AI office is. Datacenters can go anywhere later." : "Where your garage is. Datacenters can go anywhere later.").font(.caption).foregroundStyle(.secondary)
                     } else {
                         let home = CountryCatalog.get(settings.hqCountry).location?.name ?? CountryCatalog.get(settings.hqCountry).name
-                        Label("Garage: \(home) (follows headquarters)", systemImage: "house.fill")
+                        Label(settings.origin == .government ? "Public AI office: \(home)" : "Garage: \(home) (follows headquarters)", systemImage: settings.origin == .government ? "building.columns.fill" : "house.fill")
                             .font(.callout)
-                        Text("Your garage sits at your country's home datacenter site. Datacenters can go anywhere later.").font(.caption).foregroundStyle(.secondary)
+                        Text(settings.origin == .government ? "Your public office sits at your country's home datacenter site." : "Your garage sits at your country's home datacenter site. Datacenters can go anywhere later.").font(.caption).foregroundStyle(.secondary)
                     }
                 }
             }
@@ -145,7 +199,7 @@ struct MainMenuView: View {
 
             SignaturePicker(signature: $settings.signature)
 
-            FoundingKitPicker(kit: $settings.kit, mode: $settings.kitMode, difficulty: settings.difficulty)   // 3.5
+            FoundingKitPicker(kit: $settings.kit, mode: $settings.kitMode, difficulty: settings.difficulty, allowMoney: settings.origin == .startup)   // 3.5
 
             LegacyPerkPicker(perks: $settings.legacyPerks)   // 3.9: New Game+
 
@@ -182,7 +236,7 @@ struct MainMenuView: View {
                 Button {
                     store.newGame(settings)
                 } label: {
-                    Label("Found \(settings.companyName.isEmpty ? "company" : settings.companyName)", systemImage: "sparkles")
+                    Label(settings.origin == .government ? "Establish \(settings.companyName.isEmpty ? "programme" : settings.companyName)" : "Found \(settings.companyName.isEmpty ? "company" : settings.companyName)", systemImage: settings.origin == .government ? "building.columns.fill" : "sparkles")
                         .font(.headline)
                         .padding(.horizontal, 18)
                         .padding(.vertical, 6)

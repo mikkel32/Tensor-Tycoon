@@ -101,9 +101,13 @@ extension GameState {
         let c = competitors[i]
         if let why = Acquisitions.blocker(c, self) { return why }
         let price = priceOverride ?? Acquisitions.price(c, self)
-        let stock = clamp(stockShare, 0, 0.8) * price
+        let stock = (isPublicProgram ? 0 : clamp(stockShare, 0, 0.8)) * price
         let cashPart = price - stock
-        if cashPart > cash { return "The cash part is \(Fmt.money(cashPart)); you have \(Fmt.money(cash)). Pay more in stock or raise money." }
+        if cashPart > cash {
+            return isPublicProgram
+                ? "This acquisition requires \(Fmt.money(cashPart)) in appropriated cash; you have \(Fmt.money(cash)). Public institutions cannot issue acquisition shares."
+                : "The cash part is \(Fmt.money(cashPart)); you have \(Fmt.money(cash)). Pay more in stock or raise money."
+        }
         let risk = Acquisitions.antitrustRisk(c, self)
         if rng.chance(risk) {
             let fee = price * 0.02
@@ -144,7 +148,7 @@ extension GameState {
             let skill = rng.range(74, 93)
             let salary = (Macro.salary(.researcher, year) * pow(skill / 50, 1.6) * 1.2 / 1000).rounded() * 1000
             employees.append(Employee(name: "\(rng.pick(NameBank.first)) \(rng.pick(NameBank.last))", role: .researcher, skill: skill.rounded(),
-                                      salary: salary, morale: 65, hired: date, star: skill > 88, equity: 0.05))
+                                      salary: salary, morale: 65, hired: date, star: skill > 88, equity: isPublicProgram ? 0 : 0.05))
         }
         if haul.chips > 0 {
             let ref = Silicon.reference(self)

@@ -79,11 +79,11 @@ extension FoundingKit {
         }
 
         // Compute
-        if kit.contains("angel_cluster"), let gi = s.sites.firstIndex(where: { $0.kind == .garage }), let batch = s.owned.first {
+        if kit.contains("angel_cluster"), let gi = s.sites.firstIndex(where: { s.isPublicProgram ? $0.kind == .office : $0.kind == .garage }), let batch = s.owned.first {
             s.sites[gi].capacityKW *= 4
             s.owned.append(OwnedBatch(accelID: batch.accelID, count: 12, siteID: s.sites[gi].id, purchased: start, unitCost: batch.unitCost))
             Sim.mergeOwned(&s)
-            lines.append("12 more \(HardwareCatalog.get(batch.accelID)?.name ?? "GPUs") in a rewired garage")
+            lines.append("12 more \(HardwareCatalog.get(batch.accelID)?.name ?? "GPUs") in a rewired \(s.isPublicProgram ? "public AI office" : "garage")")
         }
         if kit.contains("dc_in_a_box") {
             let locationID = s.sites.first?.locationID ?? "nova"
@@ -110,7 +110,7 @@ extension FoundingKit {
             let first = NameBank.first[Int(RivalIntel.unit(k + "|f") * Double(NameBank.first.count)) % NameBank.first.count]
             let last = NameBank.last[Int(RivalIntel.unit(k + "|l") * Double(NameBank.last.count)) % NameBank.last.count]
             var e = Employee(name: "\(first) \(last)", role: role, skill: skill, salary: (Macro.salary(role, y) * pay / 1000).rounded() * 1000,
-                             morale: 88, hired: start, star: star, equity: star ? 0.5 : 0.1)
+                             morale: 88, hired: start, star: star, equity: s.isPublicProgram ? 0 : (star ? 0.5 : 0.1))
             if let trait { e.trait = trait.rawValue }
             s.employees.append(e)
             lines.append("\(e.name) (\(role.title.lowercased())\(trait.map { ", \($0.title)" } ?? ""))")

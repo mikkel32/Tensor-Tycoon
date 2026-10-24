@@ -33,26 +33,43 @@ struct Derived {
 
     init() {}
 
-    init(_ s: GameState) {
+    /// Fast operational data is always rebuilt. Leaderboard, rival intelligence and adviser construction can be
+    /// copied for a few automatic publications; player actions and important stops always request a full rebuild.
+    init(_ s: GameState, preservingIntelligence previous: Derived? = nil) {
         bonuses = s.bonuses
         pools = Economy.pools(s)
         poolByID = Dictionary(uniqueKeysWithValues: pools.map { ($0.accel.id, $0) })
         benchmarks = s.benchmarks
         indexSet = BenchmarkCatalog.indexSet(benchmarks, date: s.date, saturated: s.benchSaturated)
-        board = Leaderboard.entries(s, set: indexSet)
-        gone = Leaderboard.goneLabs(s)
-        for (i, e) in board.enumerated() {
-            entryByID[e.id] = e
-            rankByID[e.id] = i + 1
-        }
         snapshot = Market.snapshot(s)
         runRate = Economy.runRate(s)
         h100e = pools.reduce(0) { $0 + Double($1.total) * $1.accel.bf16 / HardwareCatalog.h100.bf16 }
         totalChips = Economy.totalChips(s)
         frontier = Macro.frontier(s.year)
+        leases = s.leases.filter { $0.value > 0 }
+        if let previous {
+            board = previous.board
+            entryByID = previous.entryByID
+            rankByID = previous.rankByID
+            gone = previous.gone
+            watch = previous.watch
+            advice = previous.advice
+        } else {
+            rebuildIntelligence(s)
+        }
+    }
+
+    mutating func rebuildIntelligence(_ s: GameState) {
+        board = Leaderboard.entries(s, set: indexSet)
+        gone = Leaderboard.goneLabs(s)
+        entryByID.removeAll(keepingCapacity: true)
+        rankByID.removeAll(keepingCapacity: true)
+        for (i, e) in board.enumerated() {
+            entryByID[e.id] = e
+            rankByID[e.id] = i + 1
+        }
         watch = RivalIntel.rows(s, set: indexSet)
         advice = Advisor.items(s, pools: pools, watch: watch, set: indexSet)
-        leases = s.leases.filter { $0.value > 0 }
     }
 
     func free(_ accelID: String) -> Int { poolByID[accelID]?.free ?? 0 }
@@ -120,6 +137,8 @@ final class GameStore {
     @ObservationIgnored private var lastCustomChipCount = -1
     /// 3.9: the game file and month of the last autosave (game time, not wall-clock time).
     @ObservationIgnored private var lastAutosave = ""
+    /// Expensive intelligence is at most 750 ms old during unattended playback, never stale after a player action.
+    @ObservationIgnored private var lastIntelligenceRefresh = Date.distantPast
 
     /// Simulated days per real second.
     static let speeds: [(label: String, daysPerSecond: Double)] = [
@@ -133,14 +152,19 @@ final class GameStore {
 
     // MARK: Derived data
 
-    func refreshDerived() {
-        guard let s = state else { derived = Derived(); return }
+    func refreshDerived(intelligence: Bool = true) {
+        guard let s = state else {
+            derived = Derived()
+            lastIntelligenceRefresh = .distantPast
+            return
+        }
         lastState = s
         if s.customChips.count != lastCustomChipCount {
             HardwareCatalog.register(s.customChips)
             lastCustomChipCount = s.customChips.count
         }
-        derived = Derived(s)
+        derived = Derived(s, preservingIntelligence: intelligence ? nil : derived)
+        if intelligence { lastIntelligenceRefresh = Date() }
     }
 
     // MARK: Lifecycle
@@ -206,7 +230,8 @@ final class GameStore {
         let urgent = s.decisions.contains(where: Alerts.isUrgent)
         let stop = s.gameOver != nil || urgent || reason != nil || finished != nil
         state = s
-        refreshDerived()
+        let intelligenceDue = Date().timeIntervalSince(lastIntelligenceRefresh) >= 0.75
+        refreshDerived(intelligence: stop || s.date.ym != startMonth || intelligenceDue)
         if let finished { reportRunID = finished }
         if stop {
             setSpeed(0)

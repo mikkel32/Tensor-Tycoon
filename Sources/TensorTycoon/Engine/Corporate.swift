@@ -463,13 +463,14 @@ enum Corporate {
         let raised = !s.rounds.isEmpty || s.isPublic
         let notes = s.corp.debts.filter { $0.kind == .convertible }.reduce(0) { $0 + $1.balance }
         // 3.8: notes count as debt under a term loan's covenant, so with one outstanding they share its room.
-        var convMax = raised ? max(0, min(s.valuation * 0.15, Finance.maxRaise(s.year) * 0.5) * (crunch ? 0.5 : 1) - notes) : 0
+        var convMax = raised && !s.isPublicProgram ? max(0, min(s.valuation * 0.15, Finance.maxRaise(s.year) * 0.5) * (crunch ? 0.5 : 1) - notes) : 0
         if s.corp.debts.contains(where: { $0.maxLeverage > 0 }) { convMax = min(convMax, room) }   // 3.9: the leverage covenant (a green bond's cash floor isn't one)
         let price = pricePerShare(s)
         out.append(Quote(kind: .convertible, max: convMax, rate: max(0.5, fed - 1), term: 48, available: convMax > 1e6,
-                         reason: raised ? "A low coupon, repaid in 4 years — or turned into shares at \(Fmt.price(price * 1.25)) (25% above today's \(Fmt.price(price))) if they're worth more by then."
-                                        : "Needs a priced equity round first.",
-                         covenants: "None. Dilutes you if it converts", room: room))
+                         reason: s.isPublicProgram ? "Public programmes cannot issue notes that convert into ownership."
+                             : (raised ? "A low coupon, repaid in 4 years — or turned into shares at \(Fmt.price(price * 1.25)) (25% above today's \(Fmt.price(price))) if they're worth more by then."
+                                       : "Needs a priced equity round first."),
+                         covenants: s.isPublicProgram ? "Unavailable to public programmes" : "None. Dilutes you if it converts", room: room))
         // Green bond: long, cheap money against datacenters, cheaper still on clean power.
         let dcs = s.sites.filter { $0.kind == .datacenter }
         let green = dcs.filter { [.solar, .wind, .nuclear, .smr, .fusion].contains($0.powerDeal) }
@@ -550,7 +551,7 @@ enum Corporate {
             }
             d.monthsLeft -= 1
             if d.monthsLeft <= 0 {
-                if d.kind == .convertible && pricePerShare(s) >= d.conversionPrice && d.conversionPrice > 0 {
+                if !s.isPublicProgram, d.kind == .convertible && pricePerShare(s) >= d.conversionPrice && d.conversionPrice > 0 {
                     convert(&s, &d)
                     done.append("\(d.kind.title) converted into shares")
                 } else {
@@ -1303,6 +1304,7 @@ extension GameState {
 
     /// Sell part of your stake to minority investors. The gain over what you put in is taxed with the month.
     mutating func sellSubsidiaryStake(_ id: String, fraction: Double) -> String? {
+        guard !isPublicProgram else { return "Public programmes cannot sell ownership stakes in their institutions." }
         guard let i = subIndex(id), corp.subs[i].separate else { return "Not found." }
         let sub = corp.subs[i]
         let f = min(fraction, sub.stake)
@@ -1337,6 +1339,7 @@ extension GameState {
 
     /// The subsidiary sells new shares to investors: cash for it, dilution for you.
     mutating func raiseForSubsidiary(_ id: String, amount: Double) -> String? {
+        guard !isPublicProgram else { return "Public institutions raise appropriations, not outside equity." }
         guard let i = subIndex(id), corp.subs[i].separate else { return "Not found." }
         let sub = corp.subs[i]
         if sub.revenue <= 0 { return "Investors want to see revenue first." }
@@ -1346,6 +1349,7 @@ extension GameState {
     }
 
     func subsidiaryIPOBlocker(_ sub: Subsidiary) -> String? {
+        if isPublicProgram { return "Public institutions cannot be floated on a stock exchange." }
         if sub.isPublic { return "Already listed." }
         if GameCalendar.daysBetween(sub.founded, date) < 365 && !sub.acquired { return "Needs a year of results." }
         let minValue = max(3e8, Finance.maxRaise(year) * 0.01)
@@ -1373,6 +1377,7 @@ extension GameState {
 
     /// Hand your stake to your own shareholders: the subsidiary leaves the group as an independent company.
     mutating func spinOffSubsidiary(_ id: String) -> String? {
+        guard !isPublicProgram else { return "A public programme has no shareholders to receive a spin-off." }
         guard let i = subIndex(id), corp.subs[i].separate else { return "Not found." }
         let sub = corp.subs[i]
         if !sub.isPublic && GameCalendar.daysBetween(sub.founded, date) < 365 { return "Spin-offs need a year of results or a listing." }
@@ -1481,6 +1486,7 @@ extension GameState {
     // MARK: Corporate debt
 
     mutating func borrowCorporate(_ kind: CorpDebtKind, amount: Double) -> String? {
+        guard !isPublicProgram || kind != .convertible else { return "Public programmes cannot issue convertible ownership notes." }
         guard let q = Corporate.quotes(self).first(where: { $0.kind == kind }), q.available else { return "Not available." }
         if amount <= 0 || amount > q.max + 1 { return "Up to \(Fmt.money(q.max))." }
         let m = Corporate.metrics(self)
@@ -1523,6 +1529,7 @@ extension GameState {
 
     /// Turn a convertible note into shares early (only when the shares are worth more than the conversion price).
     mutating func convertNote(_ id: UUID) -> String? {
+        guard !isPublicProgram else { return "Public programmes repay notes in cash; they cannot create ownership." }
         guard let i = corp.debts.firstIndex(where: { $0.id == id }), corp.debts[i].kind == .convertible else { return "Not found." }
         if Corporate.pricePerShare(self) < corp.debts[i].conversionPrice { return "Noteholders won't convert below \(Fmt.price(corp.debts[i].conversionPrice)) a share." }
         var d = corp.debts[i]

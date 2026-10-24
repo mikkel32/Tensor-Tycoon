@@ -6,7 +6,7 @@ struct PartnersView: View {
     var body: some View {
         let s = store.game
         let active = Partners.active(s)
-        Page(title: "Compute Partners", subtitle: "Every frontier lab is married to a chip or cloud giant. Strategic deals trade equity and loyalty for money, discounts and early access to the next generation.", screen: .partners) {
+        Page(title: s.isPublicProgram ? "Procurement Frameworks" : "Compute Partners", subtitle: s.isPublicProgram ? "Public procurement trades spending commitments for cloud credits, discounts, allocation and early access — never equity or private investment." : "Every frontier lab is married to a chip or cloud giant. Strategic deals trade equity and loyalty for money, discounts and early access to the next generation.", screen: .partners) {
             HeroBanner(image: "nvidia_hq", height: 150) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Pick your side").font(.title.weight(.bold))
@@ -24,7 +24,7 @@ struct PartnersView: View {
                     PartnerOfferCard(def: def, state: s)
                 }
             }
-            Text("Terms scale with your valuation. Investments come as cash or cloud credits in exchange for equity. Commitments are take-or-pay: spend less than promised and you pay half the shortfall.")
+            Text(s.isPublicProgram ? "Framework scale follows your authorised programme budget. Support arrives as cloud credits, never equity. Commitments are take-or-pay: spend less than promised and you pay half the shortfall." : "Terms scale with your valuation. Investments come as cash or cloud credits in exchange for equity. Commitments are take-or-pay: spend less than promised and you pay half the shortfall.")
                 .font(.caption).foregroundStyle(.tertiary)
         }
     }
@@ -62,7 +62,7 @@ private struct PartnerOfferCard: View {
                 .padding(12)
             }
             VStack(alignment: .leading, spacing: 10) {
-                Text(def.pitch).font(.callout)
+                Text(s.isPublicProgram ? "A public procurement framework for priority \(def.kind.lowercased()) capacity, cloud credits and co-engineering." : def.pitch).font(.callout)
                 Text(def.precedent).font(.caption).foregroundStyle(.secondary)
                 Picker("Deal", selection: $exclusive) {
                     Text("Exclusive").tag(true)
@@ -74,15 +74,19 @@ private struct PartnerOfferCard: View {
                 }
                 .pickerStyle(.segmented)
                 Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 5) {
-                    term("Investment", "\(Fmt.money(t.investment)) for \(Fmt.pct(t.equity, decimals: 1)) equity")
-                    if t.credits > 0 { term("Paid as credits", Fmt.money(t.credits)) }
+                    if s.isPublicProgram {
+                        term("Framework support", "\(Fmt.money(t.credits)) in cloud credits · no equity")
+                    } else {
+                        term("Investment", "\(Fmt.money(t.investment)) for \(Fmt.pct(t.equity, decimals: 1)) equity")
+                        if t.credits > 0 { term("Paid as credits", Fmt.money(t.credits)) }
+                    }
                     term("Discount", "\(Int(t.discount * 100))% off \(def.vendors.map(\.rawValue).sorted().joined(separator: "/")) hardware")
                     if t.earlyMonths > 0 { term("Early access", "New \(def.earlyVendors.map(\.rawValue).sorted().joined(separator: "/")) chips \(t.earlyMonths) months early") }
                     term("Allocation", "\(Fmt.trim(t.allocationMult, 1))× bigger orders, faster delivery")
                     term("Co-engineering", "+\(Int(t.mfuBonus * 100)) pts MFU on their chips")
                     term("You commit", "\(Fmt.money(t.annualCommit))/yr spend (take-or-pay)")
                     if exclusive { term("Exclusivity", "Only \(def.vendors.map(\.rawValue).sorted().joined(separator: " / ")) hardware for \(years) years") }
-                    if def.rebate > 0 { term("Warrants", "\(Int(def.rebate * 100))% of purchases come back as stock gains") }
+                    if def.rebate > 0 { term(s.isPublicProgram ? "Volume rebate" : "Warrants", s.isPublicProgram ? "\(Int(def.rebate * 100))% of purchases returned as a cash discount" : "\(Int(def.rebate * 100))% of purchases come back as stock gains") }
                 }
                 HStack {
                     if let blocker {
@@ -133,7 +137,7 @@ private struct ActivePartnerCard: View {
                         Text(def.name).font(.title2.weight(.bold))
                         Pill(text: p.exclusive ? "Exclusive" : "Preferred", color: p.exclusive ? .orange : .blue, symbol: p.exclusive ? "lock.fill" : nil)
                     }
-                    Text("Signed \(p.start.gameMonth) · ends \(p.end.gameMonth) · \(Fmt.money(p.invested)) invested for \(Fmt.pct(p.equity, decimals: 1))")
+                    Text(state.isPublicProgram ? "Signed \(p.start.gameMonth) · ends \(p.end.gameMonth) · \(Fmt.money(p.credits)) in framework credits · no equity" : "Signed \(p.start.gameMonth) · ends \(p.end.gameMonth) · \(Fmt.money(p.invested)) invested for \(Fmt.pct(p.equity, decimals: 1))")
                         .font(.callout).foregroundStyle(.secondary)
                     Meter(value: elapsed / total, tint: color, height: 6)
                 }
@@ -158,7 +162,7 @@ private struct ActivePartnerCard: View {
         .confirmationDialog("Break the \(def.name) deal?", isPresented: $confirm) {
             Button("Break it", role: .destructive) { store.act("Partnership ended") { $0.terminatePartnership(p.id) } }
         } message: {
-            Text("Penalty: 25% of the investment plus half of this year's unspent commitment. \(def.name) keeps its equity.")
+            Text(state.isPublicProgram ? "Penalty: half of this year's unspent procurement commitment. There is no investment clawback or equity." : "Penalty: 25% of the investment plus half of this year's unspent commitment. \(def.name) keeps its equity.")
         }
     }
 

@@ -2,6 +2,7 @@ import Foundation
 
 enum Finance {
     static func daily(_ s: inout GameState) {
+        guard !s.isPublicProgram else { return }   // appropriations are handled by PublicProgram, never venture term sheets
         // Fundraising: investors trickle in with term sheets.
         let before = s.raiseOffers.count
         s.raiseOffers.removeAll { $0.expires < s.date }

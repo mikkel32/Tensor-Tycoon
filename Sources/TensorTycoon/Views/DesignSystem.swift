@@ -171,8 +171,6 @@ extension Fmt {
         (v < 0 ? "−" : "+") + trim(abs(v), decimals)
     }
 
-    /// A probability as a whole percentage: "62%".
-    static func odds(_ p: Double) -> String { "\(Int((clamp(p, 0, 1) * 100).rounded()))%" }
 }
 
 // MARK: - Screen help

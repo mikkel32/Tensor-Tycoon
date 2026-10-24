@@ -7,6 +7,7 @@ struct FoundingKitPicker: View {
     @Binding var kit: [String]
     @Binding var mode: KitMode
     let difficulty: Difficulty
+    var allowMoney = true
     @State private var category: KitCategory = .research
 
     var body: some View {
@@ -40,7 +41,7 @@ struct FoundingKitPicker: View {
                 Text(mode.blurb).font(.caption).foregroundStyle(mode == .genius ? .purple : .secondary)
             }
             Picker("Category", selection: $category) {
-                ForEach(KitCategory.allCases) { c in Label(c.title, systemImage: c.symbol).tag(c) }
+                ForEach(KitCategory.allCases.filter { allowMoney || $0 != .money }) { c in Label(c.title, systemImage: c.symbol).tag(c) }
             }
             .pickerStyle(.segmented)
             .labelsHidden()
@@ -69,6 +70,8 @@ struct FoundingKitPicker: View {
                 Label("Research ×\(Fmt.trim(FoundingKit.geniusMultiplier, 1))", systemImage: "bolt.fill").font(.caption.weight(.semibold)).foregroundStyle(.purple)
             }
         }
+        .onAppear { if !allowMoney, category == .money { category = .research } }
+        .onChange(of: allowMoney) { _, allowed in if !allowed, category == .money { category = .research } }
         .onChange(of: difficulty) { _, d in
             // A smaller budget drops the most recent picks until the kit fits.
             guard mode == .standard else { return }

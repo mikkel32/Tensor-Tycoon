@@ -44,9 +44,11 @@ enum StrategyEvents {
            let c = s.competitors.filter({ !$0.acquired && $0.valuation > 0 && $0.valuation < s.valuation * 0.4 && $0.id != "prometheus" && $0.id != "deepgrove" && s.year >= $0.def.founded.decimal }).randomElement(using: &s.rng) {
             let price = Acquisitions.price(c, s) * 0.85
             Events.addDecision(&s, kind: "merger_offer", title: "\(c.def.name) wants to be acquired",
-                               body: "Their board approached you: \(Fmt.money(price)) (a discount to their usual premium), half in stock. You'd inherit their tech, people, compute and users — if regulators allow it (\(Int(Acquisitions.antitrustRisk(c, s) * 100))% risk of a block).",
+                               body: s.isPublicProgram
+                                   ? "Their board approached your programme: \(Fmt.money(price)) (a discount to their usual premium), paid entirely from appropriated cash. You'd inherit their tech, people, compute and users — if regulators allow it (\(Int(Acquisitions.antitrustRisk(c, s) * 100))% risk of a block)."
+                                   : "Their board approached you: \(Fmt.money(price)) (a discount to their usual premium), half in stock. You'd inherit their tech, people, compute and users — if regulators allow it (\(Int(Acquisitions.antitrustRisk(c, s) * 100))% risk of a block).",
                                image: "nvidia_hq",
-                               options: [DecisionOption(label: "Buy \(c.def.name)", detail: "\(Fmt.money(price * 0.5)) cash + \(Fmt.money(price * 0.5)) in new shares."),
+                               options: [DecisionOption(label: "Buy \(c.def.name)", detail: s.isPublicProgram ? "\(Fmt.money(price)) in appropriated cash; no shares issued." : "\(Fmt.money(price * 0.5)) cash + \(Fmt.money(price * 0.5)) in new shares."),
                                          DecisionOption(label: "Pass", detail: "They'll find another buyer — or fade.")],
                                amount: price, ref: c.id)
             return
@@ -57,7 +59,7 @@ enum StrategyEvents {
             Events.addDecision(&s, kind: "spinoff", title: "\(star.name) wants to start their own lab",
                                body: "Your star researcher (skill \(Int(star.skill))) has a pitch deck and VCs calling. They'd stay for the right offer.",
                                image: "sf_skyline",
-                               options: [DecisionOption(label: "Make them Chief Scientist", detail: "Grant 0.5% of the company (about \(Fmt.money(s.valuation * 0.005)) at today's valuation). They stay, motivated."),
+                               options: [DecisionOption(label: "Make them Chief Scientist", detail: s.isPublicProgram ? "A senior appointment and a 20% pay rise. They stay, motivated; no private equity is created." : "Grant 0.5% of the company (about \(Fmt.money(s.valuation * 0.005)) at today's valuation). They stay, motivated."),
                                          DecisionOption(label: "Counter with +50% pay", detail: "+\(Fmt.money(star.salary * 0.5))/yr in salary. They stay for now."),
                                          DecisionOption(label: "Wish them well", detail: "They leave. A new rival may appear in the news.")],
                                amount: s.valuation * 0.005, ref: star.id.uuidString)   // 3.9: the grant's value, so the expiry warning fires
@@ -188,7 +190,7 @@ enum StrategyEvents {
                 Sim.news(&s, "You refused a swarm audit", "Commentators call it reckless. Brand −6.", .policy, good: false)
             }
         case ("merger_offer", 0):
-            if let err = s.acquireRival(d.ref, stockShare: 0.5, priceOverride: d.amount) {
+            if let err = s.acquireRival(d.ref, stockShare: s.isPublicProgram ? 0 : 0.5, priceOverride: d.amount) {
                 Sim.news(&s, "The merger fell through", err, .competitor, good: false)
             }
         case ("merger_offer", _):
@@ -197,11 +199,19 @@ enum StrategyEvents {
             guard let i = s.employees.firstIndex(where: { $0.id.uuidString == d.ref }) else { return }
             let name = s.employees[i].name
             if o == 0 {
-                s.employeePoolShares += s.totalShares * 0.005
-                s.employees[i].equity += 0.5
-                s.employees[i].morale = 100
-                s.employees[i].skill = min(100, s.employees[i].skill + 2)
-                Sim.news(&s, "\(name) becomes Chief Scientist", "A 0.5% grant keeps your best mind at home.", .company, good: true)
+                if s.isPublicProgram {
+                    s.employees[i].salary *= 1.2
+                    s.employees[i].equity = 0
+                    s.employees[i].morale = 100
+                    s.employees[i].skill = min(100, s.employees[i].skill + 2)
+                    Sim.news(&s, "\(name) becomes Chief Scientist", "A senior public appointment and a 20% pay rise keep your best mind at home — without creating private equity.", .company, good: true)
+                } else {
+                    s.employeePoolShares += s.totalShares * 0.005
+                    s.employees[i].equity += 0.5
+                    s.employees[i].morale = 100
+                    s.employees[i].skill = min(100, s.employees[i].skill + 2)
+                    Sim.news(&s, "\(name) becomes Chief Scientist", "A 0.5% grant keeps your best mind at home.", .company, good: true)
+                }
                 Cast.promotedAtHome(&s, s.employees[i], title: "Chief scientist")   // 3.4
             } else if o == 1 {
                 s.employees[i].salary *= 1.5

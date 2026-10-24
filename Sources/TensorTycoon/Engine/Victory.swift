@@ -2,7 +2,7 @@ import Foundation
 
 /// Long-term ways to win. Reaching one lets you retire as a legend — or keep going for more.
 enum VictoryPath: String, CaseIterable, Identifiable, Sendable {
-    case superintelligence, empire, dominance, guardian, xeno
+    case superintelligence, empire, dominance, guardian, xeno, publicService
     var id: String { rawValue }
 
     var title: String {
@@ -12,6 +12,7 @@ enum VictoryPath: String, CaseIterable, Identifiable, Sendable {
         case .dominance: "Market Dominance"
         case .guardian: "Guardian of the Transition"
         case .xeno: "Alien Tech Mastery"
+        case .publicService: "Public AI Service"
         }
     }
 
@@ -22,6 +23,7 @@ enum VictoryPath: String, CaseIterable, Identifiable, Sendable {
         case .dominance: "trophy.fill"
         case .guardian: "checkmark.shield.fill"
         case .xeno: "atom"
+        case .publicService: "building.columns.fill"
         }
     }
 
@@ -32,6 +34,7 @@ enum VictoryPath: String, CaseIterable, Identifiable, Sendable {
         case .dominance: "Hold the #1 model for 24 months in a row while taking 40% of the API market."
         case .guardian: "Keep a safety score of 95+ with a top-3 model for 12 months in a row."
         case .xeno: "Discover three alien architectures and ship a million alien chips."
+        case .publicService: "Build a level-4 National AI Service with 12 delivered missions, oversight 75+ and safety 70+."
         }
     }
 }
@@ -41,6 +44,10 @@ enum Victory {
     /// something any surviving lab reaches. 1 until 2030.
     static func empireScale(_ y: Double) -> Double { max(1, Macro.frontierValuation(y) / Macro.frontierValuation(2030)) }
 
+    static func available(_ s: GameState) -> [VictoryPath] {
+        VictoryPath.allCases.filter { s.isPublicProgram ? $0 != .empire : $0 != .publicService }
+    }
+
     static func progress(_ v: VictoryPath, _ s: GameState) -> Double {
         switch v {
         case .superintelligence:
@@ -48,6 +55,7 @@ enum Victory {
             let lead = clamp((m.c - Macro.frontier(s.year) + 0.5) / 2.0, 0, 1)
             return lead * (m.safety >= 80 ? 1 : 0.7)
         case .empire:
+            guard !s.isPublicProgram else { return 0 }
             let k = empireScale(s.year)
             return clamp(max(s.valuation / (1e13 * k), s.founderNetWorth / (1e12 * k)), 0, 1)
         case .dominance:
@@ -59,6 +67,13 @@ enum Victory {
             let alienShipped = s.chipLines.filter { ChipBusiness.isAlien($0.chipID, s) }.reduce(0) { $0 + $1.shipped }
             let reach = XenoScience.megaDone(s, "contact") ? 1 : clamp(alienShipped / 1e6, 0, 1)
             return clamp(Double(XenoScience.discoveries(s)) / 4, 0, 1) * 0.5 + reach * 0.5
+        case .publicService:
+            guard s.isPublicProgram else { return 0 }
+            let p = s.publicProgram
+            return clamp(Double(p.level) / 4, 0, 1) * 0.25
+                + clamp(Double(p.completedMissions) / 12, 0, 1) * 0.35
+                + clamp(p.oversight / 75, 0, 1) * 0.2
+                + clamp(s.safetyScore / 70, 0, 1) * 0.2
         }
     }
 
@@ -67,6 +82,7 @@ enum Victory {
         case .superintelligence:
             return s.releasedModels.contains { $0.c >= Macro.frontier(s.year) + 1.5 && $0.safety >= 80 }
         case .empire:
+            guard !s.isPublicProgram else { return false }
             // Held for three month-ends, not a one-month spike.
             let recent = s.history.suffix(3).map(\.valuation)
             guard recent.count == 3, let low = recent.min() else { return false }
@@ -78,13 +94,24 @@ enum Victory {
             return s.monthsGuardian >= 12
         case .xeno:
             return progress(.xeno, s) >= 0.999
+        case .publicService:
+            let p = s.publicProgram
+            return s.isPublicProgram && p.level >= 4 && p.completedMissions >= 12 && p.oversight >= 75 && s.safetyScore >= 70
         }
     }
 
     /// A single number for how well you did.
     static func legacyScore(_ s: GameState) -> Int {
         var score = 0.0
-        score += 10 * log10(1 + max(0, s.founderNetWorth) / 1e6) * 10
+        if s.isPublicProgram {
+            score += Double(s.publicProgram.completedMissions) * 140
+            score += Double(s.publicProgram.level) * 400
+            score += s.publicProgram.oversight * 5
+            score += s.world.publicTrust * 2
+            score -= Double(s.publicProgram.failedMissions) * 40
+        } else {
+            score += 10 * log10(1 + max(0, s.founderNetWorth) / 1e6) * 10
+        }
         score += Double(s.achievements.count) * 40
         score += Double(s.victories.count) * 1_000
         score += (s.models.map(\.index).max() ?? 0) * 8
@@ -108,7 +135,7 @@ enum Victory {
         let rank = myBest.map { Leaderboard.labRank(index: $0.index, board: board, gone: Leaderboard.goneLabs(s)) } ?? 99
         s.monthsGuardian = (s.safetyScore >= 95 && rank <= 3) ? s.monthsGuardian + 1 : 0
 
-        for v in VictoryPath.allCases where !s.victories.contains(v.rawValue) && achieved(v, s) {
+        for v in available(s) where !s.victories.contains(v.rawValue) && achieved(v, s) {
             s.victories.insert(v.rawValue)
             s.culturePoints += 3
             Achievements.unlock(&s, "victory")

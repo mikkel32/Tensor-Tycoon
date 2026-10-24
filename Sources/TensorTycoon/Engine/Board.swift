@@ -232,6 +232,7 @@ enum Board {
 
     /// Keep three goals on the table.
     static func refill(_ s: inout GameState) {
+        guard !s.isPublicProgram else { return }
         var tries = 0
         while s.objectives.filter({ !$0.done && !$0.failed }).count < activeTarget && tries < 24 {
             tries += 1
@@ -260,6 +261,10 @@ enum Board {
             s.culturePoints += 1
             Sim.news(&s, "\(today.year - start.year) years of \(s.companyName)", "The team celebrates another year. +1 culture point to spend on Strategy & Traits.",
                      .company, image: "sf_skyline", good: true)
+        }
+        if s.isPublicProgram {
+            PublicProgram.monthly(&s)
+            return
         }
         for i in s.objectives.indices where !s.objectives[i].done && !s.objectives[i].failed {
             let o = s.objectives[i]
@@ -338,6 +343,7 @@ extension GameState {
 
     /// Ask the board for a different goal. Costs a little confidence, and the board agrees once every 60 days.
     mutating func rerollObjective(_ id: UUID) -> String? {
+        if isPublicProgram { return "Public missions are renegotiated on the Public Programme page." }
         guard let i = objectives.firstIndex(where: { $0.id == id && !$0.done && !$0.failed }) else { return "Not found." }
         if let ready = rerollReadyOn { return "The board just rewrote a goal for you — ask again after \(ready.gameShort)." }
         if boardConfidence < 10 { return "The board won't renegotiate right now." }
