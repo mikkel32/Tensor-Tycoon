@@ -73,7 +73,7 @@ struct PublicProgramView: View {
                         .buttonStyle(.borderedProminent)
                         .help("Every 60 days. Costs programme funds; improves oversight and public trust.")
                         Button("Ask for funding", systemImage: "hand.raised.fill") { store.open(.publicFunding) }
-                            .help("Once a quarter, on Funding & Commissions: the committee pays for the progress you've made since your last request.")
+                            .help("On Funding & Commissions: money, GPUs or power, granted at once with tasks attached.")
                         Button("Agency orders", systemImage: "building.2.fill") { store.open(.publicFunding) }
                             .help("Models built for government agencies, paid to build and to run.")
                         Text(p.lastTransparency.map { "Last transparency report \($0.gameShort)." } ?? "No transparency report published yet.")
@@ -203,8 +203,8 @@ private struct HowItWorksCard: View {
                      "\(Fmt.money(PublicProgram.nextTranche(s))) arrives \(p.lastTranche.map { "on \(GameCalendar.addDays($0, 90).gameShort)" } ?? "each quarter"). Spend it on people, chips and training runs.", nil)
                 step(2, "target", .purple, "Deliver missions",
                      missions.isEmpty ? "Two missions are issued at a time." : "Now: " + missions.map(\.title).joined(separator: "; ") + ". Each pays on delivery and counts toward promotion.", nil)
-                step(3, "hand.raised.fill", .green, "Ask for more money",
-                     "Once a quarter, show the committee your progress. Your case today: \(Int(PublicFunding.score(s)))/100.", ("Funding requests", .publicFunding))
+                step(3, "hand.raised.fill", .green, "Ask for more",
+                     "Funding, GPUs or a bigger facility, granted on the spot with tasks attached. \(GovRequests.open(s).count)/\(GovRequests.maxOpen) requests open.", ("Ask the government", .publicFunding))
                 step(4, "building.2.fill", .orange, "Build for agencies",
                      Commissions.open(s).isEmpty && Commissions.active(s).isEmpty ? "Ministries order models made for them; the first order arrives soon." : "\(Commissions.open(s).count) waiting, \(Commissions.active(s).count) being built.", ("Agency orders", .publicFunding))
             }

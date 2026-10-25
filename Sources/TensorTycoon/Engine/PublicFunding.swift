@@ -1,101 +1,270 @@
 import Foundation
 
-/// 3.10: how a government AI branch asks for money. Every 90 days the director can put a funding request to the
-/// committee; it is judged on a case built from what the programme delivered since its last approved request (research,
-/// models, capability, missions, agency models) and how it is run (safety, security, oversight, reserves). The outcome
-/// is shown before you ask, so a request is never a gamble.
-enum PublicFunding {
-    static let cooldownDays = 90
-    /// A case this many points short of an ask's bar gets nothing; in between, a share of it.
-    static let partialBand = 25.0
+/// 3.10: what a government AI branch asks the state for. Funding, GPUs or more facility power is granted on request; the
+/// committee attaches tasks scaled to the size, due by a deadline. Deliver them all and oversight rises; miss the
+/// deadline and oversight falls, and for money 30% is withheld from the next quarterly budgets (for GPUs, half of them
+/// are reassigned to other agencies). Tasks are fixed when you
+/// ask (no dice), so the page shows exactly what a request will cost you in work before you make it.
+enum GovRequests {
+    static let maxOpen = 3
+    static let clawbackShare = 0.3
+    static let chipDays = 60
+    static let powerDays = 150
+    static let powerSteps: [Double] = [100_000, 250_000, 500_000]
+    /// The facility a government branch starts with.
+    static let facilityKW = 100_000.0
 
-    struct CaseLine: Identifiable {
-        var id: String { title }
-        var title: String
-        var symbol: String
-        var detail: String
-        var points: Double
-        var max: Double
+    static func open(_ s: GameState) -> [GovRequest] { s.publicProgram.grants.filter { $0.status == .active } }
+
+    static func bestC(_ s: GameState) -> Double { s.models.filter { !$0.preview }.map(\.c).max() ?? -10 }
+
+    // MARK: Sizes
+
+    static func fundingRange(_ s: GameState) -> ClosedRange<Double> {
+        let b = PublicProgram.authorisedBudget(s)
+        return (b * 0.1).rounded(.up)...(b * 2).rounded(.down)
     }
 
-    static func builtModels(_ s: GameState) -> [AIModel] { s.models.filter { !$0.preview } }
-    static func bestC(_ s: GameState) -> Double { builtModels(s).map(\.c).max() ?? -10 }
+    /// 1–4: how much work a request of this size carries.
+    static func tier(share: Double) -> Int { share <= 0.3 ? 1 : share <= 0.6 ? 2 : share <= 1.2 ? 3 : 4 }
+    static func fundingTier(_ amount: Double, _ s: GameState) -> Int { tier(share: amount / max(1, PublicProgram.authorisedBudget(s))) }
 
-    static func snapshot(_ s: GameState) -> ProgressSnapshot {
-        ProgressSnapshot(date: s.date, researched: s.researched.count, models: builtModels(s).count, bestC: bestC(s),
-                         missions: s.publicProgram.completedMissions, missed: s.publicProgram.failedMissions,
-                         commissions: s.publicProgram.commissionsDelivered, security: s.securityRaw)
+    static func facility(_ s: GameState) -> Site? {
+        s.sites.first { $0.id == s.publicProgram.facilityID } ?? s.sites.first(where: \.stateFunded)
     }
 
-    /// The evidence the committee weighs, line by line.
-    static func lines(_ s: GameState) -> [CaseLine] {
+    /// The newest datacenter GPU the state can procure today.
+    static func chipChoice(_ s: GameState) -> Accelerator? {
+        HardwareCatalog.all.filter { $0.cls == .datacenter && $0.vendor != .custom && Economy.canBuy($0, s) && Economy.price($0, s) != nil && Partners.blocker($0, s) == nil }
+            .max { ($0.bf16, $0.id) < ($1.bf16, $1.id) }
+    }
+
+    static func fleet(_ s: GameState) -> Int {
+        guard let f = facility(s) else { return 0 }
+        return s.owned.filter { $0.siteID == f.id }.reduce(0) { $0 + $1.count }
+    }
+
+    /// Power the facility's chips draw (at full load), with GPUs already granted but not yet delivered.
+    static func committedKW(_ s: GameState) -> Double {
+        guard let f = facility(s) else { return 0 }
+        let pending = open(s).filter { $0.kind == .chips && !$0.arrived }.reduce(0.0) { acc, r in acc + (HardwareCatalog.get(r.accelID).map { Economy.chipKW($0) } ?? 0) * Double(r.chips) }
+        return Economy.siteLoadKW(s, f.id) + pending
+    }
+
+    static func capacityKW(_ s: GameState) -> Double { facility(s)?.capacityKW ?? 0 }
+    static func pendingPowerKW(_ s: GameState) -> Double { open(s).filter { $0.kind == .power && !$0.arrived }.reduce(0) { $0 + $1.powerKW } }
+
+    /// GPUs a request can bring: up to twice today's fleet, and what the facility can power once everything granted arrives.
+    static func chipRange(_ s: GameState) -> ClosedRange<Int> {
+        guard let a = chipChoice(s) else { return 0...0 }
+        let step = max(1, a.minOrder)
+        let room = Int(max(0, capacityKW(s) - committedKW(s)) / max(0.001, Economy.chipKW(a))) / step * step
+        let top = min(room, max(1_024, 2 * fleet(s)) / step * step)
+        let low = min(top, max(step, 128 / step * step))
+        return low...max(low, top)
+    }
+
+    static func chipTier(_ n: Int, _ s: GameState) -> Int { tier(share: Double(n) / Double(max(512, fleet(s)))) }
+    static func powerTier(_ kw: Double) -> Int { kw <= 100_000 ? 2 : kw <= 250_000 ? 3 : 4 }
+
+    /// Why the committee won't fund more power yet (nil when it will).
+    static func powerBlocker(_ s: GameState) -> String? {
+        let cap = capacityKW(s)
+        guard cap > 0 else { return "There is no state facility to expand." }
+        if pendingPowerKW(s) > 0 { return "An expansion is already being built." }
+        let used = committedKW(s) / cap
+        return used < 0.5 ? "The facility uses \(Fmt.pct(used, decimals: 0)) of its \(Fmt.watts(cap * 1000)). More power is granted once it's half full." : nil
+    }
+
+    static func blocker(_ s: GameState) -> String? {
+        guard s.isPublicProgram else { return "Only a government AI branch can ask the state." }
+        return open(s).count >= maxOpen ? "You have \(maxOpen) requests with tasks open. Deliver one first." : nil
+    }
+
+    // MARK: Tasks
+
+    static func days(_ tier: Int) -> Int { 120 + 60 * tier }
+
+    /// The tasks a request of this tier would carry today, the same ones `request` attaches.
+    static func tasks(_ s: GameState, tier t: Int) -> [GrantTask] {
         let p = s.publicProgram
-        let base = p.evidence ?? snapshot(s)
-        let since = base.date.gameShort
-        var out: [CaseLine] = []
-
-        let research = max(0, s.researched.count - base.researched)
-        out.append(CaseLine(title: "Research delivered", symbol: "lightbulb.fill",
-                            detail: research == 0 ? "Nothing finished since \(since). Keep the research queue full." : "\(research) project\(research == 1 ? "" : "s") finished since \(since).",
-                            points: min(25, 4 * Double(research)), max: 25))
-
-        let models = max(0, builtModels(s).count - base.models)
-        out.append(CaseLine(title: "Models trained", symbol: "cpu.fill",
-                            detail: models == 0 ? "No new model since \(since)." : "\(models) new model\(models == 1 ? "" : "s") since \(since).",
-                            points: min(15, 6 * Double(models)), max: 15))
-
+        let frontier = Macro.frontier(s.year)
         let best = bestC(s)
-        let gain = base.bestC <= -10 ? (best > -10 ? 1.0 : 0) : best - base.bestC
-        out.append(CaseLine(title: "Capability gained", symbol: "chart.line.uptrend.xyaxis",
-                            detail: best <= -10 ? "No model yet." : base.bestC <= -10 ? "First model at capability \(Fmt.trim(best, 2))." : "Best model \(Fmt.trim(base.bestC, 2)) → \(Fmt.trim(best, 2)).",
-                            points: clamp(gain * 15, 0, 15), max: 15))
-
-        let gap = Macro.frontier(s.year) - best
-        out.append(CaseLine(title: "Against the frontier", symbol: "flag.checkered",
-                            detail: best <= -10 ? "Nothing to compare yet." : gap <= 0 ? "Your best model is at the frontier." : "Your best model is \(Fmt.trim(gap, 1)) behind the world's best.",
-                            points: gap <= 0.5 ? 10 : gap <= 1.5 ? 6 : gap <= 2.5 ? 3 : 0, max: 10))
-
-        let done = max(0, p.completedMissions - base.missions)
-        let missed = max(0, p.failedMissions - base.missed)
-        out.append(CaseLine(title: "Public missions", symbol: "target",
-                            detail: done + missed == 0 ? "No mission closed since \(since)." : "\(done) delivered, \(missed) missed since \(since).",
-                            points: clamp(8 * Double(done) - 6 * Double(missed), -12, 24), max: 24))
-
-        let delivered = max(0, p.commissionsDelivered - base.commissions)
-        out.append(CaseLine(title: "Agency models delivered", symbol: "building.2.fill",
-                            detail: delivered == 0 ? "No agency model handed over since \(since)." : "\(delivered) agency model\(delivered == 1 ? "" : "s") in service since \(since).",
-                            points: min(20, 10 * Double(delivered)), max: 20))
-
-        let levels = max(0, s.securityRaw - base.security)
-        out.append(CaseLine(title: "Safety and security", symbol: "checkmark.shield.fill",
-                            detail: "Safety \(Int(s.safetyScore))/100" + (levels > 0 ? ", security up \(levels) level\(levels == 1 ? "" : "s")." : ", security SL\(s.security.rawValue)."),
-                            points: min(10, clamp((s.safetyScore - 40) / 5, 0, 6) + 3 * Double(levels)), max: 10))
-
-        let reserves = max(0, s.cash) > PublicProgram.authorisedBudget(s)
-        let stewardship = clamp((p.oversight - 50) / 4, -10, 8) - (p.probation ? 8 : 0) - (reserves ? 5 : 0)
-        out.append(CaseLine(title: "Stewardship", symbol: "building.columns.fill",
-                            detail: "Oversight \(Int(p.oversight))/100" + (p.probation ? ", on probation" : "") + (reserves ? ", and over a year's budget unspent" : "") + ".",
-                            points: stewardship, max: 8))
+        let cap = clamp(best > -10 ? best + 0.15 * Double(t) : frontier - 2.2, frontier - 2.2, frontier + 0.1)
+        let order: [GrantTaskKind]
+        switch p.mandate {
+        case .digitalServices: order = [.train, .hire, .research, .release, .missions, .agency, .safety, .security]
+        case .openScience: order = [.research, .release, .train, .safety, .missions, .agency, .hire, .security]
+        case .nationalSecurity: order = [.train, .security, .research, .safety, .hire, .missions, .agency, .release]
+        }
+        let next = s.securityRaw + 1
+        let feasible = order.filter { k in
+            switch k {
+            case .release: t >= 2
+            case .agency: t >= 3
+            case .security: t >= 3 && next <= 5 && (next < 5 || s.year >= 2026)
+            default: true
+            }
+        }
+        var out: [GrantTask] = []
+        let seq = p.grantSequence + 1
+        for k in feasible.prefix(1 + t) {
+            let id = "grant-\(seq)-\(k.rawValue)"
+            switch k {
+            case .research:
+                let n = 1 + 2 * t
+                out.append(GrantTask(id: id, kind: k, title: "Finish \(n) research projects", target: Double(n), baseline: Double(s.researched.count)))
+            case .train:
+                out.append(GrantTask(id: id, kind: k, title: "Train a model at capability \(Fmt.trim(cap, 2))+", target: 1, capabilityMin: cap))
+            case .hire:
+                let n = 2 + 2 * t
+                out.append(GrantTask(id: id, kind: k, title: "Grow the team by \(n) people", target: Double(n), baseline: Double(s.employees.count)))
+            case .safety:
+                let target = min(95, (s.safetyScore + 2 + 2 * Double(t)).rounded())
+                out.append(GrantTask(id: id, kind: k, title: "Raise the safety score to \(Int(target))", target: target))
+            case .release:
+                out.append(GrantTask(id: id, kind: k, title: "Put a model at capability \(Fmt.trim(cap - 0.1, 2))+ into public service", target: 1, capabilityMin: cap - 0.1))
+            case .missions:
+                let n = max(1, t - 1)
+                out.append(GrantTask(id: id, kind: k, title: n == 1 ? "Deliver a public mission" : "Deliver \(n) public missions", target: Double(n), baseline: Double(p.completedMissions)))
+            case .agency:
+                out.append(GrantTask(id: id, kind: k, title: "Deliver a model to an agency", target: 1, baseline: Double(p.commissionsDelivered)))
+            case .security:
+                out.append(GrantTask(id: id, kind: k, title: "Raise security to SL\(next)", target: Double(next)))
+            }
+        }
         return out
     }
 
-    /// The strength of the case, 0–100.
-    static func score(_ s: GameState) -> Double { clamp(lines(s).reduce(0) { $0 + $1.points }, 0, 100) }
-
-    /// Share of an ask the committee approves at this score.
-    static func fraction(_ ask: FundingAsk, score: Double) -> Double { clamp(1 - (ask.bar - score) / partialBand, 0, 1) }
-
-    /// What an ask would bring today: the one-off payment and the rise in the base budget (as a share).
-    static func outcome(_ ask: FundingAsk, _ s: GameState) -> (fraction: Double, amount: Double, raise: Double) {
-        let f = fraction(ask, score: score(s))
-        return (f, PublicProgram.authorisedBudget(s) * ask.oneOff * f, ask.raise * f)
+    /// How far a task has come (value against its target).
+    static func measure(_ task: GrantTask, _ r: GovRequest, _ s: GameState) -> Double {
+        switch task.kind {
+        case .research: Double(s.researched.count) - task.baseline
+        case .train: Double(s.models.filter { !$0.preview && $0.created >= r.issued && $0.c >= task.capabilityMin }.count)
+        case .hire: Double(s.employees.count) - task.baseline
+        case .safety: s.safetyScore
+        case .release: Double(s.releasedModels.filter { ($0.releaseDate ?? $0.created) >= r.issued && $0.c >= task.capabilityMin }.count)
+        case .missions: Double(s.publicProgram.completedMissions) - task.baseline
+        case .agency: Double(s.publicProgram.commissionsDelivered) - task.baseline
+        case .security: Double(s.securityRaw)
+        }
     }
 
-    /// When the committee will next hear a request (nil if it would today).
-    static func readyOn(_ s: GameState) -> Date? {
-        guard let last = s.publicProgram.lastRequest else { return nil }
-        let ready = GameCalendar.addDays(last, cooldownDays)
-        return ready > s.date ? ready : nil
+    static func progress(_ task: GrantTask, _ r: GovRequest, _ s: GameState) -> Double {
+        task.done ? 1 : clamp(measure(task, r, s) / max(0.0001, task.target), 0, 1)
+    }
+
+    // MARK: Granting
+
+    @discardableResult
+    static func grant(_ s: inout GameState, kind: GovRequestKind, title: String, tier: Int, amount: Double = 0, chips: Int = 0,
+                      accelID: String = "", powerKW: Double = 0, arrivesIn: Int? = nil) -> GovRequest {
+        let tasks = tasks(s, tier: tier)
+        s.publicProgram.grantSequence += 1
+        let r = GovRequest(id: "grant-\(s.publicProgram.grantSequence)", kind: kind, title: title, issued: s.date,
+                           due: GameCalendar.addDays(s.date, days(tier)), amount: amount, chips: chips, accelID: accelID, powerKW: powerKW,
+                           arrives: arrivesIn.map { GameCalendar.addDays(s.date, $0) }, tasks: tasks)
+        s.publicProgram.grants.insert(r, at: 0)
+        let done = s.publicProgram.grants.filter { $0.status != .active }
+        if done.count > 12, let last = done.last { s.publicProgram.grants.removeAll { $0.id == last.id } }
+        return r
+    }
+
+    /// The opening fleet: the newest datacenter GPU, a few thousand of them (more in later eras).
+    static func starterFleet(_ s: GameState) -> (Accelerator, Int)? {
+        guard let a = chipChoice(s) else { return nil }
+        let y = s.year
+        let step = max(1, a.minOrder)
+        return (a, (y < 2019 ? 2_048 : y < 2021.5 ? 4_096 : y < 2024 ? 8_192 : 16_384) / step * step)
+    }
+
+    static func facilitySite(_ name: String, location: String, date: Date) -> Site {
+        var site = Site(name: "\(name) National Compute Facility", kind: .datacenter, locationID: location, capacityKW: facilityKW,
+                        cooling: .liquid, powerDeal: .grid, opened: date, ready: date, capex: 0, monthlyFee: 0)
+        site.stateFunded = true
+        return site
+    }
+
+    /// The state's national compute facility: 100 MW with the newest GPUs it can buy. Government games start with it;
+    /// older public saves get it the first day they run.
+    static func buildFacility(_ s: inout GameState) {
+        guard s.isPublicProgram, s.publicProgram.facilityID == nil || facility(s) == nil else { return }
+        if let existing = s.sites.first(where: \.stateFunded) {
+            s.publicProgram.facilityID = existing.id
+            return
+        }
+        let site = facilitySite(s.companyName, location: s.sites.first?.locationID ?? LocationCatalog.all[0].id, date: s.date)
+        s.sites.append(site)
+        s.publicProgram.facilityID = site.id
+        guard let (a, count) = starterFleet(s) else { return }
+        s.owned.append(OwnedBatch(accelID: a.id, count: count, siteID: site.id, purchased: s.date, unitCost: 0))
+        Sim.mergeOwned(&s)
+    }
+
+    static func deliver(_ s: inout GameState, _ i: Int) {
+        let r = s.publicProgram.grants[i]
+        s.publicProgram.grants[i].arrived = true
+        guard let f = facility(s), let fi = s.sites.firstIndex(where: { $0.id == f.id }) else { return }
+        switch r.kind {
+        case .chips:
+            s.owned.append(OwnedBatch(accelID: r.accelID, count: r.chips, siteID: f.id, purchased: s.date, unitCost: 0))
+            Sim.mergeOwned(&s)
+            let name = HardwareCatalog.get(r.accelID)?.name ?? r.accelID
+            PublicProgram.note(&s, "\(Fmt.int(r.chips)) \(name) delivered to the national facility.", good: true)
+            Sim.news(&s, "\(Fmt.int(r.chips)) \(name) arrive", "The state's GPUs are racked and running at \(f.name).", .hardware, image: "dc_corridor", good: true)
+        case .power:
+            s.sites[fi].capacityKW += r.powerKW
+            PublicProgram.note(&s, "The national facility grows by \(Fmt.watts(r.powerKW * 1000)).", good: true)
+            Sim.news(&s, "\(f.name) grows to \(Fmt.watts(s.sites[fi].capacityKW * 1000))", "New halls and grid capacity are commissioned; the ministry pays the power.", .hardware, image: "hyperscale_campus", good: true)
+        case .funding:
+            break
+        }
+    }
+
+    /// Half of a missed GPU request goes to other agencies: only chips nothing is using, written off at book value.
+    static func reclaim(_ s: inout GameState, _ r: GovRequest) -> Int {
+        guard let f = facility(s), let i = s.owned.firstIndex(where: { $0.siteID == f.id && $0.accelID == r.accelID }) else { return 0 }
+        let n = min(r.chips / 2, Economy.pool(s, r.accelID)?.free ?? 0, s.owned[i].count)
+        guard n > 0 else { return 0 }
+        Books.disposed(&s, proceeds: 0, book: Books.book(s.owned[i], chips: n, at: s.date))
+        s.owned[i].count -= n
+        s.owned.removeAll { $0.count <= 0 }
+        return n
+    }
+
+    static func daily(_ s: inout GameState) {
+        if s.publicProgram.facilityID == nil { buildFacility(&s) }
+        for i in s.publicProgram.grants.indices where s.publicProgram.grants[i].status == .active {
+            let r = s.publicProgram.grants[i]
+            if !r.arrived, let at = r.arrives, s.date >= at { deliver(&s, i) }
+            for j in r.tasks.indices where !r.tasks[j].done && measure(r.tasks[j], r, s) >= r.tasks[j].target {
+                s.publicProgram.grants[i].tasks[j].done = true
+            }
+            let all = s.publicProgram.grants[i].tasks.allSatisfy(\.done)
+            if all && (r.arrived || r.arrives == nil) {
+                s.publicProgram.grants[i].status = .completed
+                s.publicProgram.grants[i].closed = s.date
+                s.publicProgram.grantsCompleted += 1
+                s.publicProgram.oversight = clamp(s.publicProgram.oversight + 5, 0, 100)
+                s.culturePoints += 1
+                PublicProgram.note(&s, "Every task for “\(r.title)” delivered: oversight +5, +1 culture point.", good: true)
+                Sim.news(&s, "Commitments met: \(r.title)", "The committee signs off every task attached to it. Oversight confidence rises and the programme earns a culture point.",
+                         .policy, image: "gov_capitol", important: true, good: true)
+            } else if s.date > r.due {
+                s.publicProgram.grants[i].status = .failed
+                s.publicProgram.grants[i].closed = s.date
+                s.publicProgram.grantsFailed += 1
+                let withheld = r.kind == .funding ? r.amount * clawbackShare : 0
+                s.publicProgram.clawback += withheld
+                let taken = r.kind == .chips ? reclaim(&s, r) : 0
+                s.publicProgram.oversight = clamp(s.publicProgram.oversight - 8, 0, 100)
+                let left = r.tasks.filter { !$0.done }.count
+                let cost = withheld > 0 ? ", \(Fmt.money(withheld)) withheld from coming budgets" : taken > 0 ? ", \(Fmt.int(taken)) GPUs reassigned to other agencies" : ""
+                PublicProgram.note(&s, "Missed \(left) task\(left == 1 ? "" : "s") for “\(r.title)”: oversight −8\(cost).", good: false)
+                Sim.news(&s, "Commitments missed: \(r.title)", "\(left) task\(left == 1 ? " was" : "s were") not delivered by \(r.due.gameShort). Oversight confidence falls\(cost).",
+                         .policy, important: true, good: false)
+            }
+        }
     }
 }
 
@@ -314,31 +483,47 @@ private extension Double {
 // MARK: - Player actions
 
 extension GameState {
-    mutating func requestPublicFunding(_ ask: FundingAsk) -> String? {
-        guard isPublicProgram else { return "Only a government AI branch asks the committee for funding." }
-        if let ready = PublicFunding.readyOn(self) { return "The committee hears one request a quarter. The next can go in on \(ready.gameShort)." }
-        let score = PublicFunding.score(self)
-        let o = PublicFunding.outcome(ask, self)
-        guard o.fraction > 0 else {
-            return "A \(ask.title.lowercased()) needs a case of at least \(Int(ask.bar - PublicFunding.partialBand)) (yours is \(Int(score))). Deliver more first."
-        }
-        cash += o.amount
-        month.revContracts += o.amount
-        publicProgram.totalReceived += o.amount
-        publicProgram.annualBudget *= 1 + o.raise
-        let full = o.fraction >= 1
-        if full { publicProgram.oversight = clamp(publicProgram.oversight + 2, 0, 100) }
-        boardConfidence = publicProgram.oversight
-        publicProgram.requests.insert(FundingRequest(id: "request-\(publicProgram.requests.count + 1)-\(Int(date.timeIntervalSince1970))", date: date, ask: ask,
-                                                     score: score, fraction: o.fraction, amount: o.amount, raise: o.raise), at: 0)
-        if publicProgram.requests.count > 12 { publicProgram.requests.removeLast(publicProgram.requests.count - 12) }
-        publicProgram.lastRequest = date
-        publicProgram.evidence = PublicFunding.snapshot(self)
-        let raiseText = o.raise > 0 ? " and the base budget rises \(Fmt.pct(o.raise, decimals: 0))" : ""
-        PublicProgram.note(&self, "\(ask.title) request \(full ? "approved" : "\(Fmt.pct(o.fraction, decimals: 0)) approved") on a case of \(Int(score)): \(Fmt.money(o.amount))\(raiseText).", good: true)
-        Sim.news(&self, "Funding \(full ? "approved" : "partly approved"): \(Fmt.money(o.amount))",
-                 "The committee weighed \(companyName)'s record (a case of \(Int(score))/100) and released \(Fmt.money(o.amount))\(raiseText). The next request can go in on \(GameCalendar.addDays(date, PublicFunding.cooldownDays).gameShort).",
+    /// Ask for money: paid today, with tasks attached.
+    mutating func requestGovernmentFunding(_ amount: Double) -> String? {
+        if let why = GovRequests.blocker(self) { return why }
+        let range = GovRequests.fundingRange(self)
+        let a = (clamp(amount, range.lowerBound, range.upperBound) / 100_000).rounded() * 100_000
+        guard a > 0 else { return "Pick an amount." }
+        let tier = GovRequests.fundingTier(a, self)
+        cash += a
+        month.revContracts += a
+        publicProgram.totalReceived += a
+        let r = GovRequests.grant(&self, kind: .funding, title: "\(Fmt.money(a)) in funding", tier: tier, amount: a)
+        PublicProgram.note(&self, "\(Fmt.money(a)) granted, with \(r.tasks.count) tasks due \(r.due.gameShort).", good: true)
+        Sim.news(&self, "Funding granted: \(Fmt.money(a))", "The money is in the programme's account today. In return the committee wants \(r.tasks.count) things delivered by \(r.due.gameShort): " + r.tasks.map(\.title).joined(separator: "; ") + ".",
                  .policy, image: "gov_capitol", important: true, good: true)
+        return nil
+    }
+
+    /// Ask for GPUs: the newest the state can procure, racked at the national facility in 60 days.
+    mutating func requestGovernmentChips(_ count: Int) -> String? {
+        if let why = GovRequests.blocker(self) { return why }
+        guard GovRequests.facility(self) != nil, let a = GovRequests.chipChoice(self) else { return "No GPUs can be procured right now." }
+        let range = GovRequests.chipRange(self)
+        guard range.upperBound > 0 else { return "The facility has no power left for more GPUs. Ask for more power first." }
+        let step = max(1, a.minOrder)
+        let n = clamp(count, range.lowerBound, range.upperBound) / step * step
+        guard n > 0 else { return "Pick how many GPUs." }
+        let r = GovRequests.grant(&self, kind: .chips, title: "\(Fmt.int(n)) \(a.name)", tier: GovRequests.chipTier(n, self), chips: n, accelID: a.id, arrivesIn: GovRequests.chipDays)
+        PublicProgram.note(&self, "\(Fmt.int(n)) \(a.name) granted, arriving \(r.arrives?.gameShort ?? "soon"), with \(r.tasks.count) tasks due \(r.due.gameShort).", good: true)
+        Sim.news(&self, "GPUs granted: \(Fmt.int(n)) \(a.name)", "They arrive at the national facility on \(r.arrives?.gameShort ?? "soon"). The committee wants \(r.tasks.count) things delivered by \(r.due.gameShort): " + r.tasks.map(\.title).joined(separator: "; ") + ".",
+                 .policy, image: "dc_corridor", important: true, good: true)
+        return nil
+    }
+
+    /// Ask for a bigger facility: new halls and grid capacity, commissioned in 150 days.
+    mutating func requestGovernmentPower(_ kw: Double) -> String? {
+        if let why = GovRequests.blocker(self) { return why }
+        if let why = GovRequests.powerBlocker(self) { return why }
+        let r = GovRequests.grant(&self, kind: .power, title: "+\(Fmt.watts(kw * 1000)) of facility power", tier: GovRequests.powerTier(kw), powerKW: kw, arrivesIn: GovRequests.powerDays)
+        PublicProgram.note(&self, "+\(Fmt.watts(kw * 1000)) granted, commissioned \(r.arrives?.gameShort ?? "soon"), with \(r.tasks.count) tasks due \(r.due.gameShort).", good: true)
+        Sim.news(&self, "Facility expansion granted: +\(Fmt.watts(kw * 1000))", "Commissioned by \(r.arrives?.gameShort ?? "soon"). The committee wants \(r.tasks.count) things delivered by \(r.due.gameShort): " + r.tasks.map(\.title).joined(separator: "; ") + ".",
+                 .policy, image: "hyperscale_campus", important: true, good: true)
         return nil
     }
 

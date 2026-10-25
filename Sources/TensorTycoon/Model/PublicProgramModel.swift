@@ -75,73 +75,74 @@ struct PublicAuditRecord: Codable, Hashable, Identifiable {
 
 // MARK: - 3.10: funding requests and agency commissions
 
-/// How big a funding request is: a one-off share of the year's authorisation, a lasting rise in the base budget, and
-/// the strength of case (0–100) the committee wants to see for it in full.
-enum FundingAsk: String, Codable, CaseIterable, Identifiable, Sendable {
-    case modest, expansion, moonshot
+/// 3.10: what you can ask the government for. Every request is granted at once and comes with tasks to deliver.
+enum GovRequestKind: String, Codable, CaseIterable, Identifiable, Sendable {
+    case funding, chips, power
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .modest: "Top-up"
-        case .expansion: "Expansion"
-        case .moonshot: "Moonshot"
+        case .funding: "Funding"
+        case .chips: "GPUs"
+        case .power: "Facility power"
         }
     }
     var symbol: String {
         switch self {
-        case .modest: "plus.circle.fill"
-        case .expansion: "arrow.up.right.circle.fill"
-        case .moonshot: "sparkles"
-        }
-    }
-    /// One-off payment, as a share of the annual authorisation.
-    var oneOff: Double {
-        switch self {
-        case .modest: 0.15
-        case .expansion: 0.30
-        case .moonshot: 0.60
-        }
-    }
-    /// Lasting rise in the base annual budget.
-    var raise: Double {
-        switch self {
-        case .modest: 0
-        case .expansion: 0.10
-        case .moonshot: 0.25
-        }
-    }
-    /// Strength of case needed for the full amount.
-    var bar: Double {
-        switch self {
-        case .modest: 30
-        case .expansion: 55
-        case .moonshot: 80
+        case .funding: "banknote.fill"
+        case .chips: "cpu.fill"
+        case .power: "bolt.fill"
         }
     }
 }
 
-struct FundingRequest: Codable, Hashable, Identifiable {
+enum GrantTaskKind: String, Codable, Sendable {
+    case research, train, hire, safety, security, release, agency, missions
+    var symbol: String {
+        switch self {
+        case .research: "lightbulb.fill"
+        case .train: "cpu.fill"
+        case .hire: "person.3.fill"
+        case .safety: "checkmark.shield.fill"
+        case .security: "lock.shield.fill"
+        case .release: "paperplane.fill"
+        case .agency: "building.2.fill"
+        case .missions: "target"
+        }
+    }
+}
+
+/// One thing the committee wants in return for a request. Counts are measured from `baseline` at the request.
+struct GrantTask: Codable, Hashable, Identifiable {
     var id: String
-    var date: Date
-    var ask: FundingAsk
-    var score: Double
-    /// Share of the ask approved (0 = turned down).
-    var fraction: Double
-    var amount: Double
-    /// Rise in the base annual budget, as a share.
-    var raise: Double
+    var kind: GrantTaskKind
+    var title: String
+    var target: Double
+    var baseline: Double = 0
+    var capabilityMin: Double = 0
+    var done = false
 }
 
-/// What the programme had at its last approved request (or its founding): the next case is judged on what's new.
-struct ProgressSnapshot: Codable, Hashable {
-    var date: Date
-    var researched: Int
-    var models: Int
-    var bestC: Double
-    var missions: Int
-    var missed: Int
-    var commissions: Int
-    var security: Int
+enum GovRequestStatus: String, Codable, Sendable {
+    case active, completed, failed
+}
+
+/// 3.10: a funding, GPU or power request the government granted, and the tasks attached to it.
+struct GovRequest: Codable, Hashable, Identifiable {
+    var id: String
+    var kind: GovRequestKind
+    var title: String
+    var issued: Date
+    var due: Date
+    var amount: Double = 0
+    var chips = 0
+    var accelID = ""
+    var powerKW: Double = 0
+    /// When the GPUs arrive or the new power is commissioned (the money arrives at once).
+    var arrives: Date? = nil
+    var arrived = false
+    var tasks: [GrantTask]
+    var status: GovRequestStatus = .active
+    var closed: Date? = nil
 }
 
 enum CommissionStatus: String, Codable, Sendable {
@@ -215,10 +216,14 @@ struct PublicProgramState: Codable, Hashable, DefaultValue {
     /// Emergency appropriations after running out of cash (PublicProgram.solvency), and the last one.
     @D var rescues: Int = 0
     @D var lastRescue: Date? = nil
-    // 3.10: funding requests backed by progress, and models built for agencies.
-    @D var requests: [FundingRequest] = []
-    @D var lastRequest: Date? = nil
-    @D var evidence: ProgressSnapshot? = nil
+    // 3.10: requests the government granted, with their tasks; the state's own compute facility; agency orders.
+    @D var grants: [GovRequest] = []
+    @D var grantSequence: Int = 0
+    @D var grantsCompleted: Int = 0
+    @D var grantsFailed: Int = 0
+    /// Withheld from the next quarterly budgets after a request's tasks were missed.
+    @D var clawback: Double = 0
+    @D var facilityID: UUID? = nil
     @D var commissions: [AgencyCommission] = []
     @D var commissionSequence: Int = 0
     @D var lastCommissionOffer: Date? = nil

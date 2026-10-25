@@ -220,9 +220,19 @@ struct Sidebar: View {
             ForEach(Screen.sections, id: \.0) { section in
                 Section(section.0) {
                     ForEach(section.1.filter { $0.shown(in: s) }) { screen in
-                        Label(screen.title, systemImage: screen.symbol)
-                            .badge(badge(for: screen, s))
-                            .tag(screen)
+                        if screen == .publicFunding {
+                            // 3.10: the government's money tab is lit in purple.
+                            Label(screen.title, systemImage: screen.symbol)
+                                .foregroundStyle(.purple).fontWeight(.semibold)
+                                .listItemTint(.purple)
+                                .listRowBackground(RoundedRectangle(cornerRadius: 6).fill(Color.purple.opacity(0.16)).padding(.horizontal, 6))
+                                .badge(badge(for: screen, s))
+                                .tag(screen)
+                        } else {
+                            Label(screen.title, systemImage: screen.symbol)
+                                .badge(badge(for: screen, s))
+                                .tag(screen)
+                        }
                     }
                 }
             }
@@ -235,7 +245,7 @@ struct Sidebar: View {
         case .news: s.unreadNews
         case .dashboard: s.decisions.filter { !Alerts.isUrgent($0) }.count + s.briefings.prefix(1).filter { !$0.seen }.count
         case .publicProgram: s.publicProgram.probation ? 1 : s.decisions.filter { $0.kind == "public_review" }.count
-        case .publicFunding: Commissions.open(s).count + (s.isPublicProgram && PublicFunding.readyOn(s) == nil && PublicFunding.outcome(.modest, s).fraction >= 1 ? 1 : 0)
+        case .publicFunding: Commissions.open(s).count + GovRequests.open(s).filter { GameCalendar.daysBetween(s.date, $0.due) < 30 }.count
         case .rivals: s.rumors.prefix(30).filter { $0.kind == "imminent" && GameCalendar.daysBetween($0.date, s.date) <= 10 }.count
         case .training: s.runs.filter { $0.status == .running || $0.status == .postTraining }.count
         case .models: s.models.filter { !$0.released && !$0.retired }.count

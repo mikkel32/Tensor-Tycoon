@@ -154,7 +154,7 @@ private struct TodayHeader: View {
                              symbol: "chart.line.uptrend.xyaxis", tint: .blue, term: .runRate, screen: .market, trend: change)
                 if s.isPublicProgram {
                     HeadlineTile(title: "Annual budget", value: Fmt.money(PublicProgram.authorisedBudget(s)),
-                                 detail: "Funding case \(Int(PublicFunding.score(s)))/100 · \(PublicFunding.readyOn(s).map { "next request \($0.gameShort)" } ?? "a request can go in now")",
+                                 detail: "\(GovRequests.open(s).count)/\(GovRequests.maxOpen) requests open · \(Fmt.watts(GovRequests.capacityKW(s) * 1000)) facility",
                                  symbol: "building.columns.fill", tint: .purple, term: .board, screen: .publicFunding)
                 } else {
                     HeadlineTile(title: "Valuation", value: Fmt.money(s.valuation),

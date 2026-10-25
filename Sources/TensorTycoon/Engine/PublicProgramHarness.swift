@@ -29,7 +29,8 @@ enum PublicProgramHarness {
                         print("     commission \(c.status.rawValue) \(c.agency) (\(c.domain.rawValue) \(Commissions.signed(c.domainEdgeMin))+, c ≥ \(Fmt.trim(c.capabilityMin, 2))\(c.internalOnly ? ", internal" : "")\(c.openWeights ? ", open" : "")\(c.securityMin > 0 ? ", SL\(c.securityMin)" : "")\(c.needsEvaluation ? ", evaluated" : "")) · paid \(Fmt.money(c.paid))"
                               + (best.map { m in " · best " + m.name + ": " + Commissions.checks(c, m, a).map { "\($0.met ? "✓" : "✗")\($0.label) \($0.detail)" }.joined(separator: ", ") } ?? ""))
                     }
-                    for r in a.publicProgram.requests.reversed() { print("     request \(r.date.gameShort) \(r.ask.rawValue) case \(Int(r.score)) → \(Fmt.pct(r.fraction, decimals: 0)) \(Fmt.money(r.amount))") }
+                    for r in a.publicProgram.grants.reversed() { print("     request \(r.issued.gameShort) \(r.title) → \(r.status.rawValue) · tasks " + r.tasks.map { "\($0.done ? "✓" : "✗")\($0.title)" }.joined(separator: ", ")) }
+                    print("     facility \(Fmt.watts(GovRequests.capacityKW(a) * 1000)), \(Fmt.int(GovRequests.fleet(a))) GPUs, \(Fmt.watts(GovRequests.committedKW(a) * 1000)) used")
                     print("     staff \(a.employees.count), best model c \(Fmt.trim(a.models.map(\.c).max() ?? 0, 2)), safety \(Int(a.safetyScore)), SL\(a.securityRaw), budget \(Fmt.money(PublicProgram.authorisedBudget(a)))/yr")
                 }
                 print("   level \(p.level) (\(PublicProgram.levelNames[clamp(p.level, 1, 4)])) · missions \(p.completedMissions) delivered, \(p.failedMissions) missed · oversight \(Int(p.oversight)) · received \(Fmt.money(p.totalReceived)) · cash \(Fmt.money(a.cash))\(a.gameOver.map { " · GAME OVER: \($0)" } ?? "")")
@@ -46,11 +47,13 @@ enum PublicProgramHarness {
                 expect("history stays bounded", p.missions.count <= PublicProgram.maxMissions && p.history.count <= PublicProgram.maxHistory)
                 // 3.10: funding requests and agency commissions.
                 expect("agencies send orders", !p.commissions.isEmpty || p.commissionSequence > 0, "\(p.commissionSequence) orders")
-                expect("a funding request was approved", !p.requests.isEmpty, "\(p.requests.count) approved")
-                let gaps = zip(p.requests.dropFirst(), p.requests).map { GameCalendar.daysBetween($0.0.date, $0.1.date) }
-                expect("one request a quarter", gaps.allSatisfy { abs($0) >= PublicFunding.cooldownDays }, gaps.map(String.init).joined(separator: ", "))
-                expect("commission record stays bounded", p.commissions.filter { ![.offered, .active, .inService].contains($0.status) }.count <= Commissions.maxRecord
-                       && p.requests.count <= 12)
+                expect("the national facility runs", GovRequests.capacityKW(a) >= GovRequests.facilityKW && GovRequests.fleet(a) >= 2_048,
+                       "\(Fmt.watts(GovRequests.capacityKW(a) * 1000)), \(Fmt.int(GovRequests.fleet(a))) GPUs")
+                expect("requests were granted, each with tasks", !p.grants.isEmpty && p.grants.allSatisfy { $0.tasks.count >= 2 },
+                       "\(p.grantSequence) requests, \(p.grantsCompleted) met, \(p.grantsFailed) missed")
+                expect("never more than \(GovRequests.maxOpen) requests open", GovRequests.open(a).count <= GovRequests.maxOpen)
+                expect("commission and request records stay bounded", p.commissions.filter { ![.offered, .active, .inService].contains($0.status) }.count <= Commissions.maxRecord
+                       && p.grants.filter { $0.status != .active }.count <= 12)
                 delivered += p.commissionsDelivered
                 paidInFull = paidInFull && p.commissions.filter { $0.delivered != nil && $0.status != .cancelled }.allSatisfy { $0.paid >= $0.value - 1 }
                 print("     agency models: \(p.commissionsDelivered) delivered, \(p.commissionsFailed) missed")
@@ -75,17 +78,36 @@ enum PublicProgramHarness {
 
         expect("agency models go into service and are paid in full", delivered > 0 && paidInFull, "\(delivered) delivered")
 
-        print("== funding requests show their answer first")
+        print("== requests are granted with the tasks the page showed")
         var fresh = run(era: "2022", mandate: .digitalServices, seed: 9, years: 0)
-        let cash0 = fresh.cash, budget0 = fresh.publicProgram.annualBudget
-        let refused = fresh.requestPublicFunding(.moonshot)
-        expect("a weak case is refused without cost", refused != nil && fresh.cash == cash0 && fresh.publicProgram.annualBudget == budget0 && fresh.publicProgram.lastRequest == nil, refused ?? "accepted")
-        fresh.publicProgram.oversight = 90
-        fresh.researched.formUnion(ResearchCatalog.core.prefix(12).map(\.id))
-        let o = PublicFunding.outcome(.modest, fresh)
-        let accepted = fresh.requestPublicFunding(.modest)
-        expect("a case over the bar pays what the card said", accepted == nil && abs(fresh.cash - cash0 - o.amount) < 1, accepted ?? Fmt.money(fresh.cash - cash0))
-        expect("a second request waits a quarter", fresh.requestPublicFunding(.modest) != nil)
+        expect("a government game opens with a 100 MW facility full of GPUs", GovRequests.capacityKW(fresh) == GovRequests.facilityKW && GovRequests.fleet(fresh) == 8_192
+               && fresh.sites.count == 1 && fresh.sites[0].stateFunded, "\(Fmt.watts(GovRequests.capacityKW(fresh) * 1000)), \(Fmt.int(GovRequests.fleet(fresh))) \(fresh.owned.first?.accelID ?? "")")
+        let powerBefore = fresh.month.costPower
+        Sim.advanceDay(&fresh)
+        expect("the ministry pays the facility's power", fresh.month.costPower - powerBefore < 1, Fmt.money(fresh.month.costPower - powerBefore))
+        let cash0 = fresh.cash
+        let ask = (GovRequests.fundingRange(fresh).upperBound / 4 / 100_000).rounded() * 100_000
+        let preview = GovRequests.tasks(fresh, tier: GovRequests.fundingTier(ask, fresh)).map(\.title)
+        let granted = fresh.requestGovernmentFunding(ask)
+        expect("funding is paid the day you ask", granted == nil && abs(fresh.cash - cash0 - ask) < 1, granted ?? Fmt.money(fresh.cash - cash0))
+        expect("it carries the tasks the page previewed", fresh.publicProgram.grants.first?.tasks.map(\.title) == preview, preview.joined(separator: "; "))
+        let oversight0 = fresh.publicProgram.oversight
+        fresh.publicProgram.grants[0].due = GameCalendar.addDays(fresh.date, -1)
+        GovRequests.daily(&fresh)
+        expect("missed tasks cost oversight and withhold 30% of the money", fresh.publicProgram.grants[0].status == .failed && fresh.publicProgram.oversight < oversight0
+               && abs(fresh.publicProgram.clawback - ask * GovRequests.clawbackShare) < 1, Fmt.money(fresh.publicProgram.clawback))
+        let tranche = PublicProgram.nextTranche(fresh), held = fresh.publicProgram.clawback, cash1 = fresh.cash
+        PublicProgram.payTranche(&fresh)
+        expect("the withheld money comes off the next budget", abs(fresh.cash - cash1 - (tranche - min(held, tranche * 0.5))) < 1 && fresh.publicProgram.clawback < held)
+        let fleet0 = GovRequests.fleet(fresh)
+        expect("GPUs can be requested", fresh.requestGovernmentChips(1_024) == nil)
+        if let i = fresh.publicProgram.grants.firstIndex(where: { $0.kind == .chips }) { fresh.publicProgram.grants[i].arrives = fresh.date }
+        GovRequests.daily(&fresh)
+        expect("granted GPUs arrive at the facility", GovRequests.fleet(fresh) == fleet0 + 1_024, "\(Fmt.int(GovRequests.fleet(fresh) - fleet0)) arrived")
+        expect("more power waits until the facility is half full", GovRequests.powerBlocker(fresh) != nil && fresh.requestGovernmentPower(100_000) != nil)
+        _ = fresh.requestGovernmentFunding(ask)
+        _ = fresh.requestGovernmentFunding(ask)
+        expect("a fourth open request is refused", GovRequests.open(fresh).count == GovRequests.maxOpen && fresh.requestGovernmentFunding(ask) != nil)
         let ids = Set(Commissions.agencies.map(\.name))
         expect("every agency is distinct", ids.count == Commissions.agencies.count)
 
@@ -128,10 +150,15 @@ enum PublicProgramHarness {
         for c in Commissions.active(s) {
             if let m = s.models.first(where: { Commissions.qualifies(c, $0, s) }) { _ = s.deliverCommission(c.id, modelID: m.id) }
         }
-        // Funding: the biggest ask the committee would grant in full, else a partial top-up.
-        if PublicFunding.readyOn(s) == nil {
-            if let ask = FundingAsk.allCases.reversed().first(where: { PublicFunding.outcome($0, s).fraction >= 1 }) ?? (PublicFunding.outcome(.modest, s).fraction > 0.5 ? .modest : nil) {
-                _ = s.requestPublicFunding(ask)
+        // Requests: a modest top-up when reserves run low, GPUs while the facility has room, power once it's half full.
+        let open = GovRequests.open(s)
+        if open.count < 2 {
+            if !open.contains(where: { $0.kind == .funding }), s.cash < PublicProgram.authorisedBudget(s) / 2 {
+                _ = s.requestGovernmentFunding(PublicProgram.authorisedBudget(s) * 0.25)
+            } else if !open.contains(where: { $0.kind == .chips }), GovRequests.chipRange(s).upperBound >= 512 {
+                _ = s.requestGovernmentChips(min(2_048, GovRequests.chipRange(s).upperBound))
+            } else if GovRequests.powerBlocker(s) == nil {
+                _ = s.requestGovernmentPower(100_000)
             }
         }
         // Never release a model an agency runs internally.

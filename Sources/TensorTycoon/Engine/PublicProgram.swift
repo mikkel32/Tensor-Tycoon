@@ -33,7 +33,7 @@ enum PublicProgram {
         s.publicProgram.lastReview = s.date
         s.boardConfidence = 70
         fillMissions(&s)
-        s.publicProgram.evidence = PublicFunding.snapshot(s)
+        GovRequests.buildFacility(&s)
         note(&s, "Established under the \(mandate.title) mandate with two opening public missions.", good: true)
     }
 
@@ -174,8 +174,7 @@ enum PublicProgram {
             payTranche(&s)
         }
         if s.publicProgram.lastTranche == nil { s.publicProgram.lastTranche = s.date }
-        // 3.10: the funding case counts from the programme's founding (or, for older saves, from today).
-        if s.publicProgram.evidence == nil { s.publicProgram.evidence = PublicFunding.snapshot(s) }
+        GovRequests.daily(&s)   // 3.10: requests granted and their tasks; the national facility
         Commissions.daily(&s)
         reviewIfNeeded(&s)
     }
@@ -229,7 +228,11 @@ enum PublicProgram {
     }
 
     static func payTranche(_ s: inout GameState) {
-        let amount = nextTranche(s)
+        // 3.10: money withheld for missed request tasks comes off here, at most half a tranche at a time.
+        let withheld = min(s.publicProgram.clawback, nextTranche(s) * 0.5)
+        s.publicProgram.clawback -= withheld
+        let amount = nextTranche(s) - withheld
+        if withheld > 0 { note(&s, "\(Fmt.money(withheld)) withheld from this quarter's budget for missed request tasks.", good: false) }
         s.publicProgram.lastTranche = s.date
         s.cash += amount
         s.month.revContracts += amount
@@ -332,20 +335,16 @@ enum PublicProgram {
                  .policy, image: "gov_capitol", important: true, good: true)
     }
 
+    /// 3.10: a promotion brings more of the state's GPUs to the national facility (the newest it can buy).
     static func grantSupport(_ s: inout GameState, level: Int) {
-        guard var site = s.sites.first else { return }
-        let power = [0.0, 0, 24, 64, 160][level]
-        let chips = [0, 0, 8, 16, 32][level]
-        site.capacityKW += power
-        s.sites[0] = site
-        let available = HardwareCatalog.all.filter {
-            $0.purchasable && $0.available <= s.date.ym && ($0.discontinued.map { $0 > s.date.ym } ?? true)
-        }.sorted { a, b in a.bf16 != b.bf16 ? a.bf16 < b.bf16 : a.id < b.id }
-        if let accelerator = available.last {
-            s.owned.append(OwnedBatch(accelID: accelerator.id, count: chips, siteID: site.id,
-                                      purchased: s.date, unitCost: 0))
-            Sim.mergeOwned(&s)
-        }
+        guard let f = GovRequests.facility(s), let a = GovRequests.chipChoice(s) else { return }
+        let step = max(1, a.minOrder)
+        let room = Int(max(0, f.capacityKW - GovRequests.committedKW(s)) / max(0.001, Economy.chipKW(a)))
+        let chips = min(room, [0, 0, 1_024, 2_048, 4_096][clamp(level, 0, 4)]) / step * step
+        guard chips > 0 else { return }
+        s.owned.append(OwnedBatch(accelID: a.id, count: chips, siteID: f.id, purchased: s.date, unitCost: 0))
+        Sim.mergeOwned(&s)
+        note(&s, "Promotion brings \(Fmt.int(chips)) \(a.name) to the national facility.", good: true)
     }
 
     static func trim(_ s: inout GameState) {

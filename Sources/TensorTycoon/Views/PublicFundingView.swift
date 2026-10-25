@@ -1,14 +1,13 @@
 import SwiftUI
 
-/// 3.10: a government branch's money in one place: where it comes from, the case for more, and models built for the
-/// agencies that order them.
+/// 3.10: a government branch's money and machines in one place. Ask the state for funding, GPUs or a bigger facility and
+/// it's granted on the spot, with tasks attached; agencies order models built for them.
 struct PublicFundingView: View {
     @Environment(GameStore.self) private var store
-    @State private var asking: FundingAsk?
 
     var body: some View {
         let s = store.game
-        Page(title: "Funding & Commissions", subtitle: "Ask the committee for money by showing your progress, and build models that government agencies order and pay for.", screen: .publicFunding) {
+        Page(title: "Funding & Commissions", subtitle: "Ask the state for money, GPUs or power: it's granted on the spot, and the committee attaches tasks to deliver. Agencies order models built for them.", screen: .publicFunding) {
             if !s.isPublicProgram {
                 Card {
                     EmptyStateView(symbol: "banknote", title: "No public programme",
@@ -16,56 +15,399 @@ struct PublicFundingView: View {
                                    actionTitle: "Back to Dashboard") { store.open(.dashboard) }
                 }
             } else {
-                hero(s)
+                GovHero(state: s)
+                AskGovernmentCard(state: s)
+                CardGrid(minWidth: 420, maxColumns: 2) {
+                    FacilityCard(state: s)
+                    CommitmentsCard(state: s)
+                }
                 MoneySourcesCard(state: s)
-                CardGrid(minWidth: 400, maxColumns: 2) {
-                    ProgressCaseCard(state: s)
-                    FundingAskCard(state: s, asking: $asking)
-                }
                 CommissionsCard(state: s)
-                RequestHistoryCard(state: s)
-            }
-        }
-        .confirmationDialog(asking.map { "Ask for a \($0.title.lowercased())?" } ?? "", isPresented: Binding(get: { asking != nil }, set: { if !$0 { asking = nil } }), titleVisibility: .visible) {
-            if let ask = asking {
-                let o = PublicFunding.outcome(ask, s)
-                Button("Ask for \(Fmt.money(o.amount))") {
-                    store.act("Funding approved") { $0.requestPublicFunding(ask) }
-                    asking = nil
-                }
-            }
-            Button("Not yet", role: .cancel) { asking = nil }
-        } message: {
-            if let ask = asking {
-                let o = PublicFunding.outcome(ask, s)
-                Text("On a case of \(Int(PublicFunding.score(s)))/100 the committee approves \(Fmt.pct(o.fraction, decimals: 0)): \(Fmt.money(o.amount)) now\(o.raise > 0 ? " and \(Fmt.pct(o.raise, decimals: 0)) more base budget every year" : ""). The next request can go in \(PublicFunding.cooldownDays) days later, judged on what you deliver from now on.")
             }
         }
     }
+}
 
-    private func hero(_ s: GameState) -> some View {
+/// The government screens' accent.
+enum GovTheme {
+    static let tint = Color.purple
+    static let gradient = LinearGradient(colors: [Color.purple, Color.indigo], startPoint: .topLeading, endPoint: .bottomTrailing)
+    static let wash = Color.purple.opacity(0.08)
+}
+
+// MARK: - Hero
+
+private struct GovHero: View {
+    let state: GameState
+
+    var body: some View {
+        let s = state
         let p = s.publicProgram
-        let runway = Treasury.runwayMonths(s)
-        return HeroBanner(image: "gov_capitol", height: 150) {
-            HStack(alignment: .bottom) {
-                VStack(alignment: .leading, spacing: 5) {
-                    Label("Funding & Commissions", systemImage: "banknote.fill").font(.title.weight(.bold))
-                    Text("\(PublicProgram.levelNames[clamp(p.level, 1, 4)]) · \(p.mandate.title) · \(Fmt.money(p.totalReceived)) received so far").font(.callout).opacity(0.9)
+        let withheld = p.clawback
+        ZStack(alignment: .bottomLeading) {
+            Photo(key: "gov_capitol").frame(height: 190).frame(maxWidth: .infinity).clipped()
+            LinearGradient(colors: [Color.purple.opacity(0.92), Color.indigo.opacity(0.75), Color.black.opacity(0.35)], startPoint: .leading, endPoint: .trailing)
+            HStack(alignment: .bottom, spacing: 20) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("Funding & Commissions", systemImage: "building.columns.fill").font(.largeTitle.weight(.heavy))
+                    Text("The state funds you. You deliver.").font(.title3.weight(.medium)).opacity(0.92)
+                    HStack(spacing: 8) {
+                        heroPill(PublicProgram.levelNames[clamp(p.level, 1, 4)], "star.fill")
+                        heroPill("Oversight \(Int(p.oversight))/100", "checkmark.shield.fill")
+                        heroPill("\(GovRequests.open(s).count)/\(GovRequests.maxOpen) requests open", "list.bullet.clipboard.fill")
+                        if withheld > 0 { heroPill("\(Fmt.money(withheld)) to be withheld", "exclamationmark.triangle.fill") }
+                    }
                 }
                 Spacer()
-                HStack(spacing: 22) {
-                    heroMetric("Annual budget", Fmt.money(PublicProgram.authorisedBudget(s)))
-                    heroMetric("Reserves", Fmt.money(s.cash))
-                    heroMetric("Runway", runway.map { $0 > 36 ? "3+ years" : "\(Int($0)) months" } ?? "Self-funding")
+                HStack(spacing: 26) {
+                    metric("Annual budget", Fmt.money(PublicProgram.authorisedBudget(s)))
+                    metric("Reserves", Fmt.money(s.cash))
+                    metric("Next budget", p.lastTranche.map { GameCalendar.addDays($0, 90).gameShort } ?? "Soon")
                 }
+            }
+            .foregroundStyle(.white)
+            .padding(22)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Color.purple.opacity(0.6), lineWidth: 1))
+    }
+
+    private func heroPill(_ text: String, _ symbol: String) -> some View {
+        Label(text, systemImage: symbol).font(.caption.weight(.semibold))
+            .padding(.horizontal, 9).padding(.vertical, 4)
+            .background(.white.opacity(0.18), in: .capsule)
+    }
+
+    private func metric(_ title: String, _ value: String) -> some View {
+        VStack(alignment: .trailing, spacing: 2) {
+            Text(title.uppercased()).font(.caption2.weight(.bold)).opacity(0.75)
+            Text(value).font(.title.weight(.bold).monospacedDigit())
+        }
+    }
+}
+
+// MARK: - Ask the government
+
+private struct AskGovernmentCard: View {
+    @Environment(GameStore.self) private var store
+    let state: GameState
+    @State private var kind: GovRequestKind = .funding
+    @State private var share: Double = 0.25
+    @State private var chips: Double = 0
+    @State private var power: Double = 100_000
+
+    var body: some View {
+        let s = state
+        let blocked = GovRequests.blocker(s)
+        Card {
+            HStack(alignment: .firstTextBaseline) {
+                Label("Ask the government", systemImage: "hand.raised.fill").font(.title2.weight(.bold)).foregroundStyle(GovTheme.tint)
+                Spacer()
+                Picker("", selection: $kind) {
+                    ForEach(GovRequestKind.allCases) { k in Label(k.title, systemImage: k.symbol).tag(k) }
+                }
+                .pickerStyle(.segmented).frame(width: 360).labelsHidden()
+            }
+            Text("Granted the moment you ask. In return the committee attaches tasks, more for a bigger request, due by a deadline. Deliver them all: oversight +5 and a culture point. Miss the deadline: oversight −8\(kind == .funding ? ", and 30% of the money is withheld from your next budgets" : kind == .chips ? ", and half the GPUs are reassigned to other agencies" : "").")
+                .font(.callout).foregroundStyle(.secondary)
+            HStack(alignment: .top, spacing: 18) {
+                VStack(alignment: .leading, spacing: 12) {
+                    switch kind {
+                    case .funding: fundingPicker(s)
+                    case .chips: chipPicker(s)
+                    case .power: powerPicker(s)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                TermsPanel(state: s, tier: tier(s), arrives: arrivesDays, action: actionTitle(s), disabled: blocked != nil || disabledReason(s) != nil,
+                           reason: blocked ?? disabledReason(s)) { submit() }
+                    .frame(width: 380)
+            }
+        }
+        .overlay(RoundedRectangle(cornerRadius: Theme.Radius.card).strokeBorder(GovTheme.tint.opacity(0.45), lineWidth: 1.5))
+        .onAppear { resetChips(s) }
+        .onChange(of: kind) { _, _ in resetChips(s) }
+    }
+
+    // MARK: Pickers
+
+    @ViewBuilder
+    private func fundingPicker(_ s: GameState) -> some View {
+        let budget = PublicProgram.authorisedBudget(s)
+        let amount = fundingAmount(s)
+        Text(Fmt.money(amount)).font(.system(size: 44, weight: .heavy, design: .rounded).monospacedDigit()).foregroundStyle(GovTheme.gradient)
+        Text("\(Fmt.pct(share, decimals: 0)) of your \(Fmt.money(budget)) annual budget, paid today").font(.callout).foregroundStyle(.secondary)
+        Slider(value: $share, in: 0.1...2.0).tint(GovTheme.tint)
+        HStack(spacing: 6) {
+            ForEach([0.1, 0.25, 0.5, 1.0, 2.0], id: \.self) { v in
+                Button(Fmt.money(budget * v)) { share = v }
+                    .buttonStyle(.bordered).controlSize(.small)
+                    .tint(abs(share - v) < 0.005 ? GovTheme.tint : nil)
             }
         }
     }
 
-    private func heroMetric(_ title: String, _ value: String) -> some View {
-        VStack(alignment: .trailing, spacing: 2) {
-            Text(title).font(.caption).opacity(0.8)
-            Text(value).font(.title2.weight(.bold).monospacedDigit())
+    @ViewBuilder
+    private func chipPicker(_ s: GameState) -> some View {
+        if let a = GovRequests.chipChoice(s) {
+            let range = GovRequests.chipRange(s)
+            let n = chipCount(s)
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(Fmt.int(n)).font(.system(size: 44, weight: .heavy, design: .rounded).monospacedDigit()).foregroundStyle(GovTheme.gradient)
+                Text(a.name).font(.title2.weight(.semibold))
+            }
+            Text("\(Fmt.count(a.bf16 * Double(n))) TFLOPS BF16 · \(Fmt.watts(Economy.chipKW(a) * Double(n) * 1000)) · arrives in \(GovRequests.chipDays) days at the national facility, power paid by the ministry")
+                .font(.callout).foregroundStyle(.secondary)
+            if range.upperBound > range.lowerBound {
+                Slider(value: $chips, in: Double(range.lowerBound)...Double(range.upperBound)).tint(GovTheme.tint)
+                HStack(spacing: 6) {
+                    ForEach([512, 1_024, 2_048, 4_096, 8_192].filter { $0 >= range.lowerBound && $0 < range.upperBound }, id: \.self) { v in
+                        Button(Fmt.int(v)) { chips = Double(v) }.buttonStyle(.bordered).controlSize(.small)
+                    }
+                    Button("Max \(Fmt.int(range.upperBound))") { chips = Double(range.upperBound) }.buttonStyle(.bordered).controlSize(.small)
+                }
+            } else if range.upperBound == 0 {
+                Label("The facility has no power left for more GPUs. Ask for more power first.", systemImage: "bolt.slash.fill").foregroundStyle(.orange)
+            }
+        } else {
+            Text("No datacenter GPUs can be procured right now.").foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private func powerPicker(_ s: GameState) -> some View {
+        let cap = GovRequests.capacityKW(s)
+        Text("+\(Fmt.watts(power * 1000))").font(.system(size: 44, weight: .heavy, design: .rounded).monospacedDigit()).foregroundStyle(GovTheme.gradient)
+        Text("The facility goes from \(Fmt.watts(cap * 1000)) to \(Fmt.watts((cap + power) * 1000)), commissioned in \(GovRequests.powerDays) days. The ministry pays the power.")
+            .font(.callout).foregroundStyle(.secondary)
+        HStack(spacing: 10) {
+            ForEach(GovRequests.powerSteps, id: \.self) { kw in
+                Button { power = kw } label: {
+                    VStack(spacing: 3) {
+                        Image(systemName: "bolt.fill").font(.title2)
+                        Text("+\(Fmt.watts(kw * 1000))").font(.callout.weight(.bold))
+                        Text("\(GovRequests.tasks(s, tier: GovRequests.powerTier(kw)).count) tasks").font(.caption2).opacity(0.8)
+                    }
+                    .frame(maxWidth: .infinity).padding(.vertical, 12)
+                    .background(power == kw ? AnyShapeStyle(GovTheme.gradient) : AnyShapeStyle(GovTheme.wash), in: .rect(cornerRadius: 12))
+                    .foregroundStyle(power == kw ? .white : .primary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    // MARK: Request
+
+    private func fundingAmount(_ s: GameState) -> Double {
+        let r = GovRequests.fundingRange(s)
+        return (clamp(PublicProgram.authorisedBudget(s) * share, r.lowerBound, r.upperBound) / 100_000).rounded() * 100_000
+    }
+
+    private func chipCount(_ s: GameState) -> Int {
+        let r = GovRequests.chipRange(s)
+        let step = max(1, GovRequests.chipChoice(s)?.minOrder ?? 1)
+        return clamp(Int(chips.rounded()), r.lowerBound, r.upperBound) / step * step
+    }
+
+    private func resetChips(_ s: GameState) {
+        let r = GovRequests.chipRange(s)
+        if chips <= 0 || Int(chips) > r.upperBound { chips = Double(min(r.upperBound, max(r.lowerBound, 1_024))) }
+    }
+
+    private func tier(_ s: GameState) -> Int {
+        switch kind {
+        case .funding: GovRequests.fundingTier(fundingAmount(s), s)
+        case .chips: GovRequests.chipTier(chipCount(s), s)
+        case .power: GovRequests.powerTier(power)
+        }
+    }
+
+    private var arrivesDays: Int? {
+        switch kind {
+        case .funding: nil
+        case .chips: GovRequests.chipDays
+        case .power: GovRequests.powerDays
+        }
+    }
+
+    private func actionTitle(_ s: GameState) -> String {
+        switch kind {
+        case .funding: "Request \(Fmt.money(fundingAmount(s)))"
+        case .chips: "Request \(Fmt.int(chipCount(s))) GPUs"
+        case .power: "Request +\(Fmt.watts(power * 1000))"
+        }
+    }
+
+    private func disabledReason(_ s: GameState) -> String? {
+        switch kind {
+        case .funding: nil
+        case .chips: GovRequests.chipChoice(s) == nil || chipCount(s) <= 0 ? "No room or no GPUs to procure." : nil
+        case .power: GovRequests.powerBlocker(s)
+        }
+    }
+
+    private func submit() {
+        let s = state
+        switch kind {
+        case .funding:
+            let a = fundingAmount(s)
+            store.act("\(Fmt.money(a)) granted") { $0.requestGovernmentFunding(a) }
+        case .chips:
+            let n = chipCount(s)
+            store.act("\(Fmt.int(n)) GPUs granted") { $0.requestGovernmentChips(n) }
+            resetChips(store.game)
+        case .power:
+            let kw = power
+            store.act("Expansion granted") { $0.requestGovernmentPower(kw) }
+        }
+    }
+}
+
+/// What a request costs in work: the tasks, the deadline, the button.
+private struct TermsPanel: View {
+    let state: GameState
+    let tier: Int
+    let arrives: Int?
+    let action: String
+    let disabled: Bool
+    let reason: String?
+    let submit: () -> Void
+
+    var body: some View {
+        let s = state
+        let tasks = GovRequests.tasks(s, tier: tier)
+        let days = GovRequests.days(tier)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("The committee asks in return").font(.headline)
+                Spacer()
+                Text(String(repeating: "●", count: tier) + String(repeating: "○", count: 4 - tier)).foregroundStyle(GovTheme.tint).help("Size of the request: more tasks for more")
+            }
+            ForEach(tasks) { task in
+                HStack(spacing: 10) {
+                    Image(systemName: task.kind.symbol).foregroundStyle(GovTheme.tint).frame(width: 22)
+                    Text(task.title).font(.callout)
+                }
+            }
+            Divider()
+            Label("Due \(GameCalendar.addDays(s.date, days).gameShort) · \(days) days\(arrives.map { " · arrives in \($0) days" } ?? "")", systemImage: "calendar.badge.clock")
+                .font(.caption).foregroundStyle(.secondary)
+            Button(action: submit) {
+                Label(action, systemImage: "checkmark.seal.fill").font(.headline).frame(maxWidth: .infinity).padding(.vertical, 6)
+            }
+            .buttonStyle(.borderedProminent).tint(GovTheme.tint).controlSize(.large)
+            .disabled(disabled)
+            if let reason { Text(reason).font(.caption).foregroundStyle(.orange) }
+        }
+        .padding(14)
+        .background(GovTheme.wash, in: .rect(cornerRadius: 12))
+    }
+}
+
+// MARK: - The national facility
+
+private struct FacilityCard: View {
+    let state: GameState
+
+    var body: some View {
+        let s = state
+        Card {
+            if let f = GovRequests.facility(s) {
+                let cap = f.capacityKW
+                let used = GovRequests.committedKW(s)
+                let pendingPower = GovRequests.pendingPowerKW(s)
+                let batches = Dictionary(grouping: s.owned.filter { $0.siteID == f.id }, by: \.accelID)
+                    .map { (HardwareCatalog.get($0.key), $0.value.reduce(0) { $0 + $1.count }) }
+                    .sorted { ($0.0?.bf16 ?? 0) > ($1.0?.bf16 ?? 0) }
+                CardHeader(title: f.name, symbol: "building.columns.fill", subtitle: "The state's own compute: power paid by the ministry") {
+                    Pill(text: Fmt.watts(cap * 1000), color: GovTheme.tint, symbol: "bolt.fill")
+                }
+                HStack {
+                    Text("Power in use").font(.caption.weight(.semibold))
+                    Spacer()
+                    Text("\(Fmt.watts(used * 1000)) of \(Fmt.watts(cap * 1000))\(pendingPower > 0 ? " · +\(Fmt.watts(pendingPower * 1000)) coming" : "")").font(.caption.monospacedDigit())
+                }
+                Meter(value: used / max(1, cap), tint: used / max(1, cap) > 0.85 ? .orange : GovTheme.tint, height: 12)
+                ForEach(Array(batches.enumerated()), id: \.offset) { _, b in
+                    HStack {
+                        Image(systemName: "cpu.fill").foregroundStyle(GovTheme.tint)
+                        Text(b.0?.name ?? "GPU").font(.callout.weight(.medium))
+                        Spacer()
+                        Text(Fmt.int(b.1)).font(.title3.weight(.bold).monospacedDigit())
+                        Text("· \(Fmt.count((b.0?.bf16 ?? 0) * Double(b.1))) TF").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                ForEach(GovRequests.open(s).filter { !$0.arrived && $0.kind != .funding }) { r in
+                    Label("\(r.title) arriving \(r.arrives?.gameShort ?? "soon")", systemImage: r.kind == .chips ? "shippingbox.fill" : "hammer.fill")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Text(used / max(1, cap) >= 0.5 ? "Over half full: you can ask for more power above." : "Room for more GPUs: ask for them above, or buy your own in the Hardware store.")
+                    .font(.caption2).foregroundStyle(.tertiary)
+            } else {
+                CardHeader("National compute facility", symbol: "building.columns.fill")
+                Text("The facility opens with the next day.").foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
+// MARK: - Commitments
+
+private struct CommitmentsCard: View {
+    let state: GameState
+
+    var body: some View {
+        let s = state
+        let open = GovRequests.open(s)
+        let closed = s.publicProgram.grants.filter { $0.status != .active }.prefix(4)
+        Card {
+            CardHeader(title: "Your commitments", symbol: "list.bullet.clipboard.fill", subtitle: "Tasks attached to what the state granted you") {
+                Pill(text: "\(s.publicProgram.grantsCompleted) met · \(s.publicProgram.grantsFailed) missed", color: GovTheme.tint)
+            }
+            if open.isEmpty {
+                Text("Nothing owed. Ask for funding, GPUs or power above and the tasks will show here.").font(.callout).foregroundStyle(.secondary)
+            }
+            ForEach(open) { r in
+                let days = GameCalendar.daysBetween(s.date, r.due)
+                let total = Double(max(1, GameCalendar.daysBetween(r.issued, r.due)))
+                VStack(alignment: .leading, spacing: 7) {
+                    HStack {
+                        Image(systemName: r.kind.symbol).foregroundStyle(.white).frame(width: 28, height: 28).background(GovTheme.gradient, in: .circle)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(r.title).font(.callout.weight(.semibold))
+                            Text(r.kind == .funding ? "Paid \(r.issued.gameShort)" : r.arrived ? "Delivered" : "Arrives \(r.arrives?.gameShort ?? "soon")")
+                                .font(.caption2).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Text("\(r.tasks.filter(\.done).count)/\(r.tasks.count)").font(.title3.weight(.bold).monospacedDigit()).foregroundStyle(GovTheme.tint)
+                        Text(days >= 0 ? "\(days)d left" : "Overdue").font(.caption.monospacedDigit().weight(.semibold)).foregroundStyle(days < 30 ? .orange : .secondary)
+                    }
+                    Meter(value: 1 - Double(max(0, days)) / total, tint: days < 30 ? .orange : GovTheme.tint.opacity(0.6), height: 4)
+                    ForEach(r.tasks) { task in
+                        let prog = GovRequests.progress(task, r, s)
+                        HStack(spacing: 8) {
+                            Image(systemName: task.done ? "checkmark.circle.fill" : "circle").foregroundStyle(task.done ? .green : .secondary)
+                            Text(task.title).font(.caption).strikethrough(task.done, color: .secondary)
+                            Spacer()
+                            if !task.done { Meter(value: prog, tint: GovTheme.tint, height: 5).frame(width: 70) }
+                        }
+                    }
+                }
+                .padding(10)
+                .background(GovTheme.wash, in: .rect(cornerRadius: 10))
+            }
+            if !closed.isEmpty {
+                ForEach(Array(closed)) { r in
+                    HStack {
+                        Image(systemName: r.status == .completed ? "checkmark.seal.fill" : "xmark.octagon.fill").foregroundStyle(r.status == .completed ? .green : .red)
+                        Text(r.title).font(.caption)
+                        Spacer()
+                        Text(r.status == .completed ? "Met" : "Missed").font(.caption2).foregroundStyle(.secondary)
+                        Text((r.closed ?? r.due).gameShort).font(.caption2).foregroundStyle(.tertiary)
+                    }
+                }
+            }
         }
     }
 }
@@ -82,15 +424,15 @@ private struct MoneySourcesCard: View {
         let missions = p.missions.filter { $0.status == .active }
         let service = Commissions.inService(s).reduce(0) { $0 + $1.serviceYearly }
         Card {
-            CardHeader("Where the money comes from", symbol: "arrow.down.circle.fill", subtitle: "Four sources. Two are automatic; two you earn.")
+            CardHeader("Where the money comes from", symbol: "arrow.down.circle.fill", subtitle: "Four sources: two automatic, two you ask for or earn")
             EqualColumns(minWidth: 210, spacing: 12, maxColumns: 4) {
                 source("1", "calendar", .blue, "Quarterly budget", "Automatic",
-                       "\(Fmt.money(PublicProgram.nextTranche(s))) arrives \(p.lastTranche.map { "on \(GameCalendar.addDays($0, 90).gameShort)" } ?? "each quarter"). Less if oversight is weak or reserves pile up.")
+                       "\(Fmt.money(PublicProgram.nextTranche(s))) arrives \(p.lastTranche.map { "on \(GameCalendar.addDays($0, 90).gameShort)" } ?? "each quarter")\(p.clawback > 0 ? ", less \(Fmt.money(min(p.clawback, PublicProgram.nextTranche(s) * 0.5))) withheld" : "").")
                 source("2", "target", .purple, "Mission payments", "Automatic",
                        missions.isEmpty ? "New missions arrive soon." : "\(Fmt.money(missions.reduce(0) { $0 + $1.reward })) waiting on \(missions.count) active mission\(missions.count == 1 ? "" : "s"), paid the day each is met.",
                        action: ("Missions", .publicProgram))
-                source("3", "hand.raised.fill", .green, "Funding requests", PublicFunding.readyOn(s).map { "Next \($0.gameShort)" } ?? "Ready now",
-                       "Once a quarter, ask for more. The committee pays for progress: research, models, missions and agency work since your last request.")
+                source("3", "hand.raised.fill", .indigo, "Requests", "\(GovRequests.open(s).count)/\(GovRequests.maxOpen) open",
+                       "Ask for up to twice your budget, GPUs or power. Granted at once; the committee attaches tasks.")
                 source("4", "building.2.fill", .orange, "Agency commissions", "\(Commissions.inService(s).count) in service",
                        "Agencies order models built for them: paid to build, then \(service > 0 ? "\(Fmt.money(service)) a year" : "a yearly fee") to run.\(Commissions.open(s).isEmpty ? "" : " \(Commissions.open(s).count) order\(Commissions.open(s).count == 1 ? "" : "s") waiting.")")
             }
@@ -115,95 +457,6 @@ private struct MoneySourcesCard: View {
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .background(Theme.insetFill, in: .rect(cornerRadius: Theme.Radius.inset))
-    }
-}
-
-// MARK: - The case for more money
-
-private struct ProgressCaseCard: View {
-    let state: GameState
-
-    var body: some View {
-        let s = state
-        let score = PublicFunding.score(s)
-        let tint: Color = score >= 80 ? .green : score >= 55 ? .teal : score >= 30 ? .orange : .red
-        Card {
-            CardHeader(title: "Your progress case", symbol: "doc.text.magnifyingglass",
-                       subtitle: "What the committee sees since \(s.publicProgram.evidence?.date.gameShort ?? "the start"), your last approved request") {
-                Text("\(Int(score))/100").font(.title2.weight(.bold).monospacedDigit()).foregroundStyle(tint)
-            }
-            Meter(value: score / 100, tint: tint, height: 10)
-            HStack(spacing: 0) {
-                ForEach(FundingAsk.allCases) { ask in
-                    Text("\(ask.title) \(Int(ask.bar))").font(.caption2).foregroundStyle(score >= ask.bar ? .green : .secondary)
-                        .frame(maxWidth: .infinity, alignment: ask == .modest ? .leading : ask == .moonshot ? .trailing : .center)
-                }
-            }
-            Divider()
-            ForEach(PublicFunding.lines(s)) { line in
-                HStack(alignment: .top, spacing: 10) {
-                    Image(systemName: line.symbol).foregroundStyle(line.points > 0 ? Color.accentColor : line.points < 0 ? .red : .secondary).frame(width: 22)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(line.title).font(.callout.weight(.semibold))
-                        Text(line.detail).font(.caption).foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Text("\(line.points >= 0 ? "+" : "")\(Int(line.points.rounded())) / \(Int(line.max))")
-                        .font(.callout.monospacedDigit().weight(.semibold))
-                        .foregroundStyle(line.points > 0 ? .green : line.points < 0 ? .red : .secondary)
-                }
-            }
-            Text("Research, models, missions and agency deliveries count from your last approved request; standing, safety and stewardship are judged as they are today.")
-                .font(.caption2).foregroundStyle(.tertiary)
-        }
-    }
-}
-
-private struct FundingAskCard: View {
-    let state: GameState
-    @Binding var asking: FundingAsk?
-
-    var body: some View {
-        let s = state
-        let ready = PublicFunding.readyOn(s)
-        let score = PublicFunding.score(s)
-        Card {
-            CardHeader("Ask for funding", symbol: "hand.raised.fill",
-                       subtitle: ready.map { "The committee hears one request a quarter: next on \($0.gameShort)" } ?? "The committee will hear a request today")
-            ForEach(FundingAsk.allCases) { ask in
-                let o = PublicFunding.outcome(ask, s)
-                let full = PublicProgram.authorisedBudget(s) * ask.oneOff
-                HStack(alignment: .center, spacing: 12) {
-                    Image(systemName: ask.symbol).font(.title2).foregroundStyle(o.fraction >= 1 ? .green : o.fraction > 0 ? .orange : .secondary).frame(width: 30)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(ask.title).font(.callout.weight(.semibold))
-                        Text("\(Fmt.money(full)) now\(ask.raise > 0 ? " · base budget +\(Fmt.pct(ask.raise, decimals: 0)) for good" : ""). Full amount at a case of \(Int(ask.bar)).")
-                            .font(.caption).foregroundStyle(.secondary)
-                        verdict(ask, o, score: score)
-                    }
-                    Spacer()
-                    Button("Ask") { asking = ask }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(ready != nil || o.fraction <= 0)
-                        .help(ready != nil ? "One request a quarter." : o.fraction <= 0 ? "Build a stronger case first." : "Ask for \(Fmt.money(o.amount)).")
-                }
-                .padding(10)
-                .background(Theme.insetFill, in: .rect(cornerRadius: Theme.Radius.inset))
-            }
-            Text("No gamble: the committee's answer is shown before you ask. A partial case gets part of the money; each approval resets the record, so the next request needs new progress.")
-                .font(.caption2).foregroundStyle(.tertiary)
-        }
-    }
-
-    @ViewBuilder
-    private func verdict(_ ask: FundingAsk, _ o: (fraction: Double, amount: Double, raise: Double), score: Double) -> some View {
-        if o.fraction >= 1 {
-            Pill(text: "Approved in full: \(Fmt.money(o.amount))", color: .green, symbol: "checkmark.seal.fill")
-        } else if o.fraction > 0 {
-            Pill(text: "\(Fmt.pct(o.fraction, decimals: 0)) approved: \(Fmt.money(o.amount)) · \(Int(ask.bar - score)) points short of full", color: .orange, symbol: "circle.lefthalf.filled")
-        } else {
-            Pill(text: "Needs \(Int(ask.bar - PublicFunding.partialBand - score)) more points to be considered", color: .secondary, symbol: "xmark.circle")
-        }
     }
 }
 
@@ -401,25 +654,3 @@ private struct ActiveCommissionRow: View {
     }
 }
 
-private struct RequestHistoryCard: View {
-    let state: GameState
-
-    var body: some View {
-        let requests = state.publicProgram.requests
-        if !requests.isEmpty {
-            Card {
-                CardHeader("Funding history", symbol: "clock.arrow.circlepath", subtitle: "Every request the committee approved")
-                ForEach(requests) { r in
-                    HStack {
-                        Image(systemName: r.ask.symbol).foregroundStyle(r.fraction >= 1 ? .green : .orange)
-                        Text("\(r.ask.title) · case \(Int(r.score))").font(.callout)
-                        Spacer()
-                        Text(Fmt.money(r.amount)).font(.callout.monospacedDigit().weight(.semibold))
-                        if r.raise > 0 { Text("+\(Fmt.pct(r.raise, decimals: 0)) budget").font(.caption).foregroundStyle(.secondary) }
-                        Text(r.date.gameShort).font(.caption2).foregroundStyle(.tertiary).frame(width: 80, alignment: .trailing)
-                    }
-                }
-            }
-        }
-    }
-}

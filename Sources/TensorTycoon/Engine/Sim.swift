@@ -581,7 +581,8 @@ enum Sim {
         var power = 0.0
         let grid = Power.gridMultiplier(s)   // 3.5: strained grids cost datacenters more
         for bt in s.owned {
-            guard let a = HardwareCatalog.get(bt.accelID), let site = s.sites.first(where: { $0.id == bt.siteID }), site.isReady(s.date) else { continue }
+            guard let a = HardwareCatalog.get(bt.accelID), let site = s.sites.first(where: { $0.id == bt.siteID }), site.isReady(s.date),
+                  !site.stateFunded else { continue }   // 3.10: the ministry pays the national facility's power
             let util = utilByAccel[a.id] ?? 0
             let draw = Economy.chipKW(a) * Double(bt.count) * (0.3 + 0.65 * util)
             power += draw * site.pue * 24 * site.powerPrice * (site.kind == .colo || site.kind == .datacenter ? grid : 1)

@@ -110,10 +110,11 @@ enum NewGame {
 
         if publicStart { s.cash *= 0.84 }   // a smaller opening float, followed by recurring appropriations
 
-        // The garage, or a small public AI office with a more useful opening cluster.
-        let garage = Site(name: publicStart ? "\(s.companyName) Public AI Office" : "\(s.founderName)'s garage",
-                          kind: publicStart ? .office : .garage, locationID: HQ.garageLocation(settings), capacityKW: publicStart ? 48 : 4,
-                          cooling: .air, powerDeal: .grid, opened: start, ready: start, capex: 0, monthlyFee: 0)
+        // The garage, or (3.10) the state's 100 MW national compute facility, whose power the ministry pays.
+        let garage = publicStart
+            ? GovRequests.facilitySite(s.companyName, location: HQ.garageLocation(settings), date: start)
+            : Site(name: "\(s.founderName)'s garage", kind: .garage, locationID: HQ.garageLocation(settings), capacityKW: 4,
+                   cooling: .air, powerDeal: .grid, opened: start, ready: start, capex: 0, monthlyFee: 0)
         s.sites = [garage]
 
         // Starter hardware appropriate for the era
@@ -124,7 +125,7 @@ enum NewGame {
         case "2022": starter = ("rtx3090", 4)
         default: starter = ("rtx5090", 4)
         }
-        if publicStart { starter.1 = 16 }
+        if publicStart, let (a, n) = GovRequests.starterFleet(s) { starter = (a.id, n) }
         if let a = HardwareCatalog.get(starter.0) {
             s.owned = [OwnedBatch(accelID: a.id, count: starter.1, siteID: garage.id, purchased: start, unitCost: a.price ?? 1000)]
         }

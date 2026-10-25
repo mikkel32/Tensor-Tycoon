@@ -57,7 +57,7 @@ enum EraGuide {
     }
 
     /// 3.10: how to open as a government AI branch, in any era.
-    static let publicPlan = "You run a government AI branch: no investors and no shares. Your budget arrives every quarter. Deliver the two public missions for results payments and promotions, accept the orders agencies send and build them models, and once a quarter take your progress to the committee on Funding & Commissions to ask for more."
+    static let publicPlan = "You run a government AI branch: no investors and no shares. You start with a 100 MW national compute facility full of GPUs, its power paid by the ministry, and a budget every quarter. Deliver the two public missions for payments and promotions, build models for the agencies that order them, and when you need more money, GPUs or power, ask the government on Funding & Commissions: it's granted on the spot, with tasks to deliver."
 
     /// How to open in each era.
     static func plan(_ era: String) -> String {
@@ -126,8 +126,8 @@ enum EraGuide {
                  screen: .publicFunding, done: p.commissions.contains { $0.accepted != nil }, key: "commission"),
             Step(title: "Deliver a public mission", detail: "The Public Programme page shows your two missions and what each needs.",
                  screen: .publicProgram, done: p.completedMissions > 0, key: "mission"),
-            Step(title: "Ask for funding", detail: "When your progress case reaches 30, ask the committee for a top-up.",
-                 screen: .publicFunding, done: !p.requests.isEmpty, key: "bid"),
+            Step(title: "Ask the government", detail: "Request funding, GPUs or power on Funding & Commissions; it comes with tasks.",
+                 screen: .publicFunding, done: !p.grants.isEmpty, key: "bid"),
         ]
         if FoundingKit.questsActive(s) {
             out.append(Step(title: "Open an RL lab", detail: "Reinforcement learning sharpens reasoning and agents. Build it on the Research page.",

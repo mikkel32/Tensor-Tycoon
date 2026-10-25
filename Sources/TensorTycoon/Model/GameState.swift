@@ -207,6 +207,8 @@ struct Site: Codable, Identifiable, Hashable {
     @D var gridExtraKW: Double = 0
     @D var onsiteKW: Double = 0
     @D var batteryMWh: Double = 0
+    /// 3.10: a government branch's national compute facility: the ministry pays its power.
+    @D var stateFunded: Bool = false
 
     var location: Location { LocationCatalog.byID[locationID] ?? LocationCatalog.all[0] }
     var isTermLease: Bool { kind == .colo && leaseRate > 0 }
